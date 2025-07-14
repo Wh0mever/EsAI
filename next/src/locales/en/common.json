@@ -1,0 +1,197 @@
+{
+    "compass": {
+        "1": "Песни",
+        "2": "Изображения",
+        "3": "Голоса",
+        "4": "Текст",
+        "5": "Музыка"
+    },
+    "pricing": {
+        "title": "Subscription Plans",
+        "subtitle": "VOKALO | Creativity Without Limits",
+        "monthly": "Monthly",
+        "yearly": "Yearly",
+        "day": "Day",
+        "month": "Month",
+        "year": "Year",
+        "free": "Free",
+        "basic": "Basic",
+        "pro": "Pro",
+        "premium": "Premium",
+        "unlimited": "Unlimited",
+        "enterprise": "Enterprise",
+        "business": "Business",
+        "trial": "Trial",
+        "startofwork": "Start of Work",
+        "getstarted": "Get started with our new package"
+    },
+    "date": {
+        "day": "Day",
+        "month": "Month",
+        "year": "Year",
+        "today": "Today",
+        "yesterday": "Yesterday",
+        "tomorrow": "Tomorrow"
+    },
+    "status": {
+        "success": "Success",
+        "error": "Error",
+        "loading": "Loading",
+        "notfound": "Not found",
+        "unauthorized": "Unauthorized",
+        "forbidden": "Forbidden",
+        "processing": "Processing",
+        "completed": "Completed",
+        "pending": "Pending",
+        "active": "Active",
+        "inactive": "Inactive"
+    },
+    "status_extended": {
+        "success": "Operation completed successfully",
+        "error": "An error occurred",
+        "loading": "Please wait, loading in progress",
+        "notfound": "The requested resource was not found",
+        "unauthorized": "You do not have access to this resource",
+        "forbidden": "Access to this resource is forbidden",
+        "processing": "Your request is being processed"
+    },
+    "auth": {
+        "title": "Vokalo awaits your genre, lyrics, and instruments.",
+        "subtitle": "No credit card required!",
+        "google": "Sign in with Google",
+        "or": "Or",
+        "fullname": "Full name",
+        "email": "Email",
+        "password": "Password",
+        "confirm_password": "Confirm password",
+        "signup": "Sign up",
+        "signin": "Sign in",
+        "login": "Log in",
+        "forgotPassword": "Forgot password?",
+        "resetPassword": "Reset password",
+        "enter_email": "Enter your email address",
+        "enter_fullname": "Enter your full name",
+        "enter_password": "Enter your password",
+        "tel": "Phone",
+        "have_account": "Already have an account?",
+        "your_music": "Your music",
+        "start_here": "starts here!",
+        "welcome": "Welcome to the platform!",
+        "create_music": "Create music in seconds",
+        "create_pictures": "Generate images with neural networks",
+        "gpt": "Connect GPT for automation",
+        "you_can": "You can do it 💪",
+        "signin_with_phone": "Sign in with phone number",
+        "signin_with_email": "Sign in with email",
+        "dont_have_account": "Don't have an account?",
+        "forgot_password": "Forgot password?",
+        "reset_with_email": "Reset with email",
+        "reset_with_phone": "Reset with phone",
+        "user_was_successfully_created": "User was successfully created"
+    },
+    "pages_titles": {
+        "home": "Home",
+        "pricing": "Pricing",
+        "signup": "Sign Up",
+        "signin": "Sign In",
+        "reset_password": "Reset Password",
+        "profile": "Profile",
+        "settings": "Settings",
+        "about": "About Us",
+        "contact": "Contact",
+        "terms": "Terms of Use",
+        "privacy": "Privacy Policy",
+        "faq": "Frequently Asked Questions (FAQ)",
+        "blog": "Blog"
+    },
+    "contact_us": {
+        "write_title": "Write to us",
+        "write_description": "Write to us and you'll receive a reply shortly.",
+        "write_button": "Write to us",
+        "write_email": "admin@vokalo.online",
+        "call_title": "Call us",
+        "call_description": "Call us. Our experts are ready to talk to you.",
+        "call_button": "Call us",
+        "call_phone": "+996 (555) 919 141",
+        "form_title": "Talk to our team",
+        "form_subtitle": "Write to us, we’ll gladly assist with your questions.",
+        "name_label": "Your name",
+        "name_placeholder": "Name",
+        "email_label": "Your email",
+        "email_placeholder": "Email",
+        "phone_label": "Your phone",
+        "phone_placeholder": "Phone",
+        "message_label": "Message",
+        "submit_button": "Contact us"
+    },
+    "faq": {
+        "title": "🟡 Help / Frequently Asked Questions (FAQ)",
+        "questions": {
+            "0": {
+                "q": "How to create my first song or image?",
+                "a": "Sign up, choose a category (music or image), enter a text prompt, click 'Generate' — and get the result in seconds."
+            },
+            "1": {
+                "q": "How many generations are available in my plan?",
+                "a": [
+                    "Free — 1 generation per day for 7 days",
+                    "Basic — 50 generations per month",
+                    "Standard — 100 generations + bonuses",
+                    "Pro, Premium, Enterprise — extended limits and discounts"
+                ]
+            },
+            "2": {
+                "q": "What if generation fails?",
+                "a": "If you see an error or strange result, just try again — generations are only deducted on success. If the problem persists, contact support."
+            },
+            "3": {
+                "q": "How to activate the trial?",
+                "a": "Just sign up — the trial activates automatically, no card required."
+            },
+            "4": {
+                "q": "How to pay for a subscription?",
+                "a": [
+                    "Freedom Pay (Kyrgyzstan)",
+                    "YuMoney (Russia & CIS)",
+                    "Bank cards and e-wallets",
+                    "All payments are secure"
+                ]
+            },
+            "5": {
+                "q": "How does the referral program work?",
+                "a": "Invite friends using your referral link and get bonus generations. +5 free generations for each active user."
+            },
+            "6": {
+                "q": "How to change or cancel my plan?",
+                "a": "Go to your account, select a plan and click 'Switch'. You can cancel anytime — access stays until the end of the paid period."
+            },
+            "7": {
+                "q": "How to contact support?",
+                "a": "Write to support@vokalo.online or Telegram: @VokaloSupportBot"
+            }
+        }
+    },
+    "blog": {
+        "title": "🟡 Blog",
+        "subtitle": "Welcome to the Vokalo Blog — a space where we share ideas, tips, and stories from the world of music, AI, and creativity.",
+        "points": [
+            "🎵 Tips for writing songs and lyrics",
+            "🤖 Reviews of new AI tools",
+            "🎨 Hacks for generating visual content",
+            "📢 Platform news and updates",
+            "💡 User stories and best works"
+        ],
+        "footer": "We publish only useful, inspiring, and relevant content. Stay tuned — and be in sync with the future!"
+    },
+    "about": {
+        "title": "🟡 About Us",
+        "subtitle": "Vokalo is an innovative online service where artificial intelligence helps you create music, lyrics, and images. We combine technology and creativity so that anyone — from beginners to professionals — can bring their ideas to life quickly.",
+        "points": [
+            "🔹 Generate songs based on your lyrics",
+            "🔹 Get music that fits the mood and style",
+            "🔹 Create covers, visuals, and illustrations using neural networks",
+            "🔹 Share, rate, get inspired"
+        ],
+        "footer": "We believe that AI is not a replacement but a partner in creativity. Vokalo is built for those who want to create in a new way."
+    }
+}

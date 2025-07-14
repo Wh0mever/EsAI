@@ -1,0 +1,35 @@
+
+.white-field-style {
+    transition: all 0.3s ease-in-out;
+    &::placeholder {
+        transition: all 0.3s ease-in-out;
+        color: #909090 !important;
+    }
+
+    &:focus {
+        border: 1px solid #a166d7 !important;
+
+        &::placeholder {
+            color: #ffffff00 !important;
+        }
+    }
+}
+
+.dark-field {
+    background: #111111;
+    border: 1px solid #2f2f38;
+    color: #ffffff;
+    transition: all 0.3s ease-in-out;
+
+    &::placeholder {
+        color: #909090 !important;
+        transition: all 0.3s ease-in-out;
+    }
+
+    &:focus {
+        background-color: #111111;
+        &::placeholder {
+            color: #ffffff00 !important;
+        }
+    }
+}

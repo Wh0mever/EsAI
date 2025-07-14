@@ -1,0 +1,35 @@
+.gallery-vignette {
+  position: relative;
+  isolation: isolate;
+}
+
+.gallery-vignette::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  pointer-events: none;
+
+  backdrop-filter: blur(10px);
+  background: rgb(0, 0, 0);
+
+  mask-image: radial-gradient(
+    ellipse at center,
+    rgb(0, 0, 0) 40%,
+    rgba(0, 0, 0, 0.8) 100%
+  );
+  mask-mode: alpha;
+  mask-repeat: no-repeat;
+  mask-position: center;
+  mask-size: cover;
+
+  -webkit-mask-image: radial-gradient(
+    ellipse at center,
+    rgba(0, 0, 0, 0.5) 40%,
+    rgba(0, 0, 0, 1) 100%
+  );
+  -webkit-mask-mode: alpha;
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  -webkit-mask-size: cover;
+}

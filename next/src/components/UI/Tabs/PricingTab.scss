@@ -1,0 +1,39 @@
+.pricing-tabs {}
+
+.pricing-tab {
+    opacity: 0;
+    display: none;
+
+    &.active {
+        display: flex;
+        pointer-events: all;
+        opacity: 1;
+        transition: opacity 0.3s ease-in-out;
+    }
+}
+
+.pricing-card {
+    position: relative;
+    overflow: hidden;
+    transition: background-color 0.3s ease-in-out;
+
+    & .text-color-on-hover {
+        font-weight: bold;
+        transition: color 0.3s ease-in-out;
+    }
+
+    & .pricing-card-line {
+        position: absolute;
+        top: 0;
+        z-index: 0;
+    }
+
+    &:hover {
+        background-color: rgba(86, 26, 255, .12);
+
+        & .text-color-on-hover {
+            color: rgb(153, 116, 255);
+        }
+    }
+
+}
