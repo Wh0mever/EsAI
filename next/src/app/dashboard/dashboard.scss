@@ -1,0 +1,35 @@
+.chat-form {
+    min-width: 280px;
+    max-width: 700px;
+    width: 70vw;
+}
+
+.chat-textarea {
+    padding: 0.5rem;
+    resize: none;
+    min-height: 50px;
+    max-height: 200px;
+    line-height: 1.5;
+
+    &:focus {
+        border: none;
+        outline: none;
+    }
+
+    &::-webkit-scrollbar {
+        background-color: #313131;
+        width: 8px;
+        border-radius: 4px;
+    }
+
+    &::-webkit-scrollbar-thumb {
+         background-color: #575757;
+         border-radius: 4px;
+    }
+
+}
+
+.chat-button-icon {
+    width: 2rem;
+    font-size: 1.5rem;
+}

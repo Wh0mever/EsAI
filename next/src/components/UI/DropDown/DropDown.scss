@@ -1,0 +1,31 @@
+/* DropDown.scss */
+.drop-down-hovered {
+    position: relative;
+    display: inline-block;
+    white-space: nowrap;
+
+    .drop-down-menu {
+        position: absolute;
+        top: 100%;
+        left: 0;
+        z-index: 10;
+        pointer-events: none;
+    }
+
+    .drop-down-menu-wrapper {
+        opacity: 0;
+        transform: translateY(1rem);
+        transition: all 0.3s ease-in-out;
+    }
+
+    &:hover {
+        .drop-down-menu {
+            display: flex;
+            pointer-events: auto;
+        }
+        .drop-down-menu-wrapper {
+            opacity: 1;
+            transform: translateY(0rem);
+        }
+    }
+}

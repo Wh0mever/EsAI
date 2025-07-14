@@ -1,0 +1,219 @@
+{
+    "nav": {
+        "home": "Home",
+        "pricing": "Pricing",
+        "blog": "Blog",
+        "categories": "Categories",
+        "language": "Language",
+        "currency": "Currency",
+        "about": "About Us",
+        "contact": "Contact",
+        "help": "Help",
+        "terms": "Terms and Conditions",
+        "signin": "Sign In",
+        "signup": "Sign Up",
+        "privacy": "Privacy Policy",
+        "offer": "Offer"
+    },
+    "hero": {
+        "title": "Generate and Create",
+        "subtitle": "You are the inspiration. Vokalo is the author.",
+        "button": "Try for Free"
+    },
+    "feature": {
+        "title": "We are more powerful than others",
+        "subtitle": "Our Best Features",
+        "tabTitles": {
+            "1": "Songs",
+            "2": "Images",
+            "3": "Voices",
+            "4": "Text",
+            "5": "Music"
+        },
+        "songs": {
+            "0": {
+                "title": "Generate Songs",
+                "description": "Create song lyrics with verses and choruses"
+            },
+            "1": {
+                "title": "Generate Music",
+                "description": "Select and generate instrumental music"
+            },
+            "2": {
+                "title": "Create Cover",
+                "description": "Generate a cover for your song or album"
+            },
+            "3": {
+                "title": "Download",
+                "description": "Download and use without copyright issues"
+            }
+        },
+        "covers": {
+            "0": {
+                "title": "Dall-E 2 Images",
+                "description": "Generate images using OpenAI's Dall-E 2"
+            },
+            "1": {
+                "title": "Stable Diffusion",
+                "description": "Generate images using Stable Diffusion model"
+            },
+            "2": {
+                "title": "Dall-E 3 Images",
+                "description": "Generate images using OpenAI's Dall-E 3"
+            }
+        },
+        "voices": {
+            "0": {
+                "title": "Google Text-to-Speech",
+                "description": "Generate voice using Google Text-to-Speech API"
+            },
+            "1": {
+                "title": "OpenAI Text-to-Speech",
+                "description": "Generate voice using OpenAI TTS"
+            },
+            "2": {
+                "title": "ElevenLabs TTS",
+                "description": "Generate voice using ElevenLabs API"
+            },
+            "3": {
+                "title": "Azure TTS",
+                "description": "Generate voice using Microsoft Azure"
+            }
+        },
+        "text": {
+            "0": {
+                "title": "Chat with AI",
+                "description": "Ask AI experts any questions"
+            },
+            "1": {
+                "title": "AI Chat with Images",
+                "description": "Ask questions with image context"
+            },
+            "2": {
+                "title": "Chat from Images",
+                "description": "Get answers extracted from images"
+            },
+            "3": {
+                "title": "PDF Chat",
+                "description": "Extract information from PDF files"
+            }
+        },
+        "music": {
+            "0": {
+                "title": "Twilio Authentication",
+                "description": "Secure login via Twilio"
+            },
+            "1": {
+                "title": "Google & Azure TTS",
+                "description": "Use Google & Azure for speech synthesis"
+            },
+            "2": {
+                "title": "Storage Management",
+                "description": "Manage and organize your files"
+            },
+            "3": {
+                "title": "Social Login",
+                "description": "Login using your social media accounts"
+            }
+        }
+    },
+    "aiTools": {
+        "title": "AI Tools",
+        "subtitle": "VOKALO | Creativity Without Limits",
+        "cards": {
+            "0": {
+                "title": "",
+                "description": "AI-powered translation tools. Save your time!"
+            },
+            "1": {
+                "title": "Affiliate Program",
+                "description": "We've integrated an affiliate marketing system"
+            },
+            "2": {
+                "title": "Multilingual Support",
+                "description": "Vokalo supports all languages. Create songs in any language!"
+            },
+            "3": {
+                "title": "Secure Payments",
+                "description": "We support payments in RUB, KGS, and USD"
+            },
+            "4": {
+                "title": "Account Protection",
+                "description": "Two-factor authentication protection for your account"
+            }
+        }
+    },
+    "aiTemplates": {
+        "title": "AI Templates",
+        "subtitle": "Templates for your creativity",
+        "categories": [
+            "All",
+            "Blog Contents",
+            "Email Templates",
+            "Social Media",
+            "Videos",
+            "Website Contents",
+            "General Contents",
+            "Fun or Quote",
+            "Medium",
+            "TikTok",
+            "Instagram",
+            "Success Story",
+            "SEO Tools"
+        ]
+    },
+    "covers": {
+        "title": "Cover Generation",
+        "subtitle": "VOKALO | Creativity Without Limits",
+        "cards": {
+            "0": {
+                "title": "DALL·E 2 Generator",
+                "description": "Generate images using OpenAI DALL·E 2 features"
+            },
+            "1": {
+                "title": "Stable Diffusion",
+                "description": "Stable Diffusion is a deep learning model that converts text into images. Released in 2022, based on diffusion methods."
+            },
+            "2": {
+                "title": "DALL·E 3 Generator",
+                "description": "Generate high-quality images using OpenAI DALL·E 3 features"
+            }
+        }
+    },
+    "aiapps": {
+        "title": "One Platform, Many AI Apps",
+        "subtitle": "VOKALO | Creativity Without Limits",
+        "cards": {
+            "0": {
+                "title": "Share Songs",
+                "description": "Send your songs to other platforms"
+            },
+            "1": {
+                "title": "Text to Speech",
+                "description": "Convert text into natural-sounding voice"
+            },
+            "2": {
+                "title": "Music Storage",
+                "description": "Store your songs in our cloud"
+            },
+            "3": {
+                "title": "Your Own Voice",
+                "description": "Create your own AI-generated voice"
+            }
+        }
+    },
+    "feedback": {
+        "title": "User Feedback"
+    },
+    "trial": {
+        "title": "Start with 7-Day Free Trial",
+        "subtitle": "Music without limits. Only on Vokalo.online",
+        "text": "Create 10 tracks and engage your audience.",
+        "items": {
+            "0": "10 tracks",
+            "1": "7-day trial",
+            "2": "No credit card required",
+            "3": "Lyrics in all world languages"
+        }
+    }
+}

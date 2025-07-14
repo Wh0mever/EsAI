@@ -1,0 +1,69 @@
+.radar {
+    position: relative;
+    z-index: 100;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    justify-content: center !important;
+    align-items: center;
+    overflow: visible;
+
+    & .radar-view {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%) rotate(0deg); // Центрируем и готовим к вращению
+        transform-origin: center center; // Вращение из центра
+        background: linear-gradient(247deg, #5c2bff -50.02%, rgba(92, 43, 255, 0) 54.9%);
+        clip-path: polygon(0 0, 50% 50%, 100% 0);
+        height: 500px;
+        width: 500px;
+        min-width: 200px;
+        min-height: 200px;
+        border-radius: 50%;
+        animation: radar 5s infinite linear;
+        z-index: -1;
+    }
+
+    & .radar-image-container {
+
+        width: fit-content;
+        height: fit-content;
+
+        &::before {
+            position: absolute;
+            content: "";
+            inset-block-start: 0;
+            inset-inline-start: 0;
+            width: 120px;
+            height: 120px;
+            border-radius: 40px;
+            background: #5c2bff;
+            z-index: -1;
+            left: 50%;
+            top: 50%;
+            transform: translate(-50%, -50%);
+        }
+
+        &::after {
+            position: absolute;
+            content: "";
+            inset-block-start: 50%;
+            inset-inline-start: 50%;
+            transform: translate(-50%, -50%);
+            width: 80px;
+            height: 80px;
+            border-radius: 28px;
+            background: linear-gradient(84deg, #8a62fb 4.85%, #00b8d9 95.15%);
+            z-index: -1;
+        }
+
+        & img {
+            width: 20px;
+        }
+    }
+
+
+
+
+}
