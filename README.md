@@ -1,2 +1,1 @@
-# esai
 # vokalo
