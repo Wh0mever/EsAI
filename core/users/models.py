@@ -40,6 +40,7 @@ class User(AbstractBaseUser, PermissionsMixin):
     is_active = models.BooleanField(default=True, verbose_name='Активен')
     is_staff = models.BooleanField(default=False, verbose_name='Сотрудник')
     is_superuser = models.BooleanField(default=False, verbose_name='Суперпользователь')
+    is_confirmed = models.BooleanField(default=False, verbose_name='Подтвержден')
     
     date_joined = models.DateTimeField(default=timezone.now, verbose_name='Дата регистрации')
     last_login = models.DateTimeField(null=True, blank=True, verbose_name='Последний вход')

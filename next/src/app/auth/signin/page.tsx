@@ -3,16 +3,20 @@
 import "@/assets/style.scss";
 import { useState, useEffect } from "react";
 import { fetchData } from "@/tools/fetchData";
-import formEntries from "@/tools/formEntries";
+import { InputHTMLAttributes } from "react";
+import { useTranslation } from "react-i18next";
 import { Alert } from "@/components/UI/Alert/Alert";
 import { Button } from "@/components/UI/Buttons/Buttons";
 import { Field } from "@/components/UI/Inputs/Inputs";
 import NextLink from "@/components/UI/NextLink/NextLink";
-import { useTranslation } from "react-i18next";
+import formEntries from "@/tools/formEntries";
 import Cookies from "js-cookie";
 
 export default function SignIn() {
 	const { t } = useTranslation("common");
+
+	const [step, setStep] = useState<"signin" | "verify">("signin");
+	const [formState, setFormState] = useState<{ email?: string }>({});
 
 	const [withEmail, setWithEmail] = useState(true);
 	const [responseData, setResponseData] = useState<any>(null);
@@ -36,43 +40,71 @@ export default function SignIn() {
 		}
 	}, [responseData]);
 
-	return (
-		<form
-			className="flex-1 overflow-auto h-full flex flex-col gap-8 items-center p-10"
-			onSubmit={(e) => {
-				e.preventDefault();
-				const formData = formEntries(e.target as HTMLFormElement);
-				fetchData("users/signin/", "POST", formData)
-					.then((response) => {
-						if (response?.data?.status === "success") {
-							const { access, refresh, user } = response.data.data;
-							Cookies.set("access", access);
-							Cookies.set("refresh", refresh);
-							Cookies.set("user", JSON.stringify(user));
+	const handleSubmit = (e: React.FormEvent) => {
+		e.preventDefault();
+		const formData = formEntries(e.target as HTMLFormElement);
 
-							setResponseData({
-								status: "success",
-								title: t("status.success"),
-								message: t("status_extended.success"),
-							});
-						}
-						else {
-							setResponseData({
-								status: "error",
-								title: t("status.error"),
-								message: response?.data?.message || t("status_extended.error_username_password"),
-							});
-						}
-					})
-					.catch((error) => {
+		if (step === "signin") {
+			const email = formData.email;
+			setFormState({ email });
+
+			fetchData("users/signin/", "POST", formData)
+				.then((response) => {
+					if (response?.data?.status === "success") {
+						setStep("verify");
+						setResponseData({
+							status: "info",
+							title: t("status.code_sent"),
+							message: t("status_extended.check_email"),
+						});
+					} else {
 						setResponseData({
 							status: "error",
 							title: t("status.error"),
-							message: error.message || t("status_extended.error"),
+							message: response?.data?.message || t("status_extended.error_username_password"),
 						});
+					}
+				})
+				.catch((error) => {
+					setResponseData({
+						status: "error",
+						title: t("status.error"),
+						message: error.message || t("status_extended.error"),
 					});
-			}}
-		>
+				});
+		}
+
+		if (step === "verify") {
+			const code = formData.code;
+
+			fetchData("users/signin/confirm/", "POST", {
+				email: formState.email,
+				code: code,
+			}).then((response) => {
+				if (response?.data?.status === "authenticated") {
+					const { access, refresh, user } = response.data.data;
+					Cookies.set("access", access);
+					Cookies.set("refresh", refresh);
+					Cookies.set("user", JSON.stringify(user));
+
+					setResponseData({
+						status: "success",
+						title: t("status.success"),
+						message: t("status_extended.success"),
+					});
+				} else {
+					setResponseData({
+						status: "error",
+						title: t("status.error"),
+						message: response?.data?.message || t("status_extended.invalid_code"),
+					});
+				}
+			});
+		}
+	};
+
+	return (
+		<form onSubmit={handleSubmit} className="flex-1 h-full flex flex-col gap-8 items-center p-10 overflow-auto">
 			<Alert
 				show={showAlert}
 				title={alertTitle}
@@ -80,31 +112,21 @@ export default function SignIn() {
 				type={alertType}
 				onClose={() => setShowAlert(false)}
 				className="mb-4"
-				autoClose={true}
+				autoClose
 				autoCloseDuration={2000}
 				position="top"
-				closeButton={true}
+				closeButton
 			/>
 
 			<img src="/images/logo/base.svg" alt="" className="max-w-[200px]" />
-			<div className="flex flex-col gap-2 items-center">
-				<h4 className="text-xl font-bold text-black text-center">{t("auth.title")}</h4>
+			<div className="text-center">
+				<h4 className="text-xl font-bold text-black">{t("auth.title")}</h4>
 				<p className="text-md text-yellow-500">{t("auth.subtitle")}</p>
 			</div>
 
-			<Button className="flex gap-3 items-center justify-center bg-white text-black py-2 px-6 w-full rounded-md font-light text-sm">
-				<img src="/images/icons/google-icon.svg" alt="Google" />
-				<span>{t("auth.google")}</span>
-			</Button>
-
-			<div className="py-5 w-full">
-				<div className="relative flex items-center justify-center border-b border-gray-500">
-					<span className="absolute px-6 py-1 text-sm rounded-sm bg-gray-100 text-black">{t("auth.or")}</span>
-				</div>
-			</div>
-
-			<div className="w-full">
-				{withEmail ? (
+			{step === "signin" && (
+				<>
+					{/* email / phone выбор */}
 					<div className="w-full select-none flex flex-col">
 						<label htmlFor="email" className="flex items-center gap-2 w-full">
 							<span className="text-gray-700 font-light">{t("auth.email")}</span>
@@ -117,76 +139,61 @@ export default function SignIn() {
 							placeholder={t("auth.enter_email")}
 							id="email"
 						/>
-						<Button
-							className="text-purple-500 text-sm mt-2 self-end"
-							onClick={() => {
-								setWithEmail(!withEmail);
-							}}
-						>
-							{t("auth.signin_with_phone")}
-						</Button>
 					</div>
-				) : (
-					<div className="w-full select-none flex flex-col">
-						<label htmlFor="tel" className="flex items-center gap-2 w-full">
-							<span className="text-gray-700 font-light">{t("auth.tel")}</span>
+
+					<div className="w-full select-none">
+						<label htmlFor="password" className="flex items-center gap-2 w-full">
+							<span className="text-gray-700 font-light">{t("auth.password")}</span>
 							<span className="text-rose-500 text-2xl">*</span>
 						</label>
 						<Field
 							className="bg-white border border-white text-black white-field-style text-sm"
-							type="tel"
-							name="tel"
-							placeholder="+xxxxxxxxxxxxx"
-							id="tel"
+							type="password"
+							name="password"
+							placeholder={t("auth.enter_password")}
+							id="password"
 						/>
-						<Button
-							className="text-purple-500 text-sm mt-2 self-end"
-							onClick={() => {
-								setWithEmail(!withEmail);
-							}}
-						>
-							{}
-							{t("auth.signin_with_email")}
-						</Button>
 					</div>
-				)}
+				</>
+			)}
 
-				<div className="w-full select-none">
-					<label htmlFor="password" className="flex items-center gap-2 w-full">
-						<span className="text-gray-700 font-light">{t("auth.password")}</span>
+			{step === "verify" && (
+				<div className="w-full select-none flex flex-col">
+					<label htmlFor="code" className="flex items-center gap-2 w-full">
+						<span className="text-gray-700 font-light">{t("auth.enter_code")}</span>
 						<span className="text-rose-500 text-2xl">*</span>
 					</label>
 					<Field
 						className="bg-white border border-white text-black white-field-style text-sm"
-						type="password"
-						name="password"
-						placeholder={t("auth.enter_password")}
-						id="password"
+						type="text"
+						name="code"
+						placeholder="XXXXXX"
+						id="code"
 					/>
 				</div>
-			</div>
+			)}
 
 			<Button
 				className="w-full px-3 py-2 rounded-md"
 				type="submit"
-				style={{
-					background: "linear-gradient(45deg, #6b3bfa, #f11e76)",
-				}}
+				style={{ background: "linear-gradient(45deg, #6b3bfa, #f11e76)" }}
 			>
-				{t("auth.signin")}
+				{step === "signin" ? t("auth.signin") : t("auth.confirm")}
 			</Button>
 
-			<div className="font-monospace fw-medium text-center text-muted mt-3 pt-4 mb-0 flex flex-col items-center gap-2">
-				<div className="flex items-center gap-2">
-					<span className="text-yellow-500 font-light">{t("auth.dont_have_account")}</span>
-					<NextLink href="/auth/signup" className="text-purple-500 text-sm">
-						{t("auth.signup")}
+			{step === "signin" && (
+				<div className="text-center mt-3 pt-4 flex flex-col items-center gap-2">
+					<div className="flex items-center gap-2">
+						<span className="text-yellow-500 font-light">{t("auth.dont_have_account")}</span>
+						<NextLink href="/auth/signup" className="text-purple-500 text-sm">
+							{t("auth.signup")}
+						</NextLink>
+					</div>
+					<NextLink href="/auth/reset" className="text-purple-500 text-sm">
+						{t("auth.forgot_password")}
 					</NextLink>
 				</div>
-				<NextLink href="/auth/reset" className="text-purple-500 text-sm">
-					{t("auth.forgot_password")}
-				</NextLink>
-			</div>
+			)}
 		</form>
 	);
 }

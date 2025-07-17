@@ -1,8 +1,14 @@
+import random
+from django.core.cache import cache
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework import status
 from .serializers import SignUpSerializer, SignInSerializer
 from core.format import format_errors
+from mails.sender import send_template_email
+from django.contrib.auth.hashers import make_password
+from .models import User
+
 
 class SigninApiView(APIView):
     authentication_classes = []
@@ -11,17 +17,59 @@ class SigninApiView(APIView):
     def post(self, request):
         serializer = SignInSerializer(data=request.data)
         if serializer.is_valid():
+            user = serializer.validated_data['user']
+            email = user['email']
+
+            code = str(random.randint(100000, 999999))
+            cache.set(f"email_code:{email}", code, timeout=600)
+
+            send_template_email(
+                subject="Your verification code",
+                template_name="verify_email.html",
+                context={"code": code},
+                recipient_list=[email],
+            )
+
             return Response({
                 "status": "success",
-                "data": serializer.validated_data,
-                }, status=status.HTTP_200_OK)
-        
-        print("SIGNIN ERRORS:", serializer.errors)
-        
+                "message": "Verification code sent to email"
+            }, status=status.HTTP_200_OK)
+
         return Response({
             "status": "error",
             "errors": format_errors(serializer.errors),
         }, status=status.HTTP_400_BAD_REQUEST)
+
+
+class VerifyCodeApiView(APIView):
+    authentication_classes = []
+    permission_classes = []
+
+    def post(self, request):
+        email = request.data.get("email")
+        code = request.data.get("code")
+        
+        if not email or not code:
+            return Response({"error": "Email and code are required."}, status=400)
+
+        cached_code = cache.get(f"email_code:{email}")
+        if cached_code != code:
+            return Response({"error": "Invalid or expired code."}, status=400)
+
+        try:
+            user = User.objects.get(email=email)
+        except User.DoesNotExist:
+            return Response({"error": "User not found."}, status=404)
+
+        cache.delete(f"email_code:{email}")
+        serializer = SignInSerializer(instance={"user": user})
+        user.is_confirmed = True
+        user.save()
+
+        return Response({
+            "status": "authenticated",
+            "data": serializer.data
+        }, status=200)
 
 
 class SignUpApiView(APIView):
@@ -45,8 +93,6 @@ class SignUpApiView(APIView):
                 "status": "success",
 
             }, status=status.HTTP_201_CREATED)
-        
-        
         else:
             print("SIGNUP ERRORS:", serializer.errors)
             return Response({
@@ -55,6 +101,74 @@ class SignUpApiView(APIView):
             }, status=status.HTTP_400_BAD_REQUEST)
 
 
-class SignOutApiView(APIView):
-    def get(self, request):
-        return Response({'message': 'Hello, World!'})
+class PasswordResetRequestView(APIView):
+    authentication_classes = []
+    permission_classes = []
+
+    def post(self, request):
+        email = request.data.get("email")
+        if not email:
+            return Response({"message": "Email is required."}, status=400)
+
+        try:
+            user = User.objects.get(email=email)
+        except User.DoesNotExist:
+            return Response({"message": "User not found."}, status=404)
+
+        code = str(random.randint(100000, 999999))
+        cache.set(f"reset_code:{email}", code, timeout=600)  # 10 минут
+
+        send_template_email(
+            subject="Password Reset Code",
+            template_name="verify_email.html",
+            context={"code": code},
+            recipient_list=[email],
+        )
+
+        return Response({"status": "success", "message": "Code sent to email."}, status=200)
+    
+
+class PasswordResetVerifyView(APIView):
+    authentication_classes = []
+    permission_classes = []
+
+    def post(self, request):
+        email = request.data.get("email")
+        code = request.data.get("code")
+
+        if not email or not code:
+            return Response({"message": "Email and code are required."}, status=400)
+
+        cached_code = cache.get(f"reset_code:{email}")
+        if cached_code != code:
+            return Response({"message": "Invalid or expired code."}, status=400)
+
+        return Response({"status": "success", "message": "Code verified."}, status=200)
+    
+    
+class PasswordResetCompleteView(APIView):
+    authentication_classes = []
+    permission_classes = []
+
+    def post(self, request):
+        email = request.data.get("email")
+        code = request.data.get("code")
+        password = request.data.get("password")
+
+        if not email or not code or not password:
+            return Response({"message": "Email, code, and new password are required."}, status=400)
+
+        cached_code = cache.get(f"reset_code:{email}")
+        if cached_code != code:
+            return Response({"message": "Invalid or expired code."}, status=400)
+
+        try:
+            user = User.objects.get(email=email)
+        except User.DoesNotExist:
+            return Response({"message": "User not found."}, status=404)
+
+        user.password = make_password(password)
+        user.save()
+        cache.delete(f"reset_code:{email}")
+
+        return Response({"status": "success", "message": "Password changed successfully."}, status=200)
