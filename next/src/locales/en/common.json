@@ -48,7 +48,9 @@
         "completed": "Completed",
         "pending": "Pending",
         "active": "Active",
-        "inactive": "Inactive"
+        "inactive": "Inactive",
+        "code_sent": "Code sent",
+        "enter_code": "Enter code"
     },
     "status_extended": {
         "success": "Operation completed successfully",
@@ -58,7 +60,9 @@
         "unauthorized": "You do not have access to this resource",
         "forbidden": "Access to this resource is forbidden",
         "processing": "Your request is being processed",
-        "error_username_password": "Incorrect username or password"
+        "error_username_password": "Incorrect username or password",
+        "check_email": "Please check your email for further instructions",
+        "invalid_code": "The code you entered is invalid"
     },
     "auth": {
         "title": "Vokalo awaits your genre, lyrics, and instruments.",
@@ -69,6 +73,7 @@
         "email": "Email",
         "password": "Password",
         "confirm_password": "Confirm password",
+        "confirm": "Confirm",
         "signup": "Sign up",
         "signin": "Sign in",
         "login": "Log in",
@@ -77,6 +82,7 @@
         "enter_email": "Enter your email address",
         "enter_fullname": "Enter your full name",
         "enter_password": "Enter your password",
+        "enter_code": "Enter code",
         "tel": "Phone",
         "have_account": "Already have an account?",
         "your_music": "Your music",
@@ -92,7 +98,14 @@
         "forgot_password": "Forgot password?",
         "reset_with_email": "Reset with email",
         "reset_with_phone": "Reset with phone",
-        "user_was_successfully_created": "User was successfully created"
+        "user_was_successfully_created": "User was successfully created",
+        "code_sent": "Code sent to email",
+        "code_verified": "Code verified successfully",
+        "password_changed": "Password successfully changed",
+        "reset_failed": "Failed to reset password",
+        "enter_new_password": "Enter new password",
+        "save_password": "Save password",
+        "new_password": "New password"
     },
     "pages_titles": {
         "home": "Home",

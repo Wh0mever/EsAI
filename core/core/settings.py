@@ -10,56 +10,71 @@ DEBUG = True
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
-LOG_DIR = BASE_DIR / 'logs'
-LOG_FILE = LOG_DIR / 'django.log'
+# LOG_DIR = BASE_DIR / 'logs'
+# LOG_FILE = LOG_DIR / 'django.log'
 
-LOG_DIR.mkdir(exist_ok=True)
+# LOG_DIR.mkdir(exist_ok=True)
 
-LOGGING = {
-    'version': 1,
-    'disable_existing_loggers': False,
+# LOGGING = {
+#     'version': 1,
+#     'disable_existing_loggers': False,
 
-    'formatters': {
-        'verbose': {
-            'format': '[{levelname}] {asctime} {name} | {message}',
-            'style': '{',
-        },
-        'simple': {
-            'format': '[{levelname}] {message}',
-            'style': '{',
-        },
-    },
+#     'formatters': {
+#         'verbose': {
+#             'format': '[{levelname}] {asctime} {name} | {message}',
+#             'style': '{',
+#         },
+#         'simple': {
+#             'format': '[{levelname}] {message}',
+#             'style': '{',
+#         },
+#     },
 
-    'handlers': {
-        'file': {
-            'level': 'DEBUG',
-            'class': 'logging.FileHandler',
-            'filename': str(LOG_FILE),
-            'formatter': 'verbose',
-        },
-    },
+#     'handlers': {
+#         'file': {
+#             'level': 'DEBUG',
+#             'class': 'logging.FileHandler',
+#             'filename': str(LOG_FILE),
+#             'formatter': 'verbose',
+#         },
+#     },
 
-    'loggers': {
-        'django': {
-            'handlers': ['file'],
-            'level': 'DEBUG',
-            'propagate': True,
-        },
-    }
-}
+#     'loggers': {
+#         'django': {
+#             'handlers': ['file'],
+#             'level': 'DEBUG',
+#             'propagate': True,
+#         },
+#     }
+# }
 
-if DEBUG:
-    LOGGING['handlers']['console'] = {
-        'level': 'DEBUG',
-        'class': 'logging.StreamHandler',
-        'formatter': 'simple',
-    }
+# if DEBUG:
+#     LOGGING['handlers']['console'] = {
+#         'level': 'DEBUG',
+#         'class': 'logging.StreamHandler',
+#         'formatter': 'simple',
+#     }
 
-    LOGGING['loggers']['django']['handlers'].append('console')
+#     LOGGING['loggers']['django']['handlers'].append('console')
 
 
 ALLOWED_HOSTS = []
 
+TEMPLATES = [
+    {
+        'BACKEND': 'django.template.backends.django.DjangoTemplates',
+        'DIRS': [BASE_DIR / 'mails' / 'templates'],
+        'APP_DIRS': True,
+        'OPTIONS': {
+            'context_processors': [
+                'django.template.context_processors.debug',
+                'django.template.context_processors.request',
+                'django.contrib.auth.context_processors.auth',
+                'django.contrib.messages.context_processors.messages',
+            ],
+        },
+    },
+]
 
 # Application definition
 
@@ -212,3 +227,4 @@ EMAIL_PORT = 587
 EMAIL_USE_TLS = True
 EMAIL_HOST_USER = "vokalo.online"
 EMAIL_HOST_PASSWORD = "change-me"
+DEFAULT_FROM_EMAIL = "support@esai.kg"
