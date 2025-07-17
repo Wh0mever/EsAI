@@ -12,8 +12,10 @@
         "terms": "Terms and Conditions",
         "signin": "Sign In",
         "signup": "Sign Up",
+        "logout": "Log Out",
         "privacy": "Privacy Policy",
-        "offer": "Offer"
+        "offer": "Offer",
+        "dashboard": "Dashboard"
     },
     "hero": {
         "title": "Generate and Create",

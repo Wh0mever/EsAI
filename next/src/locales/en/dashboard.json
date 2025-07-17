@@ -1,0 +1,9 @@
+{
+    "nav": {
+        "dashboard": "Dashboard",
+        "profile": "Profile",
+        "settings": "Settings",
+        "logout": "Logout",
+        "logOutConfirmTitle": "Are you sure you want to log out?"
+    }
+}

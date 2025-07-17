@@ -10,12 +10,6 @@ import NextLink from "@/components/UI/NextLink/NextLink";
 import { Alert } from "@/components/UI/Alert/Alert";
 import { useTranslation } from "react-i18next";
 
-
-function SignUpRequest(e: any) {
-	e.preventDefault();
-	console.log("SignUpRequest function called");
-}
-
 export default function SignUp() {
 	const { t } = useTranslation("common");
 
@@ -27,14 +21,20 @@ export default function SignUp() {
 
 	useEffect(() => {
 		if (responseData) {
-			setShowAlert(true);
-			setAlertTitle(responseData.title || t("status."));
-			setAlertMessage(responseData.message || t("status_extended.success"));
-			setAlertType(responseData.status || "warning");
 			if (responseData.status === "success") {
+				setShowAlert(true);
+				setAlertType("success");
+				setAlertTitle(responseData.title || t("status.success"));
+				setAlertMessage(responseData.message || t("status_extended.success"));
 				setTimeout(() => {
 					window.location.href = "/auth/signin";
 				}, 2000);
+			}
+			else {
+				setShowAlert(true);
+				setAlertType("error");
+				setAlertTitle(responseData.title || t("status.error"));
+				setAlertMessage(responseData.message || t("status_extended.error"));
 			}
 		}
 	}, [responseData]);

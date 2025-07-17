@@ -15,6 +15,9 @@ class SigninApiView(APIView):
                 "status": "success",
                 "data": serializer.validated_data,
                 }, status=status.HTTP_200_OK)
+        
+        print("SIGNIN ERRORS:", serializer.errors)
+        
         return Response({
             "status": "error",
             "errors": format_errors(serializer.errors),
@@ -42,7 +45,10 @@ class SignUpApiView(APIView):
                 "status": "success",
 
             }, status=status.HTTP_201_CREATED)
+        
+        
         else:
+            print("SIGNUP ERRORS:", serializer.errors)
             return Response({
                 "status": "error",
                 "errors": format_errors(serializer.errors),
