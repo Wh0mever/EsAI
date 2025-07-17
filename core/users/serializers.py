@@ -3,6 +3,7 @@ from .models import User
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from django.contrib.auth import authenticate
+from rest_framework_simplejwt.tokens import RefreshToken
 
 class SignUpSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=150)
@@ -55,22 +56,33 @@ class SignUpSerializer(serializers.Serializer):
 
 
 
-class SignInSerializer(TokenObtainPairSerializer):
-    @classmethod
-    def get_token(cls, user):
-        token = super().get_token(user)
-        token['name'] = user.first_name
-        token['email'] = user.email
-        token['tel'] = user.tel
-        return token
+class SignInSerializer(serializers.Serializer):
+    email = serializers.EmailField(required=False)
+    tel = serializers.CharField(required=False)
+    password = serializers.CharField(write_only=True)
 
-    def validate(self, attrs):
-        email = attrs.get('email')
-        tel = attrs.get('tel')
-        password = attrs.get('password')
-        user = authenticate(username=email, password=password)
+    def validate(self, data):
+        email = data.get("email")
+        tel = data.get("tel")
+        password = data.get("password")
+
+        user = None
+        if email:
+            user = authenticate(email=email, password=password)
+        elif tel:
+            user = authenticate(tel=tel, password=password)
+
         if not user:
-            user = authenticate(username=tel, password=password)
-            if not user:
-                raise serializers.ValidationError("Неверные данные для входа.")
-        return super().validate(attrs)
+            raise serializers.ValidationError("Неверные учетные данные")
+
+        refresh = RefreshToken.for_user(user)
+
+        return {
+            "access": str(refresh.access_token),
+            "refresh": str(refresh),
+            "user": {
+                "id": user.id,
+                "email": user.email,
+                "tel": user.tel,
+            }
+        }

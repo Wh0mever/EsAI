@@ -1,7 +1,8 @@
 import { Button } from "@/components/UI/Buttons/Buttons";
 import { CiMenuFries } from "react-icons/ci";
 import { BsFeather } from "react-icons/bs";
-import { CiSearch } from "react-icons/ci";
+import { useState, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import { IoLibraryOutline } from "react-icons/io5";
 import Link from "next/link";
 
@@ -21,24 +22,24 @@ function NavToggleButton() {
 }
 
 export default function DashboardNav() {
+
+	const { t } = useTranslation("common");
+
 	return (
 		<nav className="w-fit py-6 px-3 border-e bg-neutral-900 border-neutral-900 h-full flex flex-col gap-10 items-center">
 			<NavToggleButton />
 
 			<ul className="flex flex-col w-full h-fit gap-5 justify-center items-center">
 				<li>
-					<Link href={"/"} className="chat-button-icon hover:text-indigo-500 duration-300">
+					<Link href={"/"} className="chat-button-icon hover:text-indigo-500 duration-300 relative">
 						<BsFeather />
+						<span className="btn-description">{t('chat.new_chat')}</span>
 					</Link>
 				</li>
 				<li>
-					<Link href={"/"} className="chat-button-icon hover:text-indigo-500 duration-300">
-						<CiSearch />
-					</Link>
-				</li>
-				<li>
-					<Link href={"/"} className="chat-button-icon hover:text-indigo-500 duration-300">
+					<Link href={"/"} className="chat-button-icon hover:text-indigo-500 duration-300 relative">
 						<IoLibraryOutline />
+						<span className="btn-description">{t('chat.chat_history')}</span>
 					</Link>
 				</li>
 			</ul>

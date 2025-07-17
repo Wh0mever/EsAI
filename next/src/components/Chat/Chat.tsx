@@ -1,16 +1,24 @@
-// app/chat/page.tsx
 "use client";
 
 import { Button } from "../UI/Buttons/Buttons";
 import { form } from "framer-motion/client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { FaPlus } from "react-icons/fa6";
 import { VscSettings } from "react-icons/vsc";
 import { TiMicrophoneOutline } from "react-icons/ti";
 import { useRef } from "react";
+import { useTranslation } from "react-i18next";
+
+const languages = [
+	{ code: "ru", icon: "/images/local/ru.webp" },
+	{ code: "en", icon: "/images/local/en.webp" },
+	{ code: "kg", icon: "/images/local/kg.webp" },
+];
+
 
 function ChatForm() {
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
+	const { t } = useTranslation("common");
 
 	const handleInput = () => {
 		const el = textareaRef.current;
@@ -21,13 +29,13 @@ function ChatForm() {
 	};
 
 	return (
-		<form className="bg-neutral-900 chat-form p-5 rounded-xl shadow-sm">
+		<form className="bg-neutral-900 chat-form p-5 rounded-3xl border border-neutral-800">
 			<div className="w-full">
 				<textarea
 					ref={textareaRef}
 					onInput={handleInput}
 					className="w-full chat-textarea"
-					placeholder="Спросите что-нибудь ..."
+					placeholder={t("chat.ask_something")}
 				/>
 			</div>
 			<div className="flex justify-between">

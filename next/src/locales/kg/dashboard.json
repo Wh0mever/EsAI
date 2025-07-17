@@ -1,0 +1,9 @@
+{
+    "nav": {
+        "dashboard": "Башкаруу панели",
+        "profile": "Профиль",
+        "settings": "Жөндөөлөр",
+        "logout": "Чыгуу",
+        "logOutConfirmTitle": "Чыгууну каалайсызбы?"
+    }
+}
