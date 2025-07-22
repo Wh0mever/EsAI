@@ -215,6 +215,7 @@
     "chat": {
         "new_chat": "Жаңы чат",
         "chat_history": "Чат тарыхы",
+        "send": "Отправить",
         "search": "Издөө",
         "settings": "Жөндөөлөр",
         "clear_history": "Тарыхты тазалоо",
@@ -222,6 +223,15 @@
         "delete_chat_confirmation": "Бул чатты чын эле өчүргүңүз келеби?",
         "delete_chat_success": "Чат ийгиликтүү өчүрүлдү",
         "delete_chat_error": "Чатты өчүрүүдө ката кетти",
-        "ask_something": "Бир нерсе сураңыз..."
+        "ask_something": "Бир нерсе сураңыз...",
+        "templates": "Шаблоны",
+        "voice_enter": "Голосовой ввод",
+        "attachments": "Attachments",
+        "tabs": {
+            "all": "All Templates",
+            "favorites": "Favorites templates",
+            "create": "Create new template",
+            "selected": "Selected template"
+        }
     }
 }

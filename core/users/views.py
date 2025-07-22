@@ -7,6 +7,8 @@ from .serializers import SignUpSerializer, SignInSerializer
 from core.format import format_errors
 from mails.sender import send_template_email
 from django.contrib.auth.hashers import make_password
+from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.views import TokenRefreshView
 from .models import User
 
 
@@ -22,11 +24,14 @@ class SigninApiView(APIView):
 
             code = str(random.randint(100000, 999999))
             cache.set(f"email_code:{email}", code, timeout=600)
+            cache.set(f"auth_data:{email}",
+                      serializer.validated_data, timeout=600)
 
             send_template_email(
                 subject="Your verification code",
                 template_name="verify_email.html",
-                context={"code": code},
+                context={
+                    "code": code, "message": "To confirm your email, please use the 6-digit code below:"},
                 recipient_list=[email],
             )
 
@@ -34,7 +39,6 @@ class SigninApiView(APIView):
                 "status": "success",
                 "message": "Verification code sent to email"
             }, status=status.HTTP_200_OK)
-
         return Response({
             "status": "error",
             "errors": format_errors(serializer.errors),
@@ -48,7 +52,7 @@ class VerifyCodeApiView(APIView):
     def post(self, request):
         email = request.data.get("email")
         code = request.data.get("code")
-        
+
         if not email or not code:
             return Response({"error": "Email and code are required."}, status=400)
 
@@ -62,13 +66,22 @@ class VerifyCodeApiView(APIView):
             return Response({"error": "User not found."}, status=404)
 
         cache.delete(f"email_code:{email}")
-        serializer = SignInSerializer(instance={"user": user})
         user.is_confirmed = True
         user.save()
 
+        refresh = RefreshToken.for_user(user)
+
         return Response({
             "status": "authenticated",
-            "data": serializer.data
+            "data": {
+                "access": str(refresh.access_token),
+                "refresh": str(refresh),
+                "user": {
+                    "id": user.id,
+                    "email": user.email,
+                    "tel": user.tel,
+                }
+            }
         }, status=200)
 
 
@@ -121,12 +134,13 @@ class PasswordResetRequestView(APIView):
         send_template_email(
             subject="Password Reset Code",
             template_name="verify_email.html",
-            context={"code": code},
+            context={
+                "code": code, "message": "To reset your password, please use the 6-digit code below:"},
             recipient_list=[email],
         )
 
         return Response({"status": "success", "message": "Code sent to email."}, status=200)
-    
+
 
 class PasswordResetVerifyView(APIView):
     authentication_classes = []
@@ -144,8 +158,8 @@ class PasswordResetVerifyView(APIView):
             return Response({"message": "Invalid or expired code."}, status=400)
 
         return Response({"status": "success", "message": "Code verified."}, status=200)
-    
-    
+
+
 class PasswordResetCompleteView(APIView):
     authentication_classes = []
     permission_classes = []
@@ -172,3 +186,8 @@ class PasswordResetCompleteView(APIView):
         cache.delete(f"reset_code:{email}")
 
         return Response({"status": "success", "message": "Password changed successfully."}, status=200)
+
+
+class TokenRefreshApiView(TokenRefreshView):
+    permission_classes = []
+    pass
