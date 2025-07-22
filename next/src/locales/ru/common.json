@@ -215,6 +215,7 @@
     "chat": {
         "new_chat": "Новый чат",
         "chat_history": "История чатов",
+        "send": "Отправить",
         "search": "Поиск",
         "settings": "Настройки",
         "clear_history": "Очистить историю",
@@ -222,6 +223,15 @@
         "delete_chat_confirmation": "Вы уверены, что хотите удалить этот чат?",
         "delete_chat_success": "Чат успешно удалён",
         "delete_chat_error": "Ошибка при удалении чата",
-        "ask_something": "Спросите что-нибудь..."
+        "ask_something": "Спросите что-нибудь...",
+        "templates": "Шаблоны",
+        "voice_enter": "Голосовой ввод",
+        "attachments": "Attachments",
+        "tabs": {
+            "all": "All Templates",
+            "favorites": "Favorites templates",
+            "create": "Create new template",
+            "selected": "Selected template"
+        }
     }
 }

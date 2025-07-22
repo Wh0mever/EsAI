@@ -86,7 +86,7 @@ export default function SignIn() {
 					Cookies.set("access", access);
 					Cookies.set("refresh", refresh);
 					Cookies.set("user", JSON.stringify(user));
-
+					
 					setResponseData({
 						status: "success",
 						title: t("status.success"),

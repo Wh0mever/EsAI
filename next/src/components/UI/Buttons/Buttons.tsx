@@ -20,13 +20,13 @@ export function Button(ButtonProps: ButtonProps) {
 		<button
 			onClick={onClick ? onClick : () => {}}
 			disabled={disabled}
-			className={`cursor-pointer transition-all duration-300 ${className}`}
+			className={`cursor-pointer transition-all duration-300 relative ${className}`}
 			type={type || "button"}
 			style={style ? style : {}}
 		>
 			{children}
 			{ButtonProps.description && (
-				<span className={`btn-description ${ButtonProps.descriptionLeft && "btn-description"}`}>
+				<span className={`btn-description ${ButtonProps.descriptionLeft ? "btn-description" : ''}`}>
 					{ButtonProps.description}
 				</span>
 			)}

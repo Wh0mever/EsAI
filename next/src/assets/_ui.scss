@@ -34,9 +34,10 @@
     }
 }
 
-a {
+a, button {
     &:hover {
         & .btn-description {
+            
             opacity: 1;
         }
     }
@@ -46,17 +47,17 @@ a {
     position: absolute;
     font-size: 0.9rem;
     padding: 0.5rem 1rem;
-    background-color: #2f2f386a;
+    background-color: #212125d8;
     border-radius: 0.25rem;
     left: calc(100% + 0.5rem);
     width: fit-content;
     white-space: nowrap;
     top: 0;
     opacity: 0;
-    transition: opacity 0.3s ease-in-out;
+    transition: opacity 0.2s ease-in-out;
     color: #ffffff;
     pointer-events: none;
-
+    z-index: 100;
     &--left {
         left: auto;
         right: calc(100% + 0.5rem);

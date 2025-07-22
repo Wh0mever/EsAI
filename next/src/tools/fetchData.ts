@@ -2,78 +2,84 @@ const API = "http://127.0.0.1:8000/api/";
 import Cookies from "js-cookie";
 
 
-export async function fetchWithAuth(url: string, options = {}) {
-	let accessToken = Cookies.get("access_token");
-
-	const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/${url}`, {
-		...options,
-		headers: {
-			...(options as any).headers,
-			Authorization: `Bearer ${accessToken}`,
-			"Content-Type": "application/json",
-		},
-	});
-
-	if (response.status === 401) {
-		const refreshToken = Cookies.get("refresh_token");
-		const refreshRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/token/refresh/`, {
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ refresh: refreshToken }),
-		});
-
-		if (refreshRes.ok) {
-			const data = await refreshRes.json();
-			Cookies.set("access_token", data.access, { expires: 7 });
-
-			const retryRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/${url}`, {
-				...options,
-				headers: {
-					...(options as any).headers,
-					Authorization: `Bearer ${data.access}`,
-					"Content-Type": "application/json",
-				},
-			});
-			return retryRes;
-		} else {
-			Cookies.remove("access_token");
-			Cookies.remove("refresh_token");
-			window.location.href = "/auth/signin";
-			return;
-		}
-	}
-
-	return response;
+interface RequestOptions {
+	method: string;
+	headers: {
+		"Content-Type": string;
+		Accept: string;
+		Authorization?: string;
+	};
+	body?: string;
 }
 
-export async function fetchData(endpoint: string, method: string = "GET", body?: any) {
+async function mainRequest(endpoint: string, method: string, auth: boolean, body: any) {
 	const url = `${API}${endpoint}`;
+	const token = Cookies.get("access")
+	const access = auth ? `Bearer ${token}` : undefined;
 
-	const options: RequestInit = {
+	let options: RequestOptions = {
 		method: method,
 		headers: {
 			"Content-Type": "application/json",
+			Accept: "application/json",
+			Authorization: access,
 		},
 	};
+
+
 
 	if (body) {
 		options.body = JSON.stringify(body);
 	}
 
-	try {
-		const response = await fetch(url, options);
+	const response = await fetch(url, options);
+	if (response.status === 200) {
 		const data = await response.json();
-
 		return {
 			status: response.status,
 			ok: response.ok,
 			data,
 		};
+	}
+	if (response.status === 401) {
+		throw new Error("token_expired");
+	}
+}
+
+async function refreshAuth() {
+	const response = await fetch(`${API}users/token/refresh/`, {
+		method: "POST",
+		headers: {
+			"Content-Type": "application/json",
+		},
+		body: JSON.stringify({ refresh: Cookies.get("refresh") }),
+	});
+
+	if (!response.ok) {
+		console.warn("🔁 Refresh failed:", response.status);
+		return;
+	}
+
+	const data = await response.json();
+	const newAccess = data.access;
+
+	if (newAccess) {
+		Cookies.set("access", newAccess);
+		console.log("✅ Access token обновлён");
+	} else {
+		console.warn("⚠️ Access токен не получен");
+	}
+}
+
+export async function fetchData(endpoint: string, method: string = "GET", body?: any, auth: boolean = false) {
+	try {
+		return await mainRequest(endpoint, method, auth, body);
 	} catch (error) {
-		return {
-			status: null,
-			ok: false,
-			error,
-		};
+		if (error instanceof Error && error.message === "token_expired") {
+			await refreshAuth();
+			return await mainRequest(endpoint, method, auth, body);
+		} else {
+			console.error("❌ Unexpected error:", error);
+		}
 	}
 }

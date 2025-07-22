@@ -215,6 +215,7 @@
     "chat": {
         "new_chat": "New Chat",
         "chat_history": "Chat History",
+        "send": "Send",
         "search": "Search",
         "settings": "Settings",
         "clear_history": "Clear History",
@@ -222,6 +223,15 @@
         "delete_chat_confirmation": "Are you sure you want to delete this chat?",
         "delete_chat_success": "Chat deleted successfully",
         "delete_chat_error": "Error deleting chat",
-        "ask_something": "Ask something..."
+        "ask_something": "Ask something...",
+        "templates": "Templates",
+        "voice_enter": "Voice Enter",
+        "attachments": "Attachments",
+        "tabs": {
+            "all": "All Templates",
+            "favorites": "Favorites templates",
+            "create": "Create new template",
+            "selected": "Selected template"
+        }
     }
 }
