@@ -11,6 +11,7 @@ class SignUpSerializer(serializers.Serializer):
     tel = serializers.CharField(max_length=20)
     password = serializers.CharField(write_only=True)
     password_repeat = serializers.CharField(write_only=True)
+    ip = serializers.CharField(write_only=True)
 
     def validate_name(self, value):
         if not value.strip():

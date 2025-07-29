@@ -20,6 +20,8 @@ export default function SignUp() {
 	const [alertType, setAlertType] = useState<"success" | "error" | "info" | "warning">("info");
 
 	useEffect(() => {
+
+		console.log(responseData)
 		if (responseData) {
 			if (responseData.status === "success") {
 				setShowAlert(true);
@@ -50,6 +52,7 @@ export default function SignUp() {
 				const fromData = formEntries(e.target as HTMLFormElement);
 				fetchData("users/signup/", "POST", fromData)
 					.then((response) => {
+						console.log(response)
 						if (response) {
 							setResponseData(response.data);
 						}

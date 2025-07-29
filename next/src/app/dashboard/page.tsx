@@ -50,11 +50,11 @@ export default function Dashboard() {
 	const toggle = (name: typeof openDropdown) => (isOpen(name) ? setOpenDropdown(null) : setOpenDropdown(name));
 
 	return (
-		<main className="antialiased mx-auto h-full flex bg-neutral-800/75">
+		<main className="antialiased mx-auto h-full flex bg-neutral-800/75 gap-5">
 			<div className="w-3/12">
 				<DashboardNav />
 			</div>
-			<div className="flex flex-grow">
+			<div className="flex w-6/12">
 				<Chat />
 			</div>
 			<div className="w-3/12 flex items-start">
