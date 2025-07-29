@@ -232,6 +232,11 @@
             "favorites": "Favorites templates",
             "create": "Create new template",
             "selected": "Selected template"
+        },
+        "models_tabs": {
+            "text": "Текст",
+            "image": "Изображения",
+            "music": "Музыка"
         }
     }
 }

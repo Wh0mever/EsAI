@@ -29,7 +29,7 @@ export default function Chat() {
 				setInput("")
 				setMessages((prev) => [
 					...prev,
-					{ role: "assistant", content: res.data.response}
+					{ role: "assistant", content: res?.data.response}
 				])
 			})
 		} catch (error) {
@@ -38,7 +38,7 @@ export default function Chat() {
 	};
 
 	return (
-		<div className="h-full py-10 px-5 flex flex-col justify-between gap-3">
+		<div className="h-full py-5 px-5 flex flex-col justify-between gap-3 w-full">
 			<ChatView messages={messages} />
 			<ChatForm
 				input={input}

@@ -47,7 +47,7 @@ class User(AbstractBaseUser, PermissionsMixin):
     last_session = models.DateTimeField(null=True, blank=True, verbose_name='Последняя сессия')
     date_of_birth = models.DateField(null=True, blank=True, verbose_name='Дата рождения')
 
-    ip = models.CharField(verbose_name="IP Адрес", max_length=100, null=True, blank=True, help_text="IP адрес пользователя при регистрации")    
+    ip = models.GenericIPAddressField(null=True, blank=True)
     
     groups = models.ManyToManyField(
         Group,

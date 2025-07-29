@@ -33,8 +33,10 @@ async function mainRequest(endpoint: string, method: string, auth: boolean, body
 	}
 
 	const response = await fetch(url, options);
-	if (response.status === 200) {
+	
+	if (response.status < 300 && response.status >= 200) {
 		const data = await response.json();
+
 		return {
 			status: response.status,
 			ok: response.ok,
@@ -42,7 +44,7 @@ async function mainRequest(endpoint: string, method: string, auth: boolean, body
 		};
 	}
 	if (response.status === 401) {
-		throw new Error("token_expired");
+		throw new Error("Your token expired");
 	}
 }
 
