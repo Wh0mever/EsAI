@@ -83,7 +83,7 @@ export default function SignIn() {
 			}).then((response) => {
 				if (response?.data?.status === "authenticated") {
 					const { access, refresh, user } = response.data.data;
-					Cookies.set("access", access);
+					Cookies.set("access", access, { expires: 0.04 });
 					Cookies.set("refresh", refresh, { expires: 7 });
 					Cookies.set("user", JSON.stringify(user));
 					

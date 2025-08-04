@@ -61,8 +61,10 @@ async function refreshAuth(): Promise<string | null> {
 
 	const data = await response.json();
 	const newAccess = data.access;
+	const newRefresh = data.refresh;
 	if (newAccess) {
 		Cookies.set("access", newAccess);
+		Cookies.set("refresh", newRefresh);
 		console.log("✅ Access token обновлён");
 		return newAccess;
 	}

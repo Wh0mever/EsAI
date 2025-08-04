@@ -10,6 +10,9 @@ from django.contrib.auth.hashers import make_password
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenRefreshView
 from .models import User
+from plans.models import UserSubscription
+from plans.serializers import UserSubscribeSerializer
+import json
 
 
 class SigninApiView(APIView):
@@ -188,12 +191,32 @@ class PasswordResetCompleteView(APIView):
         return Response({"status": "success", "message": "Password changed successfully."}, status=200)
 
 
-class TokenRefreshApiView(TokenRefreshView):
-    permission_classes = []
-    authentication_classes = []
-
-
 class UserProfileView(APIView):
     def get(self, request):
         user = ProfileSerializer(request.user).data
-        return Response(user, status=200)
+        plan = UserSubscription.objects.filter(user=request.user)
+        
+        if plan.exists():
+            plan = UserSubscribeSerializer(plan, many=True).data
+        else:
+            plan = False
+        
+        responseData = json.dumps({
+            'user': user,
+            'plan': plan
+        })
+        return Response(responseData, status=200)
+    
+    def put(self, request):
+        
+        tel = request.data.get('tel', None)
+        first_name = request.data.get('first_name', None)
+
+        if tel:
+            request.user.tel = tel
+        if first_name:
+            request.user.first_name = first_name
+        if tel or first_name:
+            request.user.save()
+        
+        return Response({}, status=200) 

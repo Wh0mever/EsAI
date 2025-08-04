@@ -11,13 +11,8 @@ import { Button } from "@/components/UI/Buttons/Buttons";
 import { useState, useRef, useEffect } from "react";
 import Dropdown from "@/components/DropDown/DropDown";
 import { ConfirmationModal } from "@/components/Dialog/Dialog";
-
-const currencyItems = [
-	{ label: "KGS", value: "kgs" },
-	{ label: "USD", value: "usd" },
-	{ label: "EUR", value: "eur" },
-];
-
+import Link from "next/link";
+import { CiUser } from "react-icons/ci";
 const languageItems = [
 	{ label: "Русский", value: "ru", icon: "/images/local/ru.webp" },
 	{ label: "English", value: "en", icon: "/images/local/en.webp" },
@@ -26,7 +21,6 @@ const languageItems = [
 
 export default function Dashboard() {
 	const [openDropdown, setOpenDropdown] = useState<null | "lang" | "currency" | "notify">(null);
-	const [selectedCurrency, setSelectedCurrency] = useState(currencyItems[0]);
 	const [isLogoutConfirmModalOpen, setLogoutConfirmModalOpen] = useState(false);
 	const { t } = useTranslation("dashboard");
 	const { t: tCommon } = useTranslation("common");
@@ -59,17 +53,22 @@ export default function Dashboard() {
 			</div>
 			<div className="w-3/12 flex items-start">
 				<div className="flex items-center w-full justify-end gap-3 p-4">
+					<Link className="chat-button-icon bg-neutral-800 text-xl hover:text-indigo-500 rounded-lg" href={"/profile"}>
+						<i>
+							<CiUser />
+						</i>
+					</Link>
+
 					<Dropdown
 						items={notificationItems}
 						isOpen={isOpen("notify")}
 						close={() => setOpenDropdown(null)}
 						onSelect={() => {}}
 						renderButton={(_, open, toggleBtn) => (
-							<Button
-								onClick={() => toggle("notify")}
-								className="text-white p-1 rounded-md hover:text-indigo-700 bg-neutral-800"
-							>
-								<VscBell className="chat-button-icon" />
+							<Button onClick={() => toggle("notify")} className="chat-button-icon bg-neutral-800 text-xl hover:text-indigo-500 rounded-lg">
+								<i>
+									<VscBell />
+								</i>
 							</Button>
 						)}
 						renderItem={(item) => <>{item.label}</>}
@@ -81,36 +80,15 @@ export default function Dashboard() {
 						close={() => setOpenDropdown(null)}
 						onSelect={handleLangSelect}
 						renderButton={(_, open) => (
-							<button
-								onClick={() => toggle("lang")}
-								className="text-white rounded-md hover:text-indigo-500 bg-neutral-800 py-2 px-3 cursor-pointer transition flex items-center gap-2"
-							>
+							<Button onClick={() => toggle("lang")} className="chat-button-icon bg-neutral-800 text-xl hover:text-indigo-500 rounded-lg">
 								<img src={`/images/local/${currentLang}.webp`} className="h-5 p-1" alt="" />
-							</button>
+							</Button>
 						)}
 						renderItem={(item) => <img src={item.icon!} alt={item.label} className="w-full p-1" />}
 					/>
 
-					<Dropdown
-						items={currencyItems}
-						selected={selectedCurrency}
-						setSelected={setSelectedCurrency}
-						isOpen={isOpen("currency")}
-						close={() => setOpenDropdown(null)}
-						onSelect={() => {}}
-						renderButton={(selected, open) => (
-							<button
-								onClick={() => toggle("currency")}
-								className="text-white rounded-md hover:text-indigo-500 bg-neutral-800 py-2 px-3 cursor-pointer transition flex items-center gap-2"
-							>
-								{selected?.label || "KGS"}
-							</button>
-						)}
-						renderItem={(item) => <>{item.label}</>}
-					/>
-
 					<Button
-						className="bg-rose-700 text-white px-4 py-2 rounded"
+						className="bg-rose-700 text-white px-4 py-2 rounded-lg"
 						onClick={() => setLogoutConfirmModalOpen(true)}
 					>
 						{t("nav.logout")}
