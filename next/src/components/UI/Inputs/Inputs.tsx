@@ -1,6 +1,7 @@
 interface FieldProps {
 	type?: "text" | "password" | "email" | "number" | "tel" | "url";
 	name: string;
+	disabled?: boolean;
 	placeholder?: string;
 	className?: string;
 	value?: string;
@@ -18,12 +19,13 @@ export function Field(FieldProps: FieldProps) {
 			<input
 				type={FieldProps.type || "text"}
 				placeholder={FieldProps.placeholder}
-				className={`rounded-md px-3 py-2 ${FieldProps.className}`}
-				value={FieldProps.value}
+				className={`rounded-md py-1 ${FieldProps.className}`}
+				defaultValue={FieldProps.value}
 				onChange={FieldProps.onChange}
 				name={FieldProps.name}
 				id={FieldProps.id}
 				required={FieldProps.required}
+				disabled={FieldProps.disabled || false}
 			/>
 		</div>
 	);
@@ -43,6 +45,19 @@ export function TextArea(FieldProps: FieldProps) {
 			/>
 		</div>
 	);
+}
+
+export function CardInput(FieldProps: FieldProps) {
+
+	return (
+		<div className="">
+			<input type="number" className="px-3 py-2 border border-gray-500" />
+			<input type="number" className="px-3 py-2 border border-gray-500" />
+			<input type="number" className="px-3 py-2 border border-gray-500" />
+			<input type="number" className="px-3 py-2 border border-gray-500" />
+		</div>
+	)
+
 }
 
 export function Checkbox(FieldProps: FieldProps) {

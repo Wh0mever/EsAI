@@ -84,7 +84,7 @@ export default function SignIn() {
 				if (response?.data?.status === "authenticated") {
 					const { access, refresh, user } = response.data.data;
 					Cookies.set("access", access);
-					Cookies.set("refresh", refresh);
+					Cookies.set("refresh", refresh, { expires: 7 });
 					Cookies.set("user", JSON.stringify(user));
 					
 					setResponseData({
@@ -133,7 +133,7 @@ export default function SignIn() {
 							<span className="text-rose-500 text-2xl">*</span>
 						</label>
 						<Field
-							className="bg-white border border-white text-black white-field-style text-sm"
+							className="bg-white border border-white text-black white-field-style text-sm px-3 py-2"
 							type="email"
 							name="email"
 							placeholder={t("auth.enter_email")}
@@ -147,7 +147,7 @@ export default function SignIn() {
 							<span className="text-rose-500 text-2xl">*</span>
 						</label>
 						<Field
-							className="bg-white border border-white text-black white-field-style text-sm"
+							className="bg-white border border-white text-black white-field-style text-sm px-3 py-2"
 							type="password"
 							name="password"
 							placeholder={t("auth.enter_password")}
@@ -164,7 +164,7 @@ export default function SignIn() {
 						<span className="text-rose-500 text-2xl">*</span>
 					</label>
 					<Field
-						className="bg-white border border-white text-black white-field-style text-sm"
+						className="bg-white border border-white text-black white-field-style text-sm px-3 py-2"
 						type="text"
 						name="code"
 						placeholder="XXXXXX"

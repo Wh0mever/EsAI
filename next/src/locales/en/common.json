@@ -238,5 +238,28 @@
             "image": "Image generation",
             "music": "Music generation"
         }
+    },
+    "profile": {
+        "profile": "Profile",
+        "fullname": "Full name",
+        "email": "Email",
+        "phone": "Phone",
+        "change": "Change",
+        "card": "Payment card",
+        "brand": "Brand",
+        "last4": "Last 4 digits",
+        "period": "validity period",
+        "code": "Secret code",
+        "subscription": "Subscription",
+        "plan": "Plan",
+        "price": "Price",
+        "write-off": "Next write-off",
+        "unsubscribe": "Unsubscribe",
+        "add_card": "Add card",
+        "no_card": "No card",
+        "card_number":  "Card number",
+        "cvv": "CVV",
+        "expired_date": "Expired date",
+        "name_on_card ": "Name on card"
     }
 }

@@ -88,7 +88,7 @@ export default function ResetPassword() {
 						<span className="text-rose-500 text-2xl">*</span>
 					</label>
 					<Field
-						className="bg-white border border-white text-black white-field-style text-sm"
+						className="bg-white border border-white text-black white-field-style text-sm px-3 py-2"
 						type="email"
 						name="email"
 						placeholder={t("auth.enter_email")}
@@ -104,7 +104,7 @@ export default function ResetPassword() {
 						<span className="text-rose-500 text-2xl">*</span>
 					</label>
 					<Field
-						className="bg-white border border-white text-black white-field-style text-sm"
+						className="bg-white border border-white text-black white-field-style text-sm px-3 py-2"
 						type="text"
 						name="code"
 						placeholder="123456"
@@ -120,7 +120,7 @@ export default function ResetPassword() {
 						<span className="text-rose-500 text-2xl">*</span>
 					</label>
 					<Field
-						className="bg-white border border-white text-black white-field-style text-sm"
+						className="bg-white border border-white text-black white-field-style text-sm px-3 py-2"
 						type="password"
 						name="password"
 						placeholder={t("auth.enter_new_password")}

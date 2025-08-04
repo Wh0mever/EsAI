@@ -1,7 +1,6 @@
 const API = "http://127.0.0.1:8000/api/";
 import Cookies from "js-cookie";
 
-
 interface RequestOptions {
 	method: string;
 	headers: {
@@ -14,7 +13,7 @@ interface RequestOptions {
 
 async function mainRequest(endpoint: string, method: string, auth: boolean, body: any) {
 	const url = `${API}${endpoint}`;
-	const token = Cookies.get("access")
+	const token = Cookies.get("access");
 	const access = auth ? `Bearer ${token}` : undefined;
 
 	let options: RequestOptions = {
@@ -26,14 +25,12 @@ async function mainRequest(endpoint: string, method: string, auth: boolean, body
 		},
 	};
 
-
-
 	if (body) {
 		options.body = JSON.stringify(body);
 	}
 
 	const response = await fetch(url, options);
-	
+
 	if (response.status < 300 && response.status >= 200) {
 		const data = await response.json();
 
@@ -48,40 +45,38 @@ async function mainRequest(endpoint: string, method: string, auth: boolean, body
 	}
 }
 
-async function refreshAuth() {
+async function refreshAuth(): Promise<string | null> {
+	const refresh = Cookies.get("refresh");
+	if (!refresh) return null;
+
 	const response = await fetch(`${API}users/token/refresh/`, {
 		method: "POST",
 		headers: {
 			"Content-Type": "application/json",
 		},
-		body: JSON.stringify({ refresh: Cookies.get("refresh") }),
+		body: JSON.stringify({ refresh }),
 	});
 
-	if (!response.ok) {
-		console.warn("🔁 Refresh failed:", response.status);
-		return;
-	}
+	if (!response.ok) return null;
 
 	const data = await response.json();
 	const newAccess = data.access;
-
 	if (newAccess) {
 		Cookies.set("access", newAccess);
 		console.log("✅ Access token обновлён");
-	} else {
-		console.warn("⚠️ Access токен не получен");
+		return newAccess;
 	}
+	return null;
 }
 
 export async function fetchData(endpoint: string, method: string = "GET", body?: any, auth: boolean = false) {
 	try {
 		return await mainRequest(endpoint, method, auth, body);
 	} catch (error) {
-		if (error instanceof Error && error.message === "token_expired") {
-			await refreshAuth();
+		if (error instanceof Error && error.message === "Your token expired") {
+			const newToken = await refreshAuth();
+			if (!newToken) throw new Error("Unable to refresh token");
 			return await mainRequest(endpoint, method, auth, body);
-		} else {
-			console.error("❌ Unexpected error:", error);
 		}
 	}
 }

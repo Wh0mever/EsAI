@@ -3,6 +3,20 @@ from django.db import models
 from django.utils import timezone
 
 
+class Visa(models.Model):
+    last4 = models.CharField(max_length=4, blank=True, null=True)
+    brand = models.CharField(max_length=20, blank=True, null=True)
+    exp_month = models.PositiveSmallIntegerField(blank=True, null=True)
+    exp_year = models.PositiveSmallIntegerField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True, blank=True, null=True)
+
+    def __str__(self):
+        return f"{self.brand} **** {self.last4}"
+
+    class Meta:
+        abstract=True
+
+
 class UserManager(BaseUserManager):
     def create_user(self, email, password=None, **extra_fields):
         if not email:
@@ -25,7 +39,7 @@ class UserManager(BaseUserManager):
         return self.create_user(email, password, **extra_fields)
 
 
-class User(AbstractBaseUser, PermissionsMixin):
+class User(AbstractBaseUser, PermissionsMixin, Visa):
 
     email = models.EmailField(unique=True, verbose_name='Почта')
     first_name = models.CharField(max_length=30, blank=True, verbose_name='Имя')
@@ -46,7 +60,7 @@ class User(AbstractBaseUser, PermissionsMixin):
     last_login = models.DateTimeField(null=True, blank=True, verbose_name='Последний вход')
     last_session = models.DateTimeField(null=True, blank=True, verbose_name='Последняя сессия')
     date_of_birth = models.DateField(null=True, blank=True, verbose_name='Дата рождения')
-
+    
     ip = models.GenericIPAddressField(null=True, blank=True)
     
     groups = models.ManyToManyField(

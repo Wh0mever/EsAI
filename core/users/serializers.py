@@ -5,6 +5,7 @@ from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from django.contrib.auth import authenticate
 from rest_framework_simplejwt.tokens import RefreshToken
 
+
 class SignUpSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=150)
     email = serializers.EmailField()
@@ -17,17 +18,19 @@ class SignUpSerializer(serializers.Serializer):
         if not value.strip():
             raise serializers.ValidationError("Имя не может быть пустым.")
         return value
-    
+
     def validate_email(self, value):
         if User.objects.filter(email=value).exists():
-            raise serializers.ValidationError("Пользователь с таким email уже существует.")
+            raise serializers.ValidationError(
+                "Пользователь с таким email уже существует.")
         return value
-    
+
     def validate_tel(self, value):
         if User.objects.filter(tel=value).exists():
-            raise serializers.ValidationError("Пользователь с таким номером телефона уже существует.")
+            raise serializers.ValidationError(
+                "Пользователь с таким номером телефона уже существует.")
         return value
-    
+
     def validate_ip(self, value):
         if not value:
             raise serializers.ValidationError("IP адрес обязателен.")
@@ -37,11 +40,14 @@ class SignUpSerializer(serializers.Serializer):
         if data['password'] != data['password_repeat']:
             raise serializers.ValidationError("Пароли не совпадают.")
         if len(data['password']) < 8:
-            raise serializers.ValidationError("Пароль должен быть не менее 8 символов.")
+            raise serializers.ValidationError(
+                "Пароль должен быть не менее 8 символов.")
         if not any(char.isdigit() for char in data['password']):
-            raise serializers.ValidationError("Пароль должен содержать хотя бы одну цифру.")
+            raise serializers.ValidationError(
+                "Пароль должен содержать хотя бы одну цифру.")
         if not any(char.isalpha() for char in data['password']):
-            raise serializers.ValidationError("Пароль должен содержать хотя бы одну букву.")
+            raise serializers.ValidationError(
+                "Пароль должен содержать хотя бы одну букву.")
         return data
 
     def create(self, validated_data):
@@ -53,8 +59,6 @@ class SignUpSerializer(serializers.Serializer):
             ip=validated_data.get("ip")
         )
         return user
-
-
 
 
 class SignInSerializer(serializers.Serializer):
@@ -87,3 +91,20 @@ class SignInSerializer(serializers.Serializer):
                 "tel": user.tel,
             }
         }
+
+
+class ProfileSerializer(serializers.ModelSerializer):
+    card = serializers.SerializerMethodField()
+
+    class Meta:
+        model = User
+        exclude = ['password']
+
+    def get_card(self, obj):
+        if obj.last4 and obj.brand:
+            return {
+                'brand': obj.brand,
+                'last4': obj.last4,
+                'expiry': f"{obj.exp_month:02}/{obj.exp_year}" if obj.exp_month and obj.exp_year else None
+            }
+        return None

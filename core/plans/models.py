@@ -16,7 +16,7 @@ class TariffPlan(models.Model):
     code = models.CharField(max_length=20, choices=PLAN_CHOICES, unique=True)
     name = models.CharField(max_length=50)
     price = models.DecimalField(max_digits=10, decimal_places=2)
-    duration_days = models.PositiveIntegerField(default=30)  # сколько дней действует
+    duration_days = models.PositiveIntegerField(default=30)
 
     song_limit = models.PositiveIntegerField()
     music_limit = models.PositiveIntegerField()
