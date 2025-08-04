@@ -1,4 +1,5 @@
 import random
+import json
 from django.core.cache import cache
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -12,7 +13,6 @@ from rest_framework_simplejwt.views import TokenRefreshView
 from .models import User
 from plans.models import UserSubscription
 from plans.serializers import UserSubscribeSerializer
-import json
 
 
 class SigninApiView(APIView):
