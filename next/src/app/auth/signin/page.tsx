@@ -12,6 +12,19 @@ import NextLink from "@/components/UI/NextLink/NextLink";
 import formEntries from "@/tools/formEntries";
 import Cookies from "js-cookie";
 
+function signin(response: any, setResponseData: any, t: any) {
+	const { access, refresh, user } = response.data.data;
+	Cookies.set("access", access, { expires: 0.04 });
+	Cookies.set("refresh", refresh, { expires: 7 });
+	Cookies.set("user", JSON.stringify(user));
+
+	setResponseData({
+		status: "success",
+		title: t("status.success"),
+		message: t("status_extended.success"),
+	});
+}
+
 export default function SignIn() {
 	const { t } = useTranslation("common");
 
@@ -34,7 +47,7 @@ export default function SignIn() {
 
 			if (responseData.status === "success") {
 				setTimeout(() => {
-					window.location.href = "/dashboard";
+					window.location.href = "/profile";
 				}, 2000);
 			}
 		}
@@ -50,6 +63,7 @@ export default function SignIn() {
 
 			fetchData("users/signin/", "POST", formData)
 				.then((response) => {
+					console.log(response)
 					if (response?.data?.status === "success") {
 						setStep("verify");
 						setResponseData({
@@ -57,6 +71,9 @@ export default function SignIn() {
 							title: t("status.code_sent"),
 							message: t("status_extended.check_email"),
 						});
+					} else if (response?.data.status === "authenticated") {
+						console.log(123)
+						signin(response, setResponseData, t);
 					} else {
 						setResponseData({
 							status: "error",
@@ -82,16 +99,7 @@ export default function SignIn() {
 				code: code,
 			}).then((response) => {
 				if (response?.data?.status === "authenticated") {
-					const { access, refresh, user } = response.data.data;
-					Cookies.set("access", access, { expires: 0.04 });
-					Cookies.set("refresh", refresh, { expires: 7 });
-					Cookies.set("user", JSON.stringify(user));
-					
-					setResponseData({
-						status: "success",
-						title: t("status.success"),
-						message: t("status_extended.success"),
-					});
+					signin(response, setResponseData, t);
 				} else {
 					setResponseData({
 						status: "error",
