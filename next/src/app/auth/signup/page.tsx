@@ -106,7 +106,7 @@ export default function SignUp() {
 						<span className="text-rose-500 text-2xl">*</span>
 					</label>
 					<Field
-						className="bg-white border border-white text-black white-field-style text-sm"
+						className="bg-white border border-white text-black white-field-style text-sm px-3 py-2"
 						type="text"
 						name="name"
 						placeholder={t("auth.enter_fullname")}
@@ -119,7 +119,7 @@ export default function SignUp() {
 						<span className="text-rose-500 text-2xl">*</span>
 					</label>
 					<Field
-						className="bg-white border border-white text-black white-field-style text-sm"
+						className="bg-white border border-white text-black white-field-style text-sm px-3 py-2"
 						type="email"
 						name="email"
 						placeholder={t("auth.enter_email")}
@@ -132,7 +132,7 @@ export default function SignUp() {
 						<span className="text-rose-500 text-2xl">*</span>
 					</label>
 					<Field
-						className="bg-white border border-white text-black white-field-style text-sm"
+						className="bg-white border border-white text-black white-field-style text-sm px-3 py-2"
 						type="tel"
 						name="tel"
 						placeholder="+xxxxxxxxxxxxx"
@@ -145,7 +145,7 @@ export default function SignUp() {
 						<span className="text-rose-500 text-2xl">*</span>
 					</label>
 					<Field
-						className="bg-white border border-white text-black white-field-style text-sm"
+						className="bg-white border border-white text-black white-field-style text-sm px-3 py-2"
 						type="password"
 						name="password"
 						placeholder={t("auth.enter_password")}
@@ -158,7 +158,7 @@ export default function SignUp() {
 						<span className="text-rose-500 text-2xl">*</span>
 					</label>
 					<Field
-						className="bg-white border border-white text-black white-field-style text-sm"
+						className="bg-white border border-white text-black white-field-style text-sm px-3 py-2"
 						type="password"
 						name="password_repeat"
 						placeholder={t("auth.confirm_password")}

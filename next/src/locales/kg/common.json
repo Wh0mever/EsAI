@@ -238,5 +238,28 @@
             "image": "Image generation",
             "music": "Music generation"
         }
+    },
+    "profile": {
+        "profile": "Профиль",
+        "fullname": "Толук аты-жөнү",
+        "email": "Электрондук почта",
+        "phone": "Телефон",
+        "change": "Өзгөртүү",
+        "card": "Төлөм картасы",
+        "brand": "Бренди",
+        "last4": "Акыркы 4 сан",
+        "period": "Мөөнөтү",
+        "code": "Купуя код",
+        "subscription": "Жазылуу",
+        "plan": "Тариф",
+        "price": "Баасы",
+        "write-off": "Кийинки алуу",
+        "unsubscribe": "Жазылуудан баш тартуу",
+        "add_card": "Карта кошуу",
+        "no_card": "Карта жок",
+        "card_number": "Картанын номери",
+        "cvv": "CVV",
+        "expired_date": "Мөөнөтү бүткөн күнү",
+        "name_on_card ": "Картадагы аты-жөнү"
     }
 }

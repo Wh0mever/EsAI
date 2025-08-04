@@ -3,7 +3,7 @@ from django.core.cache import cache
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework import status
-from .serializers import SignUpSerializer, SignInSerializer
+from .serializers import SignUpSerializer, SignInSerializer, ProfileSerializer
 from core.format import format_errors
 from mails.sender import send_template_email
 from django.contrib.auth.hashers import make_password
@@ -190,4 +190,10 @@ class PasswordResetCompleteView(APIView):
 
 class TokenRefreshApiView(TokenRefreshView):
     permission_classes = []
-    pass
+    authentication_classes = []
+
+
+class UserProfileView(APIView):
+    def get(self, request):
+        user = ProfileSerializer(request.user).data
+        return Response(user, status=200)

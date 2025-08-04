@@ -155,7 +155,7 @@ DATABASES = {
         'NAME': 'david_db',
         'USER': 'david_user',
         'PASSWORD': 'change-me',
-        'HOST': 'localhost',  # или IP, если внешняя БД
+        'HOST': 'localhost',
         'PORT': '5432',
     }
 }
@@ -212,7 +212,7 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 # Rest Framework
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
-        'rest_framework.authentication.TokenAuthentication',
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
     ],
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.IsAuthenticated',
