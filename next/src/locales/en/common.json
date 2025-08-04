@@ -253,13 +253,27 @@
         "subscription": "Subscription",
         "plan": "Plan",
         "price": "Price",
+        "pricing": "Pricing",
         "write-off": "Next write-off",
         "unsubscribe": "Unsubscribe",
         "add_card": "Add card",
         "no_card": "No card",
-        "card_number":  "Card number",
+        "card_number": "Card number",
         "cvv": "CVV",
         "expired_date": "Expired date",
-        "name_on_card ": "Name on card"
+        "name_on_card ": "Name on card",
+        "plan_info": {
+            "empty_title": "7 days free",
+            "empty_text": "Enter your card details and get free access for 7 days. You can cancel your subscription at any time!",
+            "empty_text2": "Explore more advanced subscription plans",
+            "empty_alert_title": "Great! Registration is almost complete",
+            "empty_alert_text": "Please fill in your payment card details below to activate your 7-day free trial",
+            "empty_alert_text2": "You can cancel your subscription at any time"
+        },
+        "user_info": {
+            "user_changed": "Profile data has been successfully updated",
+            "no_data": "No data to update",
+            "empty_data": "All fields are required"
+        }
     }
 }

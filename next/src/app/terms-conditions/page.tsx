@@ -183,10 +183,9 @@ const PolicyComponent = () => {
 export default function Home() {
 	return (
 		<main className="">
-			<Breadcrumb>
-				<span className="px-3 py-2 bg-gray-900 rounded-lg text-sm">VOKALO | Творчество без границ</span>
-				<PolicyComponent />
-			</Breadcrumb>
+			<Breadcrumb />
+			<span className="px-3 py-2 bg-gray-900 rounded-lg text-sm">VOKALO | Творчество без границ</span>
+			<PolicyComponent />
 		</main>
 	);
 }
