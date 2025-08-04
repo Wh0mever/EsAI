@@ -25,6 +25,27 @@ class SigninApiView(APIView):
             user = serializer.validated_data['user']
             email = user['email']
 
+            try:
+                user_object = User.objects.get(email=email)
+                if not user_object._2fa:
+                    refresh = RefreshToken.for_user(user_object)
+                    return Response({
+                        "status": "authenticated",
+                        "data": {
+                            "access": str(refresh.access_token),
+                            "refresh": str(refresh),
+                            "user": {
+                                "id": user_object.id,
+                                "email": user_object.email,
+                                "tel": user_object.tel,
+                            }
+                        }
+                    }, status=200)
+
+            except Exception as ex:
+                print(ex)
+                return Response({"status": "error", "message": "user was not found"}, status=status.HTTP_400_BAD_REQUEST)
+
             code = str(random.randint(100000, 999999))
             cache.set(f"email_code:{email}", code, timeout=600)
             cache.set(f"auth_data:{email}",
@@ -64,7 +85,7 @@ class VerifyCodeApiView(APIView):
             return Response({"error": "Invalid or expired code."}, status=400)
 
         try:
-            user = User.objects.get(email=email)
+            user = User.objects.get(email=email)            
         except User.DoesNotExist:
             return Response({"error": "User not found."}, status=404)
 
@@ -195,28 +216,37 @@ class UserProfileView(APIView):
     def get(self, request):
         user = ProfileSerializer(request.user).data
         plan = UserSubscription.objects.filter(user=request.user)
-        
+
         if plan.exists():
             plan = UserSubscribeSerializer(plan, many=True).data
         else:
             plan = False
-        
+
         responseData = json.dumps({
             'user': user,
             'plan': plan
         })
         return Response(responseData, status=200)
-    
+
     def put(self, request):
-        
+
+        changed = False
         tel = request.data.get('tel', None)
         first_name = request.data.get('first_name', None)
+        _2fa = request.data.get('_2fa', None)
 
+       
         if tel:
             request.user.tel = tel
+            changed = True
         if first_name:
             request.user.first_name = first_name
-        if tel or first_name:
+            changed = True
+        if _2fa == False or _2fa == True:
+            request.user._2fa = _2fa
+            changed = True
+
+        if changed:
             request.user.save()
-        
-        return Response({}, status=200) 
+
+        return Response({}, status=200)

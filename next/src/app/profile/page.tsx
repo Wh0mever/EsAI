@@ -11,7 +11,7 @@ import { fetchData } from "@/tools/fetchData";
 import { useEffect, useState, useRef } from "react";
 import Breadcrumb from "@/components/PageView/Breadcrumb";
 import { FaCcMastercard } from "react-icons/fa";
-import { Field } from "@/components/UI/Inputs/Inputs";
+import { Field, Checkbox } from "@/components/UI/Inputs/Inputs";
 import { CiCircleCheck } from "react-icons/ci";
 import Link from "next/link";
 
@@ -26,8 +26,6 @@ type PropsVisa = {
 	onLinkCard?: () => void;
 	onChangeCard?: () => void;
 };
-
-type PropsUser = {};
 
 async function changeUserInfo(data: any): Promise<Number> {
 	let status = 400;
@@ -46,9 +44,11 @@ function CardProfile({ t, data }: { t: any; data: any }) {
 		show: false,
 		text: "",
 		type: "",
+		_2fa: data?.user?._2fa
 	});
 
 	useEffect(() => {
+		console.log(userChange)
 		if (userChange.show) {
 			setTimeout(() => {
 				setUserChange(() => {
@@ -122,11 +122,26 @@ function CardProfile({ t, data }: { t: any; data: any }) {
 						}}
 					/>
 				</div>
+				<div className="flex flex-col gap-1">
+					<p className="text-gray-500">{t("profile._2fa")}:</p>
+					<Checkbox
+						name="_2fa"
+						className="border-b rounded-none border-gray-500 flex-grow"
+						checked={data?.user?._2fa}
+						onChange={(e) => {
+							setUserData((prev: any) => {
+								return {
+									...prev,
+									_2fa: e.target.checked,
+								};
+							});
+						}}
+					/>
+				</div>
 
 				<Button
 					className="px-6 py-2 rounded-xl mt-5 bg-indigo-500 hover:bg-indigo-700 w-fit"
 					onClick={() => {
-						console.log(userData);
 						if (Object.keys(userData).length) {
 							const responseStatus = changeUserInfo(userData).then((status) => {
 								if (status === 200) {

@@ -1,6 +1,6 @@
-
 .white-field-style {
     transition: all 0.3s ease-in-out;
+
     &::placeholder {
         transition: all 0.3s ease-in-out;
         color: #909090 !important;
@@ -28,16 +28,18 @@
 
     &:focus {
         background-color: #111111;
+
         &::placeholder {
             color: #ffffff00 !important;
         }
     }
 }
 
-a, button {
+a,
+button {
     &:hover {
         & .btn-description {
-            
+
             opacity: 1;
         }
     }
@@ -58,8 +60,24 @@ a, button {
     color: #ffffff;
     pointer-events: none;
     z-index: 100;
+
     &--left {
         left: auto;
         right: calc(100% + 0.5rem);
+    }
+}
+
+.checkbox-view {
+    padding: 0.5rem;
+    border-radius: 0.4rem;
+    font-size: 0.5rem;
+    background-color: #111111;
+    color: #11111100;
+    border: 1px solid oklch(.551 .027 264.364);
+    cursor: pointer;
+    transition: color 0.3s ease-in-out, background-color 0.3s ease-in-out;
+    &.active {
+        color: white;
+        background-color: oklch(.585 .233 277.117);
     }
 }

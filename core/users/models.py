@@ -78,6 +78,8 @@ class User(AbstractBaseUser, PermissionsMixin, Visa):
         verbose_name='разрешения'
     )
 
+    _2fa = models.BooleanField(default=True, verbose_name="Двух факторная аутентификация")
+
     objects = UserManager()
 
     USERNAME_FIELD = 'email'
