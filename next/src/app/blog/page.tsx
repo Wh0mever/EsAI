@@ -4,10 +4,66 @@ import "@/assets/style.scss";
 import NoData from "@/components/NoData/NoData";
 import { useTranslation } from "react-i18next";
 import Breadcrumb from "@/components/PageView/Breadcrumb";
+import { useEffect, useState } from "react";
+import { fetchData } from "@/tools/fetchData";
+import { API } from "@/tools/fetchData";
+
+async function blogPosts() {
+	return await fetchData("content/blog/", "get", null, false);
+}
 
 export default function Blog() {
-	const { t } = useTranslation("common");
+	const { t, i18n } = useTranslation("common");
+	const [posts, setPosts] = useState([]);
 	const points = t("blog.points", { returnObjects: true }) as string[];
+	const lang = i18n.language;
+
+	useEffect(() => {
+		blogPosts().then((response) => {
+			setPosts(response?.data || []);
+		});
+	}, []);
+
+	const PostElement = ({ post }: { post: any }) => {
+		const title = post[`title_${lang}`] || post.title_en;
+		const content = post[`content_${lang}`] || post.content_en;
+
+		return (
+			<article className="border border-neutral-700 rounded-xl p-6 shadow-md mb-8 bg-neutral-950">
+				{post.image && (
+					<div className="mb-4">
+						<img
+							src={`http://127.0.0.1:8000${post.image}`}
+							alt={title}
+							width={800}
+							height={400}
+							className="rounded-lg object-cover w-full h-auto"
+						/>
+					</div>
+				)}
+				<h2 className="text-2xl font-semibold mb-2">{title}</h2>
+				<p className="text-gray-700 dark:text-gray-400">{content}</p>
+				<div className="flex justify-between text-gray-500">
+					<p>{new Date(post.created_at).toLocaleDateString()}</p>
+					<p>{post.author}</p>
+				</div>
+			</article>
+		);
+	};
+
+	const PostView = () => {
+		if (!posts.length) {
+			return <NoData />;
+		}
+
+		return (
+			<div className="grid gap-6">
+				{posts.map((post: any) => (
+					<PostElement key={post.id} post={post} />
+				))}
+			</div>
+		);
+	};
 
 	return (
 		<main className="mx-auto pt-80 overflow-hidden relative px-4">
@@ -28,7 +84,7 @@ export default function Blog() {
 				</section>
 
 				<section className="py-12">
-					<NoData />
+					<PostView />
 				</section>
 			</div>
 		</main>

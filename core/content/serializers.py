@@ -7,8 +7,8 @@ class BlogPostSerializer(serializers.ModelSerializer):
         fields = [
             'id',
             'image',
-            'title_ru', 'title_en', 'title_ky',
-            'content_ru', 'content_en', 'content_ky',
+            'title_ru', 'title_en', 'title_kg',
+            'content_ru', 'content_en', 'content_kg',
             'author',
             'created_at',
             'updated_at',
