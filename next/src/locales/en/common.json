@@ -224,11 +224,17 @@
         "delete_chat_success": "Chat deleted successfully",
         "delete_chat_error": "Error deleting chat",
         "ask_something": "Ask something...",
-        "templates": "Templates",
         "voice_enter": "Voice Enter",
         "attachments": "Attachments",
+        "templates": {
+            "templates": "Templates",
+            "usage": "Total usage",
+            "namePlaceholder": "Template name",
+            "descriptionPlaceholder": "Template description",
+            "promptPlaceholder": "Prompt"
+        },
         "tabs": {
-            "all": "All Templates",
+            "global": "Global Templates",
             "favorites": "Favorites templates",
             "create": "Create new template",
             "selected": "Selected template"

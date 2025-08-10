@@ -9,7 +9,6 @@ from openai.types.chat import ChatCompletionMessageParam
 from .serializers import AiPromptTemplateSerializer
 
 
-
 class ChatGptAPIView(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
@@ -53,12 +52,21 @@ class ChatGptAPIView(APIView):
 class AiTemplatesApiView(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
-    
+
     def get(self, request):
-        queryset = AiPromptTemplate.objects.filter(is_public=True, is_active=True)
-        data = AiPromptTemplateSerializer(queryset, many=True).data
+        global_queryset = AiPromptTemplate.objects.filter(
+            is_public=True, is_active=True)
+        personal_queryset = AiPromptTemplate.objects.filter(
+            is_public=False, is_active=True, created_by=request.user
+        )
+        global_data = AiPromptTemplateSerializer(
+            global_queryset, many=True).data
+        personal_data = AiPromptTemplateSerializer(
+            personal_queryset, many=True).data
 
         return Response(
-            data=data,
+            data={
+                "global": global_data,
+                "personal": personal_data, },
             status=200
         )

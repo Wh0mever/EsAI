@@ -1,14 +1,13 @@
-'use client';
+"use client";
 
 import FeatureCard from "../Feature/FeatureCard";
 import AIGalleryStrips from "./Tape";
-import { TextTag } from '@/components/UI/Text/Text';
+import { TextTag } from "@/components/UI/Text/Text";
 import { useTranslation } from "react-i18next";
 import "./Covers.scss";
 
 export default function Covers() {
-
-	const { t } = useTranslation('home');
+	const { t } = useTranslation("home");
 
 	return (
 		<section className="px-30 py-30 section-divider flex flex-col gap-5 bg-black/50">
@@ -24,30 +23,30 @@ export default function Covers() {
 
 			<div className="z-10 w-full flex flex-col gap-10">
 				<div className="mt-2 flex flex-col items-center justify-center gap-5 text-center">
-					<TextTag text={t('covers.subtitle')}/>
-					<h2 className="text-4xl font-semibold">{t('covers.title')}</h2>
+					<TextTag text={t("covers.subtitle")} />
+					<h2 className="text-4xl font-semibold">{t("covers.title")}</h2>
 				</div>
 
-				<div className="w-full flex">
-					<div className="w-3/12 p-4">
+				<div className="w-full flex flex-wrap">
+					<div className="w-full lg:w-3/12 p-4">
 						<FeatureCard
-							title={t('covers.cards.0.title')}
+							title={t("covers.cards.0.title")}
 							image="/images/feature/5.webp"
-							description={t('covers.cards.0.description')}
+							description={t("covers.cards.0.description")}
 						/>
 					</div>
-					<div className="w-6/12 p-4">
+					<div className="w-full lg:w-6/12 p-4">
 						<FeatureCard
-							title={t('covers.cards.1.title')}
+							title={t("covers.cards.1.title")}
 							image="/images/feature/6.webp"
-							description={t('covers.cards.1.description')}
+							description={t("covers.cards.1.description")}
 						/>
 					</div>
-					<div className="w-3/12 p-4">
+					<div className="w-full lg:w-3/12 p-4">
 						<FeatureCard
-							title={t('covers.cards.2.title')}
+							title={t("covers.cards.2.title")}
 							image="/images/feature/7.webp"
-							description={t('covers.cards.2.description')}
+							description={t("covers.cards.2.description")}
 						/>
 					</div>
 				</div>

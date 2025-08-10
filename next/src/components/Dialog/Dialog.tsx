@@ -84,11 +84,11 @@ export function Modal({ title, children, size = "md", onClose, open }: ModalProp
 	return createPortal(
 		<div className={`fixed inset-0 z-50 items-center justify-center bg-black/50 ${open ? "flex" : "hidden"}`}>
 			<div
-				className={`bg-white dark:bg-neutral-900 w-full p-5 ${sizeClasses[size]} ${
+				className={`bg-black w-full p-5 ${sizeClasses[size]} ${
 					size === "full" ? "" : "mx-4"
 				} p-6 relative`}
 			>
-				<h2 className="text-xl font-semibold mb-4 border-b py-2 border-neutral-600">{title}</h2>
+				<h2 className="text-xl font-semibold mb-4 border-b py-2 border-neutral-600 capitalize">{title}</h2>
 				<button
 					onClick={onClose}
 					className="absolute top-5 text-xl right-5 text-gray-400 hover:text-gray-600 transition"

@@ -17,6 +17,11 @@ interface FieldProps {
 	onChange?: (e: React.ChangeEvent<HTMLInputElement>) => void;
 }
 
+interface TextAreaProps extends Omit<FieldProps, "type"> {
+	rows?: number;
+	cols?: number;
+}
+
 interface CheckboxProps {
 	name: string;
 	disabled?: boolean;
@@ -47,7 +52,7 @@ export function Field(FieldProps: FieldProps) {
 	);
 }
 
-export function TextArea(FieldProps: FieldProps) {
+export function TextArea(FieldProps: TextAreaProps) {
 	return (
 		<div className="flex flex-col gap-2">
 			<label htmlFor={FieldProps.id}>{FieldProps.label}</label>
@@ -58,6 +63,9 @@ export function TextArea(FieldProps: FieldProps) {
 				name={FieldProps.name}
 				id={FieldProps.id}
 				required={FieldProps.required}
+				disabled={FieldProps.disabled || false}
+				rows={FieldProps.rows || 4}
+				cols={FieldProps.cols || 50}
 			/>
 		</div>
 	);

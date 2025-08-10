@@ -112,7 +112,7 @@ export default function SignIn() {
 	};
 
 	return (
-		<form onSubmit={handleSubmit} className="flex-1 h-full flex flex-col gap-8 items-center p-10 overflow-auto">
+		<form onSubmit={handleSubmit} className="flex-1 h-full flex flex-col gap-8 items-center p-10 overflow-auto max-w-[450px]">
 			<Alert
 				show={showAlert}
 				title={alertTitle}
@@ -128,8 +128,8 @@ export default function SignIn() {
 
 			<img src="/images/logo/base.svg" alt="" className="max-w-[200px]" />
 			<div className="text-center">
-				<h4 className="text-xl font-bold text-black">{t("auth.title")}</h4>
-				<p className="text-md text-yellow-500">{t("auth.subtitle")}</p>
+				<h4 className="text-xl font-bold text-neutral-700">{t("auth.title")}</h4>
+				<p className="text-md text-yellow-400">{t("auth.subtitle")}</p>
 			</div>
 
 			{step === "signin" && (
@@ -192,7 +192,7 @@ export default function SignIn() {
 			{step === "signin" && (
 				<div className="text-center mt-3 pt-4 flex flex-col items-center gap-2">
 					<div className="flex items-center gap-2">
-						<span className="text-yellow-500 font-light">{t("auth.dont_have_account")}</span>
+						<span className="text-gray-500 font-light">{t("auth.dont_have_account")}</span>
 						<NextLink href="/auth/signup" className="text-purple-500 text-sm">
 							{t("auth.signup")}
 						</NextLink>

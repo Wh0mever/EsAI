@@ -1,0 +1,49 @@
+'use client';
+
+import React from "react";
+import { CiHeart } from "react-icons/ci";
+import { BsStars } from "react-icons/bs";
+import { Button } from "@/components/UI/Buttons/Buttons";
+import { t } from "i18next";
+
+interface ICard {
+	children: React.ReactNode;
+}
+
+export function Card({ children }: ICard) {
+	return <div className="bg-neutral-900/80 p-10 rounded-4xl flex gap-2 items-center">{children}</div>;
+}
+
+export function TemplateCard({ title, description, usage_count, provider }: any) {
+	return (
+		<div
+			className={`flex flex-col gap-3 p-10 card-hover-colored bg-gray-800/5 border border-gray-700 rounded-xl hover:shadow-lg hover:bg-gray-800/10 hover:border-gray-600 colored-center`}
+			style={{ animation: "showCard 0.5s ease-in-out forwards" }}
+		>
+			<img
+				src="/images/decorations/ai-template-card-bg.webp"
+				alt=""
+				className="absolute h-full w-full left-0 top-0 -z-10"
+			/>
+
+			<i className="text-3xl p-5 flex rounded-full w-fit h-fit bg-indigo-800/25 text-white">
+				<BsStars />
+			</i>
+			<div>
+				<h3 className="text-white font-semibold text-lg">{title}</h3>
+				{description && <p className="text-gray-400 text-sm mt-1">{description}</p>}
+			</div>
+			<div className="text-gray-500 flex items-center justify-between mt-3">
+				<div className="text-sm ">
+                    <p className="text-gray-300">
+                        <span>{t('chat.templates.usage')}: </span>
+                        <span>{usage_count}</span>
+                    </p>
+                </div>
+				<Button className="text-2xl cursor-pointer flex items-center justify-center p-2 rounded-full hover:text-indigo-600 hover:bg-white/75 transition-colors">
+					<CiHeart className="inline-block mr-1" />
+				</Button>
+			</div>
+		</div>
+	);
+}

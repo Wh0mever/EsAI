@@ -20,6 +20,8 @@
     border: 1px solid #2f2f38;
     color: #ffffff;
     transition: all 0.3s ease-in-out;
+    padding: 1rem;
+    width: 100%;
 
     &::placeholder {
         color: #909090 !important;
