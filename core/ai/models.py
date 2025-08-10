@@ -23,7 +23,7 @@ class AiPromptTemplate(models.Model):
     name = models.CharField(max_length=100, unique=True)
     provider = models.ForeignKey(AiProvider, on_delete=models.CASCADE, related_name='prompt_templates')
     template = models.TextField(help_text="Prompt template text")
-    
+    purpose = models.CharField(max_length=255, help_text="Purpose of the prompt template")
     
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -32,8 +32,8 @@ class AiPromptTemplate(models.Model):
     
     created_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='created_prompt_templates')
     usage_count = models.PositiveIntegerField(default=0, help_text="Number of times this template has been used")
-    is_active = models.BooleanField(default=True)
-    is_public = models.BooleanField(default=False)
+    is_active = models.BooleanField(default=True, help_text="Is this template currently active?")
+    is_public = models.BooleanField(default=False, help_text="Is this template visible to all users?")
     
     def __str__(self):
         return self.name

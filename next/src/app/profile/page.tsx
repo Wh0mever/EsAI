@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { Card } from "@/components/UI/Card";
+import { Card } from "@/components/UI/Cards/Cards";
 import { Button } from "@/components/UI/Buttons/Buttons";
 import { useTranslation } from "react-i18next";
 import { PiUserLight } from "react-icons/pi";
@@ -14,6 +14,7 @@ import { FaCcMastercard } from "react-icons/fa";
 import { Field, Checkbox } from "@/components/UI/Inputs/Inputs";
 import { CiCircleCheck } from "react-icons/ci";
 import Link from "next/link";
+
 
 type PropsVisa = {
 	t: any;

@@ -224,14 +224,30 @@
         "delete_chat_success": "Чат успешно удалён",
         "delete_chat_error": "Ошибка при удалении чата",
         "ask_something": "Спросите что-нибудь...",
-        "templates": "Шаблоны",
+        "templates": {
+            "templates": "Templates",
+            "usage": "Total usage",
+            "namePlaceholder": "Template name",
+            "descriptionPlaceholder": "Template description",
+            "promptPlaceholder": "Prompt",
+            "name": "Name",
+            "prompt": "Prompt",
+            "description": "Description",
+            "noFavorites": "Нет избранных шаблонов",
+            "noTemplates": "Нет шаблонов",
+            "noTemplatesText": "Пока нет шаблонов, вы можете создать свой первый шаблон",
+            "create": "Create template",
+            "edit": "Edit template",
+            "delete": "Delete template"
+        },
         "voice_enter": "Голосовой ввод",
         "attachments": "Attachments",
         "tabs": {
-            "all": "All Templates",
-            "favorites": "Favorites templates",
-            "create": "Create new template",
-            "selected": "Selected template"
+            "global": "Vokalo Шаблоны",
+            "favorites": "Избранные Шаблоны",
+            "create": "Создать шаблон",
+            "selected": "Выбранный шаблон",
+            "usage": "Usage"
         },
         "models_tabs": {
             "text": "Текст",

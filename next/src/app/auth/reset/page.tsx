@@ -66,7 +66,7 @@ export default function ResetPassword() {
 	};
 
 	return (
-		<form onSubmit={handleSubmit} className="flex-1 overflow-auto h-full flex flex-col gap-8 items-center p-10">
+		<form onSubmit={handleSubmit} className="flex-1 h-full flex flex-col gap-8 items-center p-10 overflow-auto max-w-[450px]">
 			<Alert
 				show={!!alert}
 				title={alert?.title || ""}

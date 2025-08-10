@@ -35,8 +35,6 @@ export default function Blog() {
 						<img
 							src={`http://127.0.0.1:8000${post.image}`}
 							alt={title}
-							width={800}
-							height={400}
 							className="rounded-lg object-cover w-full h-auto"
 						/>
 					</div>
