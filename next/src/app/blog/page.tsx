@@ -1,9 +1,9 @@
 "use client";
 
 import "@/assets/style.scss";
-import NoData from "@/components/NoData/NoData";
+import NoData from "@/components/global/NoData";
 import { useTranslation } from "react-i18next";
-import Breadcrumb from "@/components/PageView/Breadcrumb";
+import Breadcrumb from "@/components/global/AnimatedCircleBg";
 import { useEffect, useState } from "react";
 import { fetchData } from "@/tools/fetchData";
 import { API } from "@/tools/fetchData";

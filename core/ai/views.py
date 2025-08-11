@@ -70,3 +70,17 @@ class AiTemplatesApiView(APIView):
                 "personal": personal_data, },
             status=200
         )
+        
+    
+class AiTemplatesFavoriteApiView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        template_id = request.data.get("templateId")
+        favorite = request.data.get("favorite", False)
+
+        pass
+        
+    def get(self, request):
+        pass

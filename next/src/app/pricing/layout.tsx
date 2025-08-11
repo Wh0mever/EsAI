@@ -1,6 +1,6 @@
 'use client';
-import Header from "@/components/Header/Header";
-import Footer from "@/components/Footer/Footer";
+import Header from "@/components/main/Header";
+import Footer from "@/components/main/Footer";
 import { useTranslation } from "react-i18next";
 import { useEffect } from "react";
 

@@ -1,6 +1,6 @@
 import "@/assets/style.scss";
 
-import Breadcrumb from "@/components/PageView/Breadcrumb";
+import Breadcrumb from "@/components/global/AnimatedCircleBg";
 
 import React from "react";
 

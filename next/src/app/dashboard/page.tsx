@@ -2,15 +2,14 @@
 
 import "@/assets/style.scss";
 import "./dashboard.scss";
-import Chat from "@/components/Chat/Chat";
-import DashboardNav from "@/components/Nav/DashboardNav";
+import Chat from "@/components/chat/Chat";
 import Cookies from "js-cookie";
 import { useTranslation } from "react-i18next";
 import { VscBell } from "react-icons/vsc";
-import { Button } from "@/components/UI/Buttons/Buttons";
+import { Button } from "@/components/ui/buttons/Buttons";
 import { useState, useRef, useEffect } from "react";
-import Dropdown from "@/components/DropDown/DropDown";
-import { ConfirmationModal } from "@/components/Dialog/Dialog";
+import Dropdown from "@/components/dropDown/DropDown";
+import { ConfirmationModal } from "@/components/dialog/Dialog";
 import Link from "next/link";
 import { CiUser } from "react-icons/ci";
 const languageItems = [
@@ -46,7 +45,7 @@ export default function Dashboard() {
 	return (
 		<main className="antialiased mx-auto h-full flex bg-neutral-800/75 gap-5">
 			<div className="w-3/12">
-				<DashboardNav />
+				
 			</div>
 			<div className="flex w-6/12">
 				<Chat />

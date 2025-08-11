@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import AiPromptTemplate
+from .models import AiPromptTemplate, AiPromptTemplateFavorite
 
 
 class AiPromptTemplateSerializer(serializers.ModelSerializer):
@@ -24,3 +24,16 @@ class AiPromptTemplateSerializer(serializers.ModelSerializer):
             'is_public',
         ]
         read_only_fields = ['id', 'created_by', 'created_at', 'updated_at', 'usage_count']
+        
+        
+class AiPromptTemplateFavoriteSerializer(serializers.ModelSerializer):
+    user = serializers.HiddenField(
+        default=serializers.CurrentUserDefault()
+    )
+    favorites = serializers.JSONField(source='template', read_only=True)
+    
+    def validate(self, attrs):
+        
+        print("Validating AiPromptTemplateFavoriteSerializer with attrs:", attrs)
+        
+        return super().validate(attrs)

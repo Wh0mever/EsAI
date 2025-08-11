@@ -2,7 +2,7 @@
 
 import "@/assets/style.scss";
 import { useTranslation } from "react-i18next";
-import Breadcrumb from "@/components/PageView/Breadcrumb";
+import Breadcrumb from "@/components/global/AnimatedCircleBg";
 
 export default function About() {
 	const { t } = useTranslation("common");

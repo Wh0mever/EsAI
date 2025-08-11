@@ -1,11 +1,11 @@
 "use client";
 import React, { useState, useEffect } from "react";
-import { AppTable } from "@/components/Admin/AppTable/AppTable";
+import { AppTable } from "@/components/admin/AppTable/AppTable";
 import { useParams } from "next/navigation";
 import { useAppsConfig } from "@/context/AppsConfigContext";
-import { Loader } from "@/components/UI/Loader/Loader";
+import { Loader } from "@/components/global/Loader";
 import { fetchData } from "@/tools/fetchData";
-import AppForm from "@/components/Admin/AppForm/AppForm";
+import AppForm from "@/components/admin/AppForm/AppForm";
 
 export default function AdminPage() {
 	const params = useParams();

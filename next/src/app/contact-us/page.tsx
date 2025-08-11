@@ -2,7 +2,7 @@
 
 import "@/assets/style.scss";
 import { IoIosArrowRoundForward } from "react-icons/io";
-import ContactUsForm from "@/components/Forms/ContactUs";
+import ContactUsForm from "@/components/forms/ContactUs";
 import { useTranslation } from "react-i18next";
 
 export default function ContactUs() {

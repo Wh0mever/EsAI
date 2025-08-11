@@ -1,17 +1,17 @@
 "use client";
 
 import React from "react";
-import { Card } from "@/components/UI/Cards/Cards";
-import { Button } from "@/components/UI/Buttons/Buttons";
+import { Card } from "@/components/ui/cards/Cards";
+import { Button } from "@/components/ui/buttons/Buttons";
 import { useTranslation } from "react-i18next";
 import { PiUserLight } from "react-icons/pi";
 import { RiVisaLine } from "react-icons/ri";
 import { IoExitOutline } from "react-icons/io5";
 import { fetchData } from "@/tools/fetchData";
 import { useEffect, useState, useRef } from "react";
-import Breadcrumb from "@/components/PageView/Breadcrumb";
+import Breadcrumb from "@/components/global/AnimatedCircleBg";
 import { FaCcMastercard } from "react-icons/fa";
-import { Field, Checkbox } from "@/components/UI/Inputs/Inputs";
+import { Field, Checkbox } from "@/components/ui/inputs/Inputs";
 import { CiCircleCheck } from "react-icons/ci";
 import Link from "next/link";
 
