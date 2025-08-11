@@ -1,52 +1,76 @@
-from django.shortcuts import render
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework_simplejwt.authentication import JWTAuthentication
-from rest_framework.permissions import IsAuthenticated
-from .models import AiProvider, AiPromptTemplate
 from openai import OpenAI
-from openai.types.chat import ChatCompletionMessageParam
-from .serializers import AiPromptTemplateSerializer
+from typing import Any, List, Optional
+from django.db import transaction
+from rest_framework.views import APIView
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.pagination import LimitOffsetPagination
+from rest_framework_simplejwt.authentication import JWTAuthentication
+from .handlers import OpenAIHandler
+from .models import AiProvider, AiChatSession, AiChatMessage, AiPromptTemplate, AiPromptTemplateFavorite
+from .serializers import (
+    AiChatSessionListSerializer,
+    AiChatSessionDetailSerializer,
+    AiChatMessageSerializer,
+    AiPromptTemplateSerializer
+)
+
 
 
 class ChatGptAPIView(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
 
+    @transaction.atomic
     def post(self, request):
-        message = request.data.get("message")
-        if not message:
-            return Response({"error": "No message provided"}, status=400)
+        response = OpenAIHandler(request)
+        print("OpenAIHandler response:", response)
+        return Response(
+            response,
+            status=200 if isinstance(response, dict) and "error" not in response else 400
+        )
 
-        try:
-            token = AiProvider.objects.get(slug="gpt").token
-            client = OpenAI(api_key=token)
+class ChatSessionListAPIView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
 
-            messages: list[ChatCompletionMessageParam] = [
-                {
-                    "role": "system",
-                    "content": "Говори как пират, но на русском языке",
-                },
-                {
-                    "role": "user",
-                    "content": message,
-                },
-            ]
+    def get(self, request):
+        qs = (
+            AiChatSession.objects
+            .filter(user=request.user)
+            .order_by("-updated_at")
+            .prefetch_related("messages")
+        )
+        data = AiChatSessionListSerializer(qs, many=True).data
+        return Response(data)
 
-            response = client.chat.completions.create(
-                model="gpt-4o",
-                messages=messages,
-                temperature=0.7,
-                max_tokens=1000,
-                top_p=1,
-            )
+class ChatSessionDetailAPIView(APIView, LimitOffsetPagination):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    default_limit = 30
 
-            answer = response.choices[0].message.content
-            return Response({"response": answer})
+    def get(self, request, session_id: int):
+        session = (
+            AiChatSession.objects
+            .filter(id=session_id, user=request.user)
+            .first()
+        )
+        if not session:
+            return Response({"error": "Session not found"}, status=404)
 
-        except Exception as e:
-            print("ChatGPT error:", e)
-            return Response({"error": str(e)}, status=500)
+        messages_qs = session.messages.order_by("created_at")
+        page = self.paginate_queryset(messages_qs, request, view=self)
+        messages = AiChatMessageSerializer(page, many=True).data
+        payload = {
+            "id": session.id,
+            "title": session.title,
+            "provider_id": session.provider_id,
+            "created_at": session.created_at,
+            "updated_at": session.updated_at,
+            "is_active": session.is_active,
+            "messages": messages,
+        }
+        return self.get_paginated_response(payload)
 
 
 class AiTemplatesApiView(APIView):

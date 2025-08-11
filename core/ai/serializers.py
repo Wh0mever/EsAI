@@ -1,6 +1,5 @@
 from rest_framework import serializers
-from .models import AiPromptTemplate, AiPromptTemplateFavorite
-
+from .models import AiPromptTemplate, AiPromptTemplateFavorite, AiChatSession, AiChatMessage
 
 class AiPromptTemplateSerializer(serializers.ModelSerializer):
     provider_name = serializers.CharField(source='provider.name', read_only=True)
@@ -37,3 +36,34 @@ class AiPromptTemplateFavoriteSerializer(serializers.ModelSerializer):
         print("Validating AiPromptTemplateFavoriteSerializer with attrs:", attrs)
         
         return super().validate(attrs)
+
+
+class AiChatMessageSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AiChatMessage
+        fields = ("id", "role", "content", "attachments", "meta", "created_at")
+
+class AiChatSessionListSerializer(serializers.ModelSerializer):
+    last_message = serializers.SerializerMethodField()
+    messages_count = serializers.IntegerField(source="messages.count", read_only=True)
+
+    class Meta:
+        model = AiChatSession
+        fields = ("id", "title", "provider_id", "created_at", "updated_at", "is_active", "messages_count", "last_message")
+
+    def get_last_message(self, obj):
+        m = obj.messages.order_by("-created_at").first()
+        if not m:
+            return None
+        return {
+            "role": m.role,
+            "content": (m.content[:200] + "…") if m.content and len(m.content) > 200 else m.content,
+            "created_at": m.created_at,
+        }
+
+class AiChatSessionDetailSerializer(serializers.ModelSerializer):
+    messages = AiChatMessageSerializer(many=True)
+
+    class Meta:
+        model = AiChatSession
+        fields = ("id", "title", "provider_id", "created_at", "updated_at", "is_active", "messages")
