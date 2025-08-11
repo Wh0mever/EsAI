@@ -1,6 +1,27 @@
 from django.contrib import admin
-from .models import AiProvider, AiPromptTemplate
+from django.db import models
+from django import forms
+from django.http import HttpResponse
+from django.utils.timezone import now
+import json
 
+from .models import (
+    AiProvider,
+    AiPromptTemplate,
+    AiChatSession,
+    AiChatMessage,
+)
+
+class JSONTextarea(forms.Textarea):
+    def format_value(self, value):
+        try:
+            if isinstance(value, str):
+                parsed = json.loads(value)
+            else:
+                parsed = value
+            return json.dumps(parsed, ensure_ascii=False, indent=2)
+        except Exception:
+            return value
 
 @admin.register(AiProvider)
 class AiProviderAdmin(admin.ModelAdmin):
@@ -18,8 +39,7 @@ class AiProviderAdmin(admin.ModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         return request.user.is_superuser
-    
-    
+
 @admin.register(AiPromptTemplate)
 class AiPromptTemplateAdmin(admin.ModelAdmin):
     list_display = ('name', 'provider', 'is_active', 'is_public', 'created_by', 'created_at', 'updated_at')
@@ -28,5 +48,102 @@ class AiPromptTemplateAdmin(admin.ModelAdmin):
     ordering = ('-created_at',)
     readonly_fields = ('created_at', 'updated_at')
 
-    
-    
+class AiChatMessageInline(admin.TabularInline):
+    model = AiChatMessage
+    extra = 0
+    can_delete = False
+    show_change_link = True
+    readonly_fields = ('role', 'content_preview', 'attachments_preview', 'meta_preview', 'created_at')
+    fields = ('role', 'content_preview', 'attachments_preview', 'meta_preview', 'created_at')
+
+    def content_preview(self, obj):
+        if not obj.content:
+            return '—'
+        c = obj.content.strip()
+        return c[:180] + ('…' if len(c) > 180 else '')
+
+    def attachments_preview(self, obj):
+        if not obj.attachments:
+            return '—'
+        s = json.dumps(obj.attachments, ensure_ascii=False)
+        return s[:180] + ('…' if len(s) > 180 else '')
+
+    def meta_preview(self, obj):
+        if not obj.meta:
+            return '—'
+        s = json.dumps(obj.meta, ensure_ascii=False)
+        return s[:160] + ('…' if len(s) > 160 else '')
+
+@admin.register(AiChatSession)
+class AiChatSessionAdmin(admin.ModelAdmin):
+    list_display = ('id', 'title', 'user', 'provider', 'messages_count', 'is_active', 'created_at', 'updated_at')
+    search_fields = ('title', 'user__email', 'user__username')
+    list_filter = ('is_active', 'provider', 'created_at')
+    ordering = ('-updated_at',)
+    date_hierarchy = 'created_at'
+    readonly_fields = ('created_at', 'updated_at')
+    list_select_related = ('user', 'provider')
+    inlines = (AiChatMessageInline,)
+    actions = ('archive_sessions', 'unarchive_sessions', 'export_sessions_json')
+
+    def messages_count(self, obj):
+        return obj.messages.count()
+    messages_count.short_description = 'Сообщений'
+
+    def archive_sessions(self, request, queryset):
+        queryset.update(is_active=False, updated_at=now())
+    archive_sessions.short_description = 'Архивировать выбранные'
+
+    def unarchive_sessions(self, request, queryset):
+        queryset.update(is_active=True, updated_at=now())
+    unarchive_sessions.short_description = 'Разархивировать выбранные'
+
+    def export_sessions_json(self, request, queryset):
+        payload = []
+        qs = queryset.select_related('user', 'provider').prefetch_related('messages')
+        for s in qs:
+            payload.append({
+                'id': s.id,
+                'title': s.title,
+                'user': {'id': s.user_id, 'email': getattr(s.user, 'email', None)},
+                'provider': getattr(s.provider, 'slug', None),
+                'created_at': s.created_at.isoformat() if s.created_at else None,
+                'updated_at': s.updated_at.isoformat() if s.updated_at else None,
+                'is_active': s.is_active,
+                'messages': [
+                    {
+                        'id': m.id,
+                        'role': m.role,
+                        'content': m.content,
+                        'attachments': m.attachments,
+                        'meta': m.meta,
+                        'created_at': m.created_at.isoformat() if m.created_at else None,
+                    }
+                    for m in s.messages.all().order_by('created_at')
+                ],
+            })
+        data = json.dumps(payload, ensure_ascii=False, indent=2)
+        resp = HttpResponse(data, content_type='application/json; charset=utf-8')
+        resp['Content-Disposition'] = 'attachment; filename=ai_chat_sessions.json'
+        return resp
+    export_sessions_json.short_description = 'Экспортировать в JSON'
+
+@admin.register(AiChatMessage)
+class AiChatMessageAdmin(admin.ModelAdmin):
+    list_display = ('id', 'session', 'role', 'short_content', 'created_at')
+    search_fields = ('content', 'session__title', 'session__user__email')
+    list_filter = ('role', 'created_at')
+    ordering = ('-created_at',)
+    date_hierarchy = 'created_at'
+    list_select_related = ('session', 'session__user', 'session__provider')
+    readonly_fields = ('created_at',)
+    formfield_overrides = {
+        models.JSONField: {'widget': JSONTextarea(attrs={'rows': 10, 'style': 'font-family:monospace'})},
+    }
+
+    def short_content(self, obj):
+        if not obj.content:
+            return '—'
+        c = obj.content.strip()
+        return c[:120] + ('…' if len(c) > 120 else '')
+    short_content.short_description = 'Текст'
