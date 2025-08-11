@@ -2,7 +2,7 @@
 "use client";
 
 import { AppsConfigProvider } from "@/context/AppsConfigContext";
-import SideBar from "@/components/Admin/SideBar/SideBar";
+import SideBar from "@/components/admin/SideBar/SideBar";
 
 export default function RootLayout({
 	children,

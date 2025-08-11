@@ -1,9 +1,9 @@
 "use client";
 
 import "@/assets/style.scss";
-import PricingTab from "@/components/UI/Tabs/PricingTab";
-import Breadcrumb from "@/components/PageView/Breadcrumb";
-import Questions from "@/components/Questions/Questions";
+import PricingTab from "@/components/ui/tabs/PricingTab";
+import Breadcrumb from "@/components/global/AnimatedCircleBg";
+import Questions from "@/components/global/Questions";
 import { useTranslation } from "react-i18next";
 
 export default function Pricing() {

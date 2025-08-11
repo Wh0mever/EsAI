@@ -2,7 +2,7 @@
 
 import { useTranslation } from "react-i18next";
 import { FaChevronDown } from "react-icons/fa";
-import Breadcrumb from "@/components/PageView/Breadcrumb";
+import Breadcrumb from "@/components/global/AnimatedCircleBg";
 
 export default function FAQSection() {
 	const { t } = useTranslation("common");

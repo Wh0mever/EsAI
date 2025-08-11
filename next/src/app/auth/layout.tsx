@@ -1,5 +1,5 @@
 'use client';
-import TextSlider from "@/components/UI/Sliders/TextSlider";
+import TextSlider from "@/components/ui/sliders/TextSlider";
 import { useTranslation } from "react-i18next";
 
 export default function RootLayout({

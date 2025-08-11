@@ -38,5 +38,14 @@ class AiPromptTemplate(models.Model):
     def __str__(self):
         return self.name
     
+
+class AiPromptTemplateFavorite(models.Model):
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='favorite_templates')
+    template = models.JSONField(help_text="Template data in JSON format")
+    created_at = models.DateTimeField(auto_now_add=True)
+        
+    def __str__(self):
+        return f"{self.user.email} favorite templates"
+    
     
     
