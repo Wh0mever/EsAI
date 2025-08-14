@@ -3,7 +3,7 @@ import Header from "@/components/main/Header";
 import Footer from "@/components/main/Footer";
 import { useTranslation } from "react-i18next";
 import { useEffect } from "react";
-import FreedomPayLoader from '@/tools/FreedomPayLoader';
+import FreedomPayLoader from '@/lib/freedompay/FreedomPayLoader';
 
 export default function RootLayout({
 	children,

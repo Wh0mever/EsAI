@@ -63,8 +63,8 @@ async function refreshAuth(): Promise<string | null> {
 	const newAccess = data.access;
 	const newRefresh = data.refresh;
 	if (newAccess) {
-		Cookies.set("access", newAccess);
-		Cookies.set("refresh", newRefresh);
+		Cookies.set("access", newAccess, { expires: 7 }); // 3 days
+		Cookies.set("refresh", newRefresh, { expires: 15 }); // 3 days
 		console.log("✅ Access token обновлён");
 		return newAccess;
 	}
