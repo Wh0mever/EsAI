@@ -9,6 +9,24 @@ import Breadcrumb from "@/components/global/AnimatedCircleBg";
 import UserProfile from "@/components/profile/UserProfile";
 import UserVisa from "@/components/profile/UserPayment";
 import UserPlan from "@/components/profile/UserPlan";
+import { payWithBankCard } from "@/lib/freedompay/pay";
+
+async function waitForSDK(timeout = 5000) {
+	const start = Date.now();
+	return new Promise<void>((resolve, reject) => {
+		(function check() {
+			if (typeof window !== "undefined" && window.FreedomPaySDK) {
+				resolve();
+				return;
+			}
+			if (Date.now() - start > timeout) {
+				reject(new Error("FreedomPaySDK is not loaded"));
+				return;
+			}
+			requestAnimationFrame(check);
+		})();
+	});
+}
 
 function ProfileAlert({ t }: { t: any }) {
 	const EmptyPlanAlert = () => {
@@ -37,7 +55,35 @@ export default function ProfilePage() {
 		fetchData("users/profile/", "get", null, true).then((responseData) => {
 			setProfileData(JSON.parse(responseData?.data));
 		});
-	}, [setProfileData]);
+	}, []);
+
+	async function handleSubmitCard(card: {
+		number: string;
+		expMonth: string;
+		expYear: string;
+		cvv: string;
+		holder: string;
+	}) {
+		const res = await payWithBankCard(
+			{
+				number: card.number,
+				holder: card.holder,
+				expMonth: card.expMonth,
+				expYear: card.expYear,
+				cvv: card.cvv,
+			},
+			{
+				orderId: `order_${Date.now()}`,
+				amount: 1,
+				currency: "KGS",
+				description: "Test payment",
+				test: true,
+				user: { email: "test@example.com" },
+			},
+			"fp-3ds"
+		);
+		console.log("FreedomPay result:", res);
+	}
 
 	return (
 		<main className="mx-auto pt-80 pb-20 overflow-hidden relative px-4">
@@ -46,7 +92,9 @@ export default function ProfilePage() {
 				{!profileData?.plan && <ProfileAlert t={t} />}
 
 				<UserProfile t={t} data={profileData} />
-				<UserVisa t={t} isCardLinked={false} />
+				<UserVisa t={t} isCardLinked={false} onSubmitCard={handleSubmitCard} />
+				{/* 3DS контейнер вне формы */}
+				<div id="fp-3ds" className="w-full max-w-md h-[600px]" />
 				<UserPlan t={t} data={profileData} />
 			</div>
 		</main>

@@ -12,8 +12,8 @@ import SmartForm from "@/components/forms/SmartForm";
 
 function signin(response: any, setResponseData: any, t: any) {
   const { access, refresh, user } = response.data.data;
-  Cookies.set("access", access, { expires: 0.04 });
-  Cookies.set("refresh", refresh, { expires: 7 });
+  Cookies.set("access", access, { expires: 7 });
+  Cookies.set("refresh", refresh, { expires: 15 });
   Cookies.set("user", JSON.stringify(user));
   setResponseData({ status: "success", title: t("status.success"), message: t("status_extended.success") });
 }
