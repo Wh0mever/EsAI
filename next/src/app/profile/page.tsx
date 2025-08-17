@@ -94,7 +94,7 @@ export default function ProfilePage() {
 				<UserProfile t={t} data={profileData} />
 				<UserVisa t={t} isCardLinked={false} onSubmitCard={handleSubmitCard} />
 				{/* 3DS контейнер вне формы */}
-				<div id="fp-3ds" className="w-full max-w-md h-[600px]" />
+				<div id="fp-3ds" className="w-full max-w-md max-h-[400px]" />
 				<UserPlan t={t} data={profileData} />
 			</div>
 		</main>

@@ -9,10 +9,7 @@ from core.format import format_errors
 from mails.sender import send_template_email
 from django.contrib.auth.hashers import make_password
 from rest_framework_simplejwt.tokens import RefreshToken
-from rest_framework_simplejwt.views import TokenRefreshView
 from .models import User
-from plans.models import UserSubscription
-from plans.serializers import UserSubscribeSerializer
 
 
 class SigninApiView(APIView):
@@ -215,12 +212,12 @@ class PasswordResetCompleteView(APIView):
 class UserProfileView(APIView):
     def get(self, request):
         user = ProfileSerializer(request.user).data
-        plan = UserSubscription.objects.filter(user=request.user)
+        plan = False
 
-        if plan.exists():
-            plan = UserSubscribeSerializer(plan, many=True).data
-        else:
-            plan = False
+        # if plan.exists():
+        #     plan = UserSubscribeSerializer(plan, many=True).data
+        # else:
+        #     plan = False
 
         responseData = json.dumps({
             'user': user,

@@ -27,8 +27,31 @@
         "business": "Business",
         "trial": "Trial",
         "startofwork": "Start of Work",
-        "getstarted": "Get started with our new package"
+        "getstarted": "Get started with our new package",
+        "loading": "Loading...",
+        "vokalo_test": "VokaloTest",
+        "test_subtitle": "Test | Сыноо | Trial",
+        "monthly_subtitle": "30 days | 30 күн | 30 days",
+        "features": {
+            "open_ai_model": "Open AI model",
+            "ai_templates": "AI Templates",
+            "ops_per_month": "Operations per month",
+            "covers": "Covers",
+            "ai_chat": "AI Chat",
+            "realtime_chat": "Realtime Chat",
+            "rewriter": "AI Rewriter",
+            "antiplag": "Antiplagiarism",
+            "ai_images": "AI Images",
+            "diffusion_images": "Diffusion Images",
+            "blog_master": "Blog Master",
+            "music": "Music",
+            "tts": "Text-to-Speech",
+            "my_templates": "My Templates",
+            "manager": "Manager",
+            "support": "Free Support"
+        }
     },
+
     "date": {
         "day": "Day",
         "month": "Month",
