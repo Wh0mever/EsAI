@@ -10,6 +10,7 @@ urlpatterns = [
     path('api/content/', include('content.urls')),
     path('api/mails/', include('mails.urls')),
     path('api/ai/', include('ai.urls')),
+    path('api/plans/', include('plans.urls')),
 ]
 
 if settings.DEBUG:

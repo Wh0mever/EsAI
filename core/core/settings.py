@@ -1,62 +1,26 @@
 from pathlib import Path
 from datetime import timedelta
 import os
+import environ
 
-# SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'change-me'
-
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
-# LOG_DIR = BASE_DIR / 'logs'
-# LOG_FILE = LOG_DIR / 'django.log'
 
-# LOG_DIR.mkdir(exist_ok=True)
+# Initialize environment variables
+env = environ.Env()
+environ.Env.read_env(os.path.join(BASE_DIR, ".env"))
 
-# LOGGING = {
-#     'version': 1,
-#     'disable_existing_loggers': False,
+# Exchange API settings
+EXCHANGE_API_BASE = env("EXCHANGE_API_BASE", default="https://v6.exchangerate-api.com/v6")
+EXCHANGE_API_KEY = env("EXCHANGE_API_KEY")
 
-#     'formatters': {
-#         'verbose': {
-#             'format': '[{levelname}] {asctime} {name} | {message}',
-#             'style': '{',
-#         },
-#         'simple': {
-#             'format': '[{levelname}] {message}',
-#             'style': '{',
-#         },
-#     },
 
-#     'handlers': {
-#         'file': {
-#             'level': 'DEBUG',
-#             'class': 'logging.FileHandler',
-#             'filename': str(LOG_FILE),
-#             'formatter': 'verbose',
-#         },
-#     },
+# SECURITY WARNING: keep the secret key used in production secret!
+SECRET_KEY = env("DJANGO_SECRET_KEY")
 
-#     'loggers': {
-#         'django': {
-#             'handlers': ['file'],
-#             'level': 'DEBUG',
-#             'propagate': True,
-#         },
-#     }
-# }
-
-# if DEBUG:
-#     LOGGING['handlers']['console'] = {
-#         'level': 'DEBUG',
-#         'class': 'logging.StreamHandler',
-#         'formatter': 'simple',
-#     }
-
-#     LOGGING['loggers']['django']['handlers'].append('console')
-
+# SECURITY WARNING: don't run with debug turned on in production!
+DEBUG = env.bool("DJANGO_DEBUG", default=False)
 
 ALLOWED_HOSTS = []
 
@@ -228,3 +192,51 @@ EMAIL_USE_TLS = True
 EMAIL_HOST_USER = "vokalo.online"
 EMAIL_HOST_PASSWORD = "change-me"
 DEFAULT_FROM_EMAIL = "support@esai.kg"
+
+# Logging configuration
+# LOG_DIR = BASE_DIR / 'logs'
+# LOG_FILE = LOG_DIR / 'django.log'
+
+# LOG_DIR.mkdir(exist_ok=True)
+
+# LOGGING = {
+#     'version': 1,
+#     'disable_existing_loggers': False,
+
+#     'formatters': {
+#         'verbose': {
+#             'format': '[{levelname}] {asctime} {name} | {message}',
+#             'style': '{',
+#         },
+#         'simple': {
+#             'format': '[{levelname}] {message}',
+#             'style': '{',
+#         },
+#     },
+
+#     'handlers': {
+#         'file': {
+#             'level': 'DEBUG',
+#             'class': 'logging.FileHandler',
+#             'filename': str(LOG_FILE),
+#             'formatter': 'verbose',
+#         },
+#     },
+
+#     'loggers': {
+#         'django': {
+#             'handlers': ['file'],
+#             'level': 'DEBUG',
+#             'propagate': True,
+#         },
+#     }
+# }
+
+# if DEBUG:
+#     LOGGING['handlers']['console'] = {
+#         'level': 'DEBUG',
+#         'class': 'logging.StreamHandler',
+#         'formatter': 'simple',
+#     }
+
+#     LOGGING['loggers']['django']['handlers'].append('console')
