@@ -1,7 +1,9 @@
 {
     "common": {
         "yes": "Yes",
-        "no": "No"
+        "no": "No",
+        "submit": "Submit",
+        "loading": "Loading..."
     },
     "compass": {
         "1": "Песни",
@@ -49,9 +51,11 @@
             "my_templates": "My Templates",
             "manager": "Manager",
             "support": "Free Support"
-        }
+        },
+        "questions": "Still have questions?",
+        "questionsText": "Didn't find the answer here? You can contact us at",
+        "questionsLink": "Go to FAQ"
     },
-
     "date": {
         "day": "Day",
         "month": "Month",
@@ -166,7 +170,9 @@
         "submit_button": "Contact us"
     },
     "faq": {
-        "title": "🟡 Help / Frequently Asked Questions (FAQ)",
+        "title": "🟡 Any questions?",
+        "text": "Have a question that isn't answered here? You can contact us at",
+        "button": "Have a question? Contact us",
         "questions": {
             "0": {
                 "q": "How to create my first song or image?",
@@ -210,7 +216,10 @@
                 "q": "How to contact support?",
                 "a": "Write to support@vokalo.online or Telegram: @VokaloSupportBot"
             }
-        }
+        },
+        "modalTitle": "Ask a Question",
+        "questionDescription": "Your Question",
+        "questionDescriptionPlaceholder": "Type your question here..."
     },
     "blog": {
         "title": "🟡 Blog",
