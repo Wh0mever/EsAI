@@ -1,7 +1,9 @@
 {
     "common": {
         "yes": "Ооба",
-        "no": "Жок"
+        "no": "Жок",
+        "submit": "Жөнөтүү",
+        "loading": "Жүктөлүүдө..."
     },
     "compass": {
         "1": "Песни",
@@ -49,7 +51,10 @@
             "my_templates": "Менин шаблондорум",
             "manager": "Менеджер",
             "support": "Акысыз колдоо"
-        }
+        },
+        "questions": "Суроолоруңуз калдыбы?",
+        "questionsText": "Бул жерден жообун таппасаңыз, биз менен бул дарек аркылуу байланыша аласыз",
+        "questionsLink": "FAQ бөлүмүнө өтүү"
     },
     "date": {
         "day": "Күн",
@@ -165,7 +170,9 @@
         "submit_button": "Биз менен байланыш"
     },
     "faq": {
-        "title": "🟡 Жардам / Көп берилүүчү суроолор (FAQ)",
+        "title": "🟡 ",
+        "text": "Have a question that isn't answered here? You can contact us at",
+        "button": "Have a question? Contact us",
         "questions": {
             "0": {
                 "q": "Кандайча биринчи ыр же сүрөт түзө алам?",
@@ -209,7 +216,10 @@
                 "q": "Колдоо менен кантип байланышсам болот?",
                 "a": "support@vokalo.online дарегине жазыңыз же Telegram аркылуу: @VokaloSupportBot"
             }
-        }
+        },
+        "modalTitle": "Суроо берүү",
+        "questionDescription": "Сиздин сурооңуз",
+        "questionDescriptionPlaceholder": "Сурооңузду бул жерге жазыңыз..."
     },
     "blog": {
         "title": "🟡 Блог",

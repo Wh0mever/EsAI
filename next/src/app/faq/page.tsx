@@ -3,6 +3,7 @@
 import { useTranslation } from "react-i18next";
 import { FaChevronDown } from "react-icons/fa";
 import Breadcrumb from "@/components/global/AnimatedCircleBg";
+import Questions from "@/components/global/Questions";
 
 export default function FAQSection() {
 	const { t } = useTranslation("common");
@@ -68,6 +69,8 @@ export default function FAQSection() {
 					))}
 				</div>
 			</div>
+
+			<Questions />
 		</main>
 	);
 }
