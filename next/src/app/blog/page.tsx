@@ -33,7 +33,7 @@ export default function Blog() {
 				{post.image && (
 					<div className="mb-4">
 						<img
-							src={`http://127.0.0.1:8000${post.image}`}
+							src={`${API}${post.image}`}
 							alt={title}
 							className="rounded-lg object-cover w-full h-auto"
 						/>
