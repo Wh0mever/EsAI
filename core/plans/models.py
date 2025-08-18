@@ -40,6 +40,11 @@ class Plan(models.Model):
 
     # Engine mapping (frontend resolves to a label)
     llm_engine_id = models.CharField(max_length=50, null=True, blank=True)
+    
+    # Template Names
+    template_name_ru = models.CharField(max_length=100, null=True, blank=True)
+    template_name_en = models.CharField(max_length=100, null=True, blank=True)
+    template_name_kg = models.CharField(max_length=100, null=True, blank=True)
 
     # Limits (0 => unlimited)
     ai_templates_limit = models.PositiveIntegerField(null=True, blank=True)  # шаблоны ИИ
@@ -101,13 +106,6 @@ class PaymentStatus(models.TextChoices):
     UNPAID = "unpaid", "Unpaid"
 
 
-class PaymentMethod(models.TextChoices):
-    CREDIT_CARD = "credit_card", "Credit Card"
-    PAYPAL = "paypal", "PayPal"
-    BANK_TRANSFER = "bank_transfer", "Bank Transfer"
-    FREEDOMPAY = "freedompay", "FreedomPay"
-    YOOMONEY = "yoomoney", "ЮMoney"
-
 
 class UserSubscription(models.Model):
     # Use AUTH_USER_MODEL for flexibility
@@ -119,7 +117,6 @@ class UserSubscription(models.Model):
 
     status = models.CharField(max_length=20, choices=SubscriptionStatus.choices, default=SubscriptionStatus.ACTIVE)
     payment_status = models.CharField(max_length=20, choices=PaymentStatus.choices, default=PaymentStatus.UNPAID)
-    payment_method = models.CharField(max_length=30, choices=PaymentMethod.choices, null=True, blank=True)
     payment_date = models.DateTimeField(null=True, blank=True)
 
     class Meta:

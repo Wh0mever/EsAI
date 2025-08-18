@@ -81,6 +81,12 @@ class User(AbstractBaseUser, PermissionsMixin, Visa):
     _2fa = models.BooleanField(default=True, verbose_name="Двух факторная аутентификация")
 
     objects = UserManager()
+    
+    last4 = models.CharField(max_length=4, blank=True, null=True, verbose_name='Последние 4 цифры карты')
+    card_holder = models.CharField(max_length=100, blank=True, null=True, verbose_name='Держатель карты')
+    exp_month = models.PositiveSmallIntegerField(blank=True, null=True, verbose_name='Месяц окончания действия карты')
+    exp_year = models.PositiveSmallIntegerField(blank=True, null=True, verbose_name='Год окончания действия карты')
+    pay_token = models.CharField(max_length=100, blank=True, null=True, verbose_name='Токен платежа')
 
     USERNAME_FIELD = 'email'
     REQUIRED_FIELDS = []

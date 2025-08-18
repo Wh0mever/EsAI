@@ -1,20 +1,20 @@
 // lib/freedompay/pay.ts
-// Single-file Freedom Pay wrapper: waits for SDK, normalizes public key, runs 3DS.
+// Freedom Pay: SDK wait/setup, tokenize for card binding, charge with 3DS.
 
 export type CardPayload = {
-  number: string;    // digits only
+  number: string;      // digits only
   holder: string;
-  expMonth: string;  // "MM"
-  expYear: string;   // "YY" or "YYYY"
-  cvv: string;
+  expMonth: string;    // "MM"
+  expYear: string;     // "YY" or "YYYY"
+  cvv: string;         // not used for tokenize
 };
 
 export type PaymentOptions = {
   orderId: string;
-  amount: number;    // minor units (e.g., 1 == 1 KGS in FP SDK)
-  currency: string;  // "KGS" | "USD" | ...
+  amount: number;      // SDK uses integer units (1 == 1 KGS)
+  currency: string;    // "KGS" | "USD" | ...
   description?: string;
-  test?: boolean;    // true -> test=1
+  test?: boolean;      // true -> test=1
   user?: { email?: string; phone?: string };
   autoClearing?: 0 | 1;
 };
@@ -33,17 +33,15 @@ declare global {
   }
 }
 
-/** Wait until SDK global appears (supports multiple possible names). */
+/* ---------- internals ---------- */
 async function waitFreedomPaySDK(timeoutMs = 12000): Promise<any> {
-  if (typeof window === "undefined") {
-    throw new Error("FreedomPaySDK must run in browser");
-  }
+  if (typeof window === "undefined") throw new Error("FreedomPaySDK must run in browser");
   const start = Date.now();
   return new Promise((resolve, reject) => {
     const check = () => {
       const g = window.FreedomPaySDK || window.FreedomPay || window.freedomPay;
       if (g) {
-        if (!window.FreedomPaySDK) window.FreedomPaySDK = g; // alias
+        if (!window.FreedomPaySDK) window.FreedomPaySDK = g;
         resolve(window.FreedomPaySDK);
         return;
       }
@@ -58,7 +56,7 @@ async function waitFreedomPaySDK(timeoutMs = 12000): Promise<any> {
   });
 }
 
-/** Turn dotenv string with literal '\n' into real newlines; trim spaces. */
+// turn dotenv string with literal '\n' into real newlines; trim spaces
 function normalizePemLike(str: string) {
   let s = (str || "").replace(/\\n/g, "\n").replace(/\\r/g, "\r").trim();
   if ((s.startsWith("'") && s.endsWith("'")) || (s.startsWith('"') && s.endsWith('"'))) {
@@ -67,7 +65,7 @@ function normalizePemLike(str: string) {
   return s;
 }
 
-/** Get public key for SDK.setup: accept both PEM and base64. */
+// get public key for SDK.setup: accept both PEM and base64
 function getPublicKeyForSDK(): string {
   const raw = process.env.NEXT_PUBLIC_FREEDOM_PAY_PUBLIC_KEY || "";
   const pk = normalizePemLike(raw);
@@ -82,33 +80,68 @@ function assertEnv() {
 }
 
 function normalizeYear(y: string) {
-  const yy = y.trim();
+  const yy = (y || "").trim();
   return yy.length === 4 ? yy.slice(2) : yy;
 }
 
-function validateCard(c: CardPayload) {
+function validateCardForCharge(c: CardPayload) {
   if (!/^\d{13,19}$/.test(c.number)) throw new Error("Invalid card number");
   if (!/^\d{2}$/.test(c.expMonth) || +c.expMonth < 1 || +c.expMonth > 12) throw new Error("Invalid month");
   if (!/^\d{2,4}$/.test(c.expYear)) throw new Error("Invalid year");
   if (!/^\d{3,4}$/.test(c.cvv)) throw new Error("Invalid CVV");
-  if (!c.holder.trim()) throw new Error("Holder required");
+  if (!c.holder?.trim()) throw new Error("Holder required");
 }
 
-/** Main API */
+function validateCardForTokenize(c: { number: string; holder: string; expMonth: string; expYear: string }) {
+  if (!/^\d{13,19}$/.test(c.number)) throw new Error("Invalid card number");
+  if (!/^\d{2}$/.test(c.expMonth) || +c.expMonth < 1 || +c.expMonth > 12) throw new Error("Invalid month");
+  if (!/^\d{2,4}$/.test(c.expYear)) throw new Error("Invalid year");
+  if (!c.holder?.trim()) throw new Error("Holder required");
+}
+
+async function setupSDK() {
+  assertEnv();
+  const sdk = await waitFreedomPaySDK();
+  const publicKey = getPublicKeyForSDK();
+  const token = (process.env.NEXT_PUBLIC_FREEDOM_PAY_TOKEN as string).trim();
+  sdk.setup(publicKey, token); // idempotent on provider side
+  return sdk;
+}
+/* -------------------------------- */
+
+/** Tokenize only: get card token for binding, no payment, no 3DS */
+export async function tokenizeBankCard(card: {
+  number: string;
+  holder: string;
+  expMonth: string;
+  expYear: string; // YY or YYYY
+}): Promise<string> {
+  validateCardForTokenize(card);
+  const sdk = await setupSDK();
+
+  const JSTokenizeOptionsBankCard = {
+    type: "bank_card",
+    options: {
+      card_number: card.number.replace(/\D+/g, ""),
+      card_holder_name: card.holder.trim(),
+      card_exp_month: card.expMonth.trim(),
+      card_exp_year: normalizeYear(card.expYear.trim()),
+    },
+  };
+
+  const res = await sdk.tokenize(JSTokenizeOptionsBankCard);
+  if (!res?.token) throw new Error("Tokenize failed");
+  return String(res.token);
+}
+
+/** One-shot charge: direct payment with 3DS if required */
 export async function payWithBankCard(
   card: CardPayload,
   opts: PaymentOptions,
   threeDSContainerId = "fp-3ds"
 ): Promise<PayResult> {
-  const sdk = await waitFreedomPaySDK();  // wait for global
-  assertEnv();
-  validateCard(card);
-
-  const publicKey = getPublicKeyForSDK();
-  const token = (process.env.NEXT_PUBLIC_FREEDOM_PAY_TOKEN as string).trim();
-
-  // Idempotent init on provider side
-  sdk.setup(publicKey, token);
+  validateCardForCharge(card);
+  const sdk = await setupSDK();
 
   const JSPaymentOptions = {
     order_id: opts.orderId,
@@ -126,7 +159,7 @@ export async function payWithBankCard(
   const JSTransactionOptionsBankCard = {
     type: "bank_card",
     options: {
-      card_number: card.number,
+      card_number: card.number.replace(/\D+/g, ""),
       card_holder_name: card.holder.trim(),
       card_exp_month: card.expMonth.trim(),
       card_exp_year: normalizeYear(card.expYear.trim()),
@@ -135,10 +168,8 @@ export async function payWithBankCard(
   };
 
   let res: PayResult = await sdk.charge(JSPaymentOptions, JSTransactionOptionsBankCard);
-
   if (res?.payment_status === "need_confirm") {
     res = await sdk.confirmInIframe(res, threeDSContainerId);
   }
-
   return res;
 }

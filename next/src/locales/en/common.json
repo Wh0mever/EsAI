@@ -329,6 +329,21 @@
             "user_changed": "Profile data has been successfully updated",
             "no_data": "No data to update",
             "empty_data": "All fields are required"
+        },
+        "status": "Status",
+        "payment_status": {
+            "paid": "paid",
+            "unpaid": "unpaid",
+            "pending": "processing",
+            "failed": "failed",
+            "canceled": "canceled"
+        },
+        "start_date": "Start date",
+        "change_plan": "Change plan",
+        "unsubscribe_disabled": "Unsubscribe unavailable: subscription is not active",
+        "period_unit": {
+            "monthly": "month",
+            "yearly": "year"
         }
     }
 }

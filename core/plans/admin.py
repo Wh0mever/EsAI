@@ -34,6 +34,11 @@ class PlanAdmin(admin.ModelAdmin):
     ordering = ("sort_order", "id")
     fieldsets = (
         ("Meta", {"fields": ("is_active", "is_free", "period", "duration_days", "sort_order")}),
+        ("Names", {
+            "fields": (
+                "template_name_ru", "template_name_en", "template_name_kg",
+            )
+        }),
         ("Pricing", {"fields": ( "price_amount", "price_base_amount")}),
         ("Engine", {"fields": ("llm_engine_id",)}),
         ("Limits (0 = unlimited)", {
@@ -66,10 +71,10 @@ class GenerationUsageInline(admin.StackedInline):
 @admin.register(UserSubscription)
 class UserSubscriptionAdmin(admin.ModelAdmin):
     list_display = (
-        "id", "user", "plan", "status", "payment_status", "payment_method",
+        "id", "user", "plan", "status", "payment_status",
         "start_date", "end_date", "payment_date",
     )
-    list_filter = ("status", "payment_status", "payment_method", "plan__period")
+    list_filter = ("status", "payment_status", "plan__period")
     search_fields = ("id", "user__username", "user__email")
     date_hierarchy = "start_date"
     inlines = [GenerationUsageInline]

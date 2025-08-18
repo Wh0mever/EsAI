@@ -9,6 +9,8 @@ from core.format import format_errors
 from mails.sender import send_template_email
 from django.contrib.auth.hashers import make_password
 from rest_framework_simplejwt.tokens import RefreshToken
+from plans.models import UserSubscription
+from plans.serializers import UserSubscriptionSerializer
 from .models import User
 
 
@@ -82,7 +84,7 @@ class VerifyCodeApiView(APIView):
             return Response({"error": "Invalid or expired code."}, status=400)
 
         try:
-            user = User.objects.get(email=email)            
+            user = User.objects.get(email=email)
         except User.DoesNotExist:
             return Response({"error": "User not found."}, status=404)
 
@@ -212,17 +214,30 @@ class PasswordResetCompleteView(APIView):
 class UserProfileView(APIView):
     def get(self, request):
         user = ProfileSerializer(request.user).data
-        plan = False
+        subscription = UserSubscription.objects.filter(
+            user=request.user).first()
 
-        # if plan.exists():
-        #     plan = UserSubscribeSerializer(plan, many=True).data
-        # else:
-        #     plan = False
+        if subscription:
+            subscription = UserSubscriptionSerializer(subscription).data
+        else:
+            subscription = None
 
-        responseData = json.dumps({
+        if request.user.last4 and request.user.card_holder:
+            card = {
+                'last4': request.user.last4 or None,
+                'card_holder': request.user.card_holder or None,
+                'exp_month': request.user.exp_month or None,
+                'exp_year': request.user.exp_year or None,
+            }
+        else:
+            card = None
+
+        responseData = {
             'user': user,
-            'plan': plan
-        })
+            'subscription': subscription,
+            'card': card,
+        }
+
         return Response(responseData, status=200)
 
     def put(self, request):
@@ -232,7 +247,6 @@ class UserProfileView(APIView):
         first_name = request.data.get('first_name', None)
         _2fa = request.data.get('_2fa', None)
 
-       
         if tel:
             request.user.tel = tel
             changed = True

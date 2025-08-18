@@ -43,6 +43,7 @@ class PlanSerializer(serializers.ModelSerializer):
             # new fields
             "price_amount_rub", "price_amount_kgs",
             "price_base_amount_rub", "price_base_amount_kgs",
+            "template_name_ru", "template_name_en", "template_name_kg",
         )
 
     # ---- discount ----
@@ -116,7 +117,7 @@ class UserSubscriptionSerializer(serializers.ModelSerializer):
     class Meta:
         model = UserSubscription
         fields = (
-            "id", "plan", "status", "payment_status", "payment_method",
+            "id", "plan", "status", "payment_status",
             "start_date", "end_date", "payment_date", "usage",
         )
 
