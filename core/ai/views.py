@@ -7,14 +7,17 @@ from rest_framework.response import Response
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from .handlers import OpenAIHandler
+from .pagination import MessagesPaginator
+from django.shortcuts import get_object_or_404
 from .models import AiProvider, AiChatSession, AiChatMessage, AiPromptTemplate, AiPromptTemplateFavorite
 from .serializers import (
     AiChatSessionListSerializer,
-    AiChatSessionDetailSerializer,
+    AiChatSessionMetaSerializer,
     AiChatMessageSerializer,
     AiPromptTemplateSerializer
 )
-
+from django.utils.decorators import method_decorator
+from django.views.decorators.csrf import csrf_exempt
 
 
 class ChatGptAPIView(APIView):
@@ -24,11 +27,12 @@ class ChatGptAPIView(APIView):
     @transaction.atomic
     def post(self, request):
         response = OpenAIHandler(request)
-        print("OpenAIHandler response:", response)
         return Response(
             response,
-            status=200 if isinstance(response, dict) and "error" not in response else 400
+            status=200 if isinstance(
+                response, dict) and "error" not in response else 400
         )
+
 
 class ChatSessionListAPIView(APIView):
     authentication_classes = [JWTAuthentication]
@@ -43,6 +47,7 @@ class ChatSessionListAPIView(APIView):
         )
         data = AiChatSessionListSerializer(qs, many=True).data
         return Response(data)
+
 
 class ChatSessionDetailAPIView(APIView, LimitOffsetPagination):
     authentication_classes = [JWTAuthentication]
@@ -74,18 +79,22 @@ class ChatSessionDetailAPIView(APIView, LimitOffsetPagination):
 
 
 class AiTemplatesApiView(APIView):
-    authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated]
+    authentication_classes = []
+    permission_classes = []
 
     def get(self, request):
+        personal_data = []
+        
         global_queryset = AiPromptTemplate.objects.filter(
             is_public=True, is_active=True)
-        personal_queryset = AiPromptTemplate.objects.filter(
-            is_public=False, is_active=True, created_by=request.user
-        )
         global_data = AiPromptTemplateSerializer(
             global_queryset, many=True).data
-        personal_data = AiPromptTemplateSerializer(
+        
+        if request.user.is_authenticated:
+            personal_queryset = AiPromptTemplate.objects.filter(
+                is_public=False, is_active=True, created_by=request.user
+            )
+            personal_data = AiPromptTemplateSerializer(
             personal_queryset, many=True).data
 
         return Response(
@@ -94,17 +103,41 @@ class AiTemplatesApiView(APIView):
                 "personal": personal_data, },
             status=200
         )
-        
-    
+
+
+@method_decorator(csrf_exempt, name="dispatch")  # disable CSRF for this view
 class AiTemplatesFavoriteApiView(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
         template_id = request.data.get("templateId")
-        favorite = request.data.get("favorite", False)
+        favorite = bool(request.data.get("favorite", False))
+        # TODO: persist favorite for user
+        return Response({"templateId": template_id, "favorite": favorite})
 
-        pass
-        
     def get(self, request):
-        pass
+        return Response({"detail": "OK"})
+    
+    
+class ChatSessionDetailAPIView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    paginator = MessagesPaginator()
+
+    def get(self, request, session_id: int):
+        session = get_object_or_404(AiChatSession, id=session_id, user=request.user)
+
+        order = request.query_params.get("order", "asc")
+        qs = session.messages.all()
+        qs = qs.order_by("created_at") if order == "asc" else qs.order_by("-created_at")
+
+        page = self.paginator.paginate_queryset(qs, request, view=self)
+        # UI обычно хочет хронологию ↑, даже если пагинируем по desc
+        if order != "asc":
+            page = list(reversed(page))
+
+        messages_data = AiChatMessageSerializer(page, many=True).data
+        session_payload = AiChatSessionMetaSerializer(session).data
+
+        return self.paginator.get_paginated_response(messages_data, session_payload)

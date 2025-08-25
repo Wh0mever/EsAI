@@ -18,7 +18,7 @@ export default function AuthButtons() {
     return (
       <div className="flex items-center gap-2">
         <Link
-          href="/dashboard"
+          href="/dashboard/text-chat"
           className="bg-indigo-500 px-4 py-2 rounded-3xl hover:bg-indigo-600 text-nowrap duration-300"
         >
           {t("nav.dashboard")}

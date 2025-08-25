@@ -12,6 +12,7 @@ class AiPromptTemplateSerializer(serializers.ModelSerializer):
             'name',
             'template',
             'description',
+            'purpose',
             'provider',
             'provider_name',
             'created_by',
@@ -49,7 +50,7 @@ class AiChatSessionListSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = AiChatSession
-        fields = ("id", "title", "provider_id", "created_at", "updated_at", "is_active", "messages_count", "last_message")
+        fields = ("id", "title", "provider_id", "created_at", "updated_at", "is_active", "messages_count", "last_message", "chat_mode")
 
     def get_last_message(self, obj):
         m = obj.messages.order_by("-created_at").first()
@@ -61,9 +62,7 @@ class AiChatSessionListSerializer(serializers.ModelSerializer):
             "created_at": m.created_at,
         }
 
-class AiChatSessionDetailSerializer(serializers.ModelSerializer):
-    messages = AiChatMessageSerializer(many=True)
-
+class AiChatSessionMetaSerializer(serializers.ModelSerializer):
     class Meta:
         model = AiChatSession
-        fields = ("id", "title", "provider_id", "created_at", "updated_at", "is_active", "messages")
+        fields = ("id", "title", "provider_id", "created_at", "updated_at", "is_active")

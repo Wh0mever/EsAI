@@ -9,8 +9,6 @@ const IMAGE_WIDTH = 120;
 const IMAGE_HEIGHT = 100;
 const IMAGE_COUNT = 23;
 
-const text = ["Голоса", "Текст", "Музыка", "Песни"];
-
 function getImagePath(index: number) {
 	return `/images/decorations/aigenerated/${index}.webp`;
 }
@@ -134,7 +132,6 @@ export default function AIGalleryStrips() {
 
 				<Radar />
 			</div>
-
 			<InfiniteScroll images={images1} direction="right" speed={0.7} />
 			<InfiniteScroll images={images2} direction="left" speed={0.8} />
 			<InfiniteScroll images={images3} direction="right" bounce speed={0.6} />

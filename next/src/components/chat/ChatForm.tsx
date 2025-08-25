@@ -1,16 +1,11 @@
 "use client";
 
-import { useState, useRef, useEffect, FormEvent, KeyboardEvent } from "react";
+import { useRef, useEffect, FormEvent, KeyboardEvent } from "react";
 import { Button } from "../ui/buttons/Buttons";
-import { VscSettings } from "react-icons/vsc";
 import { TiMicrophoneOutline } from "react-icons/ti";
 import { useTranslation } from "react-i18next";
-import { fetchData } from "@/tools/fetchData";
 import { IoIosSend, IoIosAttach } from "react-icons/io";
 import AiTemplates from "./ChatTemplates";
-import { FaImages } from "react-icons/fa6";
-import { FaItunesNote } from "react-icons/fa6";
-import { IoChatbubbleOutline } from "react-icons/io5";
 
 export type Message = {
 	role: "user" | "assistant";
@@ -80,13 +75,6 @@ export function ChatForm({
 							<IoIosAttach />
 						</Button>
 						<AiTemplates />
-						<Button
-							type="button"
-							className="text-gray-200 hover:bg-neutral-700/50 text-xl bg-neutral-900 duration-300 p-3 rounded-full"
-							description={t("chat.settings")}
-						>
-							<VscSettings />
-						</Button>
 					</div>
 					<div className="flex gap-1 mt-4">
 						<Button
@@ -106,21 +94,6 @@ export function ChatForm({
 					</div>
 				</div>
 			</form>
-
-			<div className="w-full flex gap-3 justify-between items-center">
-				<Button className="px-3 py-2 bg-neutral-900 flex-grow rounded-2xl border border-neutral-800 hover:bg-neutral-700/50 flex items-center justify-center gap-2">
-					<i className="text-xl"><IoChatbubbleOutline /></i>
-					<span>{t("chat.models_tabs.text")}</span>
-				</Button>
-				<Button className="px-3 py-2 bg-neutral-900 flex-grow rounded-2xl border border-neutral-800 hover:bg-neutral-700/50 flex items-center justify-center gap-2">
-					<i className="text-xl"><FaImages /></i>
-					<span>{t("chat.models_tabs.image")}</span>
-				</Button>
-				<Button className="px-3 py-2 bg-neutral-900 flex-grow rounded-2xl border border-neutral-800 hover:bg-neutral-700/50 flex items-center justify-center gap-2">
-					<i className="text-xl"><FaItunesNote /></i>
-					<span>{t("chat.models_tabs.music")}</span>
-				</Button>
-			</div>
 		</div>
 	);
 }

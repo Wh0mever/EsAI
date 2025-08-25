@@ -12,7 +12,9 @@ export function ChatView({ messages }: { messages: Message[] }) {
                             : "self-start bg-neutral-800 text-white"
                     }`}
                 >
-                    {msg.content}
+                    {
+                        msg ? msg.content : 'Думаю'
+                    }
                 </div>
             ))}
         </div>
