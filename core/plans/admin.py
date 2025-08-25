@@ -40,7 +40,7 @@ class PlanAdmin(admin.ModelAdmin):
             )
         }),
         ("Pricing", {"fields": ( "price_amount", "price_base_amount")}),
-        ("Engine", {"fields": ("llm_engine_id",)}),
+        ("Engine", {"fields": ("llm_engine",)}),
         ("Limits (0 = unlimited)", {
             "fields": (
                 "ai_templates_limit", "operations_per_month_limit", "covers_limit",

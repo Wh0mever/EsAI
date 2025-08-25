@@ -39,7 +39,9 @@ class Plan(models.Model):
     price_base_amount = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
 
     # Engine mapping (frontend resolves to a label)
-    llm_engine_id = models.CharField(max_length=50, null=True, blank=True)
+    llm_engine = models.ForeignKey(
+        'ai.GPTModels', on_delete=models.SET_NULL, null=True, blank=True, related_name='+'
+    )
     
     # Template Names
     template_name_ru = models.CharField(max_length=100, null=True, blank=True)
@@ -104,7 +106,6 @@ class SubscriptionStatus(models.TextChoices):
 class PaymentStatus(models.TextChoices):
     PAID = "paid", "Paid"
     UNPAID = "unpaid", "Unpaid"
-
 
 
 class UserSubscription(models.Model):

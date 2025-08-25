@@ -36,7 +36,7 @@ export function TemplateCard({ template, localTemplates, setLocalTemplates }: an
 
 	function handleFavorite() {
 		setIsFavorite(!isFavorite);
-		fetchData("ai/templates/favorite", "POST", {
+		fetchData("ai/templates/favorite/", "POST", {
 			templateId: template.id,
 			favorite: !isFavorite,
 		}).then();

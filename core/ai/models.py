@@ -75,6 +75,7 @@ class AiChatSession(models.Model):
         AiProvider, on_delete=models.SET_NULL, null=True, blank=True, related_name="chat_sessions")
     title = models.CharField(max_length=255, blank=True,
                              help_text="Название чата (можно генерировать по первому сообщению)")
+    chat_mode = models.CharField(max_length=20, default='text-chat')
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     is_active = models.BooleanField(default=True)

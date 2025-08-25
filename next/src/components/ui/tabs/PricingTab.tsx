@@ -248,7 +248,7 @@ function PlanCard({
   currency: Currency;
 }) {
   return (
-    <div className="w-full bg-black rounded-3xl border border-gray-800 p-8 flex flex-col gap-6 justify-between relative">
+    <div className="w-full bg-black rounded-3xl border border-gray-800 p-8 flex flex-col gap-6 justify-between relative max-w-[400px]">
       {/* decorative line */}
       <img
         src="/images/decorations/pricing-5-card-line.webp"

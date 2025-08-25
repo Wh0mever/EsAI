@@ -59,7 +59,7 @@ class GPTModelsAdmin(admin.ModelAdmin):
         if request.method != "POST":
             messages.error(request, "Метод не разрешён.")
             return redirect("..")
-        get_gpt_models_action(self, request, self.model.objects.none())
+        get_gpt_models_action()
         return redirect("..")
 
 @admin.register(AiProvider)
