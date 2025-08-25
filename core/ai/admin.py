@@ -1,11 +1,15 @@
-from django.contrib import admin
+from django.contrib import admin, messages
 from django.db import models
 from django import forms
 from django.http import HttpResponse
 from django.utils.timezone import now
+from django.urls import path, reverse
+from django.shortcuts import redirect
+from .actions import get_gpt_models_action
 import json
 
 from .models import (
+    GPTModels,
     AiProvider,
     AiPromptTemplate,
     AiChatSession,
@@ -22,6 +26,41 @@ class JSONTextarea(forms.Textarea):
             return json.dumps(parsed, ensure_ascii=False, indent=2)
         except Exception:
             return value
+
+
+@admin.register(GPTModels)
+class GPTModelsAdmin(admin.ModelAdmin):
+    list_display = ('name', 'max_tokens', 'is_active', 'created_at', 'updated_at')
+
+    def get_urls(self):
+        urls = super().get_urls()
+        app_label = self.model._meta.app_label
+        model_name = self.model._meta.model_name
+        custom = [
+            path(
+                "sync-models/",
+                self.admin_site.admin_view(self.sync_models_view),
+                name=f"{app_label}_{model_name}_sync",
+            )
+        ]
+        return custom + urls
+
+    def changelist_view(self, request, extra_context=None):
+        extra_context = extra_context or {}
+        app_label = self.model._meta.app_label
+        model_name = self.model._meta.model_name
+        extra_context["sync_url"] = reverse(f"admin:{app_label}_{model_name}_sync")
+        return super().changelist_view(request, extra_context=extra_context)
+
+    def sync_models_view(self, request):
+        if not request.user.is_superuser:
+            messages.error(request, "Недостаточно прав.")
+            return redirect("..")
+        if request.method != "POST":
+            messages.error(request, "Метод не разрешён.")
+            return redirect("..")
+        get_gpt_models_action(self, request, self.model.objects.none())
+        return redirect("..")
 
 @admin.register(AiProvider)
 class AiProviderAdmin(admin.ModelAdmin):

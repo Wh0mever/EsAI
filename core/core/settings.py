@@ -12,7 +12,8 @@ env = environ.Env()
 environ.Env.read_env(os.path.join(BASE_DIR, ".env"))
 
 # Exchange API settings
-EXCHANGE_API_BASE = env("EXCHANGE_API_BASE", default="https://v6.exchangerate-api.com/v6")
+EXCHANGE_API_BASE = env("EXCHANGE_API_BASE",
+                        default="https://v6.exchangerate-api.com/v6")
 EXCHANGE_API_KEY = env("EXCHANGE_API_KEY")
 
 
@@ -27,7 +28,11 @@ ALLOWED_HOSTS = []
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [BASE_DIR / 'mails' / 'templates'],
+        'DIRS': [
+            BASE_DIR / 'templates',
+            BASE_DIR / 'mails' / 'templates',
+            BASE_DIR / 'core' / 'templates',
+        ],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -166,6 +171,7 @@ TIME_FORMAT = 'H:i:s'
 # https://docs.djangoproject.com/en/5.0/howto/static-files/
 
 STATIC_URL = 'static/'
+STATICFILES_DIRS = [BASE_DIR / "core" / "static"]
 MEDIA_URL = '/'
 
 # Default primary key field type

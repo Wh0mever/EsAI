@@ -3,6 +3,18 @@ from users.models import User
 
 # Create your models here.
 
+class GPTModels(models.Model):
+    name = models.CharField(max_length=100, unique=True)
+    description = models.TextField(blank=True)
+    max_tokens = models.IntegerField(help_text="Maximum tokens allowed")
+    is_active = models.BooleanField(default=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return self.name
+
 
 class AiProvider(models.Model):
     name = models.CharField(max_length=100, unique=True)
@@ -67,9 +79,8 @@ class AiChatSession(models.Model):
     updated_at = models.DateTimeField(auto_now=True)
     is_active = models.BooleanField(default=True)
 
-
-def __str__(self):
-    return f"Chat {self.id} ({self.user.email})"
+    def __str__(self):
+        return f"Chat {self.id} ({self.user.email})"
 
 
 class AiChatMessage(models.Model):
@@ -91,10 +102,8 @@ class AiChatMessage(models.Model):
         blank=True, null=True, help_text="Дополнительные метаданные, например токены, затраты и т.д.")
     created_at = models.DateTimeField(auto_now_add=True)
 
+    def __str__(self):
+        return f"[{self.role}] {self.content[:30]}"
 
-def __str__(self):
-    return f"[{self.role}] {self.content[:30]}"
-
-
-class Meta:
-    ordering = ["created_at"]
+    class Meta:
+        ordering = ["created_at"]
