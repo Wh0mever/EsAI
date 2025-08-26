@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import User
+from .models import User, UserQuestions
 
 @admin.register(User)
 class UserAdmin(admin.ModelAdmin):
@@ -13,3 +13,12 @@ class UserAdmin(admin.ModelAdmin):
     list_filter = ('is_active', 'is_staff', 'is_superuser')
     ordering = ('-date_joined',)
     readonly_fields = ('date_joined', 'last_login', 'last_session')
+
+
+@admin.register(UserQuestions)
+class UserQuestionsAdmin(admin.ModelAdmin):
+    list_display = ('email', 'question', 'created_at')
+    search_fields = ('email', 'question')
+    list_filter = ('created_at',)
+    ordering = ('-created_at',)
+    readonly_fields = ('created_at',)

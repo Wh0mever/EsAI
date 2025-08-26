@@ -11,6 +11,7 @@ import { TemplateCard } from "@/components/ui/cards/Cards";
 import NoData from "@/components/global/NoData";
 import { useLocalStorage } from "@/hooks/useLocalStorage";
 import PurposeTabs from "@/components/sections/Category/PurposeTabs";
+import TemplatesCreationForm from "@/components/forms/TemplateCreationForm";
 
 type Template = {
   id: number;
@@ -144,7 +145,7 @@ export default function AiTemplates() {
                     <TemplateCard
                       key={template.id ?? `${template.provider}-${template.name}`}
                       template={template}
-                      changeUsed={() => setTemplateChanged} // как у тебя было
+                      changeUsed={() => setTemplateChanged}
                     />
                   ))}
                   {!templates?.personal?.length && <NoData />}
@@ -152,7 +153,9 @@ export default function AiTemplates() {
               </Tabs.Card>
 
               <Tabs.Card value="creation" trigger={<div className="p-3">{t("chat.tabs.create")}</div>}>
-                <div className="w-full flex justify-start items-center gap-5">{/* your form here */}</div>
+                <div className="w-full flex justify-start items-center gap-5">
+                  <TemplatesCreationForm />
+                </div>
               </Tabs.Card>
             </Tabs.Cards>
           </div>

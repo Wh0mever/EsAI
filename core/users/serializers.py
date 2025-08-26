@@ -1,5 +1,5 @@
 # users/serializers.py
-from .models import User
+from .models import User, Notification
 
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
@@ -109,3 +109,9 @@ class ProfileSerializer(serializers.ModelSerializer):
                 'expiry': f"{obj.exp_month:02}/{obj.exp_year}" if obj.exp_month and obj.exp_year else None
             }
         return None
+
+
+class NotificationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Notification
+        fields = ["id", "title", "body", "is_read", "created_at", "read_at"]

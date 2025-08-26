@@ -6,10 +6,10 @@ export function ChatView({ messages }: { messages: Message[] }) {
             {messages.map((msg, index) => (
                 <div
                     key={index}
-                    className={`p-3 rounded-xl max-w-[80%] whitespace-pre-wrap ${
+                    className={`p-4 rounded-xl max-w-[80%] whitespace-pre-wrap ${
                         msg.role === "user"
-                            ? "self-end bg-blue-600 text-white"
-                            : "self-start bg-neutral-800 text-white"
+                            ? "self-end bg-indigo-700 text-white"
+                            : "self-start bg-neutral-900 text-white"
                     }`}
                 >
                     {

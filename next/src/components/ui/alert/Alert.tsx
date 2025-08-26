@@ -28,7 +28,7 @@ export function Alert({
 	closeButton = true,
 	position = "top",
 	autoClose = true,
-	autoCloseDuration = 5000,
+	autoCloseDuration = 3000,
 }: AlertProps) {
 	useEffect(() => {
 		if (autoClose && show && onClose) {

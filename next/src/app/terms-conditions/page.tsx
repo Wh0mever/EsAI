@@ -182,9 +182,8 @@ const PolicyComponent = () => {
 
 export default function Home() {
 	return (
-		<main className="">
+		<main className="mx-auto pt-80 overflow-hidden relative px-4">
 			<Breadcrumb />
-			<span className="px-3 py-2 bg-gray-900 rounded-lg text-sm">VOKALO | Творчество без границ</span>
 			<PolicyComponent />
 		</main>
 	);

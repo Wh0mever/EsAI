@@ -1,6 +1,8 @@
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin, BaseUserManager, Group, Permission
 from django.db import models
 from django.utils import timezone
+from django.conf import settings
+
 
 
 class Visa(models.Model):
@@ -93,3 +95,45 @@ class User(AbstractBaseUser, PermissionsMixin, Visa):
 
     def __str__(self):
         return self.email
+
+
+        
+class UserQuestions(models.Model):
+    email = models.EmailField(verbose_name="Email")
+    question = models.TextField(verbose_name="User question")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Created at")
+    
+    
+    def __str__(self):
+        return f'{self.email} - {self.created_at}'
+    
+    class Meta:
+        verbose_name = "User question"
+        verbose_name_plural = "User questions"
+        ordering = ['-created_at']
+        
+        
+class Notification(models.Model):
+    recipient = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="notifications"
+    )
+    title = models.CharField(max_length=200)
+    body = models.TextField(blank=True, default="")
+
+    is_read = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    read_at = models.DateTimeField(null=True, blank=True)
+
+    def mark_read(self):
+        if not self.is_read:
+            self.is_read = True
+            self.read_at = timezone.now()
+            self.save(update_fields=["is_read", "read_at"])
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Notification({self.recipient}, {self.title})"
