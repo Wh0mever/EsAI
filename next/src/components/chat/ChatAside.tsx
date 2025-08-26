@@ -5,6 +5,7 @@ import { IoImages, IoLibrary } from "react-icons/io5";
 import { CiUser } from "react-icons/ci";
 import NextLink from "../ui/nextLink/NextLink";
 import { FaRegUser } from "react-icons/fa";
+import { fetchData } from "@/tools/fetchData";
 
 type Chat = { id: string; title: string; href?: string; chat_mode: string };
 
@@ -19,6 +20,7 @@ const LS_KEY = "sidebar.collapsed";
 
 export default function Sidebar({ chats, activeChatId, onNewChat, className }: SidebarProps) {
 	const [collapsed, setCollapsed] = useState(false);
+	const [notificationsCount, setNotificationsCount] = useState(0);
 	const { t } = useTranslation("common");
 	const user = JSON.parse(localStorage.getItem("user") || "{}").username || "User";
 
@@ -30,7 +32,12 @@ export default function Sidebar({ chats, activeChatId, onNewChat, className }: S
 		localStorage.setItem(LS_KEY, collapsed ? "1" : "0");
 	}, [collapsed]);
 
-	console.log(chats)
+	useEffect(() => {
+		(async () => {
+			const responseData = await fetchData("users/notifications/", "get", null, true);
+			setNotificationsCount(responseData?.data.length);
+		})();
+	}, [setNotificationsCount]);
 
 	// toggle hotkey ctrl/cmd+b
 	useEffect(() => {
@@ -74,14 +81,19 @@ export default function Sidebar({ chats, activeChatId, onNewChat, className }: S
 				</button>
 			</div>
 
-			{/* верхние кнопки */}
+			{/* tools */}
 			<div className="px-2 py-1 shrink-0 space-y-1">
-				<NavLink href="/dashboard/text-chat/" icon={<FiPlus />} label={t("chat.new_chat")} showText={showText} />
+				<NavLink
+					href="/dashboard/text-chat/"
+					icon={<FiPlus />}
+					label={t("chat.new_chat")}
+					showText={showText}
+				/>
 				<NavBtn icon={<IoImages />} label={"DELL-E"} showText={showText} />
 				<NavBtn icon={<IoLibrary />} label={t("chat.lib")} showText={showText} />
 			</div>
 
-			{/* чаты — показываются только если развернуто */}
+			{/* chats */}
 			{!collapsed && (
 				<div className="px-2 pt-2 flex-1 min-h-0 flex flex-col">
 					<SectionTitle>{t("chat.chat_history")}</SectionTitle>
@@ -111,9 +123,9 @@ export default function Sidebar({ chats, activeChatId, onNewChat, className }: S
 				</div>
 			)}
 
-			{/* низ — всегда прижат */}
+			{/* settings */}
 			<div className="px-2 py-2 border-t border-white/10 shrink-0">
-				<NavLink icon={<FaRegUser />} label={user ? user : ''} href="/profile" showText={showText} />
+				<NavLink icon={<FaRegUser />} label={user ? user : ""} href="/profile" showText={showText} />
 				<NavBtn icon={<FiSettings />} label={t("common.settings")} showText={showText} />
 			</div>
 		</aside>

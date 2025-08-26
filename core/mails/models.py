@@ -15,3 +15,4 @@ class Mail(models.Model):
         verbose_name = "Mail"
         verbose_name_plural = "Mails"
         ordering = ['-sent_at']
+        

@@ -105,7 +105,7 @@ class AiTemplatesApiView(APIView):
         )
 
 
-@method_decorator(csrf_exempt, name="dispatch")  # disable CSRF for this view
+@method_decorator(csrf_exempt, name="dispatch")
 class AiTemplatesFavoriteApiView(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]

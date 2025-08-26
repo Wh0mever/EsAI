@@ -4,14 +4,15 @@ from django.core.cache import cache
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework import status
-from .serializers import SignUpSerializer, SignInSerializer, ProfileSerializer
+from .serializers import SignUpSerializer, SignInSerializer, ProfileSerializer, NotificationSerializer
 from core.format import format_errors
 from mails.sender import send_template_email
 from django.contrib.auth.hashers import make_password
 from rest_framework_simplejwt.tokens import RefreshToken
 from plans.models import UserSubscription
 from plans.serializers import UserSubscriptionSerializer
-from .models import User
+from .models import User, UserQuestions, Notification
+from rest_framework import generics, permissions
 
 
 class SigninApiView(APIView):
@@ -261,3 +262,42 @@ class UserProfileView(APIView):
             request.user.save()
 
         return Response({}, status=200)
+
+
+class QuestionAPIView(APIView):
+    
+    authentication_classes = []
+    permission_classes = []
+    
+    def post(self, request):
+        UserQuestions.objects.create(
+            email= request.data['email'],
+            question=request.data['question']
+        )
+        return Response({}, status=200)
+        
+
+
+class NotificationListView(generics.ListAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = NotificationSerializer
+
+    def get_queryset(self):
+        qs = Notification.objects.filter(recipient=self.request.user)
+        if self.request.query_params.get("unread") == "1":
+            qs = qs.filter(is_read=False)
+        return qs
+
+
+class NotificationMarkReadView(generics.UpdateAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = NotificationSerializer
+    lookup_url_kwarg = "pk"
+
+    def get_queryset(self):
+        return Notification.objects.filter(recipient=self.request.user)
+
+    def patch(self, request, *args, **kwargs):
+        notif = self.get_object()
+        notif.mark_read()
+        return self.retrieve(request, *args, **kwargs)
