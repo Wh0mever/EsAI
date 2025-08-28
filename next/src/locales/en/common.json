@@ -4,7 +4,9 @@
     "no": "No",
     "submit": "Submit",
     "loading": "Loading...",
-    "settings": "Settings"
+    "settings": "Settings",
+    "language": "Language",
+    "notifications": "Notifications"
   },
   "compass": {
     "1": "Songs",
@@ -247,6 +249,7 @@
     "footer": "We believe that AI is not a replacement but a partner in creativity. Vokalo is built for those who want to create in a new way."
   },
   "chat": {
+    "collapse_sidebar": "Collapse sidebar",
     "new_chat": "New Chat",
     "chat_history": "Chat History",
     "send": "Send",
@@ -349,6 +352,47 @@
     "period_unit": {
       "monthly": "month",
       "yearly": "year"
+    }
+  },
+  "nav": {
+    "dashboard": "Dashboard",
+    "profile": "Profile",
+    "settings": "Settings",
+    "logout": "Logout",
+    "logOutConfirmTitle": "Are you sure you want to log out?"
+  },
+  "forms": {
+    "required_short": "Please fill in all required fields"
+  },
+  "templates": {
+    "create": {
+      "submit": "Create template",
+      "submitting": "Creating...",
+      "success": "Template created",
+      "error": "Failed to create template"
+    },
+    "fields": {
+      "name": "Name",
+      "purpose": "Purpose",
+      "description": "Description",
+      "template": "Template body",
+      "provider": "Provider",
+      "mode": "Mode"
+    },
+    "placeholders": {
+      "name": "E.g.: System prompt for Vokalo",
+      "purpose": "Briefly: what is this template for",
+      "description": "Optional: how to use, limitations...",
+      "template": "Use {{variables}} or {{language}} if you have your own renderer",
+      "provider": "Select a provider",
+      "mode": "Select a mode"
+    }
+  },
+  "ai": {
+    "mode": {
+      "text": "Text",
+      "images": "Images",
+      "music": "Music"
     }
   }
 }

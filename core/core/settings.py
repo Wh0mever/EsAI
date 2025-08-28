@@ -16,9 +16,6 @@ EXCHANGE_API_BASE = env("EXCHANGE_API_BASE",
                         default="https://v6.exchangerate-api.com/v6")
 EXCHANGE_API_KEY = env("EXCHANGE_API_KEY")
 
-# Trusted origins
-
-
 
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = env("DJANGO_SECRET_KEY")
@@ -26,7 +23,7 @@ SECRET_KEY = env("DJANGO_SECRET_KEY")
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = env.bool("DJANGO_DEBUG", default=False)
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ["*"]
 
 TEMPLATES = [
     {
@@ -34,7 +31,6 @@ TEMPLATES = [
         'DIRS': [
             BASE_DIR / 'templates',
             BASE_DIR / 'mails' / 'templates',
-            BASE_DIR / 'core' / 'templates',
         ],
         'APP_DIRS': True,
         'OPTIONS': {
@@ -67,7 +63,6 @@ INSTALLED_APPS = [
     'content.apps.ContentConfig',
     'ai.apps.AiConfig',
     'plans.apps.PlansConfig',
-    # 'admin.apps.AdminConfig',
 ]
 
 REST_FRAMEWORK = {
@@ -80,8 +75,8 @@ REST_FRAMEWORK = {
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(days=7),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=15),
-    # 'ROTATE_REFRESH_TOKENS': True,
-    # 'BLACKLIST_AFTER_ROTATION': True,
+    'ROTATE_REFRESH_TOKENS': True,
+    'BLACKLIST_AFTER_ROTATION': True,
     'AUTH_HEADER_TYPES': ('Bearer',),
 }
 
@@ -131,9 +126,9 @@ WSGI_APPLICATION = 'core.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'david_db',
-        'USER': 'david_user',
-        'PASSWORD': 'change-me',
+        'NAME': env('POSTGRES_DB'),
+        'USER': env('POSTGRES_USER'),
+        'PASSWORD': env('POSTGRES_PASSWORD'),
         'HOST': 'localhost',
         'PORT': '5432',
     }
@@ -210,49 +205,49 @@ EMAIL_HOST_PASSWORD = "change-me"
 DEFAULT_FROM_EMAIL = "support@esai.kg"
 
 # Logging configuration
-# LOG_DIR = BASE_DIR / 'logs'
-# LOG_FILE = LOG_DIR / 'django.log'
+LOG_DIR = BASE_DIR / 'logs'
+LOG_FILE = LOG_DIR / 'django.log'
 
-# LOG_DIR.mkdir(exist_ok=True)
+LOG_DIR.mkdir(exist_ok=True)
 
-# LOGGING = {
-#     'version': 1,
-#     'disable_existing_loggers': False,
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
 
-#     'formatters': {
-#         'verbose': {
-#             'format': '[{levelname}] {asctime} {name} | {message}',
-#             'style': '{',
-#         },
-#         'simple': {
-#             'format': '[{levelname}] {message}',
-#             'style': '{',
-#         },
-#     },
+    'formatters': {
+        'verbose': {
+            'format': '[{levelname}] {asctime} {name} | {message}',
+            'style': '{',
+        },
+        'simple': {
+            'format': '[{levelname}] {message}',
+            'style': '{',
+        },
+    },
 
-#     'handlers': {
-#         'file': {
-#             'level': 'DEBUG',
-#             'class': 'logging.FileHandler',
-#             'filename': str(LOG_FILE),
-#             'formatter': 'verbose',
-#         },
-#     },
+    'handlers': {
+        'file': {
+            'level': 'DEBUG',
+            'class': 'logging.FileHandler',
+            'filename': str(LOG_FILE),
+            'formatter': 'verbose',
+        },
+    },
 
-#     'loggers': {
-#         'django': {
-#             'handlers': ['file'],
-#             'level': 'DEBUG',
-#             'propagate': True,
-#         },
-#     }
-# }
+    'loggers': {
+        'django': {
+            'handlers': ['file'],
+            'level': 'DEBUG',
+            'propagate': True,
+        },
+    }
+}
 
-# if DEBUG:
-#     LOGGING['handlers']['console'] = {
-#         'level': 'DEBUG',
-#         'class': 'logging.StreamHandler',
-#         'formatter': 'simple',
-#     }
+if DEBUG:
+    LOGGING['handlers']['console'] = {
+        'level': 'DEBUG',
+        'class': 'logging.StreamHandler',
+        'formatter': 'simple',
+    }
 
-#     LOGGING['loggers']['django']['handlers'].append('console')
+    LOGGING['loggers']['django']['handlers'].append('console')

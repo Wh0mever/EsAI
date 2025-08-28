@@ -1,8 +1,7 @@
-'use client';
+"use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import SmartForm from "@/components/forms/SmartForm";
-import { Button } from "@/components/ui/buttons/Buttons";
 import { useTranslation } from "react-i18next";
 import { fetchData } from "@/tools/fetchData";
 import { Field, TextArea } from "../ui/inputs/Inputs";
@@ -12,14 +11,19 @@ type Provider = { id: number; name: string };
 export default function TemplatesCreationForm() {
   const { t } = useTranslation("common");
   const [providers, setProviders] = useState<Provider[]>([]);
+  const [loadingProviders, setLoadingProviders] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [ok, setOk] = useState(false);
 
   useEffect(() => {
     (async () => {
-      const res = await fetchData("ai/providers/", "GET");
-      if (res?.ok) setProviders(res.data as Provider[]);
+      try {
+        const res = await fetchData("ai/providers/", "GET");
+        if (res?.ok) setProviders(res.data as Provider[]);
+      } finally {
+        setLoadingProviders(false);
+      }
     })();
   }, []);
 
@@ -28,7 +32,6 @@ export default function TemplatesCreationForm() {
     setOk(false);
     setSubmitting(true);
 
-    // normalize payload
     const payload = {
       name: String(data.name || "").trim(),
       provider: Number(data.provider),
@@ -36,13 +39,12 @@ export default function TemplatesCreationForm() {
       purpose: String(data.purpose || ""),
       description: String(data.description || ""),
       is_active: Boolean(data.is_active),
-      is_public: Boolean(data.is_public),
+      is_public: Boolean(data.is_public)
     };
 
-    // quick client-side checks
     if (!payload.name || !payload.provider || !payload.template || !payload.purpose) {
       setSubmitting(false);
-      setError("Заполни обязательные поля");
+      setError(t("forms.required_short"));
       return;
     }
 
@@ -50,12 +52,11 @@ export default function TemplatesCreationForm() {
     setSubmitting(false);
 
     if (!res?.ok) {
-      setError("Не удалось создать шаблон");
+      setError(t("templates.create.error"));
       return;
     }
 
     setOk(true);
-    // reset form
     const form = document.querySelector<HTMLFormElement>("form[data-form='template-create']");
     form?.reset();
   };
@@ -63,46 +64,65 @@ export default function TemplatesCreationForm() {
   return (
     <SmartForm
       onSubmit={onSubmit}
-      submitLabel={submitting ? "Создание..." : "Создать шаблон"}
-      loadingLabel="Создание..."
+      submitLabel={submitting ? t("templates.create.submitting") : t("templates.create.submit")}
+      loadingLabel={t("templates.create.submitting")}
       className="max-w-2xl"
+      data-form="template-create"
     >
-      <form data-form="template-create" className="contents">
-        <Field
-          label="Название *"
-          name="name"
+      <Field
+        label={t("templates.fields.name") + " *"}
+        name="name"
+        required
+        placeholder={t("templates.placeholders.name")}
+        className="border border-neutral-600 py-3 px-4"
+      />
+
+      <Field
+        label={t("templates.fields.purpose") + " *"}
+        name="purpose"
+        required
+        placeholder={t("templates.placeholders.purpose")}
+        className="border border-neutral-600 py-3 px-4"
+      />
+
+      {/* provider (required) */}
+      <label className="text-sm">
+        <span className="mb-1 block">{t("templates.fields.provider") + " *"}</span>
+        <select
+          name="provider"
           required
-          placeholder="Напр.: Политый системный промпт для Vokalo"
-          className="border border-neutral-600 py-3 px-4"
-        />
+          className="w-full bg-transparent border border-neutral-600 rounded-md py-3 px-4 outline-none"
+          defaultValue=""
+          disabled={loadingProviders}
+        >
+          <option value="" disabled className="bg-neutral-900">
+            {loadingProviders ? t("common.loading") : t("templates.placeholders.provider")}
+          </option>
+          {providers.map((p) => (
+            <option key={p.id} value={p.id} className="bg-neutral-900">
+              {p.name}
+            </option>
+          ))}
+        </select>
+      </label>
 
+      <Field
+        label={t("templates.fields.description")}
+        name="description"
+        placeholder={t("templates.placeholders.description")}
+        className="border border-neutral-600 py-3 px-4"
+      />
 
-        <Field
-          label="Назначение *"
-          name="purpose"
-          required
-          placeholder="Кратко: для чего этот шаблон"
-          className="border border-neutral-600 py-3 px-4"
-        />
+      <TextArea
+        label={t("templates.fields.template") + " *"}
+        name="template"
+        required
+        placeholder={t("templates.placeholders.template")}
+        className="border border-neutral-600 py-3 px-4"
+      />
 
-        <Field
-          label="Описание"
-          name="description"
-          placeholder="Опционально: как использовать, ограничения..."
-          className="border border-neutral-600 py-3 px-4"
-        />
-
-        <TextArea
-          label="Тело шаблона *"
-          name="template"
-          required
-          placeholder="Подставляй {{variables}} или {{language}}, если у тебя есть собственный рендерер"
-          className="border border-neutral-600 py-3 px-4"
-        />
-
-        {error && <div className="text-red-400 text-sm">{error}</div>}
-        {ok && <div className="text-green-400 text-sm">Шаблон создан</div>}
-      </form>
+      {error && <div className="text-red-400 text-sm">{error}</div>}
+      {ok && <div className="text-green-400 text-sm">{t("templates.create.success")}</div>}
     </SmartForm>
   );
 }

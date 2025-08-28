@@ -1,19 +1,64 @@
-from django.contrib import admin
 from .models import Plan, UserSubscription, GenerationUsage, AddonPurchase, CurrencyRate
-
+from django.contrib import admin, messages
+from django.core.management import call_command
+from django.urls import path, reverse
+from django.shortcuts import redirect
+from django.utils.translation import gettext_lazy as _
+from django.utils.decorators import method_decorator
+from django.views.decorators.http import require_POST
 
 @admin.register(CurrencyRate)
 class CurrencyRateAdmin(admin.ModelAdmin):
     list_display = ("id", "currency", "rate_to_usd", "usd_in_currency", "fetched_at")
+    list_filter = ("currency", "fetched_at")
+    search_fields = ("currency__code", "currency__name")
+    date_hierarchy = "fetched_at"
+    ordering = ("-fetched_at",)
+    list_per_page = 50
 
+    # отображение: сколько стоит 1 USD в этой валюте
+    @admin.display(description="1 USD в валюте")
     def usd_in_currency(self, obj):
-        if obj.rate_to_usd and obj.rate_to_usd != 0:
-            value = 1 / obj.rate_to_usd
-            return f"{value:.4f} {obj.currency}"
+        if obj.rate_to_usd:
+            try:
+                value = 1 / obj.rate_to_usd
+                return f"{value:.4f} {obj.currency}"
+            except ZeroDivisionError:
+                return "-"
         return "-"
 
-    usd_in_currency.short_description = "1 USD в валюте"
+    # --- кнопка "получить курсы" ---
+    def get_urls(self):
+        urls = super().get_urls()
+        app, model = self.model._meta.app_label, self.model._meta.model_name
+        custom_urls = [
+            path(
+                "fetch-rates/",
+                self.admin_site.admin_view(self.fetch_rates_view),
+                name=f"{app}_{model}_fetch_rates",
+            ),
+        ]
+        return custom_urls + urls
 
+    def changelist_view(self, request, extra_context=None):
+        extra_context = extra_context or {}
+        app, model = self.model._meta.app_label, self.model._meta.model_name
+        extra_context["sync_url"] = reverse(f"{self.admin_site.name}:{app}_{model}_fetch_rates")
+        return super().changelist_view(request, extra_context=extra_context)
+
+    @method_decorator(require_POST)
+    def fetch_rates_view(self, request):
+        if not self.has_change_permission(request):
+            self.message_user(request, _("Недостаточно прав"), messages.ERROR)
+            return redirect("..")
+
+        try:
+            call_command("fetch_rates")
+            self.message_user(request, _("Курсы валют успешно обновлены"), messages.SUCCESS)
+        except Exception as e:
+            self.message_user(request, f"Ошибка при обновлении: {e}", messages.ERROR)
+
+        return redirect("..")
 
 
 @admin.register(Plan)

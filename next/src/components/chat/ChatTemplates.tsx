@@ -146,6 +146,7 @@ export default function AiTemplates() {
                       key={template.id ?? `${template.provider}-${template.name}`}
                       template={template}
                       changeUsed={() => setTemplateChanged}
+                      setLocalTemplates={setLocalTemplates}
                     />
                   ))}
                   {!templates?.personal?.length && <NoData />}
