@@ -19,6 +19,7 @@ services:
     networks: [web]
 
   core:
+    user: "0:0"
     build:
       context: ./core
       dockerfile: Dockerfile
