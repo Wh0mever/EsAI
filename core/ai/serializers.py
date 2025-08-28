@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import AiPromptTemplate, AiPromptTemplateFavorite, AiChatSession, AiChatMessage
+from .models import AiPromptTemplate, AiPromptTemplateFavorite, AiChatSession, AiChatMessage, AiProvider
 
 class AiPromptTemplateSerializer(serializers.ModelSerializer):
     provider_name = serializers.CharField(source='provider.name', read_only=True)
@@ -66,3 +66,8 @@ class AiChatSessionMetaSerializer(serializers.ModelSerializer):
     class Meta:
         model = AiChatSession
         fields = ("id", "title", "provider_id", "created_at", "updated_at", "is_active")
+        
+class AiProviderSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = AiProvider
+        fields = ("id", "name")   # добавь поля, которые нужны фронту

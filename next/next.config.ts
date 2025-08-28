@@ -1,7 +1,15 @@
-import type { NextConfig } from "next";
+// next.config.ts
+import path from 'path';
+import type { NextConfig } from 'next';
 
-const nextConfig: NextConfig = {
-  
+const config: NextConfig = {
+  output: 'standalone',
+  reactStrictMode: true,
+  webpack(cfg) {
+    cfg.resolve.alias['@'] = path.resolve(__dirname, 'src');
+    cfg.resolve.extensions = cfg.resolve.extensions || ['.ts','.tsx','.js','.jsx','.mjs','.cjs','.json'];
+    return cfg;
+  },
 };
 
-export default nextConfig;
+export default config;
