@@ -66,7 +66,7 @@ export default function ResetPassword() {
 					: t("auth.save_password")
 			}
 			loadingLabel={t("status.loading")}
-			className="flex-1 h-full flex flex-col gap-8 items-center p-10 overflow-auto max-w-[450px]"
+			className="flex-1 h-full flex flex-col gap-8 items-center p-10 overflow-auto w-full"
 		>
 			<Alert
 				show={!!alert}

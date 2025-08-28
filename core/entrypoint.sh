@@ -1,25 +1,26 @@
-#!/usr/bin/env bash
+#!/usr/bin/env sh
 set -e
 
-# wait for db
+: "${POSTGRES_HOST:=db}"
+: "${POSTGRES_PORT:=5432}"
+: "${APP_USER:=appuser}"
+: "${APP_GROUP:=appuser}"
+
 python - <<'PY'
-import os, time, sys, psycopg2
-from urllib.parse import urlparse
-url = urlparse(os.environ.get("DATABASE_URL", ""))
+import os,socket,time,sys
+h=os.getenv("POSTGRES_HOST","db"); p=int(os.getenv("POSTGRES_PORT","5432"))
 for _ in range(60):
     try:
-        conn = psycopg2.connect(
-            dbname=url.path[1:], user=url.username, password=url.password,
-            host=url.hostname, port=url.port or 5432, connect_timeout=2
-        )
-        conn.close(); break
-    except Exception:
+        with socket.create_connection((h,p),1.5): sys.exit(0)
+    except OSError:
         time.sleep(1)
-else:
-    sys.exit("DB not ready")
+sys.exit(1)
 PY
 
-python manage.py migrate --noinput
-python manage.py collectstatic --noinput
+mkdir -p /app/static /app/media
+chown -R "$APP_USER":"$APP_GROUP" /app/static /app/media
+
+python manage.py migrate --noinput || true
+python manage.py collectstatic --noinput || true
 
 exec "$@"

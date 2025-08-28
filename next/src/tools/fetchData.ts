@@ -1,4 +1,4 @@
-export const API = "http://core:8000/api/";
+export const API = "/api/";
 import Cookies from "js-cookie";
 
 interface RequestOptions {
