@@ -14,7 +14,7 @@ import Trial from "@/components/sections/Trial/Trial";
 
 export default function Home() {
 	return (
-		<main className="">
+		<main className="pb-10">
 			<SectionHero />
 			<SectionFeature />
 			<AiTools />

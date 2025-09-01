@@ -69,16 +69,6 @@ export default function ContactUsForm() {
           className="w-full dark-field min-h-[100px]"
           required
         />
-
-        <Button
-          type="submit"
-          className="w-fit px-5 py-3 mt-2 bg-indigo-500 flex gap-1 items-center rounded hover:bg-indigo-600 duration-300"
-        >
-          <span>{t("contact_us.submit_button")}</span>
-          <i className="text-2xl">
-            <IoIosArrowRoundForward />
-          </i>
-        </Button>
       </SmartForm>
 
       <Alert

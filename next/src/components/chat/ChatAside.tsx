@@ -394,7 +394,11 @@ export default function Sidebar({ chats, activeChatId, onNewChat, className }: S
 
 						<Button
 							className="bg-rose-700 text-white px-4 py-2 rounded-lg"
-							onClick={() => setLogoutConfirmModalOpen(true)}
+							onClick={() => {
+								setLogoutConfirmModalOpen(true);
+								setShowMobileAside(false);
+								setSettingsOpen(false);
+							}}
 						>
 							{t("nav.logout")}
 						</Button>
