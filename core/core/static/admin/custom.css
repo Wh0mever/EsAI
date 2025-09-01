@@ -1,0 +1,31 @@
+:root,
+html[data-theme="light"],
+html[data-theme="auto"] {
+  --primary: #3d3778;      /* Indigo-500 */
+  --secondary: #45406d;    /* Indigo-700 */
+  --accent: #818cf8;       /* Indigo-400 */
+  --primary-fg: #fff;
+  --header-bg: var(--primary);
+  --button-bg: var(--primary);
+  --button-hover-bg: #4f46e5; /* Indigo-600 */
+}
+
+html[data-theme="dark"] {
+  --primary: #3d3778;      /* Indigo-700 */
+  --secondary: #45406d;    /* Indigo-500 */
+  --accent: #818cf8;       /* Indigo-400 */
+  --primary-fg: #f0f0f0;
+  --header-bg: var(--primary);
+  --button-bg: var(--primary);
+  --button-hover-bg: #6366f1;
+}
+
+
+.admin-logo {
+    height: 50px;
+}
+
+.admin-custom-button {
+    padding: 0.2rem 1rem !important;
+    border-radius: 1rem !important;
+}

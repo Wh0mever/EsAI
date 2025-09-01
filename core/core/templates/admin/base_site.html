@@ -1,0 +1,20 @@
+{% extends "admin/base.html" %}
+{% load static %}
+
+{% block extrastyle %}
+{{ block.super }}
+<link rel="stylesheet" type="text/css" href="{% static 'admin/custom.css' %}">
+{% endblock %}
+
+{% block extrahead %}
+{{ block.super }}
+{% comment %} <script src="{% static 'admin/custom.js' %}"></script> {% endcomment %}
+{% endblock %}
+
+{% block branding %}
+<h1 id="site-name">
+  <a href="{% url 'admin:index' %}">
+    <img src="{% static 'img/base.svg' %}" class="admin-logo" />
+  </a>
+</h1>
+{% endblock %}

@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>{{ subject }}</title>
+  <style>
+    body {
+      background-color: #f4f4f4;
+      font-family: Arial, sans-serif;
+      padding: 20px;
+      margin: 0;
+    }
+    .container {
+      max-width: 600px;
+      margin: 40px auto;
+      background-color: #ffffff;
+      padding: 30px;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+      line-height: 1.6;
+    }
+    h2 {
+      margin-top: 0;
+      color: #333333;
+    }
+    .greeting {
+      font-size: 16px;
+      color: #444444;
+    }
+    .content {
+      margin: 20px 0;
+      font-size: 15px;
+      color: #555555;
+    }
+    .button {
+      display: inline-block;
+      margin: 20px 0;
+      padding: 12px 24px;
+      background-color: #007bff;
+      color: #ffffff !important;
+      text-decoration: none;
+      border-radius: 6px;
+      font-weight: bold;
+      transition: background-color 0.3s;
+    }
+    .button:hover {
+      background-color: #0056b3;
+    }
+    .footer {
+      margin-top: 40px;
+      font-size: 12px;
+      color: #999999;
+      text-align: center;
+    }
+    .unsubscribe {
+      margin-top: 10px;
+      font-size: 12px;
+      color: #999999;
+    }
+    .unsubscribe a {
+      color: #999999;
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>{{ title }}</h2>
+    <p class="greeting">Здравствуйте{% if user.first_name %}, {{ user.first_name }}{% endif %}!</p>
+
+    <div class="content">
+      {{ body|safe }}
+    </div>
+
+    {% if button_url and button_text %}
+    <a href="{{ button_url }}" class="button">{{ button_text }}</a>
+    {% endif %}
+
+    <div class="footer">
+      <p>С уважением,<br>Команда {{ company_name }}</p>
+      <div class="unsubscribe">
+        Если вы больше не хотите получать такие письма, <a href="{{ unsubscribe_url }}">отпишитесь</a>.
+      </div>
+    </div>
+  </div>
+</body>
+</html>

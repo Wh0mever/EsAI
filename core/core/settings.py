@@ -63,6 +63,8 @@ INSTALLED_APPS = [
     'content.apps.ContentConfig',
     'ai.apps.AiConfig',
     'plans.apps.PlansConfig',
+    "django_celery_results",
+    "django_celery_beat",
 ]
 
 REST_FRAMEWORK = {
@@ -104,7 +106,10 @@ ROOT_URLCONF = 'core.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [],
+        'DIRS': [
+            os.path.join(BASE_DIR, ''),
+            os.path.join(BASE_DIR, 'core/templates'),
+        ],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -257,3 +262,20 @@ if DEBUG:
     }
 
     LOGGING['loggers']['django']['handlers'].append('console')
+
+
+# Broker/Backend (Redis)
+CELERY_BROKER_URL = env.str("CELERY_BROKER_URL", default="redis://redis:6379/0")
+CELERY_RESULT_BACKEND = env.str("CELERY_RESULT_BACKEND", default=CELERY_BROKER_URL)
+CELERY_TASK_ALWAYS_EAGER = False
+CELERY_RESULT_EXTENDED = True
+
+# Экспирация результатов, таймауты и сериализация
+CELERY_RESULT_EXPIRES = 60 * 60 * 24  # 24h
+CELERY_TASK_TIME_LIMIT = 60 * 5
+CELERY_TASK_SOFT_TIME_LIMIT = 60 * 4
+CELERY_ACCEPT_CONTENT = ["json"]
+CELERY_TASK_SERIALIZER = "json"
+CELERY_RESULT_SERIALIZER = "json"
+TIME_ZONE = "Asia/Bishkek"
+USE_TZ = True
