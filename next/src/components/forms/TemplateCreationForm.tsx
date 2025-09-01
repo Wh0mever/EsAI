@@ -66,7 +66,7 @@ export default function TemplatesCreationForm() {
       onSubmit={onSubmit}
       submitLabel={submitting ? t("templates.create.submitting") : t("templates.create.submit")}
       loadingLabel={t("templates.create.submitting")}
-      className="max-w-2xl"
+      className="w-full"
       data-form="template-create"
     >
       <Field

@@ -31,3 +31,7 @@ html {
 * {
   box-sizing: border-box !important;
 }
+
+main {
+  padding-bottom: 3rem;
+}

@@ -24,7 +24,7 @@ export default function Covers() {
 			<div className="z-10 w-full flex flex-col gap-10">
 				<div className="mt-2 flex flex-col items-center justify-center gap-5 text-center">
 					<TextTag text={t("covers.subtitle")} />
-					<h2 className="text-4xl font-semibold">{t("covers.title")}</h2>
+					<h2 className="text-3xl font-semibold">{t("covers.title")}</h2>
 				</div>
 
 				<div className="w-full flex flex-wrap">

@@ -225,17 +225,17 @@ function PlanPrice({ plan, currency, t }: { plan: PlanDTO; currency: Currency; t
 	const price = useMemo(() => formatMoney(amount, currency), [amount, currency]);
 	const baseFmt = useMemo(() => (base != null ? formatMoney(base, currency) : null), [base, currency]);
 
-	if (plan.is_free) return <h2 className="text-4xl font-bold text-center">{t("pricing.free")}</h2>;
+	if (plan.is_free) return <h2 className="text-3xl font-bold text-center">{t("pricing.free")}</h2>;
 
 	if (baseFmt) {
 		return (
 			<div className="flex gap-3 items-center justify-center">
-				<h2 className="text-4xl font-bold text-center text-gray-300">{price}</h2>
+				<h2 className="text-3xl font-bold text-center text-gray-300">{price}</h2>
 				<span className="text-xs px-2 py-1 rounded bg-neutral-800 line-through text-gray-500">{baseFmt}</span>
 			</div>
 		);
 	}
-	return <h2 className="text-4xl font-bold text-center text-gray-300">{price}</h2>;
+	return <h2 className="text-3xl font-bold text-center text-gray-300">{price}</h2>;
 }
 
 function PlanCard({

@@ -25,7 +25,7 @@ export default function SectionHero() {
 				<div className="hero-circle-right"></div>
 			</div>
 
-			<h1 className="text-6xl font-bold">{`${title}`}</h1>
+			<h1 className="text-5xl font-bold text-center">{`${title}`}</h1>
 			<TextChanging />
 			<p className="text-md">{`${subtitle}`}</p>
 

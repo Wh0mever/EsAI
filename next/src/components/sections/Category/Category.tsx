@@ -61,7 +61,7 @@ export default function Category() {
       />
       <div className="mt-2 flex flex-col items-center justify-center gap-5 text-center">
         <TextTag text={t("aiTemplates.subtitle")} />
-        <h2 className="text-4xl font-semibold">{t("aiTemplates.title")}</h2>
+        <h2 className="text-3xl font-semibold">{t("aiTemplates.title")}</h2>
       </div>
 
       <PurposeTabs
