@@ -1,5 +1,5 @@
 # users/serializers.py
-from .models import User, Notification
+from .models import User, Notification, UserQuestions
 
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
@@ -115,3 +115,15 @@ class NotificationSerializer(serializers.ModelSerializer):
     class Meta:
         model = Notification
         fields = ["id", "title", "body", "is_read", "created_at", "read_at"]
+        
+        
+
+class UserQuestionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UserQuestions
+        fields = ["email", "tel", "name", "question"]
+
+    def validate_tel(self, v):
+        if v and len(v) > 50:
+            raise serializers.ValidationError("Phone is too long")
+        return v

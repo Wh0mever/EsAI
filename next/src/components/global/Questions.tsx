@@ -42,15 +42,14 @@ export default function Questions() {
         </Button>
       </div>
 
-      {/* Success alert */}
       <Alert
         show={showAlert}
         onClose={() => setShowAlert(false)}
         type="success"
         title={t("common.success")}
         message={t("faq.message_sended")}
-        // autoClose
-        // autoCloseDuration={3000}
+        autoClose
+        autoCloseDuration={3000}
         position="left"
         className="fixed left-4 bottom-4 z-[1000] max-h-fit"
       />
@@ -62,7 +61,7 @@ export default function Questions() {
               await fetchData("users/question/", "POST", data, false);
               setOpen(false);
               setShowAlert(true);
-            } catch (e) {
+            } catch {
               setShowAlert(false);
             }
           }}
@@ -70,8 +69,26 @@ export default function Questions() {
           loadingLabel={t("common.loading")}
           className="w-full"
         >
+          {/* name (optional by model) */}
           <Field
             type="text"
+            name="name"
+            className="px-3 py-2 border w-full border-neutral-600 rounded-md"
+            placeholder={t("contact_us.name_placeholder") || "Name"}
+            label={t("contact_us.name_label") || "Name"}
+          />
+
+          {/* tel (optional by model) */}
+          <Field
+            type="tel"
+            name="tel"
+            className="px-3 py-2 border w-full border-neutral-600 rounded-md"
+            placeholder={t("contact_us.phone_placeholder") || "+996..."}
+            label={t("contact_us.phone_label") || "Phone"}
+          />
+
+          <Field
+            type="email"
             name="email"
             className="px-3 py-2 border w-full border-neutral-600 rounded-md"
             placeholder="Email"

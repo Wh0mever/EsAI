@@ -4,7 +4,8 @@ from django.core.cache import cache
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework import status
-from .serializers import SignUpSerializer, SignInSerializer, ProfileSerializer, NotificationSerializer
+from rest_framework.permissions import AllowAny
+from .serializers import SignUpSerializer, SignInSerializer, ProfileSerializer, NotificationSerializer, UserQuestionSerializer
 from core.format import format_errors
 from mails.sender import send_template_email
 from django.contrib.auth.hashers import make_password
@@ -265,18 +266,20 @@ class UserProfileView(APIView):
 
 
 class QuestionAPIView(APIView):
-    
     authentication_classes = []
-    permission_classes = []
-    
-    def post(self, request):
-        UserQuestions.objects.create(
-            email= request.data['email'],
-            question=request.data['question']
-        )
-        return Response({}, status=200)
-        
+    permission_classes = [AllowAny]
 
+    def post(self, request):
+        # accept alias "message" for "question"
+        data = request.data.copy()
+        if "question" not in data and "message" in data:
+            data["question"] = data["message"]
+
+        serializer = UserQuestionSerializer(data=data)
+        serializer.is_valid(raise_exception=True)
+        obj = serializer.save()
+        return Response({"id": obj.id}, status=status.HTTP_201_CREATED)
+    
 
 class NotificationListView(generics.ListAPIView):
     permission_classes = [permissions.IsAuthenticated]
