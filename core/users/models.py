@@ -100,6 +100,8 @@ class User(AbstractBaseUser, PermissionsMixin, Visa):
         
 class UserQuestions(models.Model):
     email = models.EmailField(verbose_name="Email")
+    tel = models.CharField(verbose_name="tel", blank=True, null=True, max_length=50)
+    name = models.CharField(verbose_name="name", blank=True, null=True, max_length=50)
     question = models.TextField(verbose_name="User question")
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="Created at")
     

@@ -225,7 +225,7 @@ function PlanPrice({ plan, currency, t }: { plan: PlanDTO; currency: Currency; t
 	const price = useMemo(() => formatMoney(amount, currency), [amount, currency]);
 	const baseFmt = useMemo(() => (base != null ? formatMoney(base, currency) : null), [base, currency]);
 
-	if (plan.is_free) return <h2 className="text-4xl font-bold text-center text-center">{t("pricing.free")}</h2>;
+	if (plan.is_free) return <h2 className="text-4xl font-bold text-center">{t("pricing.free")}</h2>;
 
 	if (baseFmt) {
 		return (
@@ -235,7 +235,7 @@ function PlanPrice({ plan, currency, t }: { plan: PlanDTO; currency: Currency; t
 			</div>
 		);
 	}
-	return <h2 className="text-4xl font-bold text-center text-gray-300 text-center">{price}</h2>;
+	return <h2 className="text-4xl font-bold text-center text-gray-300">{price}</h2>;
 }
 
 function PlanCard({
