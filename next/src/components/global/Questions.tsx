@@ -23,7 +23,7 @@ export default function Questions() {
       />
 
       <div className="flex flex-col gap-5 max-w-[500px]">
-        <h3 className="text-4xl font-bold">{t("faq.title")} 👍</h3>
+        <h3 className="text-4xl font-bold text-center">{t("faq.title")} 👍</h3>
         <p className="text-gray-400">
           {t("faq.text")}{" "}
           <a

@@ -53,7 +53,7 @@ export default function Category() {
   }, [templates, selectedPurpose]);
 
   return (
-    <section className="px-30 py-20 section-divider flex flex-col gap-5">
+    <section className="px-10 py-20 lg:px-30 lg:py-30 section-divider flex flex-col gap-5">
       <img
         src="/images/decorations/ai-tools-shape-left.webp"
         alt=""

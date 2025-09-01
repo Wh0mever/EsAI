@@ -23,9 +23,9 @@ export default function Header() {
 
   return (
     <header
-      className={`fixed w-full z-[200] select-none transition-all duration-300 ${
-        scrolled ? 'py-4 bg-black/10 backdrop-blur' : 'py-15'
-      } px-30`}
+      className={`fixed w-full z-[200] select-none transition-all duration-300
+        ${scrolled ? 'lg:py-6 py-3 bg-black/20 backdrop-blur' : 'lg:py-10 py-5'}
+        lg:px-20 px-10`}
     >
       <div className="flex items-center justify-between gap-5">
         <div className="flex items-center gap-4">
