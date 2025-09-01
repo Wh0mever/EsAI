@@ -9,7 +9,7 @@ export default function About() {
 	const points = t("about.points", { returnObjects: true }) as string[];
 
 	return (
-		<main className="mx-auto pt-80 overflow-hidden relative">
+		<main  className="mx-auto pt-80 overflow-hidden relative">
 			<Breadcrumb />
 
 			<section className="py-10 max-w-4xl mx-auto px-4">

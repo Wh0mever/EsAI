@@ -182,7 +182,7 @@ const PolicyComponent = () => {
 
 export default function Home() {
 	return (
-		<main className="mx-auto lg:pt-80 pt-50 overflow-hidden relative px-4">
+		<main  className="mx-auto lg:pt-80 pt-50 overflow-hidden relative px-4">
 			<Breadcrumb />
 			<PolicyComponent />
 		</main>

@@ -10,7 +10,7 @@ export default function RootLayout({
   const { t } = useTranslation('common');
 
   return (
-    <main className="h-screen flex items-center justify-between bg-gray-800 relative">
+    <main  className="h-screen flex items-center justify-between bg-gray-800 relative">
       <div className="absolute top-0 left-0 w-full h-full z-0">
         <img src="/images/decorations/hero-bg-gradient.webp" alt="" className="w-full h-full object-cover" />
       </div>

@@ -37,8 +37,8 @@ export default function SectionHero() {
 				<IoIosArrowRoundForward className="text-xl" />
 			</NextLink>
 
-			<div className="w-6/12 min-w-[250px] border-18 rounded-2xl mt-2 border-neutral-800">
-				<video src="/video/wirtebot-video.mp4" autoPlay muted loop></video>
+			<div className="w-6/12 min-w-[290px] border-10 rounded-2xl mt-2 border-neutral-800/50">
+				<video src="/video/wirtebot-video.mp4" className='rounded-2xl' autoPlay muted loop></video>
 			</div>
 		</section>
 	);
