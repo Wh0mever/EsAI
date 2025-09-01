@@ -88,7 +88,7 @@ export default function FeatureTabs() {
 			<div className="tabs flex lg:gap-10 gap-2 justify-center align-center">
 				<Button
 					onClick={() => setActiveTab(1)}
-					className={`tab text-3xl p-5  rounded-full border ${
+					className={`tab text-2xl p-5  rounded-full border ${
 						activeTab === 1
 							? "active bg-indigo-500/25 border-indigo-500"
 							: "bg-neutral-800/25 border-neutral-800"
@@ -98,7 +98,7 @@ export default function FeatureTabs() {
 				</Button>
 				<Button
 					onClick={() => setActiveTab(2)}
-					className={`tab text-3xl p-5 duration-300 rounded-full border ${
+					className={`tab text-2xl p-5 duration-300 rounded-full border ${
 						activeTab === 2
 							? "active bg-indigo-500/25 border-indigo-500"
 							: "bg-neutral-800/25 border-neutral-800"
@@ -108,7 +108,7 @@ export default function FeatureTabs() {
 				</Button>
 				<Button
 					onClick={() => setActiveTab(3)}
-					className={`tab text-3xl p-5 duration-300 rounded-full border ${
+					className={`tab text-2xl p-5 duration-300 rounded-full border ${
 						activeTab === 3
 							? "active bg-indigo-500/25 border-indigo-500"
 							: "bg-neutral-800/25 border-neutral-800"
@@ -118,7 +118,7 @@ export default function FeatureTabs() {
 				</Button>
 				<Button
 					onClick={() => setActiveTab(4)}
-					className={`tab text-3xl p-5 duration-300 rounded-full border ${
+					className={`tab text-2xl p-5 duration-300 rounded-full border ${
 						activeTab === 4
 							? "active bg-indigo-500/25 border-indigo-500"
 							: "bg-neutral-800/25 border-neutral-800"
@@ -128,7 +128,7 @@ export default function FeatureTabs() {
 				</Button>
 				<Button
 					onClick={() => setActiveTab(5)}
-					className={`tab text-3xl p-5 duration-300 rounded-full border ${
+					className={`tab text-2xl p-5 duration-300 rounded-full border ${
 						activeTab === 5
 							? "active bg-indigo-500/25 border-indigo-500"
 							: "bg-neutral-800/25 border-neutral-800"

@@ -8,7 +8,7 @@ export default function Trial() {
 	const { t } = useTranslation('home');
 
 	return (
-		<section className="px-10 py-20 mt-10 lg:px-30 lg:py-30 relative flex flex-col justify-center items-center">
+		<section className="px-10 py-20 mt-20 lg:px-30 lg:py-30 relative flex flex-col justify-center items-center">
 			<img src="/images/decorations/cta-4-bg.webp" alt="" className="" />
 			<div className="flex flex-col px-2 gap-5 absolute justify-center items-center py-10">
 				<TextTag text={t('trial.subtitle')} />

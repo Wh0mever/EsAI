@@ -35,7 +35,7 @@ export default function ClientDashboard({ slug, chatId }: Props) {
 
 
 	return (
-		<main className="antialiased relative mx-auto h-full flex bg-neutral-800/75 gap-5">
+		<main  className="antialiased relative mx-auto h-full flex bg-neutral-800/75 gap-5">
 			<div className="lg:w-3/12 lg:static absolute left-0 top-0 p-2">
 				<Sidebar chats={chatsList} />
 			</div>

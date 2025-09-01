@@ -64,7 +64,7 @@ export default function Blog() {
 	};
 
 	return (
-		<main className="mx-auto lg:pt-80 pt-50 overflow-hidden relative px-4">
+		<main  className="mx-auto lg:pt-80 pt-50 overflow-hidden relative px-4">
 			<Breadcrumb />
 
 			<div className="mx-auto max-w-4xl px-4 py-4">

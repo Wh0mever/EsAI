@@ -10,7 +10,7 @@ export default function Pricing() {
 	const { t } = useTranslation("common");
 
 	return (
-		<main className="pt-80 overflow-hidden relative">
+		<main  className="pt-80 overflow-hidden relative">
 			<Breadcrumb />
 
 			<div className="flex flex-col items-center gap-3">
