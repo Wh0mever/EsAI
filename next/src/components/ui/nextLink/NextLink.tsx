@@ -9,10 +9,11 @@ interface NextLinkProps {
 	children: React.ReactNode;
 	href: string;
 	className?: string;
+	onClick?: Function;
 }
 
 export default function NextLink(NextLinkProps: NextLinkProps) {
-	const { children, href, className } = NextLinkProps;
+	const { children, href, className, onClick } = NextLinkProps;
 	const pathname = usePathname();
 
 	const active = pathname === href ? true : false;
@@ -23,6 +24,9 @@ export default function NextLink(NextLinkProps: NextLinkProps) {
 			className={`link cursor-pointer select-none flex items-center gap-2 rounded-3xl transition-all duration-300 font-bold ${className} ${
 				active ? "text-blue-500 active" : ""
 			}`}
+			onClick={() => {
+				onClick && onClick();
+			}}
 		>
 			{children}
 		</Link>

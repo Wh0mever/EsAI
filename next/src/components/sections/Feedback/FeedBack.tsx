@@ -8,9 +8,9 @@ export default function FeedBack() {
 	const { t } = useTranslation('home');
 
 	return (
-		<section className="px-30 pt-80 flex flex-col items-center gap-5 relative">
+		<section className="px-30 pt-20 lg:pt-80 flex flex-col items-center gap-5 relative">
 			<div className="">
-				<h2 className="text-4xl">{t('feedback.title')}</h2>
+				<h2 className="text-3xl text-center">{t('feedback.title')}</h2>
 			</div>
 			<img src="/images/decorations/testimonial-4-shape-dots.webp" alt="" className="absolute -z-10 -top-20" />
 			<img

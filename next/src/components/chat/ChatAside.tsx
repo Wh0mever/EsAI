@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { FiPlus, FiChevronLeft, FiChevronRight, FiSettings } from "react-icons/fi";
 import { IoImages, IoLibrary } from "react-icons/io5";
 import { FaRegUser } from "react-icons/fa";
+import { CiMenuFries } from "react-icons/ci";
 import NextLink from "@/components/ui/nextLink/NextLink";
 import { Modal, ConfirmationModal } from "@/components/dialog/Dialog";
 import { fetchData } from "@/tools/fetchData";
@@ -152,6 +153,7 @@ function useUsername() {
 export default function Sidebar({ chats, activeChatId, onNewChat, className }: SidebarProps) {
 	const { t } = useTranslation("common");
 	const [collapsed, setCollapsed] = usePersistentBoolean(LS_COLLAPSED, false);
+	const [showMobileAside, setShowMobileAside] = useState(false);
 	const [settingsOpen, setSettingsOpen] = useState(false);
 	const notificationsCount = useNotificationsCount();
 	const username = useUsername();
@@ -174,10 +176,113 @@ export default function Sidebar({ chats, activeChatId, onNewChat, className }: S
 
 	return (
 		<>
+			<div className="lg:hidden">
+				<Button
+					className="text-3xl px-2 py-2"
+					onClick={() => {
+						setCollapsed(false); // expand content on mobile
+						setShowMobileAside(true);
+					}}
+				>
+					<CiMenuFries />
+				</Button>
+
+				{showMobileAside && (
+					<div className="fixed inset-0 z-[1000]">
+						{/* backdrop */}
+						<div className="absolute inset-0 bg-black/60" onClick={() => setShowMobileAside(false)} />
+						{/* aside content */}
+						<aside
+							className={[
+								"fixed inset-y-0 left-0 w-full h-full bg-neutral-900 text-neutral-100",
+								"border-r border-white/10 transition-transform duration-300 ease-out",
+								"flex flex-col",
+							].join(" ")}
+						>
+							{/* header */}
+							<div className="flex items-center justify-between px-2 py-2 shrink-0">
+								<div className="flex items-center gap-2">
+									<div className="grid place-items-center size-8">
+										<img src="/images/logo/head.svg" alt="" />
+									</div>
+									<span className="text-sm font-medium">Vokalo</span>
+								</div>
+								<button
+									className="p-2 rounded-md hover:bg-white/10 cursor-pointer"
+									onClick={() => setShowMobileAside(false)}
+									title="Close"
+								>
+									<FiChevronLeft />
+								</button>
+							</div>
+
+							{/* tools */}
+							<div className="px-2 py-1 shrink-0 space-y-1">
+								<NavLink
+									href="/dashboard/text-chat/"
+									icon={<FiPlus />}
+									label={t("chat.new_chat")}
+									showText={true}
+									title={`${t("chat.new_chat")} (Ctrl/Cmd+B to toggle sidebar)`}
+								/>
+								<NavBtn icon={<IoImages />} label={"DALL·E"} showText={true} onClick={handleNewChat} />
+								<NavBtn icon={<IoLibrary />} label={t("chat.lib")} showText={true} onClick={() => {}} />
+							</div>
+
+							{/* chats */}
+							<div className="px-2 pt-2 flex-1 min-h-0 flex flex-col">
+								<SectionTitle>{t("chat.chat_history")}</SectionTitle>
+								<ul className="mt-1 space-y-1 overflow-y-auto pr-1 flex-1">
+									{chats.length > 0 &&
+										chats.map((c) => (
+											<li key={c.id}>
+												<NextLink
+													href={`/dashboard/${c.chat_mode}/${c.id}`}
+													className={[
+														"block rounded-md px-2 py-2 text-sm truncate",
+														c.id === activeChatId ? "bg-white/10" : "hover:bg-white/5",
+													].join(" ")}
+													onClick={() => setShowMobileAside(false)}
+												>
+													{c.title}
+												</NextLink>
+											</li>
+										))}
+									{chats.length === 0 && (
+										<li>
+											<span className="text-sm text-neutral-500 italic select-none">
+												{t("chat.chats_list_empty")}
+											</span>
+										</li>
+									)}
+								</ul>
+							</div>
+
+							{/* footer / settings */}
+							<div className="px-2 py-2 border-t border-white/10 shrink-0">
+								<NavLink icon={<FaRegUser />} label={username} href="/profile" showText={true} />
+								<NavBtn
+									icon={<FiSettings />}
+									label={t("common.settings")}
+									showText={true}
+									onClick={() => {
+										setSettingsOpen(true);
+										setShowMobileAside(false);
+									}}
+									title={t("common.settings")}
+									counter={notificationsCount}
+								/>
+							</div>
+						</aside>
+					</div>
+				)}
+			</div>
+
+			{/* aside виден только на lg и выше */}
 			<aside
 				className={[
-					"fixed left-0 top-0 h-dvh bg-neutral-900 text-neutral-100 border-r border-white/10",
-					"transition-[width] duration-300 ease-out flex flex-col",
+					"hidden lg:flex fixed left-0 top-0 h-dvh bg-neutral-900 text-neutral-100 border-r border-white/10",
+					"transition-[width] duration-300 ease-out flex-col",
 					width,
 					className || "",
 				].join(" ")}

@@ -59,7 +59,7 @@ function FeatureTab({ activeTab }: { activeTab: number }) {
 	}, []);
 
 	return (
-		<div className="py-5 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+		<div className="py-5 px-5 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
 			{cards.map((card: string, index: number) => (
 				<div
 					key={index}
@@ -85,7 +85,7 @@ export default function FeatureTabs() {
 	console.log();
 	return (
 		<div className="feature-tabs text-white rounded-lg flex flex-col gap-10 items-center">
-			<div className="tabs flex gap-10 justify-center align-center">
+			<div className="tabs flex lg:gap-10 gap-2 justify-center align-center">
 				<Button
 					onClick={() => setActiveTab(1)}
 					className={`tab text-3xl p-5  rounded-full border ${

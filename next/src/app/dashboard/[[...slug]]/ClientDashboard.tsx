@@ -35,19 +35,13 @@ export default function ClientDashboard({ slug, chatId }: Props) {
 
 
 	return (
-		<main className="antialiased mx-auto h-full flex bg-neutral-800/75 gap-5">
-			<div className="w-3/12">
+		<main className="antialiased relative mx-auto h-full flex bg-neutral-800/75 gap-5">
+			<div className="lg:w-3/12 lg:static absolute left-0 top-0 p-2">
 				<Sidebar chats={chatsList} />
 			</div>
 
-			<div className="flex w-6/12">
+			<div className="flex lg:w-6/12 w-full">
 				<Chat mode={slug} chatId={chatId ?? undefined} />
-			</div>
-
-			<div className="w-3/12 flex items-start">
-				<div className="flex items-center w-full justify-end gap-3 p-4">
-
-				</div>
 			</div>
 		</main>
 	);

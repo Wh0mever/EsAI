@@ -20,7 +20,7 @@ export default function AiTools() {
 				<div className="text-center mb-12 relative flex flex-col items-center justify-center gap-5">
 					<TextTag text={subtitle} />
 					<div className="mt-2 relative">
-                        <h2 className="text-4xl font-semibold">{title}</h2>
+                        <h2 className="text-3xl font-semibold">{title}</h2>
                     </div>
 				</div>
 

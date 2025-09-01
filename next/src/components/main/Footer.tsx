@@ -37,16 +37,13 @@ export default function Footer() {
 
             <div className="flex items-center gap-4">
               <img src="/images/icons/footer_visa_el.webp" alt="Visa" className="h-9 sm:h-11 w-auto" />
-              {/* при необходимости добавляй другие логотипы платежей */}
             </div>
           </div>
 
-          {/* Центр: копирайт */}
           <div className="flex justify-center order-last md:order-none">
             <p className="text-xs text-white/40">© 2025 | Vokalo.online</p>
           </div>
 
-          {/* Правый блок: навигация */}
           <nav className="flex md:justify-end justify-center">
             <ul className="flex flex-wrap gap-x-5 gap-y-2 text-sm text-white/70">
               <li>

@@ -13,7 +13,7 @@ export default function AiApplications() {
 				<div className="px-4 py-2  bg-indigo-600/20 rounded-xl w-fit">
 					<span>{t('aiapps.subtitle')}</span>
 				</div>
-				<h2 className="text-4xl font-bold text-center">{t('aiapps.title')}</h2>
+				<h2 className="text-3xl font-bold text-center">{t('aiapps.title')}</h2>
 			</div>
 
 			{/* grid cols */}

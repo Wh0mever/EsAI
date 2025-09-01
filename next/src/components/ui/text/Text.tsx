@@ -36,7 +36,7 @@ export function TextChanging({
 	}, []);
 
 	return (
-		<p className="text-6xl font-bold text-rose-500 transition-all duration-500">
+		<p className="text-5xl font-bold text-center text-rose-500 transition-all duration-500">
 			{textList[currentIndex]}
 		</p>
 	);
