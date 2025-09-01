@@ -15,7 +15,7 @@ export default function AiTools() {
 	
 
 	return (
-		<section className="px-30 py-20 section-divider">
+		<section className="px-10 py-20 lg:px-30 lg:py-30 section-divider">
 			<div className="">
 				<div className="text-center mb-12 relative flex flex-col items-center justify-center gap-5">
 					<TextTag text={subtitle} />

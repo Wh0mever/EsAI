@@ -6,7 +6,6 @@ import "@/assets/style.scss";
 
 export const metadata: Metadata = {
 	title: "Vokalo",
-	colorScheme: "dark",
 	keywords: ["nextjs", "tailwind", "dark mode"]
 }
 

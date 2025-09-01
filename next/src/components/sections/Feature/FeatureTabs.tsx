@@ -59,7 +59,7 @@ function FeatureTab({ activeTab }: { activeTab: number }) {
 	}, []);
 
 	return (
-		<div className="py-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+		<div className="py-5 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
 			{cards.map((card: string, index: number) => (
 				<div
 					key={index}

@@ -10,7 +10,7 @@ export default function Covers() {
 	const { t } = useTranslation("home");
 
 	return (
-		<section className="px-30 py-30 section-divider flex flex-col gap-5 bg-black/50">
+		<section className="px-10 py-20 lg:px-30 lg:py-30 section-divider flex flex-col gap-5 bg-black/50">
 			<div className="absolute w-full h-full top-0 left-0">
 				<img
 					src="/images/decorations/ai-image-shape-top.webp"
@@ -35,7 +35,7 @@ export default function Covers() {
 							description={t("covers.cards.0.description")}
 						/>
 					</div>
-					<div className="w-full lg:w-6/12 p-4">
+					<div className="lg:w-6/12 p-4 w-12/12">
 						<FeatureCard
 							title={t("covers.cards.1.title")}
 							image="/images/feature/6.webp"

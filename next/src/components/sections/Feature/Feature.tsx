@@ -12,7 +12,7 @@ export default function SectionFeature() {
 	const subtitle = t("hero.subtitle");
 
 	return (
-		<section className="px-30 py-30 antialiased text-center flex flex-col gap-7 items-center relative overflow-hidden section-divider">
+		<section className="px-10 py-20 lg:px-30 lg:py-30 antialiased text-center flex flex-col gap-7 items-center relative overflow-hidden section-divider">
 			<div className="absolute top-0 flex justify-center h-full w-full -z-5">
 				<img
 					src="/images/decorations/feature-shape-left.webp"
