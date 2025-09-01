@@ -13,7 +13,7 @@ export default function FAQSection() {
 	};
 
 	return (
-		<main className="mx-auto pt-80 overflow-hidden relative px-4">
+		<main className="mx-auto lg:pt-80 pt-50 overflow-hidden relative px-4">
 			<Breadcrumb />
 
 			<div className="max-w-4xl mx-auto py-10">

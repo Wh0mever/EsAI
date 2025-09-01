@@ -15,7 +15,7 @@ export default function Questions() {
   const { t } = useTranslation("common");
 
   return (
-    <div className="flex flex-col gap-5 px-40 py-10 relative w-full h-fit">
+    <div className="flex flex-col gap-5 lg:px-40 px-5 py-10 relative w-full h-fit">
       <img
         src="/images/decorations/pricing-faq-bottom-right.webp"
         className="absolute right-0 bottom-0"
@@ -23,7 +23,7 @@ export default function Questions() {
       />
 
       <div className="flex flex-col gap-5 max-w-[500px]">
-        <h3 className="text-3xl font-bold text-center">{t("faq.title")} 👍</h3>
+        <h3 className="text-3xl font-bold lg:text-center text-start">{t("faq.title")} 👍</h3>
         <p className="text-gray-400">
           {t("faq.text")}{" "}
           <a

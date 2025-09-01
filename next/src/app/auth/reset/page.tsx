@@ -66,7 +66,7 @@ export default function ResetPassword() {
 					: t("auth.save_password")
 			}
 			loadingLabel={t("status.loading")}
-			className="flex-1 h-full flex flex-col gap-8 items-center p-10 overflow-auto w-full"
+			className="flex-1 h-full flex flex-col gap-8 items-center px-10 lg:py-10 py-20 overflow-auto w-full"
 		>
 			<Alert
 				show={!!alert}
@@ -79,7 +79,9 @@ export default function ResetPassword() {
 				position="top"
 				closeButton
 			/>
-			<img src="/images/logo/base.svg" alt="Logo" className="max-w-[200px]" />
+			<div className="w-full flex justify-center">
+				<img src="/images/logo/base.svg" alt="Logo" className="max-w-[200px]" />
+			</div>
 			{step === "request" && (
 				<div className="w-full select-none flex flex-col">
 					<label htmlFor="email" className="flex items-center gap-2 w-full">
