@@ -6,8 +6,13 @@ import "@/assets/style.scss";
 
 export const metadata: Metadata = {
 	title: "Vokalo",
-	keywords: ["nextjs", "tailwind", "dark mode"]
-}
+	keywords: ["nextjs", "tailwind", "dark mode"],
+	icons: {
+		icon: "/images/logo/head.ico",
+		shortcut: "/images/logo/head.ico",
+		apple: "/images/logo/head.svg",
+	},
+};
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
 	const cookieStore = await cookies();
@@ -17,9 +22,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
 		<html lang={lang} className="dark">
 			<body>
 				<div id="alert-root"></div>
-				<I18nProvider lang={lang}>
-					{children}
-				</I18nProvider>
+				<I18nProvider lang={lang}>{children}</I18nProvider>
 			</body>
 		</html>
 	);

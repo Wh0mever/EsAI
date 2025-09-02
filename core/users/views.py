@@ -129,7 +129,6 @@ class SignUpApiView(APIView):
             user = serializer.save()
             return Response({
                 "status": "success",
-
             }, status=status.HTTP_201_CREATED)
         else:
             print("SIGNUP ERRORS:", serializer.errors)

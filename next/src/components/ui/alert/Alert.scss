@@ -56,7 +56,7 @@
   border-radius: 12px;
   border: 1px solid var(--alert-border, rgba(255,255,255,.12));
   background: var(--alert-bg, #111);
-  color: var(--alert-fg, #fff);
+  color: var(--alert-fg, #222);
   padding: 14px 16px;
   pointer-events: auto; /* clickable */
   opacity: 0;
@@ -93,20 +93,24 @@
 
 /* color variants via CSS vars, easy to theme */
 .alert-info {
-  --alert-bg: oklch(21% .03 260);
-  --alert-border: oklch(35% .03 260 / .35);
+  --alert-bg: oklch(92% .03 260);
+  --alert-border: oklch(70% .03 260 / .6);
+  --alert-fg: #0c5460;
 }
 .alert-success {
-  --alert-bg: oklch(26% .06 150);
-  --alert-border: oklch(55% .12 150 / .35);
+  --alert-bg: oklch(90% .06 150);
+  --alert-border: oklch(65% .10 150 / .6);
+  --alert-fg: #155724;
 }
 .alert-warning {
-  --alert-bg: oklch(30% .10 85);
-  --alert-border: oklch(65% .14 85 / .35);
+  --alert-bg: oklch(95% .10 85);
+  --alert-border: oklch(75% .12 85 / .6);
+  --alert-fg: #856404;
 }
 .alert-error {
-  --alert-bg: oklch(28% .10 25);
-  --alert-border: oklch(60% .16 25 / .35);
+  --alert-bg: oklch(94% .08 25);
+  --alert-border: oklch(72% .12 25 / .6);
+  --alert-fg: #721c24;
 }
 
 .alert-icon { font-size: 20px; opacity: .95; }
