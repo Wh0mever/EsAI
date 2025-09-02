@@ -135,24 +135,33 @@ export default function Header() {
 			</div>
 
 			{/* mobile drawer */}
+			{/* mobile drawer */}
 			<aside
-				className={`lg:hidden fixed right-0 top-0 z-[200] h-dvh w-[88%] max-w-[420px] bg-neutral-900/95 backdrop-blur-xl border-l border-neutral-800 transition-transform will-change-transform ${
-					open ? "translate-x-0" : "translate-x-full"
-				}`}
+				className={`lg:hidden fixed right-0 top-0 z-[200] h-dvh w-[88%] max-w-[420px] 
+  bg-neutral-900/95 backdrop-blur-xl border-l border-neutral-800 
+  transition-transform will-change-transform
+  ${open ? "translate-x-0" : "translate-x-full"} 
+  flex flex-col`} // make column
 			>
-				<div className="flex items-center justify-between p-6">
+				<div className="shrink-0 flex items-center justify-between p-6">
 					<img src="/images/logo/base.svg" alt="" className="h-8" />
 					<button
 						className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-neutral-700 bg-neutral-800 active:scale-95 cursor-pointer"
 						onClick={closeMenu}
 						aria-label="Close"
 					>
-						<svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2">
+						<svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth={2}>
 							<path d="M6 6l12 12M18 6L6 18" />
 						</svg>
 					</button>
 				</div>
-				<div className="px-4 pb-8">
+
+				{/* scrollable content */}
+				<div
+					className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4
+               [padding-bottom:env(safe-area-inset-bottom)]"
+					style={{ WebkitOverflowScrolling: "touch" }}
+				>
 					<Nav variant="mobile" onNavigate={closeMenu} />
 				</div>
 			</aside>
