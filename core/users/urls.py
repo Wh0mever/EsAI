@@ -1,6 +1,12 @@
-from django.urls import path
+from django.urls import path, include
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+from django.http import HttpResponseRedirect
 from .views import *
+
+
+def auth_complete(request):
+    return HttpResponseRedirect("http://127.0.0.1/users/auth/callback")
+
 
 urlpatterns = [
     path('signin/', SigninApiView.as_view(), name='signin'),
@@ -15,4 +21,7 @@ urlpatterns = [
     path('question/', QuestionAPIView.as_view(), name='question'),
     path("notifications/", NotificationListView.as_view()),
     path("notifications/<int:pk>/read/", NotificationMarkReadView.as_view()),
+
+    path("accounts/", include("allauth.urls")),
+    path("auth/complete/", auth_complete, name="auth-complete"),
 ]
