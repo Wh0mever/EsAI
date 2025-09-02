@@ -10,11 +10,10 @@ export default function Footer() {
     <footer className="w-full border-t border-neutral-900">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-10 sm:py-14">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-8 md:gap-6 items-center">
-          {/* Левый блок: соцсети + платежи */}
           <div className="flex flex-col gap-6 md:items-start items-center">
             <div className="flex items-center gap-6">
               <a
-                href="https://facebook.com/vokalo" // replace
+                href="https://www.facebook.com/share/19YGRrp4xw/?mibextid=wwXIfr"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-2 text-sm text-white/90 hover:text-white transition-colors"
@@ -24,7 +23,7 @@ export default function Footer() {
                 <span className="hidden sm:inline">Facebook</span>
               </a>
               <a
-                href="https://instagram.com/vokalo" // replace
+                href="https://www.instagram.com/vokalo.online?igsh=MXh1MDd5OHc1YXV6aQ%3D%3D&utm_source=qr"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-2 text-sm text-white/90 hover:text-white transition-colors"
