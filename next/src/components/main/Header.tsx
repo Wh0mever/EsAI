@@ -1,30 +1,91 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Nav from "./Nav";
 import AuthButtons from "@/components/auth/AuthButtons";
 
+const HIDE_AFTER = 50; // px threshold to allow hiding
+const SHOW_DELTA = 8; // px required scroll-up to show
+
 export default function Header() {
-	const [scrolled, setScrolled] = useState(false);
 	const [open, setOpen] = useState(false);
+	const [scrolled, setScrolled] = useState(false);
+	const [hidden, setHidden] = useState(false);
 
-	useEffect(() => {
-		const handleScroll = () => setScrolled(window.scrollY > 10);
-		window.addEventListener("scroll", handleScroll);
-	}, []);
+	const lastYRef = useRef(0);
+	const tickingRef = useRef(false);
 
+	// lock page scroll when mobile menu open
 	useEffect(() => {
-		if (open) document.body.classList.add("overflow-hidden");
-		else document.body.classList.remove("overflow-hidden");
+		document.body.classList.toggle("overflow-hidden", open);
 	}, [open]);
 
+	useEffect(() => {
+		const rootEl = document.scrollingElement || document.documentElement; // <html> или <body>
+		const getY = () => (rootEl ? rootEl.scrollTop : 0);
+
+		const rafState = { ticking: false };
+		const last = { y: 0 };
+
+		const handle = () => {
+			if (rafState.ticking) return;
+			rafState.ticking = true;
+
+			requestAnimationFrame(() => {
+				const y = getY();
+				const was = last.y;
+
+				setScrolled(y > 10);
+
+				if (open) {
+					setHidden(false);
+				} else if (y <= 50) {
+					setHidden(false);
+				} else {
+					const down = y > was + 2;
+					const upEnough = was - y >= 8;
+					if (down) setHidden(true);
+					else if (upEnough) setHidden(false);
+				}
+
+				last.y = y;
+				rafState.ticking = false;
+			});
+		};
+
+		// init
+		last.y = getY();
+		setScrolled(last.y > 10);
+
+		// ВАЖНО: слушаем ИМЕННО rootEl (scroll не всплывает)
+		rootEl.addEventListener("scroll", handle, { passive: true });
+
+		// Дополнительно — на window (для некоторых движков)
+		window.addEventListener("scroll", handle, { passive: true });
+
+		// Для совместимости со старыми браузерами/нестандартных кейсов:
+		document.addEventListener("scroll", handle, { passive: true });
+
+		// синкнем один раз
+		handle();
+
+		return () => {
+			rootEl.removeEventListener("scroll", handle);
+			window.removeEventListener("scroll", handle);
+			document.removeEventListener("scroll", handle);
+		};
+	}, [open]);
 	const closeMenu = () => setOpen(false);
 
 	return (
 		<header
-			className={`fixed w-full z-[200] bg-black/20 select-none transition-all duration-300
-        ${scrolled ? "lg:py-2 py-2 bg-black/20 backdrop-blur" : "lg:py-2 py-2"}
-        lg:px-20 px-10`}
+			className={[
+				"fixed w-full z-[200] select-none transition-transform duration-300",
+				"will-change-transform",
+				hidden ? "-translate-y-full" : "translate-y-0",
+				scrolled ? "bg-black/20 backdrop-blur lg:py-2 py-2" : "lg:py-2 py-2",
+				"lg:px-20 px-10",
+			].join(" ")}
 		>
 			<div className="flex items-center justify-between gap-5">
 				<div className="flex items-center gap-4">
@@ -63,6 +124,7 @@ export default function Header() {
 				<AuthButtons />
 			</div>
 
+			{/* overlay */}
 			<div
 				className={`lg:hidden fixed inset-0 z-[190] transition-opacity ${
 					open ? "opacity-100 pointer-events-auto" : "opacity-0 pointer-events-none"
@@ -72,6 +134,7 @@ export default function Header() {
 				<div className="absolute inset-0 bg-black/50" />
 			</div>
 
+			{/* mobile drawer */}
 			<aside
 				className={`lg:hidden fixed right-0 top-0 z-[200] h-dvh w-[88%] max-w-[420px] bg-neutral-900/95 backdrop-blur-xl border-l border-neutral-800 transition-transform will-change-transform ${
 					open ? "translate-x-0" : "translate-x-full"

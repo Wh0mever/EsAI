@@ -69,13 +69,13 @@ export default function SignUp() {
 				<h4 className="text-xl font-bold text-neutral-700 text-center">{t("auth.title")}</h4>
 				<p className="text-md text-yellow-400">{t("auth.subtitle")}</p>
 			</div>
-			<Button
-				onClick={() => {}}
+			<a
+				href="http://127.0.0.1/accounts/google/login/?process=login"
 				className="flex gap-3 items-center justify-center bg-white text-black py-2 px-6 w-full rounded-md font-light text-sm"
 			>
 				<img src="/images/icons/google-icon.svg" alt="Google" />
 				<span>{t("auth.google")}</span>
-			</Button>
+			</a>
 			<div className="py-5 w-full">
 				<div className="relative flex items-center justify-center border-b border-gray-500">
 					<span className="absolute px-6 py-1 text-sm rounded-sm bg-gray-100 text-black">{t("auth.or")}</span>

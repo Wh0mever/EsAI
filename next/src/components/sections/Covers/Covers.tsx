@@ -10,7 +10,7 @@ export default function Covers() {
 	const { t } = useTranslation("home");
 
 	return (
-		<section className="px-10 py-20 lg:px-30 lg:py-30 section-divider flex flex-col gap-5 bg-black/50">
+		<section className="px-0 py-20 lg:px-30 lg:py-30 section-divider flex flex-col gap-5 bg-black/50">
 			<div className="absolute w-full h-full top-0 left-0">
 				<img
 					src="/images/decorations/ai-image-shape-top.webp"
