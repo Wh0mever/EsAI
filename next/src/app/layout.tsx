@@ -16,6 +16,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
 	return (
 		<html lang={lang} className="dark">
 			<body>
+				<div id="alert-root"></div>
 				<I18nProvider lang={lang}>
 					{children}
 				</I18nProvider>

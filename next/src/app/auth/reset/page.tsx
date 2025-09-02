@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 import { Field } from "@/components/ui/inputs/Inputs";
 import { Alert } from "@/components/ui/alert/Alert";
 import { fetchData } from "@/tools/fetchData";
+import NextLink from "@/components/ui/nextLink/NextLink";
 import SmartForm from "@/components/forms/SmartForm";
 
 export default function ResetPassword() {
@@ -68,20 +69,23 @@ export default function ResetPassword() {
 			loadingLabel={t("status.loading")}
 			className="flex-1 h-full flex flex-col gap-8 items-center px-10 lg:py-10 py-20 overflow-auto w-full"
 		>
-			<Alert
-				show={!!alert}
-				title={alert?.title || ""}
-				message={alert?.message || ""}
-				type={alert?.type}
-				onClose={() => setAlert(null)}
-				autoClose
-				autoCloseDuration={2500}
-				position="top"
-				closeButton
-			/>
-			<div className="w-full flex justify-center">
+			{alert && (
+				<Alert
+					show
+					title={alert.title}
+					message={alert.message}
+					type={alert.type}
+					onClose={() => setAlert(null)}
+					position="top"
+					offset={20}
+					autoClose
+					autoCloseDuration={2500}
+					closeButton
+				/>
+			)}
+			<NextLink href="/" className="w-full flex justify-center">
 				<img src="/images/logo/base.svg" alt="Logo" className="max-w-[200px]" />
-			</div>
+			</NextLink>
 			{step === "request" && (
 				<div className="w-full select-none flex flex-col">
 					<label htmlFor="email" className="flex items-center gap-2 w-full">
