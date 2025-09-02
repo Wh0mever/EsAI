@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Nav from "./Nav";
 import AuthButtons from "@/components/auth/AuthButtons";
+import NextLink from "../ui/nextLink/NextLink";
 
 const HIDE_AFTER = 50; // px threshold to allow hiding
 const SHOW_DELTA = 8; // px required scroll-up to show
@@ -114,7 +115,9 @@ export default function Header() {
 						</span>
 					</button>
 
-					<img src="/images/logo/base.svg" alt="" className="max-w-[150px]" />
+					<NextLink href="/">
+						<img src="/images/logo/base.svg" alt="" className="max-w-[150px]" />
+					</NextLink>
 				</div>
 
 				<div className="hidden lg:flex">
