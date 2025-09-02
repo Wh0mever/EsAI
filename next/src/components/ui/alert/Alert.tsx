@@ -1,7 +1,7 @@
 // Alert.tsx
 "use client";
 
-import React, { useEffect, useMemo, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import "./Alert.scss";
 import { IoClose } from "react-icons/io5";
@@ -22,7 +22,7 @@ interface AlertProps {
   position?: AlertPosition;
   autoClose?: boolean;
   autoCloseDuration?: number;
-  offset?: number; // px
+  offset?: number;
 }
 
 export function Alert({
@@ -38,18 +38,18 @@ export function Alert({
   autoCloseDuration = 3000,
   offset = 16,
 }: AlertProps) {
+  const [portalEl, setPortalEl] = useState<HTMLElement | null>(null);
   const timerRef = useRef<number | null>(null);
 
-  // create #alert-root once
-  const root = useMemo(() => {
-    if (typeof document === "undefined") return null;
+  // create/get portal root on client
+  useEffect(() => {
     let el = document.getElementById("alert-root");
     if (!el) {
       el = document.createElement("div");
       el.id = "alert-root";
       document.body.appendChild(el);
     }
-    return el;
+    setPortalEl(el);
   }, []);
 
   // autoclose
@@ -61,33 +61,32 @@ export function Alert({
     };
   }, [show, autoClose, autoCloseDuration, onClose]);
 
-  // Esc to close
+  // Esc close
   useEffect(() => {
     if (!show || !onClose) return;
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
+    const handler = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [show, onClose]);
 
-  if (!show || !root) return null;
+  if (!show || !portalEl) return null;
 
-  const posClass = `alert-pos-${position}`;
   const typeClass = `alert-${type}`;
+  const posClass = `alert-pos-${position}`;
+
+  const style =
+    position === "top"
+      ? ({ top: offset } as React.CSSProperties)
+      : position === "bottom"
+      ? ({ bottom: offset } as React.CSSProperties)
+      : position === "left"
+      ? ({ left: offset } as React.CSSProperties)
+      : ({ right: offset } as React.CSSProperties);
 
   return createPortal(
     <div
       className={["alert", typeClass, posClass, className].join(" ")}
-      style={
-        position === "top"
-          ? { top: offset }
-          : position === "bottom"
-          ? { bottom: offset }
-          : position === "left"
-          ? { left: offset }
-          : { right: offset }
-      }
+      style={style}
       role="alert"
       aria-live="assertive"
       aria-atomic="true"
@@ -96,8 +95,7 @@ export function Alert({
         <div className="alert-head">
           <h5 className="alert-title">
             {type === "error" && <CgDanger className="alert-icon" />}
-            {type === "success" && <IoIosCheckmarkCircleOutline className="alert-icon" />}
-            {type === "info" && <IoIosCheckmarkCircleOutline className="alert-icon" />}
+            {["success", "info"].includes(type) && <IoIosCheckmarkCircleOutline className="alert-icon" />}
             {title}
           </h5>
           {closeButton && (
@@ -109,6 +107,6 @@ export function Alert({
         {message && <p className="alert-message">{message}</p>}
       </div>
     </div>,
-    root
+    portalEl
   );
 }

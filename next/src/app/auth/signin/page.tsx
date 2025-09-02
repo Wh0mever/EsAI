@@ -96,15 +96,15 @@ export default function SignIn() {
 				message={alertMessage}
 				type={alertType}
 				onClose={() => setShowAlert(false)}
-				className="mb-4"
+				position="top"
+				offset={20}
 				autoClose
 				autoCloseDuration={2000}
-				position="top"
 				closeButton
 			/>
-			<div className="w-full flex justify-center">
+			<NextLink href="/" className="w-full flex justify-center">
 				<img src="/images/logo/base.svg" alt="Logo" className="max-w-[200px]" />
-			</div>
+			</NextLink>
 			<div className="text-center">
 				<h4 className="text-xl font-bold text-neutral-700">{t("auth.title")}</h4>
 				<p className="text-md text-yellow-400">{t("auth.subtitle")}</p>
