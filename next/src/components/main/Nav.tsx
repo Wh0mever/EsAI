@@ -176,7 +176,10 @@ function MobileNav({
             {CURRENCIES.map(({ code, label }) => (
               <button
                 key={code}
-                onClick={() => changeCurrency(code)}
+                onClick={() => {
+                  changeCurrency(code);
+                  window.location.reload();
+                }}
                 className={clsx(
                   "text-left block px-4 py-3 hover:bg-neutral-800 rounded-xl",
                   currency === code && "bg-neutral-700"
