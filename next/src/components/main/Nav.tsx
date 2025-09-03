@@ -107,7 +107,10 @@ const CurrencyMenu = memo(function CurrencyMenu({
       {CURRENCIES.map(({ code, label }) => (
         <li key={code} className="border-b border-neutral-700 last:border-b-0">
           <Button
-            onClick={() => onChange(code)}
+            onClick={() => {
+              onChange(code);
+              window.location.reload();
+            }}
             className={clsx(
               "py-4 px-8 w-full text-left transition-all duration-300 hover:bg-neutral-800",
               current === code && "bg-neutral-700"

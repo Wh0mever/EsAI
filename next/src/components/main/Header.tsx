@@ -5,8 +5,6 @@ import Nav from "./Nav";
 import AuthButtons from "@/components/auth/AuthButtons";
 import NextLink from "../ui/nextLink/NextLink";
 
-const HIDE_AFTER = 50; // px threshold to allow hiding
-const SHOW_DELTA = 8; // px required scroll-up to show
 
 export default function Header() {
 	const [open, setOpen] = useState(false);
@@ -22,7 +20,7 @@ export default function Header() {
 	}, [open]);
 
 	useEffect(() => {
-		const rootEl = document.scrollingElement || document.documentElement; // <html> или <body>
+		const rootEl = document.scrollingElement || document.documentElement;
 		const getY = () => (rootEl ? rootEl.scrollTop : 0);
 
 		const rafState = { ticking: false };
@@ -58,16 +56,12 @@ export default function Header() {
 		last.y = getY();
 		setScrolled(last.y > 10);
 
-		// ВАЖНО: слушаем ИМЕННО rootEl (scroll не всплывает)
 		rootEl.addEventListener("scroll", handle, { passive: true });
 
-		// Дополнительно — на window (для некоторых движков)
 		window.addEventListener("scroll", handle, { passive: true });
 
-		// Для совместимости со старыми браузерами/нестандартных кейсов:
 		document.addEventListener("scroll", handle, { passive: true });
 
-		// синкнем один раз
 		handle();
 
 		return () => {
@@ -138,13 +132,12 @@ export default function Header() {
 			</div>
 
 			{/* mobile drawer */}
-			{/* mobile drawer */}
 			<aside
 				className={`lg:hidden fixed right-0 top-0 z-[200] h-dvh w-[88%] max-w-[420px] 
-  bg-neutral-900/95 backdrop-blur-xl border-l border-neutral-800 
-  transition-transform will-change-transform
-  ${open ? "translate-x-0" : "translate-x-full"} 
-  flex flex-col`} // make column
+	bg-neutral-900/95 backdrop-blur-xl border-l border-neutral-800 
+	transition-transform will-change-transform
+	${open ? "translate-x-0" : "translate-x-full"} 
+	flex flex-col`} // make column
 			>
 				<div className="shrink-0 flex items-center justify-between p-6">
 					<img src="/images/logo/base.svg" alt="" className="h-8" />
@@ -162,7 +155,7 @@ export default function Header() {
 				{/* scrollable content */}
 				<div
 					className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4
-               [padding-bottom:env(safe-area-inset-bottom)]"
+				[padding-bottom:env(safe-area-inset-bottom)]"
 					style={{ WebkitOverflowScrolling: "touch" }}
 				>
 					<Nav variant="mobile" onNavigate={closeMenu} />
