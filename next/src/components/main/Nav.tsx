@@ -53,11 +53,9 @@ function useCurrency() {
     setCurrency(code);
     if (typeof window !== "undefined") {
       window.localStorage.setItem(CURRENCY_KEY, code);
-      // уведомляем все компоненты внутри этой же вкладки
       window.dispatchEvent(new CustomEvent(CURRENCY_CHANGED_EVENT, { detail: { code } }));
     }
-    // мягкое обновление страницы, чтобы всё пересчиталось
-    router.refresh();
+    window.location.reload();
   };
 
   const display = useMemo(() => {
@@ -107,10 +105,7 @@ const CurrencyMenu = memo(function CurrencyMenu({
       {CURRENCIES.map(({ code, label }) => (
         <li key={code} className="border-b border-neutral-700 last:border-b-0">
           <Button
-            onClick={() => {
-              onChange(code);
-              window.location.reload();
-            }}
+            onClick={() => onChange(code)}
             className={clsx(
               "py-4 px-8 w-full text-left transition-all duration-300 hover:bg-neutral-800",
               current === code && "bg-neutral-700"
@@ -176,10 +171,7 @@ function MobileNav({
             {CURRENCIES.map(({ code, label }) => (
               <button
                 key={code}
-                onClick={() => {
-                  changeCurrency(code);
-                  window.location.reload();
-                }}
+                onClick={() => changeCurrency(code)}
                 className={clsx(
                   "text-left block px-4 py-3 hover:bg-neutral-800 rounded-xl",
                   currency === code && "bg-neutral-700"
