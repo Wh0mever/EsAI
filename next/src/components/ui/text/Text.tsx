@@ -23,8 +23,8 @@ function AnimatedWord({
   text,
   className = "",
   letterClassName = "",
-  staggerMs = 40,
-  letterTransitionMs = 300,
+  staggerMs = 120,
+  letterTransitionMs = 500,
   easing = "cubic-bezier(0.22, 1, 0.36, 1)",
 }: {
   text: string;
