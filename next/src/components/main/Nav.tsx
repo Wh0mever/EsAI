@@ -7,7 +7,7 @@ import { useEffect, useMemo, useState, memo } from "react";
 import { useTranslation } from "next-i18next";
 import { DropDownHovered } from "@/components/ui/dropDown/DropDownHovered";
 import { Button } from "@/components/ui/buttons/Buttons";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 
 type Variant = "desktop" | "mobile";
 type Props = { variant?: Variant; className?: string; onNavigate?: () => void };
@@ -26,6 +26,8 @@ const CURRENCIES: Currency[] = [
   { code: "RUB", symbol: "₽", label: "₽ RUB" },
   { code: "KGS", symbol: "с̲", label: "с̲ KGS" },
 ];
+
+const CATEGORIES_ROUTES = ["/about", "/contact-us", "/faq", "/terms-conditions"];
 
 const CURRENCY_KEY = "APP_CURRENCY";
 const CURRENCY_CHANGED_EVENT = "app:currency-changed";
@@ -59,7 +61,7 @@ function useCurrency() {
   };
 
   const display = useMemo(() => {
-    const found = CURRENCIES.find(c => c.code === currency) || CURRENCIES[2]; // KGS default
+    const found = CURRENCIES.find(c => c.code === currency) || CURRENCIES[2];
     return `${found.symbol} ${found.code}`;
   }, [currency]);
 
@@ -119,6 +121,16 @@ const CurrencyMenu = memo(function CurrencyMenu({
   );
 });
 
+/* ---------- Active helpers ---------- */
+function useActive() {
+  const pathname = usePathname() || "/";
+  const isActive = (href: string, exact = false) =>
+    exact ? pathname === href : pathname === href || pathname.startsWith(href + "/");
+  const anyActive = (routes: string[]) => routes.some(r => isActive(r, false));
+  return { pathname, isActive, anyActive };
+}
+
+/* ---------- Mobile ---------- */
 function MobileNav({
   className,
   onNavigate,
@@ -128,38 +140,61 @@ function MobileNav({
   currency,
   changeCurrency,
 }: any) {
+  const { isActive, anyActive } = useActive();
+
+  const linkCls = (href: string, exact = false) =>
+    clsx(
+      "block rounded-xl px-4 py-3 hover:bg-neutral-800 transition-colors",
+      isActive(href, exact) ? "bg-neutral-700 text-white" : "text-neutral-200"
+    );
+
+  const btnCls = (active: boolean) =>
+    clsx("text-left block px-4 py-3 hover:bg-neutral-800 rounded-xl", active && "bg-neutral-700");
+
   return (
     <nav className={clsx("text-white", className)}>
       <ul className="flex flex-col gap-2">
         <li>
-          <Link href="/" onClick={onNavigate} className="block rounded-xl px-4 py-3 hover:bg-neutral-800">
+          <Link href="/" onClick={onNavigate} className={linkCls("/", true)} aria-current={isActive("/", true) ? "page" : undefined}>
             {t("nav.home")}
           </Link>
         </li>
         <li>
-          <Link href="/pricing" onClick={onNavigate} className="block rounded-xl px-4 py-3 hover:bg-neutral-800">
+          <Link href="/pricing" onClick={onNavigate} className={linkCls("/pricing")} aria-current={isActive("/pricing") ? "page" : undefined}>
             {t("nav.pricing")}
           </Link>
         </li>
         <li>
-          <Link href="/blog" onClick={onNavigate} className="block rounded-xl px-4 py-3 hover:bg-neutral-800">
+          <Link href="/blog" onClick={onNavigate} className={linkCls("/blog")} aria-current={isActive("/blog") ? "page" : undefined}>
             {t("nav.blog")}
           </Link>
         </li>
 
         <li className="mt-2">
-          <div className="px-4 pb-1 text-xs uppercase tracking-wide text-neutral-400">{t("nav.categories")}</div>
+          <div
+            className={clsx(
+              "px-4 pb-1 text-xs uppercase tracking-wide",
+              anyActive(CATEGORIES_ROUTES) ? "text-rose-400" : "text-neutral-400"
+            )}
+          >
+            {t("nav.categories")}
+          </div>
           <div className="flex flex-col">
-            <Link href="/about" onClick={onNavigate} className="block px-4 py-3 hover:bg-neutral-800">
+            <Link href="/about" onClick={onNavigate} className={linkCls("/about")} aria-current={isActive("/about") ? "page" : undefined}>
               {t("nav.about")}
             </Link>
-            <Link href="/contact-us" onClick={onNavigate} className="block px-4 py-3 hover:bg-neutral-800">
+            <Link href="/contact-us" onClick={onNavigate} className={linkCls("/contact-us")} aria-current={isActive("/contact-us") ? "page" : undefined}>
               {t("nav.contact")}
             </Link>
-            <Link href="/faq" onClick={onNavigate} className="block px-4 py-3 hover:bg-neutral-800">
+            <Link href="/faq" onClick={onNavigate} className={linkCls("/faq")} aria-current={isActive("/faq") ? "page" : undefined}>
               {t("nav.help")}
             </Link>
-            <Link href="/terms-conditions" onClick={onNavigate} className="block px-4 py-3 hover:bg-neutral-800">
+            <Link
+              href="/terms-conditions"
+              onClick={onNavigate}
+              className={linkCls("/terms-conditions")}
+              aria-current={isActive("/terms-conditions") ? "page" : undefined}
+            >
               {t("nav.terms")}
             </Link>
           </div>
@@ -169,14 +204,7 @@ function MobileNav({
           <div className="px-4 pb-1 text-xs uppercase tracking-wide text-neutral-400">{t("nav.currency")}</div>
           <div className="flex flex-col">
             {CURRENCIES.map(({ code, label }) => (
-              <button
-                key={code}
-                onClick={() => changeCurrency(code)}
-                className={clsx(
-                  "text-left block px-4 py-3 hover:bg-neutral-800 rounded-xl",
-                  currency === code && "bg-neutral-700"
-                )}
-              >
+              <button key={code} onClick={() => changeCurrency(code)} className={btnCls(currency === code)}>
                 {label}
               </button>
             ))}
@@ -206,6 +234,7 @@ function MobileNav({
   );
 }
 
+/* ---------- Desktop ---------- */
 function PCNav({
   className,
   onNavigate,
@@ -216,33 +245,67 @@ function PCNav({
   currency,
   changeCurrency,
 }: any) {
+  const { isActive, anyActive } = useActive();
+
+  const linkCls = (href: string, exact = false) =>
+    clsx(
+      "py-3 relative",
+      isActive(href, exact) ? "text-white" : "text-neutral-300",
+      "hover:text-white"
+    );
+
+  const linkInner = (active: boolean) =>
+    clsx(
+      "inline-block",
+      active && "after:content-[''] after:block after:h-[2px] after:bg-rose-500 after:rounded-full after:mt-1"
+    );
+
   return (
     <nav className={clsx("bg-neutral-900 px-6 rounded-4xl flex items-center shadow-md", className)}>
       <ul className="flex items-center gap-10 text-md">
-        <li className="py-3">
-          <Link href="/" onClick={onNavigate}>
+        <li className={linkCls("/", true)}>
+          <Link href="/" onClick={onNavigate} className={linkInner(isActive("/", true))} aria-current={isActive("/", true) ? "page" : undefined}>
             {t("nav.home")}
           </Link>
         </li>
-        <li className="py-3">
-          <Link href="/pricing" onClick={onNavigate}>
+        <li className={linkCls("/pricing")}>
+          <Link href="/pricing" onClick={onNavigate} className={linkInner(isActive("/pricing"))} aria-current={isActive("/pricing") ? "page" : undefined}>
             {t("nav.pricing")}
           </Link>
         </li>
-        <li className="py-3">
-          <Link href="/blog" onClick={onNavigate}>
+        <li className={linkCls("/blog")}>
+          <Link href="/blog" onClick={onNavigate} className={linkInner(isActive("/blog"))} aria-current={isActive("/blog") ? "page" : undefined}>
             {t("nav.blog")}
           </Link>
         </li>
 
-        <li className="py-3">
-          <DropDownHovered handleText={<span className="flex items-center gap-1">{t("nav.categories")}</span>}>
+        <li
+          className={clsx(
+            "py-3",
+            anyActive(CATEGORIES_ROUTES) ? "text-white" : "text-neutral-300",
+            "hover:text-white"
+          )}
+        >
+          <DropDownHovered
+            handleText={
+              <span
+                className={linkInner(anyActive(CATEGORIES_ROUTES))}
+                aria-current={anyActive(CATEGORIES_ROUTES) ? "page" : undefined}
+              >
+                {t("nav.categories")}
+              </span>
+            }
+          >
             <ul className="flex flex-col text-sm py-2">
               <li className="border-b border-neutral-700">
                 <Link
                   href="/about"
                   onClick={onNavigate}
-                  className="py-4 px-8 hover:bg-neutral-800 transition-all duration-300 flex w-full"
+                  className={clsx(
+                    "py-4 px-8 hover:bg-neutral-800 transition-all duration-300 flex w-full",
+                    isActive("/about") && "bg-neutral-800"
+                  )}
+                  aria-current={isActive("/about") ? "page" : undefined}
                 >
                   {t("nav.about")}
                 </Link>
@@ -251,7 +314,11 @@ function PCNav({
                 <Link
                   href="/contact-us"
                   onClick={onNavigate}
-                  className="py-4 px-8 hover:bg-neutral-800 transition-all duration-300 flex w-full"
+                  className={clsx(
+                    "py-4 px-8 hover:bg-neutral-800 transition-all duration-300 flex w-full",
+                    isActive("/contact-us") && "bg-neutral-800"
+                  )}
+                  aria-current={isActive("/contact-us") ? "page" : undefined}
                 >
                   {t("nav.contact")}
                 </Link>
@@ -260,7 +327,11 @@ function PCNav({
                 <Link
                   href="/faq"
                   onClick={onNavigate}
-                  className="py-4 px-8 hover:bg-neutral-800 transition-all duration-300 flex w-full"
+                  className={clsx(
+                    "py-4 px-8 hover:bg-neutral-800 transition-all duration-300 flex w-full",
+                    isActive("/faq") && "bg-neutral-800"
+                  )}
+                  aria-current={isActive("/faq") ? "page" : undefined}
                 >
                   {t("nav.help")}
                 </Link>
@@ -269,7 +340,11 @@ function PCNav({
                 <Link
                   href="/terms-conditions"
                   onClick={onNavigate}
-                  className="py-4 px-8 hover:bg-neutral-800 transition-all duration-300 flex w-full"
+                  className={clsx(
+                    "py-4 px-8 hover:bg-neutral-800 transition-all duration-300 flex w-full",
+                    isActive("/terms-conditions") && "bg-neutral-800"
+                  )}
+                  aria-current={isActive("/terms-conditions") ? "page" : undefined}
                 >
                   {t("nav.terms")}
                 </Link>
@@ -317,7 +392,7 @@ export default function Nav({ variant = "desktop", className, onNavigate }: Prop
         changeCurrency={changeCurrency}
       />
     );
-    }
+  }
 
   return (
     <PCNav
