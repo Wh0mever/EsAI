@@ -12,10 +12,22 @@ import SmartForm from "@/components/forms/SmartForm";
 
 function signin(response: any, setResponseData: any, t: any) {
 	const { access, refresh, user } = response.data.data;
+
+	// clear old values if exist
+	Cookies.remove("access");
+	Cookies.remove("refresh");
+	Cookies.remove("user");
+
+	// set new values
 	Cookies.set("access", access, { expires: 7 });
 	Cookies.set("refresh", refresh, { expires: 15 });
 	Cookies.set("user", JSON.stringify(user));
-	setResponseData({ status: "success", title: t("status.success"), message: t("status_extended.success") });
+
+	setResponseData({
+		status: "success",
+		title: t("status.success"),
+		message: t("status_extended.success"),
+	});
 }
 
 export default function SignIn() {

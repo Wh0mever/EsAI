@@ -17,7 +17,7 @@ export default function Trial() {
 					{t('trial.title')}
 				</h2>
 
-				<p className="text-sm text-gray-400">{t('trial.text')}.</p>
+				<p className="text-sm text-gray-400 text-center">{t('trial.text')}.</p>
 
 				<ul className="flex gap-3 flex-wrap justify-center py-5">
 					<li className="flex gap-2 items-center">

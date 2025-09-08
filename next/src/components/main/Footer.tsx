@@ -1,6 +1,8 @@
 "use client";
 
-import { FaFacebook, FaInstagram } from "react-icons/fa";
+import { FaFacebook, FaInstagram, FaTelegram } from "react-icons/fa";
+import { FaXTwitter } from "react-icons/fa6";
+
 import { useTranslation } from "react-i18next";
 
 export default function Footer() {
@@ -31,6 +33,26 @@ export default function Footer() {
               >
                 <FaInstagram />
                 <span className="hidden sm:inline">Instagram</span>
+              </a>
+              <a
+                href="https://t.me/vokaloonline"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 text-sm text-white/90 hover:text-white transition-colors"
+                aria-label="Telegram"
+              >
+                <FaTelegram />
+                <span className="hidden sm:inline">Telegram</span>
+              </a>
+              <a
+                href="https://x.com/Vokaloonline"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 text-sm text-white/90 hover:text-white transition-colors"
+                aria-label="X"
+              >
+                <FaXTwitter />
+                <span className="hidden sm:inline">X</span>
               </a>
             </div>
 
