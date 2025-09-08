@@ -17,9 +17,9 @@ export default function Pricing() {
 				<span className="px-3 py-2 bg-gray-900 rounded-lg text-sm">{t("pricing.subtitle")}</span>
 				<h5 className="text-5xl">{t("pricing.title")}</h5>
 				<PricingTab />
-				<div className="lg:px-40 px-10 py-10 flex flex-col items-start w-full gap-2 z-10">
+				<div className="lg:px-40 px-10 py-10 flex flex-col items-center w-full gap-2 z-10">
 					<h3>{t("pricing.questions")}</h3>
-					<div className="flex gap-1">
+					<div className="flex gap-1 text-center">
 						<p className="text-gray-400">{t("pricing.questionsText")}</p>
 						<a
 							href="mailto:support@esai.kg"
