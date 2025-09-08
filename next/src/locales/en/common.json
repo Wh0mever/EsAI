@@ -394,5 +394,111 @@
       "images": "Images",
       "music": "Music"
     }
+  },
+  "terms": {
+    "title": "Terms & Conditions",
+    "sections": [
+      {
+        "id": "welcome",
+        "title": "Welcome to VOKALO!",
+        "paras": [
+          "Welcome to VOKALO. Through this website you can access our company’s products. By accessing our site and using our tools, you agree to these Terms.",
+          "We may modify these Terms as well as products, prices, and services at any time. VOKALO will use all available legal remedies to correct and stop violations of these Terms."
+        ]
+      },
+      {
+        "id": "copyright",
+        "title": "Copyright",
+        "paras": [
+          "All content on this website is the copyright of VOKALO. All rights reserved. Copyright includes, without limitation, graphics, tool usage, logos, sounds, and text. In general, you may not reproduce any part of this website without prior written permission from VOKALO.",
+          "Two exceptions apply: (1) you may save a copy of this website and its content to your hard drive for personal, non-commercial use; (2) you may copy content for third parties for their own non-commercial use, provided you cite this website as the source."
+        ]
+      },
+      {
+        "id": "service",
+        "title": "Service Description",
+        "paras": [
+          "VOKALO uses AI to provide services including text-to-speech, audio generation, AI drawing, AI covers, and AI music. Users submit text, audio, and other inputs; VOKALO generates creative works based on them.",
+          "AI functions include: text-to-speech, voice-to-speech, AI drawing, AI covers, AI music. The service evolves as technology and user feedback progress."
+        ]
+      },
+      {
+        "id": "use_rules",
+        "title": "Usage Specifications & Rules",
+        "paras": [
+          "Users must comply with applicable laws and policies and must not use the service for illegal activity or to create illegal content. Prohibited content/actions include: violating international or local laws; infringing others’ rights (privacy, IP, etc.); spreading hate, violence, pornography, terrorism; harming lawful rights or public interests.",
+          "Users warrant their inputs are lawful and that they hold the right to use such data or have obtained necessary permissions, and grant VOKALO a non-exclusive right to use them for service provision.",
+          "VOKALO may review user inputs and outputs and remove or block content that violates rules.",
+          "Where required by law, VOKALO will label AI-generated content; users may not remove or alter such labels without permission.",
+          "Users must: obey laws, respect third-party rights, not use the service to build competing products, not obtain content or data in improper ways, and not reverse-engineer or attempt to hack the service."
+        ]
+      },
+      {
+        "id": "liability_limit",
+        "title": "Limitation of Liability",
+        "paras": [
+          "While VOKALO strives to deliver quality, it cannot guarantee the service fully meets all needs, nor the accuracy, reliability, or legality of generated content.",
+          "Generated content is for reference only and is not legal, medical, or other professional advice. VOKALO is not liable for outcomes of using generated content.",
+          "VOKALO may change or discontinue parts of the service per laws, regulations, or third-party requirements without prior notice or liability."
+        ]
+      },
+      {
+        "id": "complaints",
+        "title": "Complaints & Appeals",
+        "paras": [
+          "If you believe your rights are infringed or you detect illegal information, you may report it to VOKALO at info@vokalo.online.",
+          "You may submit materials for an appeal; VOKALO will respond within 5 business days after receipt."
+        ]
+      },
+      {
+        "id": "ip_music_voice",
+        "title": "Commercial Copyright for AI Music, Covers, Model Training, and Voice Cloning",
+        "paras": [
+          "Covers using your own voice: if you hold commercial use or ownership rights to the original song and use your voice to create a cover via our AI, ownership and commercial rights to the generated cover belong to you.",
+          "Cloning others’ voices: with consent obtained, ownership and commercial rights to the generated cover belong to you. If the cloned voice is materially altered and no longer recognizable, ownership and commercial rights also belong to you.",
+          "Using platform voices: covers generated with voices built into our platform belong to you.",
+          "Platform-generated music (including covers) belongs to you. Our algorithms ensure uniqueness and high quality.",
+          "Custom voice training: if you train a custom voice model on our platform, the model and generated voices belong to you. For questions: support@vokalo.online."
+        ]
+      },
+      {
+        "id": "hold_harmless",
+        "title": "Hold Harmless",
+        "paras": [
+          "By accessing this site or using our online tools, you release VOKALO from any liabilities, claims, costs, losses, expenses, or other causes of action arising from your use of our products, access to our website, or any communication between you and VOKALO."
+        ]
+      },
+      {
+        "id": "trademarks",
+        "title": "Trademarks",
+        "paras": [
+          "\"VOKALO\" is a registered trademark of VOKALO. You may not use this mark for content, software, or other products or services not produced by VOKALO. We will enforce trademark and copyright laws."
+        ]
+      },
+      {
+        "id": "links",
+        "title": "Links to Other Websites",
+        "paras": [
+          "Our site may contain links to third-party sites beyond VOKALO’s control. We do not endorse their content, privacy policies, or practices. Visiting such sites is solely your responsibility. These Terms do not apply there; review their legal texts."
+        ]
+      },
+      {
+        "id": "feedback",
+        "title": "Feedback",
+        "paras": [
+          "We welcome feedback and suggestions on improving our products and website.",
+          "By providing feedback, you grant VOKALO the unrestricted right to use it without obligation to compensate you."
+        ]
+      },
+      {
+        "id": "legal_disclaimer",
+        "title": "Legal Disclaimer",
+        "paras": [
+          "VOKALO tools are provided for lawful purposes only. Do not copy or install our tools on a device you do not own or without explicit permission. Such installation may violate laws and lead to penalties.",
+          "Consult legal counsel to ensure your use case is lawful. You bear full responsibility for your use of VOKALO tools. VOKALO is not responsible for unlawful use, including unauthorized installation or access.",
+          "VOKALO does not and cannot provide legal advice. All rights not expressly granted are reserved by VOKALO."
+        ]
+      }
+    ]
   }
 }

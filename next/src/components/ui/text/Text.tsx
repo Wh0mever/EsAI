@@ -88,7 +88,7 @@ export function TextTag({
   className?: string;
 }) {
   return (
-    <div className="px-6 py-3 rounded-xl bg-indigo-600/20 w-fit">
+    <div className="px-6 py-3 rounded-xl bg-indigo-600/20 w-fit text-center">
       <span className={["text-sm font-bold", className].join(" ")}>{text}</span>
     </div>
   );
