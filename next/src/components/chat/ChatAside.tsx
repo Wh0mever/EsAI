@@ -33,7 +33,7 @@ function NavBtn({
 	showText,
 	onClick,
 	title,
-	counter = 0, // новый проп
+	counter = 0,
 }: {
 	icon: React.ReactNode;
 	label: string;
@@ -155,6 +155,12 @@ export default function Sidebar({ chats, activeChatId, onNewChat, className }: S
 	const [collapsed, setCollapsed] = usePersistentBoolean(LS_COLLAPSED, false);
 	const [showMobileAside, setShowMobileAside] = useState(false);
 	const [settingsOpen, setSettingsOpen] = useState(false);
+	const [isLogoutConfirmModalOpen, setLogoutConfirmModalOpen] = useState(false);
+
+	// NEW: clear history modal + loading
+	const [isClearHistoryConfirmOpen, setClearHistoryConfirmOpen] = useState(false);
+	const [isClearing, setClearing] = useState(false);
+
 	const notificationsCount = useNotificationsCount();
 	const username = useUsername();
 
@@ -162,7 +168,7 @@ export default function Sidebar({ chats, activeChatId, onNewChat, className }: S
 
 	const width = collapsed ? "w-14" : "w-72";
 	const showText = !collapsed;
-	const [isLogoutConfirmModalOpen, setLogoutConfirmModalOpen] = useState(false);
+
 	const handleNewChat = useCallback(() => {
 		if (onNewChat) onNewChat();
 	}, [onNewChat]);
@@ -171,7 +177,28 @@ export default function Sidebar({ chats, activeChatId, onNewChat, className }: S
 		Cookies.remove("access");
 		Cookies.remove("refresh");
 		Cookies.remove("user");
+		Cookies.remove("sessionid");
 		window.location.href = "/auth/signin";
+	};
+
+	// NEW: clear chat history confirm -> request
+	const handleClearHistory = async () => {
+		if (isClearing) return;
+		try {
+			setClearing(true);
+			await fetchData("ai/chat/history/", "DELETE", {}, true);
+			// notify app & fallback refresh
+			try {
+				window.dispatchEvent(new CustomEvent("chat:history-cleared"));
+			} catch {}
+			window.location.reload();
+		} catch (e) {
+			console.error("Failed to clear chat history", e);
+			// optional: toast/alert hook here
+		} finally {
+			setClearing(false);
+			setClearHistoryConfirmOpen(false);
+		}
 	};
 
 	return (
@@ -180,7 +207,7 @@ export default function Sidebar({ chats, activeChatId, onNewChat, className }: S
 				<Button
 					className="text-3xl px-2 py-2"
 					onClick={() => {
-						setCollapsed(false); // expand content on mobile
+						setCollapsed(false);
 						setShowMobileAside(true);
 					}}
 				>
@@ -189,9 +216,7 @@ export default function Sidebar({ chats, activeChatId, onNewChat, className }: S
 
 				{showMobileAside && (
 					<div className="fixed inset-0 z-[1000]">
-						{/* backdrop */}
 						<div className="absolute inset-0 bg-black/60" onClick={() => setShowMobileAside(false)} />
-						{/* aside content */}
 						<aside
 							className={[
 								"fixed inset-y-0 left-0 w-full h-full bg-neutral-900 text-neutral-100",
@@ -199,7 +224,6 @@ export default function Sidebar({ chats, activeChatId, onNewChat, className }: S
 								"flex flex-col",
 							].join(" ")}
 						>
-							{/* header */}
 							<div className="flex items-center justify-between px-2 py-2 shrink-0">
 								<div className="flex items-center gap-2">
 									<div className="grid place-items-center size-8">
@@ -216,7 +240,6 @@ export default function Sidebar({ chats, activeChatId, onNewChat, className }: S
 								</button>
 							</div>
 
-							{/* tools */}
 							<div className="px-2 py-1 shrink-0 space-y-1">
 								<NavLink
 									href="/dashboard/text-chat/"
@@ -229,7 +252,6 @@ export default function Sidebar({ chats, activeChatId, onNewChat, className }: S
 								<NavBtn icon={<IoLibrary />} label={t("chat.lib")} showText={true} onClick={() => {}} />
 							</div>
 
-							{/* chats */}
 							<div className="px-2 pt-2 flex-1 min-h-0 flex flex-col">
 								<SectionTitle>{t("chat.chat_history")}</SectionTitle>
 								<ul className="mt-1 space-y-1 overflow-y-auto pr-1 flex-1">
@@ -258,7 +280,6 @@ export default function Sidebar({ chats, activeChatId, onNewChat, className }: S
 								</ul>
 							</div>
 
-							{/* footer / settings */}
 							<div className="px-2 py-2 border-t border-white/10 shrink-0">
 								<NavLink icon={<FaRegUser />} label={username} href="/profile" showText={true} />
 								<NavBtn
@@ -278,46 +299,42 @@ export default function Sidebar({ chats, activeChatId, onNewChat, className }: S
 				)}
 			</div>
 
-			{/* aside виден только на lg и выше */}
 			<aside
 				className={[
 					"hidden lg:flex fixed left-0 top-0 h-dvh bg-neutral-900 text-neutral-100 border-r border-white/10",
 					"transition-[width] duration-300 ease-out flex-col",
-					width,
+					collapsed ? "w-14" : "w-72",
 					className || "",
 				].join(" ")}
 			>
-				{/* header */}
 				<div className="flex items-center justify-between px-2 py-2 shrink-0">
 					<div className="flex items-center gap-2">
 						<div className="grid place-items-center size-8">
 							<img src="/images/logo/head.svg" alt="" />
 						</div>
-						{showText && <span className="text-sm font-medium">Vokalo</span>}
+						{!collapsed && <span className="text-sm font-medium">Vokalo</span>}
 					</div>
 					<button
 						className="p-2 rounded-md hover:bg-white/10 cursor-pointer"
-						onClick={() => setCollapsed((v) => !v)}
+						onClick={() => (setCollapsed as any)((v: boolean) => !v)}
 						title={collapsed ? t("chat.expand_sidebar") : t("chat.collapse_sidebar")}
 					>
 						{collapsed ? <FiChevronRight /> : <FiChevronLeft />}
 					</button>
 				</div>
 
-				{/* tools */}
 				<div className="px-2 py-1 shrink-0 space-y-1">
 					<NavLink
 						href="/dashboard/text-chat/"
 						icon={<FiPlus />}
 						label={t("chat.new_chat")}
-						showText={showText}
+						showText={!collapsed}
 						title={`${t("chat.new_chat")} (Ctrl/Cmd+B to toggle sidebar)`}
 					/>
-					<NavBtn icon={<IoImages />} label={"DALL·E"} showText={showText} onClick={handleNewChat} />
-					<NavBtn icon={<IoLibrary />} label={t("chat.lib")} showText={showText} onClick={() => {}} />
+					<NavBtn icon={<IoImages />} label={"DALL·E"} showText={!collapsed} onClick={handleNewChat} />
+					<NavBtn icon={<IoLibrary />} label={t("chat.lib")} showText={!collapsed} onClick={() => {}} />
 				</div>
 
-				{/* chats */}
 				{!collapsed && (
 					<div className="px-2 pt-2 flex-1 min-h-0 flex flex-col">
 						<SectionTitle>{t("chat.chat_history")}</SectionTitle>
@@ -347,13 +364,12 @@ export default function Sidebar({ chats, activeChatId, onNewChat, className }: S
 					</div>
 				)}
 
-				{/* footer / settings */}
 				<div className="px-2 py-2 border-t border-white/10 shrink-0">
-					<NavLink icon={<FaRegUser />} label={username} href="/profile" showText={showText} />
+					<NavLink icon={<FaRegUser />} label={useUsername()} href="/profile" showText={!collapsed} />
 					<NavBtn
 						icon={<FiSettings />}
 						label={t("common.settings")}
-						showText={showText}
+						showText={!collapsed}
 						onClick={() => setSettingsOpen(true)}
 						title={t("common.settings")}
 						counter={notificationsCount}
@@ -377,7 +393,7 @@ export default function Sidebar({ chats, activeChatId, onNewChat, className }: S
 							<div className="text-sm text-neutral-300">{t("chat.collapse_sidebar")}</div>
 							<button
 								className="px-3 py-1 rounded-md bg-white/10 hover:bg-white/15 text-sm"
-								onClick={() => setCollapsed((v) => !v)}
+								onClick={() => (setCollapsed as any)((v: boolean) => !v)}
 							>
 								{collapsed ? t("common.no") : t("common.yes")}
 							</button>
@@ -392,20 +408,35 @@ export default function Sidebar({ chats, activeChatId, onNewChat, className }: S
 							</div>
 						</div>
 
-						<Button
-							className="bg-rose-700 text-white px-4 py-2 rounded-lg"
-							onClick={() => {
-								setLogoutConfirmModalOpen(true);
-								setShowMobileAside(false);
-								setSettingsOpen(false);
-							}}
-						>
-							{t("nav.logout")}
-						</Button>
+						<div className="flex gap-4 py-4">
+							<Button
+								className="bg-rose-700 text-white px-4 py-2 rounded-lg"
+								onClick={() => {
+									setLogoutConfirmModalOpen(true);
+									setShowMobileAside(false);
+									setSettingsOpen(false);
+								}}
+							>
+								{t("nav.logout")}
+							</Button>
+
+							{/* NEW: open clear history confirm modal */}
+							<Button
+								className="bg-neutral-700 text-white px-4 py-2 rounded-lg"
+								onClick={() => {
+									setClearHistoryConfirmOpen(true);
+									setShowMobileAside(false);
+									setSettingsOpen(false);
+								}}
+							>
+								{t("chat.clear_history")}
+							</Button>
+						</div>
 					</div>
 				</Modal>
 			</aside>
-			{/* Exit confirmation Modal */}
+
+			{/* Logout confirmation */}
 			<ConfirmationModal
 				isOpen={isLogoutConfirmModalOpen}
 				title={t("nav.logOutConfirmTitle")}
@@ -413,6 +444,19 @@ export default function Sidebar({ chats, activeChatId, onNewChat, className }: S
 				cancelText={t("common.no")}
 				onConfirm={handleLogoutConfirmModalOpen}
 				onCancel={() => setLogoutConfirmModalOpen(false)}
+			/>
+
+			{/* Clear history confirmation */}
+			<ConfirmationModal
+				isOpen={isClearHistoryConfirmOpen}
+				title={t("chat.clear_history_confirm_title")}
+				description={t("chat.clear_history_confirm_desc")}
+				confirmText={t("common.yes")}
+				confirmLoadingText={t("common.loading")}
+				cancelText={t("common.no")}
+				onConfirm={handleClearHistory}
+				onCancel={() => setClearHistoryConfirmOpen(false)}
+				confirmDisabled={isClearing}
 			/>
 		</>
 	);

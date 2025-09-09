@@ -37,6 +37,16 @@ class ChatGptAPIView(APIView):
         )
 
 
+class ChatsHistory(APIView):
+    
+    def delete(self, request):
+        sessions = AiChatSession.objects.filter(user=request.user)
+        if sessions.exists():
+            sessions.delete();
+        return Response({}, status=200)
+
+
+
 class ChatSessionListAPIView(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
