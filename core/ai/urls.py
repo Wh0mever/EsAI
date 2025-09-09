@@ -1,8 +1,9 @@
 from django.urls import path
-from .views import ChatGptAPIView, AiTemplatesApiView, ChatSessionListAPIView, AiTemplatesFavoriteApiView, ChatSessionDetailAPIView, AiProvidersApiView
+from .views import ChatGptAPIView, AiTemplatesApiView, ChatSessionListAPIView, AiTemplatesFavoriteApiView, ChatSessionDetailAPIView, AiProvidersApiView, ChatsHistory
 
 urlpatterns = [
     path('chat/', ChatGptAPIView.as_view(), name='chat_api'),
+    path('chat/history/', ChatsHistory.as_view(), name='chat_history'),
     path('templates/', AiTemplatesApiView.as_view(), name='ai_template'),
     path('templates/favorites/', AiTemplatesFavoriteApiView.as_view(), name='ai_template_favorite'),
     path('sessions/', ChatSessionListAPIView.as_view(), name='chat_sessions'),

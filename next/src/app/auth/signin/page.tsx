@@ -17,6 +17,7 @@ function signin(response: any, setResponseData: any, t: any) {
 	Cookies.remove("access");
 	Cookies.remove("refresh");
 	Cookies.remove("user");
+	Cookies.remove("sessionid");
 
 	// set new values
 	Cookies.set("access", access, { expires: 7 });

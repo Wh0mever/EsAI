@@ -35,7 +35,7 @@ export default function AiTemplates() {
   const [open, setOpen] = useState(false);
   const [templates, setTemplates] = useState<TemplatesPayload>({});
   const [localTemplates, setLocalTemplates] = useLocalStorage<Record<string, Template>>("ai-templates", {});
-  const [templateChanged, setTemplateChanged] = useState(false);
+  const [, setTemplateChanged] = useState(false);
 
   const toggleModal = () => setOpen((prev) => !prev);
 
@@ -57,7 +57,6 @@ export default function AiTemplates() {
     return () => clearTimeout(t);
   }, [localTemplates]);
 
-  // purposes
   const globalPurposes = useMemo(
     () => Array.from(new Set((templates.global ?? []).map((x) => x.purpose))),
     [templates.global]
@@ -67,7 +66,6 @@ export default function AiTemplates() {
     [templates.personal]
   );
 
-  // selected purpose per tab
   const [selectedGlobalPurpose, setSelectedGlobalPurpose] = useState<string>("");
   const [selectedPersonalPurpose, setSelectedPersonalPurpose] = useState<string>("");
 
@@ -79,7 +77,6 @@ export default function AiTemplates() {
     if (!selectedPersonalPurpose && personalPurposes.length) setSelectedPersonalPurpose(personalPurposes[0]);
   }, [personalPurposes, selectedPersonalPurpose]);
 
-  // filtered lists
   const filteredGlobal = useMemo(() => {
     const list = templates.global ?? [];
     if (selectedGlobalPurpose === ALL || !selectedGlobalPurpose) return list;
@@ -102,84 +99,102 @@ export default function AiTemplates() {
         <LuLayoutTemplate />
       </Button>
 
-      <Modal
-        title={t("chat.templates.templates")}
-        onClose={() => setOpen(false)}
-        size="full"
-        open={open}
-      >
-        <div className="flex gap-4 h-full w-full lg:flex-row flex-col">
-          <div className="flex grow">
-            <Tabs.Cards defaultValue="global" variant="solid" size="sm" keepAlive>
-              <Tabs.Card value="global" trigger={<div className="p-3">{t("chat.tabs.global")}</div>}>
-                <PurposeTabs
-                  value={selectedGlobalPurpose || globalPurposes[0] || ""}
-                  onChange={setSelectedGlobalPurpose}
-                  purposes={globalPurposes}
-                  showAll
-                  allLabel={ALL}
-                />
-                <div className="mt-4 grid grid-cols-1 md:grid-cols-1 lg:grid-cols-2 py-10 gap-3">
-                  {filteredGlobal.map((template) => (
-                    <TemplateCard
-                      key={template.id ?? `${template.provider}-${template.name}`}
-                      template={template}
-                      localTemplates={localTemplates}
-                      setLocalTemplates={setLocalTemplates}
-                    />
-                  ))}
-                  {!templates?.global?.length && <NoData />}
-                </div>
-              </Tabs.Card>
+      <Modal title={t("chat.templates.templates")} onClose={() => setOpen(false)} size="full" open={open}>
+        {/* ЕДИНЫЙ скролл внутри модалки */}
+        <div className="h-full w-full flex flex-col overflow-hidden">
+          {/* Контент (скролл именно тут) */}
+          <div className="flex-1 w-full overflow-auto overscroll-contain touch-pan-y px-3 sm:px-6 py-3">
+            {/* Двухпанельная сетка на >=lg */}
+            <div className="flex w-full gap-3 sm:gap-4 lg:flex-row flex-col">
+              {/* LEFT: табы и списки */}
+              <div className="flex grow min-w-0">
+                <div className="w-full">
+                  <Tabs.Cards defaultValue="global" variant="solid" size="sm" keepAlive>
+                    <Tabs.Card value="global" trigger={<div className="p-3">{t("chat.tabs.global")}</div>}>
+                      <div className="px-1 sm:px-2">
+                        <PurposeTabs
+                          value={selectedGlobalPurpose || globalPurposes[0] || ""}
+                          onChange={setSelectedGlobalPurpose}
+                          purposes={globalPurposes}
+                          showAll
+                          allLabel={ALL}
+                        />
+                      </div>
+                      <div className="mt-3 sm:mt-4 grid gap-2 sm:gap-3 pb-8 sm:pb-10 px-1 sm:px-2 [grid-template-columns:repeat(auto-fit,minmax(260px,1fr))]">
+                        {filteredGlobal.map((template) => (
+                          <TemplateCard
+                            key={template.id ?? `${template.provider}-${template.name}`}
+                            template={template}
+                            localTemplates={localTemplates}
+                            setLocalTemplates={setLocalTemplates}
+                          />
+                        ))}
+                        {!templates?.global?.length && <NoData className="col-span-full" />}
+                      </div>
+                    </Tabs.Card>
 
-              <Tabs.Card value="personal" trigger={<div className="p-3">{t("chat.tabs.favorites")}</div>}>
-                <PurposeTabs
-                  value={selectedPersonalPurpose || personalPurposes[0] || ""}
-                  onChange={setSelectedPersonalPurpose}
-                  purposes={personalPurposes}
-                  showAll
-                  allLabel={ALL}
-                />
-                <div className="mt-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 py-10 gap-3">
-                  {filteredPersonal.map((template) => (
-                    <TemplateCard
-                      key={template.id ?? `${template.provider}-${template.name}`}
-                      template={template}
-                      changeUsed={() => setTemplateChanged}
-                      setLocalTemplates={setLocalTemplates}
-                    />
-                  ))}
-                  {!templates?.personal?.length && <NoData />}
-                </div>
-              </Tabs.Card>
+                    <Tabs.Card value="personal" trigger={<div className="p-3">{t("chat.tabs.favorites")}</div>}>
+                      <div className="px-1 sm:px-2">
+                        <PurposeTabs
+                          value={selectedPersonalPurpose || personalPurposes[0] || ""}
+                          onChange={setSelectedPersonalPurpose}
+                          purposes={personalPurposes}
+                          showAll
+                          allLabel={ALL}
+                        />
+                      </div>
+                      <div className="mt-3 sm:mt-4 grid gap-2 sm:gap-3 pb-8 sm:pb-10 px-1 sm:px-2 [grid-template-columns:repeat(auto-fit,minmax(240px,1fr))]">
+                        {filteredPersonal.map((template) => (
+                          <TemplateCard
+                            key={template.id ?? `${template.provider}-${template.name}`}
+                            template={template}
+                            changeUsed={() => setTemplateChanged(true)}
+                            setLocalTemplates={setLocalTemplates}
+                          />
+                        ))}
+                        {!templates?.personal?.length && <NoData className="col-span-full" />}
+                      </div>
+                    </Tabs.Card>
 
-              <Tabs.Card value="creation" trigger={<div className="p-3">{t("chat.tabs.create")}</div>}>
-                <div className="w-full flex justify-start items-center gap-5">
-                  <TemplatesCreationForm />
+                    <Tabs.Card value="creation" trigger={<div className="p-3">{t("chat.tabs.create")}</div>}>
+                      <div className="w-full flex justify-start items-start gap-3 sm:gap-5 px-1 sm:px-2">
+                        <TemplatesCreationForm />
+                      </div>
+                    </Tabs.Card>
+                  </Tabs.Cards>
                 </div>
-              </Tabs.Card>
-            </Tabs.Cards>
-          </div>
-
-          <div className="w-fit min-w-[300px] flex flex-col gap-5 items-center py-10 px-2">
-            <h4 className="text-2xl">{t("chat.templates.activeTemplates")}</h4>
-            {localTemplates && Object.keys(localTemplates).length > 0 ? (
-              <div className="w-full flex flex-col gap-4">
-                {Object.keys(localTemplates).map((key) => {
-                  const template = localTemplates[key];
-                  return (
-                    <TemplateCard
-                      key={template.id ?? `${template.provider}-${template.name}`}
-                      template={template}
-                      localTemplates={localTemplates}
-                      setLocalTemplates={setLocalTemplates}
-                    />
-                  );
-                })}
               </div>
-            ) : (
-              <NoData className="max-w-[300px]" />
-            )}
+
+              {/* RIGHT: активные шаблоны */}
+              <div
+                className={[
+                  "w-full lg:w-[360px] lg:flex-none",
+                  "min-w-0",
+                  "flex flex-col gap-4 items-stretch",
+                  "py-2 lg:py-4 px-1 sm:px-2 lg:px-2",
+                ].join(" ")}
+              >
+                <h4 className="text-xl sm:text-2xl px-1">{t("chat.templates.activeTemplates")}</h4>
+
+                {localTemplates && Object.keys(localTemplates).length > 0 ? (
+                  <div className="w-full flex flex-col gap-3 sm:gap-4">
+                    {Object.keys(localTemplates).map((key) => {
+                      const template = localTemplates[key];
+                      return (
+                        <TemplateCard
+                          key={template.id ?? `${template.provider}-${template.name}`}
+                          template={template}
+                          localTemplates={localTemplates}
+                          setLocalTemplates={setLocalTemplates}
+                        />
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <NoData className="max-w-[300px] self-center" />
+                )}
+              </div>
+            </div>
           </div>
         </div>
       </Modal>
