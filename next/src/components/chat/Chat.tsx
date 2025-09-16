@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { fetchData } from "@/tools/fetchData";
 import { Message, ChatForm } from "./ChatForm";
 import { ChatView } from "./ChatView";
+import type { ChatMode as Mode } from "@/types/chat";
 
 export type ChatMode = "text-chat" | "image-chat" | "music-chat";
 
@@ -72,7 +73,7 @@ export default function Chat({ mode, chatId }: Props) {
 
   return (
     <div className="h-full py-5 px-5 flex flex-col justify-between gap-3 w-full">
-      <ChatView messages={messages} />
+      <ChatView mode={mode as Mode} messages={messages} />
       <ChatForm
         input={input}
         setInput={setInput}

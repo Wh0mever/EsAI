@@ -1,5 +1,7 @@
 // api/fetchData.ts
+
 export const API = "http://127.0.0.1/api/";
+export const BACKEND = "http://127.0.0.1/";
 // export const API = "/api/";
 import Cookies from "js-cookie";
 
