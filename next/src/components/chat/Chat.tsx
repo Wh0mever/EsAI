@@ -17,6 +17,7 @@ type Props = {
 export default function Chat({ mode, chatId }: Props) {
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
+  const [attachments, setAttachments] = useState<any[]>([]);
   const { t } = useTranslation("common");
 
   // load history when chatId provided
@@ -44,6 +45,8 @@ export default function Chat({ mode, chatId }: Props) {
     e.preventDefault();
     const content = input.trim();
     if (!content) return;
+    // Block submit while attachments still uploading
+    if (attachments && attachments.some((a) => a && a.status === "uploading")) return;
 
     const newMessage: Message = { role: "user", content };
     setMessages((prev) => [...prev, newMessage]);
@@ -57,6 +60,8 @@ export default function Chat({ mode, chatId }: Props) {
     try {
       const payload: any = { message: content, templates: templates, mode: mode };
       if (chatId) payload.chat_id = chatId; // bind to existing session when provided
+      if (attachments && attachments.length)
+        payload.attachments = attachments.filter((a) => a && a.url);
 
       const endpoint = mode === "image-chat" ? "ai/image/" : "ai/chat/";
       const res = await fetchData(endpoint, "POST", payload, true);
@@ -66,6 +71,7 @@ export default function Chat({ mode, chatId }: Props) {
           ? (res?.data?.image?.url || res?.data?.response || "")
           : (res?.data?.response || "");
       setMessages((prev) => [...prev, { role: "assistant", content: assistantContent }]);
+      setAttachments([]);
     } catch (error) {
       console.error("Ошибка при обращении к /api/chat/:", error);
     }
@@ -80,6 +86,8 @@ export default function Chat({ mode, chatId }: Props) {
         handleSubmit={handleSubmit}
         messages={messages}
         setMessages={setMessages}
+        attachments={attachments}
+        setAttachments={setAttachments}
       />
     </div>
   );

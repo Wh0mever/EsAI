@@ -152,6 +152,8 @@ function useUsername() {
 
 export default function Sidebar({ chats, activeChatId, onNewChat, className }: SidebarProps) {
 	const { t } = useTranslation("common");
+	// Normalize chats to array to avoid runtime errors when API shape differs
+	const list: Chat[] = Array.isArray(chats) ? chats : [];
 	const [collapsed, setCollapsed] = usePersistentBoolean(LS_COLLAPSED, false);
 	const [showMobileAside, setShowMobileAside] = useState(false);
 	const [settingsOpen, setSettingsOpen] = useState(false);
@@ -255,8 +257,8 @@ export default function Sidebar({ chats, activeChatId, onNewChat, className }: S
 							<div className="px-2 pt-2 flex-1 min-h-0 flex flex-col">
 								<SectionTitle>{t("chat.chat_history")}</SectionTitle>
 								<ul className="mt-1 space-y-1 overflow-y-auto pr-1 flex-1">
-									{chats.length > 0 &&
-										chats.map((c) => (
+								{list.length > 0 &&
+									list.map((c) => (
 											<li key={c.id}>
 												<NextLink
 													href={`/dashboard/${c.chat_mode}/${c.id}`}
@@ -270,7 +272,7 @@ export default function Sidebar({ chats, activeChatId, onNewChat, className }: S
 												</NextLink>
 											</li>
 										))}
-									{chats.length === 0 && (
+									{list.length === 0 && (
 										<li>
 											<span className="text-sm text-neutral-500 italic select-none">
 												{t("chat.chats_list_empty")}
@@ -339,8 +341,8 @@ export default function Sidebar({ chats, activeChatId, onNewChat, className }: S
 					<div className="px-2 pt-2 flex-1 min-h-0 flex flex-col">
 						<SectionTitle>{t("chat.chat_history")}</SectionTitle>
 						<ul className="mt-1 space-y-1 overflow-y-auto pr-1 flex-1">
-							{chats.length > 0 &&
-								chats.map((c) => (
+							{list.length > 0 &&
+								list.map((c) => (
 									<li key={c.id}>
 										<NextLink
 											href={`/dashboard/${c.chat_mode}/${c.id}`}
@@ -353,7 +355,7 @@ export default function Sidebar({ chats, activeChatId, onNewChat, className }: S
 										</NextLink>
 									</li>
 								))}
-							{chats.length === 0 && (
+							{list.length === 0 && (
 								<li>
 									<span className="text-sm text-neutral-500 italic select-none">
 										{t("chat.chats_list_empty")}
