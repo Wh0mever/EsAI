@@ -9,12 +9,23 @@ class UserAdmin(admin.ModelAdmin):
         'email', 'first_name', 'last_name', 'patronymic', 'tel', 
         'telegram', 'country', 'city', 'is_active', 'is_staff', 
         'is_superuser', 'is_confirmed', 'date_joined', 
-        'last_login', 'last_session', 'date_of_birth'
+        'last_login', 'last_session', 'date_of_birth',
+        'referral_uid', 'bonus_texts', 'bonus_images', 'bonus_songs', 'bonus_music'
     )
-    search_fields = ('email', 'first_name', 'last_name')
-    list_filter = ('is_active', 'is_staff', 'is_superuser')
+    search_fields = ('email', 'first_name', 'last_name', 'tel', 'referral_uid')
+    list_filter = ('is_active', 'is_staff', 'is_superuser', 'is_confirmed', 'date_joined')
     ordering = ('-date_joined',)
     readonly_fields = ('date_joined', 'last_login', 'last_session')
+    actions = ("regenerate_referral_uid",)
+
+    @admin.action(description="Сгенерировать новый Referral UID")
+    def regenerate_referral_uid(self, request, queryset):
+        count = 0
+        for user in queryset:
+            user.referral_uid = None
+            user.save(update_fields=["referral_uid"])  # save() сгенерирует уникальный UID
+            count += 1
+        self.message_user(request, f"Сгенерировано новых UID: {count}")
 
 
 @admin.register(UserQuestions)
