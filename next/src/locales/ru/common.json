@@ -149,7 +149,9 @@
     "reset_failed": "Не удалось сбросить пароль",
     "enter_new_password": "Введите новый пароль",
     "save_password": "Сохранить пароль",
-    "new_password": "Новый пароль"
+    "new_password": "Новый пароль",
+    "referral_code": "Реферальный код",
+    "enter_referral_code": "Введите реферальный код (необязательно)"
   },
   "pages_titles": {
     "home": "Главная",
@@ -391,6 +393,25 @@
     "period_unit": {
       "monthly": "месяц",
       "yearly": "год"
+    },
+    "left_counters": {
+      "title": "Оставшиеся генерации",
+      "left": "Осталось",
+      "items": {
+        "texts": "Тексты",
+        "images": "Изображения",
+        "songs": "Песни",
+        "music": "Музыка"
+      }
+    },
+    "bonus_counters": {
+      "title": "Бонусы"
+    },
+    "referral": {
+      "title": "Реферал",
+      "uid": "UID",
+      "copy": "Скопировать код",
+      "copied": "Скопировано"
     }
   },
   "nav": {

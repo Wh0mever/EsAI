@@ -149,8 +149,11 @@
     "reset_failed": "Failed to reset password",
     "enter_new_password": "Enter new password",
     "save_password": "Save password",
-    "new_password": "New password"
+    "new_password": "New password",
+    "referral_code": "Referral code",
+    "enter_referral_code": "Enter referral code (optional)"
   },
+  "auth_extra": {},
   "pages_titles": {
     "home": "Home",
     "pricing": "Pricing",
@@ -391,6 +394,25 @@
     "period_unit": {
       "monthly": "month",
       "yearly": "year"
+    },
+    "left_counters": {
+      "title": "Remaining generations",
+      "left": "Left",
+      "items": {
+        "texts": "Texts",
+        "images": "Images",
+        "songs": "Songs",
+        "music": "Music"
+      }
+    },
+    "bonus_counters": {
+      "title": "Bonuses"
+    },
+    "referral": {
+      "title": "Referral",
+      "uid": "UID",
+      "copy": "Copy code",
+      "copied": "Copied"
     }
   },
   "nav": {
