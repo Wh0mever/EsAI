@@ -164,7 +164,8 @@
     "terms": "Terms of Use",
     "privacy": "Privacy Policy",
     "faq": "Frequently Asked Questions (FAQ)",
-    "blog": "Blog"
+    "blog": "Blog",
+    "referral": "Referral Program"
   },
   "contact_us": {
     "write_title": "Write to us",
@@ -261,6 +262,27 @@
       "🔹 Share, rate, get inspired"
     ],
     "footer": "We believe that AI is not a replacement but a partner in creativity. Vokalo is built for those who want to create in a new way."
+  },
+  "referral": {
+    "title": "🟡 Referral Program",
+    "subtitle": "After full registration and activation of the first plan, you receive a unique UID in your profile. Share it during signup — and get bonuses.",
+    "how_title": "How it works",
+    "step1": {
+      "title": "Get your UID",
+      "text": "After registration and first plan activation, your UID appears in Profile."
+    },
+    "step2": {
+      "title": "A friend signs up",
+      "text": "They enter your referral code on the signup page."
+    },
+    "step3": {
+      "title": "+5 free generations",
+      "text": "You receive +5 free generations for all features."
+    },
+    "usage_title": "How bonuses are used",
+    "usage1": "Bonuses are stored separately from your plan.",
+    "usage2": "They are used after the main plan limits are exhausted.",
+    "usage3": "Without an active plan, bonuses are inactive and will wait."
   },
   "chat": {
     "clear_history_confirm_title": "Confirm history deletion",

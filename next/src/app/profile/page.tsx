@@ -11,78 +11,75 @@ import UserVisa from "@/components/profile/UserPayment";
 import UserPlan from "@/components/profile/UserPlan";
 import { tokenizeBankCard } from "@/lib/freedompay/pay";
 
-
 function ProfileAlert({ t }: { t: any }) {
-  const EmptyPlanAlert = () => (
-    <div className="w-full p-10 bg-neutral-900 border border-green-700 rounded-3xl flex flex-col gap-2">
-      <div className="flex gap-2 items-center">
-        <h3 className="text-xl">{t("profile.plan_info.empty_alert_title")}</h3>
-        <i className="text-2xl text-green-700"><CiCircleCheck /></i>
-      </div>
-      <p className="text-lg text-gray-400">{t("profile.plan_info.empty_alert_text")}</p>
-      <p className="text-gray-400">{t("profile.plan_info.empty_alert_text2")}</p>
-    </div>
-  );
-  return EmptyPlanAlert();
+	const EmptyPlanAlert = () => (
+		<div className="w-full p-10 bg-neutral-900 border border-green-700 rounded-3xl flex flex-col gap-2">
+			<div className="flex gap-2 items-center">
+				<h3 className="text-xl">{t("profile.plan_info.empty_alert_title")}</h3>
+				<i className="text-2xl text-green-700">
+					<CiCircleCheck />
+				</i>
+			</div>
+			<p className="text-lg text-gray-400">{t("profile.plan_info.empty_alert_text")}</p>
+			<p className="text-gray-400">{t("profile.plan_info.empty_alert_text2")}</p>
+		</div>
+	);
+	return EmptyPlanAlert();
 }
 
 export default function ProfilePage() {
-  const { t } = useTranslation("common");
-  const [profileData, setProfileData] = useState<{ subscription?: boolean; user?: any; card?: any; }>({});
-  const [subscriptionData, setSubscriptionData] = useState<any>(null);
+	const { t } = useTranslation("common");
+	const [profileData, setProfileData] = useState<{ subscription?: boolean; user?: any; card?: any }>({});
+	const [subscriptionData, setSubscriptionData] = useState<any>(null);
 
-  useEffect(() => {
-    fetchData("users/profile/", "get", null, true).then((responseData) => {
-      setProfileData(responseData?.data);
-    });
-  }, []);
+	useEffect(() => {
+		fetchData("users/profile/", "get", null, true).then((responseData) => {
+			setProfileData(responseData?.data);
+		});
+	}, []);
 
-  // Bind card only: get token, no payment
-  async function handleSubmitCard(card: {
-    number: string;
-    expMonth: string;
-    expYear: string;
-    cvv: string;   // unused here
-    holder: string;
-  }) {
-    try {
-      const token = await tokenizeBankCard({
-        number: card.number,
-        holder: card.holder,
-        expMonth: card.expMonth,
-        expYear: card.expYear,
-      });
+	// Bind card only: get token, no payment
+	async function handleSubmitCard(card: {
+		number: string;
+		expMonth: string;
+		expYear: string;
+		cvv: string; // unused here
+		holder: string;
+	}) {
+		try {
+			const token = await tokenizeBankCard({
+				number: card.number,
+				holder: card.holder,
+				expMonth: card.expMonth,
+				expYear: card.expYear,
+			});
 
-      const brand = /^4/.test(card.number) ? "VISA"
-        : /^(5[1-5]|2(2[2-9]|[3-6]\d|7[01]))/.test(card.number) ? "MASTERCARD"
-        : "CARD";
-      const last4 = card.number.replace(/\D+/g, "").slice(-4);
-      const expiry = `${card.expMonth}/${card.expYear.slice(-2)}`;
+			const brand = /^4/.test(card.number)
+				? "VISA"
+				: /^(5[1-5]|2(2[2-9]|[3-6]\d|7[01]))/.test(card.number)
+				? "MASTERCARD"
+				: "CARD";
+			const last4 = card.number.replace(/\D+/g, "").slice(-4);
+			const expiry = `${card.expMonth}/${card.expYear.slice(-2)}`;
 
-      console.log("FP token:", token, { brand, last4, expiry });
+			console.log("FP token:", token, { brand, last4, expiry });
+		} catch (e: any) {
+			console.error("FP tokenize error:", e?.response || e);
+			alert(e?.response?.error_message || e?.message || "Tokenize error");
+		}
+	}
 
-    } catch (e: any) {
-      console.error("FP tokenize error:", e?.response || e);
-      alert(e?.response?.error_message || e?.message || "Tokenize error");
-    }
-  }
+	return (
+		<main className="mx-auto pt-80 pb-20 overflow-hidden relative px-4">
+			<Breadcrumb />
+			<div className="max-w-4xl mx-auto flex flex-col gap-3 scale-z-50">
+				{!profileData?.subscription && <ProfileAlert t={t} />}
 
-  return (
-    <main  className="mx-auto pt-80 pb-20 overflow-hidden relative px-4">
-      <Breadcrumb />
-      <div className="max-w-4xl mx-auto flex flex-col gap-3 scale-z-50">
-        {!profileData?.subscription && <ProfileAlert t={t} />}
-
-        <UserProfile t={t} data={profileData} />
-        <UserVisa
-          t={t}
-          isCardLinked={false}
-          onSubmitCard={handleSubmitCard}
-          cardData={profileData?.card}
-        />
-        {/* <div id="fp-3ds" className="w-full max-w-md max-h-[400px] min-h-0 p-0" /> */}
-        <UserPlan t={t} data={profileData} />
-      </div>
-    </main>
-  );
+				<UserProfile t={t} data={profileData} />
+				<UserVisa t={t} isCardLinked={false} onSubmitCard={handleSubmitCard} cardData={profileData?.card} />
+				{/* <div id="fp-3ds" className="w-full max-w-md max-h-[400px] min-h-0 p-0" /> */}
+				<UserPlan t={t} data={profileData} />
+			</div>
+		</main>
+	);
 }

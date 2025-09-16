@@ -18,4 +18,5 @@ export default async function Page({ params }: { params: Promise<Params> }) {
   if (!CHAT_MODES.includes(slug as ChatMode)) notFound();
 
   return <ClientDashboard slug={slug as ChatMode} chatId={chatId ?? null} />;
+  
 }

@@ -183,6 +183,9 @@ function MobileNav({
             <Link href="/about" onClick={onNavigate} className={linkCls("/about")} aria-current={isActive("/about") ? "page" : undefined}>
               {t("nav.about")}
             </Link>
+            <Link href="/referral" onClick={onNavigate} className={linkCls("/referral")} aria-current={isActive("/referral") ? "page" : undefined}>
+              {t("nav.referral")}
+            </Link>
             <Link href="/contact-us" onClick={onNavigate} className={linkCls("/contact-us")} aria-current={isActive("/contact-us") ? "page" : undefined}>
               {t("nav.contact")}
             </Link>
@@ -308,6 +311,19 @@ function PCNav({
                   aria-current={isActive("/about") ? "page" : undefined}
                 >
                   {t("nav.about")}
+                </Link>
+              </li>
+              <li className="border-b border-neutral-700">
+                <Link
+                  href="/referral"
+                  onClick={onNavigate}
+                  className={clsx(
+                    "py-4 px-8 hover:bg-neutral-800 transition-all duration-300 flex w-full",
+                    isActive("/referral") && "bg-neutral-800"
+                  )}
+                  aria-current={isActive("/referral") ? "page" : undefined}
+                >
+                  {t("nav.referral")}
                 </Link>
               </li>
               <li className="border-b border-neutral-700">
