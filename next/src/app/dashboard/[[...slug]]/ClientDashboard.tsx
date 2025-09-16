@@ -4,7 +4,6 @@ import "@/assets/style.scss";
 import "../dashboard.scss";
 import Chat from "@/components/chat/Chat";
 import { fetchData } from "@/tools/fetchData";
-import { useTranslation } from "react-i18next";
 import { useState, useEffect } from "react";
 import Sidebar from "@/components/chat/ChatAside";
 import type { ChatMode } from "@/types/chat";
@@ -14,12 +13,10 @@ type Props = { slug: ChatMode; chatId?: string | null };
 export default function ClientDashboard({ slug, chatId }: Props) {
 	
 	const [chatsList, setChatsList] = useState<any[]>([]);
-	const { t } = useTranslation("dashboard");
-	const { t: tCommon } = useTranslation("common");
 
 	useEffect(() => {
 		let isMounted = true;
-		(async () => {
+		void (async () => {
 			try {
 				const responseData = await fetchData("ai/sessions/", "get", null, true);
 				if (isMounted) setChatsList(responseData?.data || []);

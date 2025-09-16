@@ -89,7 +89,7 @@ class User(AbstractBaseUser, PermissionsMixin, Visa):
     exp_month = models.PositiveSmallIntegerField(blank=True, null=True, verbose_name='Месяц окончания действия карты')
     exp_year = models.PositiveSmallIntegerField(blank=True, null=True, verbose_name='Год окончания действия карты')
     pay_token = models.CharField(max_length=100, blank=True, null=True, verbose_name='Токен платежа')
-
+    
     USERNAME_FIELD = 'email'
     REQUIRED_FIELDS = []
 
