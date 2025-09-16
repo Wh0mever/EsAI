@@ -1,8 +1,15 @@
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin, BaseUserManager, Group, Permission
 from django.db import models
+from django.db.utils import IntegrityError
 from django.utils import timezone
 from django.conf import settings
+import random
+import string
 
+
+def generate_referral_uid(length: int = 8) -> str:
+    alphabet = string.ascii_uppercase + string.digits
+    return ''.join(random.choices(alphabet, k=length))
 
 
 class Visa(models.Model):
@@ -89,12 +96,61 @@ class User(AbstractBaseUser, PermissionsMixin, Visa):
     exp_month = models.PositiveSmallIntegerField(blank=True, null=True, verbose_name='Месяц окончания действия карты')
     exp_year = models.PositiveSmallIntegerField(blank=True, null=True, verbose_name='Год окончания действия карты')
     pay_token = models.CharField(max_length=100, blank=True, null=True, verbose_name='Токен платежа')
+
+    # Referral + bonus counters
+    referral_uid = models.CharField(
+        max_length=16,
+        unique=True,
+        blank=True,
+        null=True,
+        default=generate_referral_uid,
+        verbose_name='Реферальный UID'
+    )
+    bonus_texts = models.PositiveIntegerField(default=0, verbose_name='Бонусные тексты')
+    bonus_images = models.PositiveIntegerField(default=0, verbose_name='Бонусные изображения')
+    bonus_songs = models.PositiveIntegerField(default=0, verbose_name='Бонусные песни')
+    bonus_music = models.PositiveIntegerField(default=0, verbose_name='Бонусная музыка')
     
     USERNAME_FIELD = 'email'
     REQUIRED_FIELDS = []
 
     def __str__(self):
         return self.email
+
+    def _generate_unique_uid(self, length: int = 8) -> str:
+        alphabet = string.ascii_uppercase + string.digits
+        while True:
+            code = ''.join(random.choices(alphabet, k=length))
+            if not User.objects.filter(referral_uid=code).exists():
+                return code
+
+    def save(self, *args, **kwargs):
+        # Ensure referral_uid is always present and unique
+        def uid_exists(uid: str) -> bool:
+            qs = User.objects.filter(referral_uid=uid)
+            if self.pk:
+                qs = qs.exclude(pk=self.pk)
+            return qs.exists()
+
+        if not self.referral_uid or uid_exists(self.referral_uid):
+            self.referral_uid = self._generate_unique_uid()
+
+        attempts = 0
+        while True:
+            try:
+                return super().save(*args, **kwargs)
+            except IntegrityError as e:
+                # handle rare race condition collisions
+                if "referral_uid" in str(e) and attempts < 5:
+                    self.referral_uid = self._generate_unique_uid()
+                    attempts += 1
+                    continue
+                raise
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["referral_uid"]),
+        ]
 
 
         

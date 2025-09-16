@@ -70,7 +70,6 @@ export default function UserPlan({ t, data, onUnsubscribe }: Props) {
 
 	const CurrentPlan = () => {
 		const plan = sub!.plan!;
-    console.log(plan)
 		return (
 			<div className="flex flex-col gap-3 w-full">
 				<div className="flex justify-between items-center">
@@ -139,5 +138,74 @@ export default function UserPlan({ t, data, onUnsubscribe }: Props) {
 		</div>
 	);
 
-	return <Card>{hasSub ? <CurrentPlan /> : <EmptyPlan />}</Card>;
+	const UsageCard = () => {
+		const usage = sub?.usage || {};
+		const user = data?.user || {};
+		const [copied, setCopied] = React.useState(false);
+
+		const items: { key: string; left?: number; bonus?: number; label: string }[] = [
+			{ key: "texts", left: usage.texts_left, bonus: user.bonus_texts, label: t("profile.left_counters.items.texts") },
+			{ key: "images", left: usage.images_left, bonus: user.bonus_images, label: t("profile.left_counters.items.images") },
+			{ key: "songs", left: usage.songs_left, bonus: user.bonus_songs, label: t("profile.left_counters.items.songs") },
+			{ key: "music", left: usage.music_left, bonus: user.bonus_music, label: t("profile.left_counters.items.music") },
+		];
+
+		function copyCode() {
+			if (!user?.referral_uid) return;
+			navigator.clipboard.writeText(String(user.referral_uid)).then(() => {
+				setCopied(true);
+				setTimeout(() => setCopied(false), 1500);
+			});
+		}
+
+		return (
+			<div className="flex flex-col gap-4 w-full">
+				<h2 className="text-xl font-bold">{t("profile.left_counters.title")}</h2>
+				<div className="grid grid-cols-1 lg:grid-cols-2 md:grid-cols-2 gap-3">
+					{items.map(({ key, label, left, bonus }) => (
+						<div key={key} className="rounded-xl border border-neutral-800 p-4 bg-white/5">
+							<div className="text-sm text-gray-400">{label}</div>
+							<div className="mt-1 text-lg">
+								<strong className="text-white">{t("profile.left_counters.left")}:</strong> {left ?? 0}
+							</div>
+							<div className="text-sm text-gray-300">
+								<strong>{t("profile.bonus_counters.title")}:</strong> {bonus ?? 0}
+							</div>
+						</div>
+					))}
+				</div>
+
+				<div className="mt-4">
+					<h3 className="text-lg font-semibold mb-2">{t("profile.referral.title")}</h3>
+					<div className="flex items-center gap-3 mt-3">
+						<div className="px-3 py-2 rounded-lg bg-neutral-800 text-white text-sm">
+							<strong>{t("profile.referral.uid")}:</strong> {user?.referral_uid || "—"}
+						</div>
+						<Button className="px-4 py-2 rounded-xl bg-neutral-800 hover:bg-neutral-700" onClick={copyCode}>
+							{copied ? t("profile.referral.copied") : t("profile.referral.copy")}
+						</Button>
+					</div>
+				</div>
+			</div>
+		);
+	};
+
+	if (hasSub) {
+		return (
+			<>
+				<Card>
+					<CurrentPlan />
+				</Card>
+				<Card>
+					<UsageCard />
+				</Card>
+			</>
+		);
+	}
+
+	return (
+		<Card>
+			<EmptyPlan />
+		</Card>
+	);
 }

@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/buttons/Buttons";
 import { Field, Checkbox } from "@/components/ui/inputs/Inputs";
 import { PiUserLight } from "react-icons/pi";
 import { fetchData } from "@/tools/fetchData";
+import { ConfirmationModal } from "@/components/dialog/Dialog";
+import Cookies from "js-cookie";
 
 async function changeUserInfo(data: any): Promise<Number> {
 	let status = 400;
@@ -27,6 +29,8 @@ export default function UserProfile({ t, data }: { t: any; data: any }) {
 		_2fa: data?.user?._2fa,
 	});
 
+	const [isLogoutConfirmModalOpen, setLogoutConfirmModalOpen] = useState(false);
+
 	useEffect(() => {
 		console.log(userChange);
 		if (userChange.show) {
@@ -41,15 +45,25 @@ export default function UserProfile({ t, data }: { t: any; data: any }) {
 		}
 	}, [userChange, setUserChange]);
 
+	function handleLogout() {
+		Cookies.remove("access");
+		Cookies.remove("refresh");
+		Cookies.remove("user");
+		Cookies.remove("sessionid");
+		window.location.href = "/auth/signin";
+	}
+
 	return (
 		<Card>
 			<div className="flex-grow flex flex-col gap-3">
 				<div className="flex flex-col gap-2">
 					<div className="flex justify-between items-center">
 						<h2 className="text-xl font-bold">{t("profile.profile")} </h2>
-						<i className="text-7xl text-gray-500">
-							<PiUserLight />
-						</i>
+						<div className="flex items-center gap-2">
+							<i className="text-7xl text-gray-500">
+								<PiUserLight />
+							</i>
+						</div>
 					</div>
 					{userChange.show && (
 						<div
@@ -119,31 +133,49 @@ export default function UserProfile({ t, data }: { t: any; data: any }) {
 					/>
 				</div>
 
-				<Button
-					className="px-6 py-2 rounded-xl mt-5 bg-indigo-500 hover:bg-indigo-700 w-fit"
-					onClick={() => {
-						if (Object.keys(userData).length) {
-							const responseStatus = changeUserInfo(userData).then((status) => {
-								if (status === 200) {
-									setUserChange({
-										show: true,
-										text: t("profile.user_info.user_changed"),
-										type: "success",
-									});
-								}
-							});
-						} else {
-							setUserChange({
-								show: true,
-								text: t("profile.user_info.no_data"),
-								type: "warning",
-							});
-						}
-					}}
-				>
-					{t("profile.change")}
-				</Button>
+				<div className="flex gap-3 items-center mt-5">
+					<Button
+						className="px-6 py-2 rounded-xl bg-indigo-500 hover:bg-indigo-700 w-fit"
+						onClick={() => {
+							if (Object.keys(userData).length) {
+								const responseStatus = changeUserInfo(userData).then((status) => {
+									if (status === 200) {
+										setUserChange({
+											show: true,
+											text: t("profile.user_info.user_changed"),
+											type: "success",
+										});
+									}
+								});
+							} else {
+								setUserChange({
+									show: true,
+									text: t("profile.user_info.no_data"),
+									type: "warning",
+								});
+							}
+						}}
+					>
+						{t("profile.change")}
+					</Button>
+
+					<Button
+						className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700"
+						onClick={() => setLogoutConfirmModalOpen(true)}
+					>
+						{t("nav.logout")}
+					</Button>
+				</div>
 			</div>
+			{/* Logout confirmation modal */}
+			<ConfirmationModal
+				isOpen={isLogoutConfirmModalOpen}
+				title={t("nav.logOutConfirmTitle")}
+				confirmText={t("common.yes")}
+				cancelText={t("common.no")}
+				onConfirm={handleLogout}
+				onCancel={() => setLogoutConfirmModalOpen(false)}
+			/>
 		</Card>
 	);
 }

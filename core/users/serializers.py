@@ -1,5 +1,6 @@
 # users/serializers.py
 from .models import User, Notification, UserQuestions
+from django.db.models import F
 
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
@@ -14,6 +15,7 @@ class SignUpSerializer(serializers.Serializer):
     password = serializers.CharField(write_only=True)
     password_repeat = serializers.CharField(write_only=True)
     ip = serializers.CharField(write_only=True)
+    referral_uid = serializers.CharField(required=False, allow_blank=True, allow_null=True)
 
     def validate_name(self, value):
         if not value.strip():
@@ -52,6 +54,7 @@ class SignUpSerializer(serializers.Serializer):
         return data
 
     def create(self, validated_data):
+        referral_uid = validated_data.get("referral_uid") or ""
         user = User.objects.create_user(
             email=validated_data["email"],
             tel=validated_data["tel"],
@@ -59,6 +62,20 @@ class SignUpSerializer(serializers.Serializer):
             first_name=validated_data["name"],
             ip=validated_data.get("ip")
         )
+        # Handle referral bonus for referrer
+        code = (referral_uid or "").strip().upper()
+        if code:
+            try:
+                referrer = User.objects.filter(referral_uid=code).first()
+                if referrer and referrer.id != user.id:
+                    User.objects.filter(pk=referrer.pk).update(
+                        bonus_texts=(F("bonus_texts") + 5),
+                        bonus_images=(F("bonus_images") + 5),
+                        bonus_songs=(F("bonus_songs") + 5),
+                        bonus_music=(F("bonus_music") + 5),
+                    )
+            except Exception:
+                pass
         return user
 
 

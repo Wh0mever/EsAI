@@ -149,7 +149,9 @@
     "reset_failed": "Купуя сөздү калыбына келтирүү ишке ашкан жок",
     "enter_new_password": "Жаңы купуя сөздү киргизиңиз",
     "save_password": "Купуя сөздү сактоо",
-    "new_password": "Жаңы купуя сөз"
+    "new_password": "Жаңы купуя сөз",
+    "referral_code": "Рефералдык код",
+    "enter_referral_code": "Рефералдык кодду киргизиңиз (милдеттүү эмес)"
   },
   "pages_titles": {
     "home": "Башкы бет",
@@ -391,6 +393,25 @@
     "period_unit": {
       "monthly": "ай",
       "yearly": "жыл"
+    },
+    "left_counters": {
+      "title": "Калып жаткан генерациялар",
+      "left": "Калды",
+      "items": {
+        "texts": "Тексттер",
+        "images": "Сүрөттөр",
+        "songs": "Ырлар",
+        "music": "Музыка"
+      }
+    },
+    "bonus_counters": {
+      "title": "Бонус"
+    },
+    "referral": {
+      "title": "Реферал",
+      "uid": "UID",
+      "copy": "Кодду көчүрүү",
+      "copied": "Көчүрүлдү"
     }
   },
   "nav": {
