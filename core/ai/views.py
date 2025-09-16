@@ -13,7 +13,8 @@ from .serializers import (
     AiChatSessionMetaSerializer,
     AiChatMessageSerializer,
     AiPromptTemplateSerializer,
-    AiProviderSerializer
+    AiProviderSerializer,
+    AiGeneratedImageSerializer,
 )
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
@@ -234,3 +235,14 @@ class AiProvidersApiView(APIView):
         qs = AiProvider.objects.all().order_by("id")
         data = AiProviderSerializer(qs, many=True).data
         return Response(data, status=status.HTTP_200_OK)
+
+
+class UserImagesListAPIView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from .models import AiGeneratedImage
+        qs = AiGeneratedImage.objects.filter(user=request.user).order_by("-created_at")
+        data = AiGeneratedImageSerializer(qs, many=True).data
+        return Response(data, status=200)

@@ -1,7 +1,10 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { BACKEND } from "@/tools/fetchData";
 import { Message } from "./ChatForm";
+import { useTranslation } from "react-i18next";
+import type { ChatMode } from "@/types/chat";
 
 function isImageUrl(s: string): boolean {
   if (!s) return false;
@@ -10,7 +13,7 @@ function isImageUrl(s: string): boolean {
   return /\.(png|jpe?g|webp|gif)(\?.*)?$/.test(lower);
 }
 
-type ChatViewProps = { messages: Message[] };
+type ChatViewProps = { messages: Message[]; mode: ChatMode };
 
 // types text char-by-char on mount
 function TypingText({
@@ -66,8 +69,29 @@ function ThinkingDots({ text = "Думаю" }: { text?: string }) {
   );
 }
 
-export function ChatView({ messages }: ChatViewProps) {
+export function ChatView({ messages, mode }: ChatViewProps) {
   const wrapRef = useRef<HTMLDivElement | null>(null);
+  const { t } = useTranslation("common");
+
+  // Empty chat placeholder
+  if (!messages || messages.length === 0) {
+    const isText = mode === "text-chat";
+    const title = isText
+      ? t("chat.empty_text_title", { defaultValue: "Готов творить текст вместе с Vokalo?" })
+      : t("chat.empty_image_title", { defaultValue: "Готов создавать изображения вместе с Vokalo?" });
+    const subtitle = isText
+      ? t("chat.empty_text_subtitle", { defaultValue: "Тогда начнём!" })
+      : t("chat.empty_image_subtitle", { defaultValue: "Тогда начнём!" });
+
+    return (
+      <div className="flex-1 grid place-items-center min-h-[50vh]">
+        <div className="text-center space-y-2">
+          <h3 className="text-2xl text-white font-semibold">{title}</h3>
+          <p className="text-neutral-300">{subtitle}</p>
+        </div>
+      </div>
+    );
+  }
 
   // detect "thinking": last assistant message is missing or empty
   const last = messages[messages.length - 1];
@@ -114,7 +138,11 @@ export function ChatView({ messages }: ChatViewProps) {
           >
             {/* render images when content looks like an image URL */}
             {!isUser && msg.content && isImageUrl(msg.content) ? (
-              <img src={msg.content} alt="generated" className="max-w-full rounded-lg" />
+              <img
+                src={msg.content.startsWith("/") ? `${BACKEND}${msg.content}` : msg.content}
+                alt="generated"
+                className="max-w-full rounded-lg"
+              />
             ) : !isUser && index === messages.length - 1 && isThinking ? (
               <ThinkingDots />
             ) : shouldType ? (
