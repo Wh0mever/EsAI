@@ -148,6 +148,20 @@ REST_FRAMEWORK = {
     ],
 }
 
+# --- Cache (use shared Redis to avoid per-process cache issues) ---
+CACHE_URL = env.str("REDIS_CACHE_URL", default="redis://redis:6379/2")
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.redis.RedisCache",
+        "LOCATION": CACHE_URL,
+        "OPTIONS": {
+            "client_class": "redis.client.Redis",
+        },
+        "KEY_PREFIX": env.str("CACHE_KEY_PREFIX", default="core"),
+        "TIMEOUT": None,  # Let per-call timeouts control expiry
+    }
+}
+
 # --- JWT ---
 SIMPLE_JWT = {
     "ACCESS_TOKEN_LIFETIME": timedelta(days=7),
@@ -197,7 +211,7 @@ EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
 EMAIL_HOST = "smtp.gmail.com"
 EMAIL_PORT = 587
 EMAIL_USE_TLS = True
-EMAIL_HOST_USER = env('EMAIL_HOST_USER')
+EMAIL_HOST_USER = env('EMAIL_HOST_USER', default="vokalo.online")
 EMAIL_HOST_PASSWORD = env('EMAIL_HOST_PASSWORD')
 DEFAULT_FROM_EMAIL = env('DEFAULT_FROM_EMAIL')
 
