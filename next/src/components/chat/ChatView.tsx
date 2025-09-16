@@ -72,26 +72,7 @@ function ThinkingDots({ text = "Думаю" }: { text?: string }) {
 export function ChatView({ messages, mode }: ChatViewProps) {
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const { t } = useTranslation("common");
-
-  // Empty chat placeholder
-  if (!messages || messages.length === 0) {
-    const isText = mode === "text-chat";
-    const title = isText
-      ? t("chat.empty_text_title", { defaultValue: "Готов творить текст вместе с Vokalo?" })
-      : t("chat.empty_image_title", { defaultValue: "Готов создавать изображения вместе с Vokalo?" });
-    const subtitle = isText
-      ? t("chat.empty_text_subtitle", { defaultValue: "Тогда начнём!" })
-      : t("chat.empty_image_subtitle", { defaultValue: "Тогда начнём!" });
-
-    return (
-      <div className="flex-1 grid place-items-center min-h-[50vh]">
-        <div className="text-center space-y-2">
-          <h3 className="text-2xl text-white font-semibold">{title}</h3>
-          <p className="text-neutral-300">{subtitle}</p>
-        </div>
-      </div>
-    );
-  }
+  const isEmpty = !messages || messages.length === 0;
 
   // detect "thinking": last assistant message is missing or empty
   const last = messages[messages.length - 1];
@@ -117,7 +98,23 @@ export function ChatView({ messages, mode }: ChatViewProps) {
       ref={wrapRef}
       className="flex flex-col gap-4 overflow-y-auto max-h-[calc(100vh-300px)] pr-1"
     >
-      {messages.map((msg, index) => {
+      {isEmpty ? (
+        <div className="flex-1 grid place-items-center min-h-[50vh]">
+          <div className="text-center space-y-2">
+            <h3 className="text-2xl text-white font-semibold">
+              {mode === "text-chat"
+                ? t("chat.empty_text_title", { defaultValue: "Готов творить текст вместе с Vokalo?" })
+                : t("chat.empty_image_title", { defaultValue: "Готов создавать изображения вместе с Vokalo?" })}
+            </h3>
+            <p className="text-neutral-300">
+              {mode === "text-chat"
+                ? t("chat.empty_text_subtitle", { defaultValue: "Тогда начнём!" })
+                : t("chat.empty_image_subtitle", { defaultValue: "Тогда начнём!" })}
+            </p>
+          </div>
+        </div>
+      ) : (
+      messages.map((msg, index) => {
         const isUser = msg.role === "user";
         const bubbleClass = isUser
           ? "self-end bg-indigo-700 text-white"
@@ -160,7 +157,7 @@ export function ChatView({ messages, mode }: ChatViewProps) {
             )}
           </div>
         );
-      })}
+      }))}
     </div>
   );
 }

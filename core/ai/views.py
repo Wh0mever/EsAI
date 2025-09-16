@@ -22,6 +22,10 @@ from django.db import transaction, IntegrityError
 from django.utils.translation import gettext as _
 
 from rest_framework import status, permissions, authentication
+from django.core.files.storage import default_storage
+from django.utils.text import get_valid_filename
+import uuid
+import os
 
 
 class ChatGptAPIView(APIView):
@@ -246,3 +250,33 @@ class UserImagesListAPIView(APIView):
         qs = AiGeneratedImage.objects.filter(user=request.user).order_by("-created_at")
         data = AiGeneratedImageSerializer(qs, many=True).data
         return Response(data, status=200)
+
+
+class ChatAttachmentUploadAPIView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        files = request.FILES.getlist("files")
+        if not files:
+            return Response({"detail": "No files provided"}, status=400)
+
+        uploaded = []
+        for f in files:
+            # sanitize and build path: uploads/chat/{user}/{uuid}/{filename}
+            subdir = f"uploads/chat/{request.user.id}/{uuid.uuid4().hex}"
+            name = get_valid_filename(f.name or "file")
+            path = os.path.join(subdir, name)
+            saved_path = default_storage.save(path, f)
+            url = default_storage.url(saved_path)
+            ctype = getattr(f, "content_type", "application/octet-stream") or "application/octet-stream"
+            typ = "image" if ctype.startswith("image/") else "file"
+            uploaded.append({
+                "type": typ,
+                "url": url,
+                "name": name,
+                "size": getattr(f, "size", None),
+                "content_type": ctype,
+            })
+
+        return Response({"attachments": uploaded}, status=200)
