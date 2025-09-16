@@ -248,7 +248,7 @@ export default function Sidebar({ chats, activeChatId, onNewChat, className }: S
 									showText={true}
 									title={`${t("chat.new_chat")} (Ctrl/Cmd+B to toggle sidebar)`}
 								/>
-								<NavBtn icon={<IoImages />} label={"DALL·E"} showText={true} onClick={handleNewChat} />
+								<NavLink href="/dashboard/image-chat/" icon={<IoImages />} label={"DALL·E"} showText={true} />
 								<NavBtn icon={<IoLibrary />} label={t("chat.lib")} showText={true} onClick={() => {}} />
 							</div>
 
@@ -331,7 +331,7 @@ export default function Sidebar({ chats, activeChatId, onNewChat, className }: S
 						showText={!collapsed}
 						title={`${t("chat.new_chat")} (Ctrl/Cmd+B to toggle sidebar)`}
 					/>
-					<NavBtn icon={<IoImages />} label={"DALL·E"} showText={!collapsed} onClick={handleNewChat} />
+					<NavLink href="/dashboard/image-chat/" icon={<IoImages />} label={"DALL·E"} showText={!collapsed} />
 					<NavBtn icon={<IoLibrary />} label={t("chat.lib")} showText={!collapsed} onClick={() => {}} />
 				</div>
 

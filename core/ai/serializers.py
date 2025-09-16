@@ -24,8 +24,7 @@ class AiPromptTemplateSerializer(serializers.ModelSerializer):
             'is_public',
         ]
         read_only_fields = ['id', 'created_by', 'created_at', 'updated_at', 'usage_count']
-        
-        
+           
 class AiPromptTemplateFavoriteSerializer(serializers.ModelSerializer):
     user = serializers.HiddenField(
         default=serializers.CurrentUserDefault()
@@ -37,7 +36,6 @@ class AiPromptTemplateFavoriteSerializer(serializers.ModelSerializer):
         print("Validating AiPromptTemplateFavoriteSerializer with attrs:", attrs)
         
         return super().validate(attrs)
-
 
 class AiChatMessageSerializer(serializers.ModelSerializer):
     class Meta:

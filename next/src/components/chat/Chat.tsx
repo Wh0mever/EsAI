@@ -57,12 +57,14 @@ export default function Chat({ mode, chatId }: Props) {
       const payload: any = { message: content, templates: templates, mode: mode };
       if (chatId) payload.chat_id = chatId; // bind to existing session when provided
 
-      const res = await fetchData("ai/chat/", "POST", payload, true);
+      const endpoint = mode === "image-chat" ? "ai/image/" : "ai/chat/";
+      const res = await fetchData(endpoint, "POST", payload, true);
       setInput("");
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", content: res?.data?.response },
-      ]);
+      const assistantContent =
+        mode === "image-chat"
+          ? (res?.data?.image?.url || res?.data?.response || "")
+          : (res?.data?.response || "");
+      setMessages((prev) => [...prev, { role: "assistant", content: assistantContent }]);
     } catch (error) {
       console.error("Ошибка при обращении к /api/chat/:", error);
     }

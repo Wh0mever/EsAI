@@ -14,6 +14,7 @@ from .models import (
     AiPromptTemplate,
     AiChatSession,
     AiChatMessage,
+    AiGeneratedImage,
 )
 
 class JSONTextarea(forms.Textarea):
@@ -186,3 +187,22 @@ class AiChatMessageAdmin(admin.ModelAdmin):
         c = obj.content.strip()
         return c[:120] + ('…' if len(c) > 120 else '')
     short_content.short_description = 'Текст'
+
+
+@admin.register(AiGeneratedImage)
+class AiGeneratedImageAdmin(admin.ModelAdmin):
+    list_display = ("id", "user", "session", "model_name", "size", "created_at", "preview")
+    search_fields = ("prompt", "user__email", "model_name", "uniqid")
+    list_filter = ("model_name", "size", "created_at")
+    readonly_fields = ("created_at",)
+
+    def preview(self, obj):
+        try:
+            if not obj.image:
+                return "—"
+            url = obj.image.url
+            return f"<img src='{url}' style='max-height:60px;border-radius:6px'/>"
+        except Exception:
+            return "—"
+    preview.allow_tags = True
+    preview.short_description = "Preview"
