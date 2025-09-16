@@ -1,5 +1,7 @@
 from django.db import models
 from users.models import User
+from django.utils import timezone
+import uuid
 
 # Create your models here.
 
@@ -108,3 +110,29 @@ class AiChatMessage(models.Model):
 
     class Meta:
         ordering = ["created_at"]
+
+
+def _gen_image_upload_path(instance: "AiGeneratedImage", filename: str) -> str:
+    uid = instance.uniqid or uuid.uuid4().hex
+    instance.uniqid = uid
+    # keep original extension if provided
+    ext = "" if "." not in filename else filename.split(".")[-1]
+    name = f"image.{ext or 'png'}"
+    return f"generated/{instance.user_id}/{uid}/{name}"
+
+
+class AiGeneratedImage(models.Model):
+    """Сгенерированное изображение, связанное с пользователем и (опционально) сессией чата."""
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="generated_images")
+    session = models.ForeignKey('AiChatSession', on_delete=models.SET_NULL, null=True, blank=True, related_name="generated_images")
+    provider = models.ForeignKey('AiProvider', on_delete=models.SET_NULL, null=True, blank=True)
+    model_name = models.CharField(max_length=100, default="gpt-image-1")
+    prompt = models.TextField()
+    uniqid = models.CharField(max_length=64, editable=False, db_index=True)
+    image = models.ImageField(upload_to=_gen_image_upload_path)
+    size = models.CharField(max_length=20, default="1024x1024")
+    meta = models.JSONField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self) -> str:
+        return f"{self.user_id}:{self.model_name}:{self.uniqid}"

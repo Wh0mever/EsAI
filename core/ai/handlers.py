@@ -2,6 +2,10 @@ import json
 from typing import Any, Optional, List, Tuple
 from django.db import transaction
 from openai import OpenAI
+from django.core.files.base import ContentFile
+from django.conf import settings
+import base64
+import uuid
 
 from .models import (
     AiProvider,
@@ -9,6 +13,7 @@ from .models import (
     AiChatMessage,
     AiPromptTemplate,
     GPTModels,
+    AiGeneratedImage,
 )
 from plans.models import UserSubscription
 from .serializers import AiChatMessageSerializer
@@ -319,4 +324,111 @@ def OpenAIHandler(request):
 
     except Exception as e:
         print(f"Error in OpenAIHandler: {e} ")
+        return {"error": str(e)}
+
+
+def OpenAIImageHandler(request):
+    """Generate image via OpenAI Images (DALL·E/gpt-image-1) and persist file + DB entry.
+
+    Request expects:
+      - message: prompt text (required)
+      - session_id: optional existing session id
+      - size: optional size like '1024x1024'
+      - model: optional model name (default gpt-image-1)
+      - provider_slug: optional provider (default 'gpt')
+    """
+    try:
+        prompt = (request.data.get("message") or "").strip()
+        if not prompt:
+            return {"error": "No prompt provided"}
+
+        size = (request.data.get("size") or "1024x1024").strip()
+        model_name = (request.data.get("model") or "gpt-image-1").strip()
+        provider_slug = request.data.get("provider_slug", "gpt")
+
+        try:
+            provider = AiProvider.objects.get(slug=provider_slug, is_active=True)
+        except AiProvider.DoesNotExist:
+            return {"error": f"Provider '{provider_slug}' not found or inactive"}
+
+        client = _make_openai_client(provider)
+
+        # Ensure session in image-chat mode and store user prompt
+        session_id = request.data.get("session_id") or request.data.get("chat_id")
+        with transaction.atomic():
+            if session_id:
+                session = (
+                    AiChatSession.objects
+                    .filter(id=session_id, user=request.user, is_active=True)
+                    .select_for_update()
+                    .first()
+                )
+                if not session:
+                    return {"error": "Session not found"}
+            else:
+                title = (prompt[:60] or "Image Chat").strip() or "Image Chat"
+                session = AiChatSession.objects.create(
+                    user=request.user,
+                    provider=provider,
+                    title=title,
+                    chat_mode='image-chat',
+                )
+
+            AiChatMessage.objects.create(
+                session=session,
+                role="user",
+                content=prompt,
+                attachments=None,
+            )
+
+        # Call Images API
+        result = client.images.generate(model=model_name, prompt=prompt, size=size, n=1)
+        data0 = result.data[0] if getattr(result, "data", None) else None
+        if not data0:
+            return {"error": "No image data received"}
+
+        b64 = getattr(data0, "b64_json", None) or getattr(data0, "b64", None)
+        if not b64:
+            return {"error": "No base64 image in response"}
+
+        try:
+            raw = base64.b64decode(b64)
+        except Exception:
+            return {"error": "Failed to decode image data"}
+
+        # Persist image
+        gen = AiGeneratedImage(
+            user=request.user,
+            session=session,
+            provider=provider,
+            model_name=model_name,
+            prompt=prompt,
+            size=size,
+        )
+        # Use stable name
+        filename = f"{uuid.uuid4().hex}.png"
+        gen.image.save(filename, ContentFile(raw), save=True)
+
+        # Assistant message with image URL in content for simple rendering
+        try:
+            url = gen.image.url
+            assistant_msg = AiChatMessage.objects.create(
+                session=session,
+                role="assistant",
+                content=url,
+                attachments=[{"type": "image", "url": url}],
+                meta={"model": model_name, "size": size},
+            )
+        except Exception:
+            assistant_msg = None
+            url = None
+
+        return {
+            "session": {"id": session.id, "title": session.title, "provider": provider.slug, "updated_at": session.updated_at},
+            "image": {"url": url, "size": size, "id": gen.id, "uniqid": gen.uniqid},
+            "message": AiChatMessageSerializer(assistant_msg).data if assistant_msg else None,
+        }
+
+    except Exception as e:
+        print(f"Error in OpenAIImageHandler: {e}")
         return {"error": str(e)}

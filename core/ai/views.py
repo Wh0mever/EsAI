@@ -4,7 +4,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework_simplejwt.authentication import JWTAuthentication
-from .handlers import OpenAIHandler
+from .handlers import OpenAIHandler, OpenAIImageHandler
 from .pagination import MessagesPaginator
 from django.shortcuts import get_object_or_404
 from .models import AiProvider, AiChatSession, AiChatMessage, AiPromptTemplate, AiPromptTemplateFavorite
@@ -37,6 +37,19 @@ class ChatGptAPIView(APIView):
         )
 
 
+class DalleImageAPIView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    @transaction.atomic
+    def post(self, request):
+        response = OpenAIImageHandler(request)
+        return Response(
+            response,
+            status=200 if isinstance(response, dict) and "error" not in response else 400,
+        )
+
+
 class ChatsHistory(APIView):
     
     def delete(self, request):
@@ -44,7 +57,6 @@ class ChatsHistory(APIView):
         if sessions.exists():
             sessions.delete();
         return Response({}, status=200)
-
 
 
 class ChatSessionListAPIView(APIView):

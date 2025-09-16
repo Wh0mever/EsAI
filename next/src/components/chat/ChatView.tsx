@@ -3,6 +3,13 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Message } from "./ChatForm";
 
+function isImageUrl(s: string): boolean {
+  if (!s) return false;
+  const lower = s.toLowerCase();
+  if (lower.startsWith("/media/generated/") || lower.includes("/generated/")) return true;
+  return /\.(png|jpe?g|webp|gif)(\?.*)?$/.test(lower);
+}
+
 type ChatViewProps = { messages: Message[] };
 
 // types text char-by-char on mount
@@ -105,8 +112,10 @@ export function ChatView({ messages }: ChatViewProps) {
             key={index}
             className={`p-4 rounded-xl max-w-[80%] whitespace-pre-wrap ${bubbleClass}`}
           >
-            {/* thinking placeholder for the last assistant message with no content */}
-            {!isUser && index === messages.length - 1 && isThinking ? (
+            {/* render images when content looks like an image URL */}
+            {!isUser && msg.content && isImageUrl(msg.content) ? (
+              <img src={msg.content} alt="generated" className="max-w-full rounded-lg" />
+            ) : !isUser && index === messages.length - 1 && isThinking ? (
               <ThinkingDots />
             ) : shouldType ? (
               <TypingText
