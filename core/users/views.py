@@ -75,13 +75,17 @@ class VerifyCodeApiView(APIView):
     permission_classes = []
 
     def post(self, request):
-        email = request.data.get("email")
-        code = request.data.get("code")
+        email = (request.data.get("email") or "").strip()
+        # normalize code: strip spaces and ensure string compare
+        raw_code = request.data.get("code")
+        code = str(raw_code).strip().replace(" ", "") if raw_code is not None else ""
 
         if not email or not code:
             return Response({"error": "Email and code are required."}, status=400)
 
         cached_code = cache.get(f"email_code:{email}")
+        if isinstance(cached_code, (bytes, bytearray)):
+            cached_code = cached_code.decode()
         if cached_code != code:
             return Response({"error": "Invalid or expired code."}, status=400)
 
@@ -171,13 +175,16 @@ class PasswordResetVerifyView(APIView):
     permission_classes = []
 
     def post(self, request):
-        email = request.data.get("email")
-        code = request.data.get("code")
+        email = (request.data.get("email") or "").strip()
+        raw_code = request.data.get("code")
+        code = str(raw_code).strip().replace(" ", "") if raw_code is not None else ""
 
         if not email or not code:
             return Response({"message": "Email and code are required."}, status=400)
 
         cached_code = cache.get(f"reset_code:{email}")
+        if isinstance(cached_code, (bytes, bytearray)):
+            cached_code = cached_code.decode()
         if cached_code != code:
             return Response({"message": "Invalid or expired code."}, status=400)
 
@@ -189,14 +196,17 @@ class PasswordResetCompleteView(APIView):
     permission_classes = []
 
     def post(self, request):
-        email = request.data.get("email")
-        code = request.data.get("code")
+        email = (request.data.get("email") or "").strip()
+        raw_code = request.data.get("code")
+        code = str(raw_code).strip().replace(" ", "") if raw_code is not None else ""
         password = request.data.get("password")
 
         if not email or not code or not password:
             return Response({"message": "Email, code, and new password are required."}, status=400)
 
         cached_code = cache.get(f"reset_code:{email}")
+        if isinstance(cached_code, (bytes, bytearray)):
+            cached_code = cached_code.decode()
         if cached_code != code:
             return Response({"message": "Invalid or expired code."}, status=400)
 
