@@ -138,7 +138,7 @@ export default function Chat({ mode, chatId }: Props) {
   };
 
   return (
-    <div className="h-full py-5 px-5 flex flex-col justify-between gap-3 w-full">
+    <div className="h-full py-2 lg:py-5 px-5 flex flex-col justify-between gap-3 w-full">
       <ChatView mode={mode as Mode} messages={messages} loading={loading} initialHydrated={historyHydrated} animateIndex={animateIndex ?? undefined} />
       <ChatForm
         input={input}

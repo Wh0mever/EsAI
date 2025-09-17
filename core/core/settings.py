@@ -154,9 +154,6 @@ CACHES = {
     "default": {
         "BACKEND": "django.core.cache.backends.redis.RedisCache",
         "LOCATION": CACHE_URL,
-        "OPTIONS": {
-            "client_class": "redis.client.Redis",
-        },
         "KEY_PREFIX": env.str("CACHE_KEY_PREFIX", default="core"),
         "TIMEOUT": None,  # Let per-call timeouts control expiry
     }

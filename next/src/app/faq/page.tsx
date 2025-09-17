@@ -16,7 +16,7 @@ export default function FAQSection() {
 		<main  className="mx-auto lg:pt-80 pt-50 overflow-hidden relative">
 			<Breadcrumb />
 
-			<div className="max-w-4xl mx-auto py-10">
+			<div className="max-w-4xl mx-auto py-10 px-3">
 				<h2 className="text-3xl font-semibold mb-8 text-center pb-10">
 					{t("faq.title")}
 				</h2>
