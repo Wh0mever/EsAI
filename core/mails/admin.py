@@ -1,111 +1,105 @@
 from django.contrib import admin, messages
 from django.utils.safestring import mark_safe
 from django.utils import timezone
-from django import forms
+from .models import MailContext, SimpleMail
+from .services import render_simple_mail_html
+from .tasks import send_simple_mail_task
 
-from .models import EmailTemplate, EmailCampaign, EmailLog, EmailPreference
-from .services import run_campaign_now, render_body_from_db_template, render_subject
+
+# legacy admin removed
 
 
-class EmailTemplateAdmin(admin.ModelAdmin):
-    list_display = ("name", "key", "is_active", "updated_at")
-    list_filter = ("is_active",)
-    search_fields = ("name", "key", "subject")
-    readonly_fields = ("preview_subject", "preview_html")
+# ===== Simplified mailer admin =====
 
-    class PreviewForm(forms.ModelForm):
-        preview_context = forms.JSONField(required=False, initial={}, help_text="Optional preview context")
+@admin.register(MailContext)
+class MailContextAdmin(admin.ModelAdmin):
+    list_display = ("name", "updated_at")
+    search_fields = ("name",)
+    readonly_fields = ("updated_at", "preview")
+    fields = ("name", "data", "preview", "updated_at")
 
-        class Meta:
-            model = EmailTemplate
-            fields = "__all__"
-
-    form = PreviewForm
-
-    def preview_subject(self, obj):
-        context = self.get_form(request=None).base_fields["preview_context"].initial or {}
-        try:
-            return render_subject(obj.subject, context)
-        except Exception:
-            return obj.subject
-    preview_subject.short_description = "Preview subject"
-
-    def preview_html(self, obj):
-        try:
-            html, _ = render_body_from_db_template(obj, {})
-        except Exception as e:
-            return f"Render error: {e}"
+    @admin.display(description="Preview")
+    def preview(self, obj: MailContext):
+        # Temporary SimpleMail for preview
+        temp = SimpleMail(name="preview", subject="Preview", context=obj)
+        html = render_simple_mail_html(temp)
         return mark_safe(f'<div style="border:1px solid #ddd;padding:12px">{html}</div>')
-    preview_html.short_description = "Preview HTML"
 
 
-@admin.register(EmailCampaign)
-class EmailCampaignAdmin(admin.ModelAdmin):
-    list_display = ("title", "template", "status", "scheduled_at", "last_run_at", "created_at")
-    list_filter = ("status", "scheduled_at", "created_at")
-    search_fields = ("title",)
-    filter_horizontal = ("groups",)
-    readonly_fields = ("last_run_at",)
-    actions = ["action_send_now", "action_mark_draft"]
+@admin.register(SimpleMail)
+class SimpleMailAdmin(admin.ModelAdmin):
+    list_display = ("name", "subject", "send_to_all", "recipients_count", "last_sent_at", "created_at")
+    list_filter = ("send_to_all",)
+    search_fields = ("name", "subject", "recipients__email")
+    readonly_fields = ("created_at", "last_sent_at", "rendered_preview")
+    filter_horizontal = ("recipients",)
+    actions = ("send_now", "send_test_to_me", "send_now_sync", "send_test_to_me_sync")
 
     fieldsets = (
-        (None, {
-            "fields": ("title", "template", "context_json", "from_email"),
-        }),
-        ("Audience", {
-            "fields": ("groups", "extra_recipients"),
-        }),
-        ("Schedule", {
-            "fields": ("status", "scheduled_at", "last_run_at"),
-        }),
-        ("Meta", {
-            "fields": ("created_by",),
-        }),
+        (None, {"fields": ("name", "subject", "context", "rendered_preview")}),
+        ("Recipients", {"fields": ("send_to_all", "recipients")}),
+        ("Meta", {"fields": ("created_at", "last_sent_at")}),
     )
 
-    def save_model(self, request, obj, form, change):
-        if not obj.created_by_id:
-            obj.created_by = request.user
-        super().save_model(request, obj, form, change)
+    @admin.display(description="Preview")
+    def rendered_preview(self, obj: SimpleMail):
+        html = render_simple_mail_html(obj)
+        return mark_safe(f'<div style="border:1px solid #ddd;padding:12px">{html}</div>')
 
-    @admin.action(description="Запустить отправку сейчас (синхронно)")
-    def action_send_now(self, request, queryset):
+    @admin.action(description="Отправить сейчас (асинхронно)")
+    def send_now(self, request, queryset):
+        queued = 0
+        for mail in queryset:
+            send_simple_mail_task.delay(mail.id)
+            queued += 1
+        if queued:
+            self.message_user(request, f"Поставлено в очередь задач: {queued}")
+
+    @admin.action(description="Отправить тест себе (асинхронно)")
+    def send_test_to_me(self, request, queryset):
+        me = getattr(request.user, "email", "")
+        if not me:
+            self.message_user(request, "У вашего аккаунта нет email", level=messages.ERROR)
+            return
+        queued = 0
+        for mail in queryset:
+            send_simple_mail_task.delay(mail.id, test_to=me)
+            queued += 1
+        if queued:
+            self.message_user(request, f"Поставлено в очередь тестовых задач: {queued}")
+
+    @admin.action(description="Отправить сейчас (синхронно)")
+    def send_now_sync(self, request, queryset):
+        from .services import send_simple_mail
         total = 0
-        for campaign in queryset:
+        for mail in queryset:
             try:
-                sent = run_campaign_now(campaign)
-                campaign.status = EmailCampaign.Status.SENT
-                campaign.last_run_at = timezone.now()
-                campaign.save(update_fields=["status", "last_run_at"])
+                sent = send_simple_mail(mail)
+                mail.last_sent_at = timezone.now()
+                mail.save(update_fields=["last_sent_at"])
                 total += sent
             except Exception as e:
-                campaign.status = EmailCampaign.Status.FAILED
-                campaign.last_run_at = timezone.now()
-                campaign.save(update_fields=["status", "last_run_at"])
-                self.message_user(request, f"{campaign.title}: ошибка {e}", level=messages.ERROR)
+                self.message_user(request, f"Ошибка: {e}", level=messages.ERROR)
         if total:
-            self.message_user(request, f"Отправлено писем: {total}", level=messages.SUCCESS)
+            self.message_user(request, f"Отправлено: {total}")
 
-    @admin.action(description="Перевести в черновик")
-    def action_mark_draft(self, request, queryset):
-        updated = queryset.update(status=EmailCampaign.Status.DRAFT)
-        self.message_user(request, f"Обновлено: {updated}", level=messages.SUCCESS)
+    @admin.action(description="Отправить тест себе (синхронно)")
+    def send_test_to_me_sync(self, request, queryset):
+        from .services import send_simple_mail
+        me = getattr(request.user, "email", "")
+        if not me:
+            self.message_user(request, "У вашего аккаунта нет email", level=messages.ERROR)
+            return
+        total = 0
+        for mail in queryset:
+            try:
+                sent = send_simple_mail(mail, test_to=me)
+                total += sent
+            except Exception as e:
+                self.message_user(request, f"Ошибка: {e}", level=messages.ERROR)
+        if total:
+            self.message_user(request, f"Тестовые письма отправлены: {total}")
 
-
-@admin.register(EmailTemplate)
-class _EmailTemplateAdmin(EmailTemplateAdmin):
-    pass
-
-
-@admin.register(EmailLog)
-class EmailLogAdmin(admin.ModelAdmin):
-    list_display = ("to_email", "subject", "success", "sent_at", "campaign")
-    list_filter = ("success", "sent_at")
-    search_fields = ("to_email", "subject", "error")
-
-
-@admin.register(EmailPreference)
-class EmailPreferenceAdmin(admin.ModelAdmin):
-    list_display = ("user", "is_unsubscribed", "unsubscribed_at")
-    list_filter = ("is_unsubscribed",)
-    search_fields = ("user__email", "user__username")
+    @admin.display(description="Получателей")
+    def recipients_count(self, obj: SimpleMail) -> int:
+        return obj.recipients.count()
