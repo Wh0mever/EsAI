@@ -315,6 +315,8 @@
     "delete_chat_success": "Чат успешно удалён",
     "delete_chat_error": "Ошибка при удалении чата",
     "ask_something": "Спросите что-нибудь...",
+    "thinking": "Думаю",
+    "thinking_ellipsis": "Думаю…",
     "voice_enter": "Голосовой ввод",
     "attachments": "Вложения",
     "chats_list_empty": "История чатов пуста",

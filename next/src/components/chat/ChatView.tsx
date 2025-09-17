@@ -13,7 +13,7 @@ function isImageUrl(s: string): boolean {
 	return /\.(png|jpe?g|webp|gif)(\?.*)?$/.test(lower);
 }
 
-type ChatViewProps = { messages: Message[]; mode: ChatMode; loading?: boolean };
+type ChatViewProps = { messages: Message[]; mode: ChatMode; loading?: boolean; initialHydrated?: boolean };
 
 // types text char-by-char on mount
 function TypingText({
@@ -69,7 +69,7 @@ function ThinkingDots({ text = "Думаю" }: { text?: string }) {
 	);
 }
 
-export function ChatView({ messages, mode, loading }: ChatViewProps) {
+export function ChatView({ messages, mode, loading, initialHydrated }: ChatViewProps) {
 	const wrapRef = useRef<HTMLDivElement | null>(null);
 	const { t } = useTranslation("common");
 	const isEmpty = !messages || messages.length === 0;
@@ -80,20 +80,42 @@ export function ChatView({ messages, mode, loading }: ChatViewProps) {
         !messages.length || (last?.role === "assistant" && (!last.content || last.content.trim() === ""));
 
 	// remember which message indices already animated
-	const animatedRef = useRef<Set<number>>(new Set());
+    const animatedRef = useRef<Set<number>>(new Set());
+    const hydrationDoneRef = useRef<boolean>(false);
+    const stickToBottomRef = useRef<boolean>(true); // only autoscroll if near bottom
 
-	// autoscroll to bottom on new messages / during typing
+    // Mark existing messages (e.g., history) as already animated to avoid replaying typing effect
+    useEffect(() => {
+        if (!initialHydrated || hydrationDoneRef.current) return;
+        const set = animatedRef.current;
+        for (let i = 0; i < messages.length; i++) {
+            const m = messages[i];
+            if (m?.role === "assistant" && m?.content) set.add(i);
+        }
+        hydrationDoneRef.current = true;
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [initialHydrated, messages.length]);
+
+	// autoscroll to bottom on new messages when user hasn't scrolled up
 	const scrollToBottom = () => {
 		const el = wrapRef.current;
 		if (!el) return;
 		el.scrollTop = el.scrollHeight;
 	};
 	useEffect(() => {
-		scrollToBottom();
+		if (stickToBottomRef.current) scrollToBottom();
 	}, [messages.length]);
 
+	const handleScroll = () => {
+		const el = wrapRef.current;
+		if (!el) return;
+		const threshold = 64; // px from bottom considered near-bottom
+		const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+		stickToBottomRef.current = distance <= threshold;
+	};
+
 	return (
-		<div ref={wrapRef} className="flex flex-col gap-4 overflow-y-auto max-h-[calc(100vh-300px)] pr-1">
+		<div ref={wrapRef} onScroll={handleScroll} className="flex flex-col gap-4 overflow-y-auto max-h-[calc(100vh-300px)] pr-1">
 			{isEmpty ? (
 				<div className="flex-1 grid place-items-center min-h-[50vh]">
 					<div className="text-center space-y-2">
@@ -143,8 +165,8 @@ export function ChatView({ messages, mode, loading }: ChatViewProps) {
 									speed={18}
 									onDone={() => {
 										animatedRef.current.add(index);
-										// keep view pinned to bottom while finishing typing
-										scrollToBottom();
+										// keep view pinned to bottom while finishing typing only if user near bottom
+										if (stickToBottomRef.current) scrollToBottom();
 									}}
 								/>
 							) : (

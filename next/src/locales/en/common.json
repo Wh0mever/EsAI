@@ -316,6 +316,8 @@
     "delete_chat_success": "Chat deleted successfully",
     "delete_chat_error": "Error deleting chat",
     "ask_something": "Ask something...",
+    "thinking": "Thinking",
+    "thinking_ellipsis": "Thinking…",
     "voice_enter": "Voice Enter",
     "attachments": "Attachments",
     "chats_list_empty": "Chats list is empty",
