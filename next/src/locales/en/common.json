@@ -73,6 +73,13 @@
     "questionsText": "Didn't find the answer here? You can contact us at",
     "questionsLink": "Go to FAQ"
   },
+  "pricing_referral": {
+    "referral_title": "Vokalo Referral Program",
+    "referral_subtitle": "Expand your limits with our referral program.",
+    "referral_line": "A friend of my friend is my friend 🙂",
+    "referral_desc": "Increase your limits for each new user registered with your unique referral code.",
+    "referral_more": "Learn more"
+  },
   "date": {
     "day": "Day",
     "month": "Month",
