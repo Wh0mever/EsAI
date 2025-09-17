@@ -48,6 +48,9 @@ export default function Chat({ mode, chatId }: Props) {
     // Block submit while attachments still uploading
     if (attachments && attachments.some((a) => a && a.status === "uploading")) return;
 
+    // Snapshot ready attachments for this request, then clear UI preview immediately
+    const readyAttachments = (attachments || []).filter((a) => a && a.url);
+
     const newMessage: Message = { role: "user", content };
     setMessages((prev) => [...prev, newMessage]);
     setInput("");
@@ -60,8 +63,10 @@ export default function Chat({ mode, chatId }: Props) {
     try {
       const payload: any = { message: content, templates: templates, mode: mode };
       if (chatId) payload.chat_id = chatId; // bind to existing session when provided
-      if (attachments && attachments.length)
-        payload.attachments = attachments.filter((a) => a && a.url);
+      if (readyAttachments.length) payload.attachments = readyAttachments;
+
+      // hide attachments preview immediately for snappy UX
+      if (attachments && attachments.length) setAttachments([]);
 
       const endpoint = mode === "image-chat" ? "ai/image/" : "ai/chat/";
       const res = await fetchData(endpoint, "POST", payload, true);
@@ -71,7 +76,7 @@ export default function Chat({ mode, chatId }: Props) {
           ? (res?.data?.image?.url || res?.data?.response || "")
           : (res?.data?.response || "");
       setMessages((prev) => [...prev, { role: "assistant", content: assistantContent }]);
-      setAttachments([]);
+      // already cleared before request; keep as is
     } catch (error) {
       console.error("Ошибка при обращении к /api/chat/:", error);
     }

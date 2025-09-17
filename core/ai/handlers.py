@@ -374,11 +374,16 @@ def OpenAIImageHandler(request):
                     chat_mode='image-chat',
                 )
 
+            # include attachments, if provided by client (e.g., reference images/files)
+            req_attachments = request.data.get("attachments")
+            if not isinstance(req_attachments, list):
+                req_attachments = None
+
             AiChatMessage.objects.create(
                 session=session,
                 role="user",
                 content=prompt,
-                attachments=None,
+                attachments=req_attachments,
             )
 
         # Call Images API
