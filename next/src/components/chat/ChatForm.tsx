@@ -167,10 +167,10 @@ export function ChatForm({
 					</div>
 				</div>
 			)}
-			<form
-				onSubmit={handleSubmit}
-				className="bg-neutral-900 chat-form p-5 rounded-3xl border border-neutral-800 w-full"
-			>
+				<form
+					onSubmit={handleSubmit}
+					className="bg-neutral-900 chat-form sticky bottom-0 left-0 right-0 z-10 w-full border border-neutral-800 px-3 py-2 sm:px-4 sm:py-3 rounded-xl sm:rounded-3xl"
+				>
 				<div className="w-full">
 					<textarea
 						ref={textareaRef}
@@ -183,8 +183,8 @@ export function ChatForm({
 						placeholder={t("chat.ask_something")}
 					/>
 				</div>
-				<div className="flex justify-between">
-					<div className="flex gap-1 mt-4">
+					<div className="flex justify-between items-center">
+						<div className="flex gap-1 mt-2 sm:mt-3">
 						{/* attachments */}
 						<Button
 							type="button"
@@ -203,7 +203,7 @@ export function ChatForm({
 						/>
 						<AiTemplates />
 					</div>
-					<div className="flex gap-1 mt-4">
+							<div className="flex gap-1 mt-2 sm:mt-3">
 						<Button
 							type="button"
 							className="text-gray-200 hover:bg-neutral-700/50 text-xl bg-neutral-900 duration-300 p-3 rounded-full"

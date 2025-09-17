@@ -61,37 +61,37 @@ export default function TemplatesCreationForm() {
 		form?.reset();
 	};
 
-	return (
-		<SmartForm
-			onSubmit={onSubmit}
-			submitLabel={submitting ? t("templates.create.submitting") : t("templates.create.submit")}
-			loadingLabel={t("templates.create.submitting")}
-			className="w-full"
-			data-form="template-create"
-		>
-			<Field
-				label={t("templates.fields.name") + " *"}
-				name="name"
-				required
-				placeholder={t("templates.placeholders.name")}
-				className="border border-neutral-600 py-3 px-4"
-			/>
+    return (
+        <SmartForm
+            onSubmit={onSubmit}
+            submitLabel={submitting ? t("templates.create.submitting") : t("templates.create.submit")}
+            loadingLabel={t("templates.create.submitting")}
+            className="w-full max-w-2xl mx-auto px-4 sm:px-6 md:px-8 space-y-4"
+            data-form="template-create"
+        >
+            <Field
+                label={t("templates.fields.name") + " *"}
+                name="name"
+                required
+                placeholder={t("templates.placeholders.name")}
+                className="w-full border border-neutral-600 py-3 px-4"
+            />
 
-			<Field
-				label={t("templates.fields.purpose") + " *"}
-				name="purpose"
-				required
-				placeholder={t("templates.placeholders.purpose")}
-				className="border border-neutral-600 py-3 px-4"
-			/>
+            <Field
+                label={t("templates.fields.purpose") + " *"}
+                name="purpose"
+                required
+                placeholder={t("templates.placeholders.purpose")}
+                className="w-full border border-neutral-600 py-3 px-4"
+            />
 
 			{/* provider (required) */}
-			<label className="text-sm">
-				<span className="mb-1 block">{t("templates.fields.provider") + " *"}</span>
-				<select
-					name="provider"
-					required
-					className="w-full bg-transparent border border-neutral-600 rounded-md py-3 px-4 outline-none"
+            <label className="text-sm block">
+                <span className="mb-1 block">{t("templates.fields.provider") + " *"}</span>
+                <select
+                    name="provider"
+                    required
+                    className="w-full bg-transparent border border-neutral-600 rounded-md py-3 px-4 outline-none"
 					defaultValue=""
 					disabled={loadingProviders}
 				>
@@ -106,20 +106,20 @@ export default function TemplatesCreationForm() {
 				</select>
 			</label>
 
-			<Field
-				label={t("templates.fields.description")}
-				name="description"
-				placeholder={t("templates.placeholders.description")}
-				className="border border-neutral-600 py-3 px-4"
-			/>
+            <Field
+                label={t("templates.fields.description")}
+                name="description"
+                placeholder={t("templates.placeholders.description")}
+                className="w-full border border-neutral-600 py-3 px-4"
+            />
 
-			<TextArea
-				label={t("templates.fields.template") + " *"}
-				name="template"
-				required
-				placeholder={t("templates.placeholders.template")}
-				className="border border-neutral-600 py-3 px-4"
-			/>
+            <TextArea
+                label={t("templates.fields.template") + " *"}
+                name="template"
+                required
+                placeholder={t("templates.placeholders.template")}
+                className="w-full border border-neutral-600 py-3 px-4"
+            />
 
 			{error && <div className="text-red-400 text-sm">{error}</div>}
 			{ok && <div className="text-green-400 text-sm">{t("templates.create.success")}</div>}

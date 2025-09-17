@@ -9,7 +9,7 @@ export default function ContactUs() {
   const { t } = useTranslation("common");
 
   return (
-    <main  className="w-full py-40 px-10">
+    <main  className="w-full py-20 lg:py-40 lg:px-10">
       {/* контейнер страницы */}
       <section className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 pt-12 sm:pt-16 lg:pt-20">
         {/* две карточки: пишите / звоните */}
