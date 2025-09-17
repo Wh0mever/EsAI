@@ -1,70 +1,100 @@
 from typing import Iterable
-from django.template import engines, Template
 from django.conf import settings
-from django.utils.html import strip_tags
-
-from .models import EmailTemplate, EmailCampaign, EmailLog
-from .sender import send_template_email  # твой готовый sender
+from .sender import send_template_email
+from .models import MailContext, SimpleMail
 
 
-def render_subject(subject: str, context: dict) -> str:
-    return Template(subject).render(context)
+# --- Simple helper to send branded emails via common.html ---
+## legacy helpers removed; using simplified renderer below
 
 
-def render_body_from_db_template(tpl: EmailTemplate, context: dict) -> tuple[str, str]:
-    dj = engines["django"]
-    html = dj.from_string(tpl.body_html).render(context)
-    text = tpl.body_text.strip() or strip_tags(html)
-    return html, text
+# ===== Simplified renderer =====
+
+def _render_lines_from_context(data: dict) -> str:
+    """Render HTML blocks from dict preserving key order.
+
+    Rules:
+      - key contains 'title' => <h2>
+      - key contains 'link'  => value = {href, text} => <p><a>
+      - key contains 'list'  => value iterable or object => <ul><li>
+      - else => <p>value</p>
+    """
+    if not isinstance(data, dict):
+        return ""
+    parts: list[str] = []
+    for k, v in data.items():
+        k_low = str(k).lower()
+        if "title" in k_low:
+            parts.append(f"<h2 style='margin:16px 0 6px;font-size:20px;color:#111;font-weight:700'>{v}</h2>")
+        elif "link" in k_low:
+            href = "#"; text = str(v)
+            if isinstance(v, dict):
+                href = v.get("href") or "#"
+                text = v.get("text") or href
+            parts.append(
+                f"<p style='margin:8px 0'><a href='{href}' style='color:#2563eb;text-decoration:underline'>{text}</a></p>"
+            )
+        elif "list" in k_low:
+            items: list[str] = []
+            if isinstance(v, (list, tuple)):
+                items = [str(x) for x in v]
+            elif isinstance(v, dict):
+                items = [str(x) for x in v.values()]
+            if items:
+                li = "".join([f"<li style='margin:4px 0'>{x}</li>" for x in items])
+                parts.append(f"<ul style='padding-left:18px;margin:8px 0'>{li}</ul>")
+        else:
+            parts.append(f"<p style='margin:8px 0'>{v}</p>")
+    return "\n".join(parts)
 
 
-def send_email_using_db_template(
-    tpl: EmailTemplate,
-    context: dict,
-    recipients: Iterable[str],
-    from_email: str | None = None,
-    attachments: list[tuple[str, bytes, str]] | None = None,
-    campaign: EmailCampaign | None = None,
-) -> int:
-    subject = render_subject(tpl.subject, context)
-    html, text = render_body_from_db_template(tpl, context)
+def render_simple_mail_html(mail: SimpleMail) -> str:
+    ctx = mail.context.data if mail.context else {}
+    content = _render_lines_from_context(ctx)
+    # wrap minimal frame with logo
+    company = getattr(settings, "SITE_NAME", "Vokalo")
+    # Try to build absolute logo URL so Gmail/clients can fetch it
+    static_url = getattr(settings, "STATIC_URL", "/static/") or "/static/"
+    base_url = getattr(settings, "SITE_BASE_URL", "") or getattr(settings, "PUBLIC_BASE_URL", "")
+    if base_url and not static_url.startswith("http"):
+        base = base_url[:-1] if base_url.endswith("/") else base_url
+        logo = f"{base}{static_url}img/base.png"
+    else:
+        # fallback to relative; some clients may hide it
+        logo = f"{static_url}img/base.png"
+    html = f"""
+    <div style='max-width:600px;margin:24px auto;background:#ffffff;border-radius:8px;padding:20px;border:1px solid #eee'>
+      <div style='text-align:center;margin-bottom:12px'>
+        <img src='{logo}' alt='{company}' style='height:40px;max-width:180px;object-fit:contain' />
+      </div>
+      {content}
+    </div>
+    """
+    return html
 
-    count = 0
+
+def send_simple_mail(mail: SimpleMail, *, test_to: str | None = None) -> int:
+    subject = mail.subject
+    html = render_simple_mail_html(mail)
+    recipients: list[str]
+    if test_to:
+        recipients = [test_to]
+    else:
+        recipients = mail.build_recipients()
+    sent = 0
     for to in recipients:
         try:
             send_template_email(
                 subject=subject,
                 raw_html=html,
-                raw_text=text,
+                raw_text=None,
                 context={},
                 template_name=None,
                 recipient_list=[to],
-                from_email=from_email or getattr(settings, "DEFAULT_FROM_EMAIL", None),
-                attachments=attachments or [],
+                from_email=None,
+                attachments=None,
             )
-
-        except Exception as e:
-            EmailLog.objects.create(
-                campaign=campaign, to_email=to, subject=subject, success=False, error=str(e), message_id=""
-            )
-        else:
-            EmailLog.objects.create(
-                campaign=campaign, to_email=to, subject=subject, success=True, error="", message_id=""
-            )
-            count += 1
-    return count
-
-
-def run_campaign_now(campaign: EmailCampaign) -> int:
-    context = dict(campaign.context_json or {})
-    tpl = campaign.template
-    recipients = campaign.build_recipients()
-    sent = send_email_using_db_template(
-        tpl=tpl,
-        context=context,
-        recipients=recipients,
-        from_email=campaign.from_email or None,
-        attachments=None,
-        campaign=campaign,
-    )
+            sent += 1
+        except Exception:
+            continue
     return sent

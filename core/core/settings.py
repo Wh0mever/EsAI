@@ -248,6 +248,10 @@ CELERY_TASK_SOFT_TIME_LIMIT = 60 * 4
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
+CELERY_IMPORTS = ("mails.tasks",)
+
+# Public base URL for absolute links in emails
+SITE_BASE_URL = env.str("SITE_BASE_URL", default="")
 
 # --- External APIs ---
 EXCHANGE_API_BASE = env.str("EXCHANGE_API_BASE",
