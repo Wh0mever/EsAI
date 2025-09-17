@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, FormEvent, KeyboardEvent } from "react";
+import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import { fetchData } from "@/tools/fetchData";
 import { Message, ChatForm } from "./ChatForm";
@@ -15,22 +16,28 @@ type Props = {
 };
 
 export default function Chat({ mode, chatId }: Props) {
+  const router = useRouter();
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [attachments, setAttachments] = useState<any[]>([]);
   const { t, i18n } = useTranslation("common");
   const [loading, setLoading] = useState(false);
+  const [historyHydrated, setHistoryHydrated] = useState(false);
 
   // load history when chatId provided
   useEffect(() => {
     let ignore = false;
+    setHistoryHydrated(false);
     const load = async () => {
       if (!chatId) return;
       try {
         const res = await fetchData(`ai/sessions/${chatId}/`, "GET", null, true);
         if (!ignore) {
           const history = res?.data?.messages as Message[] | undefined;
-          if (Array.isArray(history)) setMessages(history);
+          if (Array.isArray(history)) {
+            setMessages(history);
+            setHistoryHydrated(true);
+          }
         }
       } catch {
         if (!ignore) setMessages([]);
@@ -75,11 +82,27 @@ export default function Chat({ mode, chatId }: Props) {
       const endpoint = mode === "image-chat" ? "ai/image/" : "ai/chat/";
       const res = await fetchData(endpoint, "POST", payload, true);
       setInput("");
+      const sessionMeta = (res?.data?.session ?? null) as { id?: string; title?: string } | null;
       const assistantContent =
         mode === "image-chat"
           ? (res?.data?.image?.url || res?.data?.response || "")
           : (res?.data?.response || "");
       setMessages((prev) => [...prev, { role: "assistant", content: assistantContent }]);
+
+      // If this was a new chat (no chatId before) and backend created a session, update URL and notify sidebar
+      if (!chatId && sessionMeta && sessionMeta.id) {
+        try {
+          // update route to include the new chat id
+          router.push(`/dashboard/${mode}/${sessionMeta.id}`);
+        } catch {}
+        try {
+          window.dispatchEvent(
+            new CustomEvent("chat:session-created", {
+              detail: { id: sessionMeta.id, title: sessionMeta.title || content.slice(0, 60), chat_mode: mode },
+            })
+          );
+        } catch {}
+      }
       // already cleared before request; keep as is
     } catch (error) {
       console.error("Ошибка при обращении к /api/chat/:", error);
@@ -90,7 +113,7 @@ export default function Chat({ mode, chatId }: Props) {
 
   return (
     <div className="h-full py-5 px-5 flex flex-col justify-between gap-3 w-full">
-      <ChatView mode={mode as Mode} messages={messages} loading={loading} />
+      <ChatView mode={mode as Mode} messages={messages} loading={loading} initialHydrated={historyHydrated} />
       <ChatForm
         input={input}
         setInput={setInput}

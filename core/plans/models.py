@@ -53,6 +53,9 @@ class Plan(models.Model):
     operations_per_month_limit = models.PositiveIntegerField(null=True, blank=True)  # "Количество в месяц"
     covers_limit = models.PositiveIntegerField(null=True, blank=True)
 
+    # Chat response tokens limit (per reply). If null -> fallback to model default.
+    chat_output_tokens_limit = models.PositiveIntegerField(null=True, blank=True)
+
     # Legacy-style content limits to keep your current counters
     song_limit = models.PositiveIntegerField(default=0)   # 0 => unlimited
     music_limit = models.PositiveIntegerField(default=0)  # 0 => unlimited

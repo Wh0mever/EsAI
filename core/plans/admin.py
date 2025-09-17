@@ -67,6 +67,7 @@ class PlanAdmin(admin.ModelAdmin):
         "id", "period", "duration_days", "is_free", "is_active",
         "price_amount", "price_base_amount",
         "song_limit", "music_limit", "text_limit", "image_limit",
+        "chat_output_tokens_limit",
         "ai_templates_limit", "operations_per_month_limit", "covers_limit",
         "can_purchase_addons",
     )
@@ -92,6 +93,7 @@ class PlanAdmin(admin.ModelAdmin):
                 "song_limit", "music_limit", "text_limit", "image_limit",
             )
         }),
+        ("Chat", {"fields": ("chat_output_tokens_limit",)}),
         ("Sunday Bonuses", {
             "fields": ("sunday_bonus_songs", "sunday_bonus_music", "sunday_bonus_texts", "sunday_bonus_images")
         }),

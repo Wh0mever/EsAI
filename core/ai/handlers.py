@@ -19,11 +19,13 @@ from plans.models import UserSubscription
 from django.core.exceptions import ValidationError
 from .serializers import AiChatMessageSerializer
 
-HISTORY_LIMIT = 15
+# No hard message count limit; we'll include full history.
+HISTORY_LIMIT = None
 
 
 def _build_openai_messages(session: AiChatSession, new_user_text: str, system_prompt: str) -> List[dict]:
-    history = list(session.messages.order_by("-created_at")[:HISTORY_LIMIT][::-1])
+    # Load entire history oldest→newest to preserve context
+    history = list(session.messages.order_by("created_at"))
     messages = [{"role": "system", "content": system_prompt}]
     for m in history:
         if m.content:
@@ -122,6 +124,17 @@ def _call_chat_completions_with_fallback(
     if last_exc:
         raise last_exc
     raise RuntimeError("Chat completions fallback exhausted")
+
+
+def _is_context_error(exc: Exception) -> bool:
+    msg = str(exc).lower()
+    return (
+        "maximum context length" in msg
+        or "context length" in msg
+        or "too many tokens" in msg
+        or "max tokens" in msg and "exceeded" in msg
+        or "token limit" in msg
+    )
 
 
 def _call_responses_api(
@@ -278,7 +291,8 @@ def OpenAIHandler(request):
             req_temperature = None
 
         # 5) Session + user message (transactional)
-        session_id = request.data.get("session_id")
+        # Support both keys from clients: session_id and chat_id
+        session_id = request.data.get("session_id") or request.data.get("chat_id")
         with transaction.atomic():
             if session_id:
                 session = (
@@ -313,35 +327,46 @@ def OpenAIHandler(request):
         messages = _build_openai_messages(session, message, system_prompt)
         client = _make_openai_client(provider)
 
-        max_limit = gpt_model.max_tokens or None
+        # Determine completion tokens limit: plan override > model default
+        plan_limit = getattr(getattr(subscription, "plan", None), "chat_output_tokens_limit", None)
+        max_limit = plan_limit or (gpt_model.max_tokens or None)
         is_reason = _is_reasoning(gpt_model.name)
         is_newchat = _is_new_chat(gpt_model.name)
 
         # Heuristic: only add temperature if explicitly asked AND model is not reasoning
         allow_temperature = (not is_reason) and (req_temperature is not None)
 
-        # First try Chat Completions with safe params (no temp by default)
-        try:
-            completion, endpoint = _call_chat_completions_with_fallback(
-                client=client,
-                model_name=gpt_model.name,
-                messages=messages,
-                max_tokens_limit=max_limit if is_newchat else max_limit,
-                allow_temperature=allow_temperature,
-                requested_temperature=req_temperature,
-            )
-        except Exception as chat_err:
-            # If chat failed, try Responses API (esp. for reasoning models)
+        # Try, and if context too long, progressively trim oldest messages while keeping system+latest user
+        messages_work = list(messages)
+        while True:
             try:
-                completion, endpoint = _call_responses_api(
+                completion, endpoint = _call_chat_completions_with_fallback(
                     client=client,
                     model_name=gpt_model.name,
-                    messages=messages,
-                    max_tokens_limit=max_limit,
+                    messages=messages_work,
+                    max_tokens_limit=max_limit if is_newchat else max_limit,
+                    allow_temperature=allow_temperature,
+                    requested_temperature=req_temperature,
                 )
-            except Exception:
-                # Re-raise original chat error to keep root cause
-                raise chat_err
+                break
+            except Exception as chat_err:
+                # Try Responses API
+                try:
+                    completion, endpoint = _call_responses_api(
+                        client=client,
+                        model_name=gpt_model.name,
+                        messages=messages_work,
+                        max_tokens_limit=max_limit,
+                    )
+                    break
+                except Exception as resp_err:
+                    if _is_context_error(chat_err) or _is_context_error(resp_err):
+                        # Keep system at [0] and last user at end; drop the oldest content message at [1]
+                        if len(messages_work) > 3:
+                            del messages_work[1]
+                            continue
+                    # No context issue or cannot shrink further: raise the original chat error
+                    raise chat_err
 
         answer = _extract_text_from_result(completion, endpoint)
 

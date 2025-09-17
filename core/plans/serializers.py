@@ -33,6 +33,7 @@ class PlanSerializer(serializers.ModelSerializer):
             "price_amount", "price_base_amount",
             "has_discount", "discount_percent",
             "llm_engine_id",
+            "chat_output_tokens_limit",
             "ai_templates_limit", "operations_per_month_limit", "covers_limit",
             "song_limit", "music_limit", "text_limit", "image_limit",
             "sunday_bonus_songs", "sunday_bonus_music", "sunday_bonus_texts", "sunday_bonus_images",
