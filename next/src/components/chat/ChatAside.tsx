@@ -60,27 +60,34 @@ function NavBtn({
 	);
 }
 function NavLink({
-	icon,
-	label,
-	showText,
-	href,
-	title,
+    icon,
+    label,
+    showText,
+    href,
+    title,
+    counter = 0,
 }: {
-	icon: React.ReactNode;
-	label: string;
-	showText: boolean;
-	href: string;
-	title?: string;
+    icon: React.ReactNode;
+    label: string;
+    showText: boolean;
+    href: string;
+    title?: string;
+    counter?: number;
 }) {
-	return (
-		<NextLink
-			className="flex w-full items-center gap-3 rounded-md px-2 py-2 text-sm hover:bg-white/5 cursor-pointer"
-			href={href}
-		>
-			<span className="shrink-0 opacity-70">{icon}</span>
-			{showText && <span className="truncate">{label}</span>}
-		</NextLink>
-	);
+    return (
+        <NextLink
+            className="relative flex w-full items-center gap-3 rounded-md px-2 py-2 text-sm hover:bg-white/5 cursor-pointer"
+            href={href}
+        >
+            <span className="shrink-0 opacity-70">{icon}</span>
+            {showText && <span className="truncate">{label}</span>}
+            {counter > 0 && (
+                <span className="absolute right-2 top-1/2 -translate-y-1/2 bg-rose-600 text-white text-xs font-medium rounded-full px-1.5 py-0.5 min-w-[20px] text-center">
+                    {counter}
+                </span>
+            )}
+        </NextLink>
+    );
 }
 
 /* Persist boolean in localStorage */
@@ -117,22 +124,35 @@ function useToggleHotkey(cb: () => void) {
 
 /* Load notifications count */
 function useNotificationsCount() {
-	const [count, setCount] = useState(0);
-	useEffect(() => {
-		let cancelled = false;
-		(async () => {
-			try {
-				const res = await fetchData("users/notifications/", "GET", null, true);
-				if (!cancelled) setCount(Array.isArray(res?.data) ? res.data.length : 0);
-			} catch {
-				if (!cancelled) setCount(0);
-			}
-		})();
-		return () => {
-			cancelled = true;
-		};
-	}, []);
-	return count;
+    const [count, setCount] = useState(0);
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            try {
+                const res = await fetchData("users/notifications/?unread=1", "GET", null, true);
+                if (!cancelled) setCount(Array.isArray(res?.data) ? res.data.length : 0);
+            } catch {
+                if (!cancelled) setCount(0);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, []);
+    // listen for global updates to refresh counter
+    useEffect(() => {
+        const onUpd = async () => {
+            try {
+                const res = await fetchData("users/notifications/?unread=1", "GET", null, true);
+                setCount(Array.isArray(res?.data) ? res.data.length : 0);
+            } catch {
+                setCount(0);
+            }
+        };
+        window.addEventListener("notifications:updated", onUpd);
+        return () => window.removeEventListener("notifications:updated", onUpd);
+    }, []);
+    return count;
 }
 
 /* Safe username from localStorage */
@@ -283,18 +303,17 @@ export default function Sidebar({ chats, activeChatId, onNewChat, className }: S
 							</div>
 
 							<div className="px-2 py-2 border-t border-white/10 shrink-0">
-								<NavLink icon={<FaRegUser />} label={username} href="/profile" showText={true} />
-								<NavBtn
-									icon={<FiSettings />}
-									label={t("common.settings")}
-									showText={true}
-									onClick={() => {
-										setSettingsOpen(true);
-										setShowMobileAside(false);
-									}}
-									title={t("common.settings")}
-									counter={notificationsCount}
-								/>
+                        <NavLink icon={<FaRegUser />} label={username} href="/profile" showText={true} counter={notificationsCount} />
+                        <NavBtn
+                            icon={<FiSettings />}
+                            label={t("common.settings")}
+                            showText={true}
+                            onClick={() => {
+                                setSettingsOpen(true);
+                                setShowMobileAside(false);
+                            }}
+                            title={t("common.settings")}
+                        />
 							</div>
 						</aside>
 					</div>
@@ -366,17 +385,16 @@ export default function Sidebar({ chats, activeChatId, onNewChat, className }: S
 					</div>
 				)}
 
-				<div className="px-2 py-2 border-t border-white/10 shrink-0">
-					<NavLink icon={<FaRegUser />} label={useUsername()} href="/profile" showText={!collapsed} />
-					<NavBtn
-						icon={<FiSettings />}
-						label={t("common.settings")}
-						showText={!collapsed}
-						onClick={() => setSettingsOpen(true)}
-						title={t("common.settings")}
-						counter={notificationsCount}
-					/>
-				</div>
+                <div className="px-2 py-2 border-t border-white/10 shrink-0">
+                    <NavLink icon={<FaRegUser />} label={useUsername()} href="/profile" showText={!collapsed} counter={notificationsCount} />
+                    <NavBtn
+                        icon={<FiSettings />}
+                        label={t("common.settings")}
+                        showText={!collapsed}
+                        onClick={() => setSettingsOpen(true)}
+                        title={t("common.settings")}
+                    />
+                </div>
 
 				{/* Settings Modal */}
 				<Modal
@@ -385,11 +403,7 @@ export default function Sidebar({ chats, activeChatId, onNewChat, className }: S
 					onClose={() => setSettingsOpen(false)}
 					size="md"
 				>
-					<div className="space-y-4">
-						<div className="flex items-center justify-between">
-							<div className="text-sm text-neutral-300">{t("common.notifications")}</div>
-							<div className="text-sm font-medium">{notificationsCount}</div>
-						</div>
+                    <div className="space-y-4">
 
 						<div className="flex items-center justify-between">
 							<div className="text-sm text-neutral-300">{t("chat.collapse_sidebar")}</div>

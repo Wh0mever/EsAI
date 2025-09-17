@@ -21,7 +21,6 @@ urlpatterns = [
     path('question/', QuestionAPIView.as_view(), name='question'),
     path("notifications/", NotificationListView.as_view()),
     path("notifications/<int:pk>/read/", NotificationMarkReadView.as_view()),
-
     path("accounts/", include("allauth.urls")),
     path("auth/complete/", auth_complete, name="auth-complete"),
 ]

@@ -172,26 +172,60 @@ class UserQuestions(models.Model):
         
         
 class Notification(models.Model):
-    recipient = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.CASCADE,
-        related_name="notifications"
-    )
+    """System notification with support for multiple recipients.
+
+    Note: legacy fields (recipient, is_read, read_at) are removed in favor of per-recipient delivery records.
+    """
     title = models.CharField(max_length=200)
     body = models.TextField(blank=True, default="")
-
-    is_read = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
+
+    recipients = models.ManyToManyField(
+        settings.AUTH_USER_MODEL,
+        through='NotificationDelivery',
+        related_name='notifications_received',
+        blank=True,
+    )
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"Notification({self.title})"
+
+    def add_recipients(self, users: list["User"]):
+        now = timezone.now()
+        for u in users:
+            NotificationDelivery.objects.get_or_create(
+                notification=self,
+                recipient=u,
+                defaults={"is_read": False, "read_at": None, "assigned_at": now},
+            )
+
+    def mark_read_for(self, user: "User"):
+        try:
+            nd = NotificationDelivery.objects.get(notification=self, recipient=user)
+            nd.mark_read()
+        except NotificationDelivery.DoesNotExist:
+            pass
+
+
+class NotificationDelivery(models.Model):
+    notification = models.ForeignKey(Notification, on_delete=models.CASCADE, related_name='deliveries')
+    recipient = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='notification_deliveries')
+    is_read = models.BooleanField(default=False)
+    assigned_at = models.DateTimeField(auto_now_add=True)
     read_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ["-assigned_at"]
+        unique_together = ("notification", "recipient")
+
+    def __str__(self):
+        return f"Delivery(n={self.notification_id}, u={self.recipient_id}, read={self.is_read})"
 
     def mark_read(self):
         if not self.is_read:
             self.is_read = True
             self.read_at = timezone.now()
             self.save(update_fields=["is_read", "read_at"])
-
-    class Meta:
-        ordering = ["-created_at"]
-
-    def __str__(self):
-        return f"Notification({self.recipient}, {self.title})"

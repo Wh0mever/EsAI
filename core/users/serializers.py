@@ -1,5 +1,5 @@
 # users/serializers.py
-from .models import User, Notification, UserQuestions
+from .models import User, Notification, NotificationDelivery, UserQuestions
 from django.db.models import F
 
 from rest_framework import serializers
@@ -128,10 +128,17 @@ class ProfileSerializer(serializers.ModelSerializer):
         return None
 
 
-class NotificationSerializer(serializers.ModelSerializer):
+class NotificationDeliverySerializer(serializers.ModelSerializer):
+    # flatten notification fields
+    id = serializers.IntegerField(source='notification.id', read_only=True)
+    delivery_id = serializers.IntegerField(source='id', read_only=True)
+    title = serializers.CharField(source='notification.title', read_only=True)
+    body = serializers.CharField(source='notification.body', read_only=True)
+    created_at = serializers.DateTimeField(source='notification.created_at', read_only=True)
+
     class Meta:
-        model = Notification
-        fields = ["id", "title", "body", "is_read", "created_at", "read_at"]
+        model = NotificationDelivery
+        fields = ["id", "delivery_id", "title", "body", "is_read", "created_at", "read_at"]
         
         
 
