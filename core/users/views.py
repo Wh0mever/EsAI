@@ -5,15 +5,16 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework import status
 from rest_framework.permissions import AllowAny
-from .serializers import SignUpSerializer, SignInSerializer, ProfileSerializer, NotificationSerializer, UserQuestionSerializer
+from .serializers import SignUpSerializer, SignInSerializer, ProfileSerializer, NotificationDeliverySerializer, UserQuestionSerializer
 from core.format import format_errors
 from mails.sender import send_template_email
 from django.contrib.auth.hashers import make_password
 from rest_framework_simplejwt.tokens import RefreshToken
 from plans.models import UserSubscription
 from plans.serializers import UserSubscriptionSerializer
-from .models import User, UserQuestions, Notification
+from .models import User, UserQuestions, Notification, NotificationDelivery
 from rest_framework import generics, permissions
+from rest_framework.exceptions import NotFound
 
 
 class SigninApiView(APIView):
@@ -295,24 +296,46 @@ class QuestionAPIView(APIView):
 
 class NotificationListView(generics.ListAPIView):
     permission_classes = [permissions.IsAuthenticated]
-    serializer_class = NotificationSerializer
+    serializer_class = NotificationDeliverySerializer
 
     def get_queryset(self):
-        qs = Notification.objects.filter(recipient=self.request.user)
+        qs = NotificationDelivery.objects.filter(recipient=self.request.user).select_related("notification")
         if self.request.query_params.get("unread") == "1":
             qs = qs.filter(is_read=False)
-        return qs
+        return qs.order_by("-assigned_at")
 
 
 class NotificationMarkReadView(generics.UpdateAPIView):
     permission_classes = [permissions.IsAuthenticated]
-    serializer_class = NotificationSerializer
+    serializer_class = NotificationDeliverySerializer
     lookup_url_kwarg = "pk"
 
     def get_queryset(self):
-        return Notification.objects.filter(recipient=self.request.user)
+        return NotificationDelivery.objects.filter(recipient=self.request.user).select_related("notification")
+
+    def get_object(self):
+        qs = self.get_queryset()
+        pk = self.kwargs.get(self.lookup_url_kwarg)
+        # Accept either delivery id or notification id for convenience
+        try:
+            return qs.get(pk=pk)
+        except NotificationDelivery.DoesNotExist:
+            obj = qs.filter(notification_id=pk).order_by('-assigned_at').first()
+            if not obj:
+                raise NotFound("Notification not found for this user")
+            return obj
+
+    def _mark(self, request, *args, **kwargs):
+        delivery = self.get_object()
+        delivery.mark_read()
+        serializer = self.get_serializer(delivery)
+        return Response(serializer.data, status=200)
 
     def patch(self, request, *args, **kwargs):
-        notif = self.get_object()
-        notif.mark_read()
-        return self.retrieve(request, *args, **kwargs)
+        return self._mark(request, *args, **kwargs)
+
+    def put(self, request, *args, **kwargs):
+        return self._mark(request, *args, **kwargs)
+
+    def post(self, request, *args, **kwargs):
+        return self._mark(request, *args, **kwargs)

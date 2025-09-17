@@ -1,5 +1,6 @@
 from django.contrib import admin
-from .models import User, UserQuestions, Notification
+from django import forms
+from .models import User, UserQuestions, Notification, NotificationDelivery
 from django.utils import timezone
 from django.utils.html import format_html
 
@@ -37,63 +38,74 @@ class UserQuestionsAdmin(admin.ModelAdmin):
     readonly_fields = ('created_at',)
     
     
+class NotificationDeliveryInline(admin.TabularInline):
+    model = NotificationDelivery
+    extra = 0
+    autocomplete_fields = ("recipient",)
+    fields = ("recipient", "is_read", "assigned_at", "read_at")
+    readonly_fields = ("assigned_at", "read_at")
+
+
 @admin.register(Notification)
 class NotificationAdmin(admin.ModelAdmin):
-    # Main table columns
-    list_display = (
-        "id",
-        "recipient",
-        "title",
-        "short_body",
-        "is_read",
-        "created_at",
-        "read_at",
-        "status_badge",
-    )
-    list_display_links = ("id", "title")
-
-    # Filters & search
-    list_filter = ("is_read", "created_at", "read_at", "recipient")
-    search_fields = ("title", "body", "recipient__username", "recipient__email")
-
-    # UX
-    date_hierarchy = "created_at"
-    autocomplete_fields = ("recipient",)
-    readonly_fields = ("created_at", "read_at")
-    ordering = ("-created_at",)
-    list_per_page = 50
-    actions = ("mark_as_read", "mark_as_unread")
-
-    # Keep related user join efficient
-    list_select_related = ("recipient",)
-
-    # --- Custom displays ---
-    @admin.display(description="Краткое", ordering="body")
-    def short_body(self, obj: Notification) -> str:
-        # Show first 80 chars to keep table compact
-        return (obj.body[:77] + "…") if obj.body and len(obj.body) > 80 else (obj.body or "")
-
-    @admin.display(description="Статус", boolean=False)
-    def status_badge(self, obj: Notification) -> str:
-        # Simple colored badge showing read/unread
-        color = "#14b8a6" if obj.is_read else "#f59e0b"
-        label = "прочитано" if obj.is_read else "новое"
-        return format_html(
-            '<span style="padding:2px 8px;border-radius:12px;background:{}22;color:{};font-size:12px;">{}</span>',
-            color,
-            color,
-            label,
+    class NotificationAdminForm(forms.ModelForm):
+        broadcast_all = forms.BooleanField(
+            required=False,
+            label="Отправить всем пользователям",
+            help_text="Создать уведомление для всех активных пользователей",
         )
 
-    # --- Actions ---
-    @admin.action(description="Отметить выбранные как прочитанные")
-    def mark_as_read(self, request, queryset):
-        now = timezone.now()
-        # Bulk update for speed; skip already read
-        updated = queryset.filter(is_read=False).update(is_read=True, read_at=now)
-        self.message_user(request, f"Обновлено: {updated}")
+        class Meta:
+            model = Notification
+            fields = ("title", "body")
 
-    @admin.action(description="Отметить выбранные как не прочитанные")
-    def mark_as_unread(self, request, queryset):
-        updated = queryset.filter(is_read=True).update(is_read=False, read_at=None)
-        self.message_user(request, f"Обновлено: {updated}")
+    form = NotificationAdminForm
+    list_display = (
+        "id",
+        "title",
+        "short_body",
+        "created_at",
+        "recipients_count",
+    )
+    list_display_links = ("id", "title")
+    list_filter = ("created_at",)
+    search_fields = ("title", "body")
+    date_hierarchy = "created_at"
+    readonly_fields = ("created_at",)
+    ordering = ("-created_at",)
+    list_per_page = 50
+    inlines = [NotificationDeliveryInline]
+
+    # Explicit fields order including the extra checkbox from the form
+    fields = ("title", "body", "created_at", "broadcast_all")
+
+    @admin.display(description="Краткое", ordering="body")
+    def short_body(self, obj: Notification) -> str:
+        return (obj.body[:77] + "…") if obj.body and len(obj.body) > 80 else (obj.body or "")
+
+    @admin.display(description="Получателей")
+    def recipients_count(self, obj: Notification) -> int:
+        return obj.deliveries.count()
+
+    def save_model(self, request, obj, form, change):
+        super().save_model(request, obj, form, change)
+        # Broadcast to all active users if requested
+        try:
+            if form and form.cleaned_data.get("broadcast_all"):
+                existing = set(obj.deliveries.values_list("recipient_id", flat=True))
+                to_add = (
+                    User.objects
+                    .filter(is_active=True)
+                    .exclude(id__in=existing)
+                    .values_list("id", flat=True)
+                )
+                bulk = [NotificationDelivery(notification=obj, recipient_id=uid) for uid in to_add]
+                if bulk:
+                    NotificationDelivery.objects.bulk_create(bulk, ignore_conflicts=True)
+                    self.message_user(request, f"Добавлено получателей: {len(bulk)}")
+        except Exception as e:
+            # Don't block admin save if broadcast fails; show message
+            try:
+                self.message_user(request, f"Не удалось отправить всем: {e}")
+            except Exception:
+                pass

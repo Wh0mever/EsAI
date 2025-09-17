@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/buttons/Buttons";
 import { Field, Checkbox } from "@/components/ui/inputs/Inputs";
 import { PiUserLight } from "react-icons/pi";
 import { fetchData } from "@/tools/fetchData";
-import { ConfirmationModal } from "@/components/dialog/Dialog";
+import { ConfirmationModal, Modal } from "@/components/dialog/Dialog";
 import Cookies from "js-cookie";
 
 async function changeUserInfo(data: any): Promise<Number> {
@@ -30,9 +30,101 @@ export default function UserProfile({ t, data }: { t: any; data: any }) {
 	});
 
 	const [isLogoutConfirmModalOpen, setLogoutConfirmModalOpen] = useState(false);
+	const [notifOpen, setNotifOpen] = useState(false);
+	const [notifList, setNotifList] = useState<any[]>([]);
+	const [notifLoading, setNotifLoading] = useState(false);
+	const [selectedNotif, setSelectedNotif] = useState<any | null>(null);
+	const [unreadCount, setUnreadCount] = useState<number>(0);
+	const dropdownRef = useRef<HTMLDivElement | null>(null);
 
 	useEffect(() => {
-		console.log(userChange);
+		if (!notifOpen) return;
+		let ignore = false;
+		(async () => {
+			try {
+				setNotifLoading(true);
+				const res = await fetchData("users/notifications/", "GET", null, true);
+				if (!ignore) {
+					const list = Array.isArray(res?.data) ? res.data : [];
+					setNotifList(list);
+					setUnreadCount(list.filter((n: any) => !n.is_read).length);
+				}
+			} catch {
+				if (!ignore) setNotifList([]);
+			} finally {
+				if (!ignore) setNotifLoading(false);
+			}
+		})();
+		return () => {
+			ignore = true;
+		};
+	}, [notifOpen]);
+
+	// initial unread counter on mount
+	useEffect(() => {
+		let ignore = false;
+		(async () => {
+			try {
+				const res = await fetchData("users/notifications/?unread=1", "GET", null, true);
+				if (!ignore) setUnreadCount(Array.isArray(res?.data) ? res.data.length : 0);
+			} catch {
+				if (!ignore) setUnreadCount(0);
+			}
+		})();
+		const onUpd = async () => {
+			try {
+				const res = await fetchData("users/notifications/?unread=1", "GET", null, true);
+				setUnreadCount(Array.isArray(res?.data) ? res.data.length : 0);
+			} catch {
+				setUnreadCount(0);
+			}
+		};
+		window.addEventListener("notifications:updated", onUpd);
+		return () => {
+			ignore = true;
+			window.removeEventListener("notifications:updated", onUpd);
+		};
+	}, []);
+
+	// close dropdown on outside click
+	useEffect(() => {
+		if (!notifOpen) return;
+		const onDoc = (e: MouseEvent) => {
+			const el = dropdownRef.current;
+			if (!el) return;
+			if (!el.contains(e.target as Node)) setNotifOpen(false);
+		};
+		document.addEventListener("mousedown", onDoc);
+		return () => document.removeEventListener("mousedown", onDoc);
+	}, [notifOpen]);
+
+	const openNotif = async (n: any) => {
+		setSelectedNotif(n);
+		// optimistic: mark as read locally immediately
+		if (!n?.is_read && n?.delivery_id) {
+			setNotifList((prev) =>
+				prev.map((x) =>
+					x.delivery_id === n.delivery_id ? { ...x, is_read: true, read_at: new Date().toISOString() } : x
+				)
+			);
+			setUnreadCount((c) => Math.max(0, c - 1));
+			try {
+				await fetchData(`users/notifications/${n.delivery_id}/read/`, "PATCH", {}, true);
+				// signal others (e.g., sidebar) to refresh counters
+				try {
+					window.dispatchEvent(new CustomEvent("notifications:updated"));
+				} catch {}
+			} catch {
+				// revert if failed
+				setNotifList((prev) =>
+					prev.map((x) => (x.delivery_id === n.delivery_id ? { ...x, is_read: false, read_at: null } : x))
+				);
+				setUnreadCount((c) => c + 1);
+			}
+		}
+	};
+
+	useEffect(() => {
 		if (userChange.show) {
 			setTimeout(() => {
 				setUserChange(() => {
@@ -57,7 +149,7 @@ export default function UserProfile({ t, data }: { t: any; data: any }) {
 		<Card>
 			<div className="flex-grow flex flex-col gap-3">
 				<div className="flex flex-col gap-2">
-					<div className="flex justify-between items-center">
+					<div className="flex justify-between items-center relative">
 						<h2 className="text-xl font-bold">{t("profile.profile")} </h2>
 						<div className="flex items-center gap-2">
 							<i className="text-7xl text-gray-500">
@@ -75,6 +167,53 @@ export default function UserProfile({ t, data }: { t: any; data: any }) {
 						</div>
 					)}
 				</div>
+				
+				{/* Notifications dropdown button */}
+				<div className="relative pb-5" ref={dropdownRef}>
+					<button
+						type="button"
+						className="px-3 py-1.5 cursor-pointer rounded-md bg-neutral-800 hover:bg-neutral-700 text-sm border border-white/10 relative"
+						onClick={() => setNotifOpen((v) => !v)}
+					>
+						{t("common.notifications")}
+						{unreadCount > 0 && (
+							<span className="absolute -top-2 -right-2 bg-rose-600 text-white text-xs font-medium rounded-full px-1.5 py-0.5 min-w-[20px] text-center">
+								{unreadCount}
+							</span>
+						)}
+					</button>
+            {notifOpen && (
+                <div className="absolute left-0 mt-2 w-72 max-h-[450px] overflow-auto bg-neutral-900 border border-white/10 rounded-lg shadow-lg z-50">
+                    <div className="p-2 border-b border-white/10 text-sm text-neutral-300">
+                        {t("common.notifications")}
+                    </div>
+							{notifLoading ? (
+								<div className="p-3 text-sm text-neutral-400">{t("common.loading")}</div>
+							) : notifList.length === 0 ? (
+								<div className="p-3 text-sm text-neutral-400">{t("status.notfound")}</div>
+							) : (
+								<ul className="py-1">
+									{notifList.map((n) => (
+										<li key={`${n.delivery_id}-${n.id}`}>
+											<button
+												className={`w-full cursor-pointer text-left px-3 py-2 text-sm hover:bg-white/5 flex items-center gap-2 ${
+													n.is_read ? "text-neutral-200" : "text-white"
+												}`}
+												onClick={() => openNotif(n)}
+											>
+												{!n.is_read && (
+													<span className="inline-block w-2 h-2 rounded-full bg-rose-500" />
+												)}
+												<span className="truncate">{n.title}</span>
+											</button>
+										</li>
+									))}
+								</ul>
+							)}
+						</div>
+					)}
+				</div>
+				
 				<div className="flex flex-col gap-1">
 					<p className="text-gray-500">{t("profile.email")}:</p>
 					<Field
@@ -176,6 +315,16 @@ export default function UserProfile({ t, data }: { t: any; data: any }) {
 				onConfirm={handleLogout}
 				onCancel={() => setLogoutConfirmModalOpen(false)}
 			/>
+
+			{/* Notification view modal */}
+			<Modal
+				title={selectedNotif?.title || t("common.notifications")}
+				open={!!selectedNotif}
+				onClose={() => setSelectedNotif(null)}
+				size="md"
+			>
+				<div className="text-neutral-100 whitespace-pre-wrap leading-relaxed">{selectedNotif?.body || ""}</div>
+			</Modal>
 		</Card>
 	);
 }
