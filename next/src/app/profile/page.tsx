@@ -70,7 +70,7 @@ export default function ProfilePage() {
 	}
 
 	return (
-		<main className="mx-auto pt-80 pb-20 overflow-hidden relative px-4">
+		<main className="mx-auto pt-80 pb-20 overflow-hidden relative">
 			<Breadcrumb />
 			<div className="max-w-4xl mx-auto flex flex-col gap-3 scale-z-50">
 				{!profileData?.subscription && <ProfileAlert t={t} />}
