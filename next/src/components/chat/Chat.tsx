@@ -23,6 +23,7 @@ export default function Chat({ mode, chatId }: Props) {
   const { t, i18n } = useTranslation("common");
   const [loading, setLoading] = useState(false);
   const [historyHydrated, setHistoryHydrated] = useState(false);
+  const [animateIndex, setAnimateIndex] = useState<number | null>(null);
 
   // load history when chatId provided
   useEffect(() => {
@@ -37,6 +38,27 @@ export default function Chat({ mode, chatId }: Props) {
           if (Array.isArray(history)) {
             setMessages(history);
             setHistoryHydrated(true);
+            // If we just created this session, animate the last assistant once
+            try {
+              const key = `chat.animate.${chatId}`;
+              const shouldAnimate = typeof window !== 'undefined' ? sessionStorage.getItem(key) : null;
+              if (shouldAnimate) {
+                // find last assistant index to animate
+                let lastAssistant = -1;
+                for (let i = history.length - 1; i >= 0; i--) {
+                  if (history[i]?.role === 'assistant' && (history[i]?.content || '').length > 0) {
+                    lastAssistant = i;
+                    break;
+                  }
+                }
+                if (lastAssistant >= 0) setAnimateIndex(lastAssistant);
+                if (typeof window !== 'undefined') sessionStorage.removeItem(key);
+              } else {
+                setAnimateIndex(null);
+              }
+            } catch {
+              setAnimateIndex(null);
+            }
           }
         }
       } catch {
@@ -92,6 +114,10 @@ export default function Chat({ mode, chatId }: Props) {
       // If this was a new chat (no chatId before) and backend created a session, update URL and notify sidebar
       if (!chatId && sessionMeta && sessionMeta.id) {
         try {
+          // mark to animate last assistant once after navigation
+          if (typeof window !== 'undefined') {
+            sessionStorage.setItem(`chat.animate.${sessionMeta.id}`, '1');
+          }
           // update route to include the new chat id
           router.push(`/dashboard/${mode}/${sessionMeta.id}`);
         } catch {}
@@ -113,7 +139,7 @@ export default function Chat({ mode, chatId }: Props) {
 
   return (
     <div className="h-full py-5 px-5 flex flex-col justify-between gap-3 w-full">
-      <ChatView mode={mode as Mode} messages={messages} loading={loading} initialHydrated={historyHydrated} />
+      <ChatView mode={mode as Mode} messages={messages} loading={loading} initialHydrated={historyHydrated} animateIndex={animateIndex ?? undefined} />
       <ChatForm
         input={input}
         setInput={setInput}

@@ -13,7 +13,7 @@ function isImageUrl(s: string): boolean {
 	return /\.(png|jpe?g|webp|gif)(\?.*)?$/.test(lower);
 }
 
-type ChatViewProps = { messages: Message[]; mode: ChatMode; loading?: boolean; initialHydrated?: boolean };
+type ChatViewProps = { messages: Message[]; mode: ChatMode; loading?: boolean; initialHydrated?: boolean; animateIndex?: number | null };
 
 // types text char-by-char on mount
 function TypingText({
@@ -69,7 +69,7 @@ function ThinkingDots({ text = "Думаю" }: { text?: string }) {
 	);
 }
 
-export function ChatView({ messages, mode, loading, initialHydrated }: ChatViewProps) {
+export function ChatView({ messages, mode, loading, initialHydrated, animateIndex }: ChatViewProps) {
 	const wrapRef = useRef<HTMLDivElement | null>(null);
 	const { t } = useTranslation("common");
 	const isEmpty = !messages || messages.length === 0;
@@ -90,11 +90,15 @@ export function ChatView({ messages, mode, loading, initialHydrated }: ChatViewP
         const set = animatedRef.current;
         for (let i = 0; i < messages.length; i++) {
             const m = messages[i];
-            if (m?.role === "assistant" && m?.content) set.add(i);
+            if (m?.role === "assistant" && m?.content) {
+                // Keep one target index un-animated (to re-type) if requested
+                if (typeof animateIndex === 'number' && i === animateIndex) continue;
+                set.add(i);
+            }
         }
         hydrationDoneRef.current = true;
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [initialHydrated, messages.length]);
+    }, [initialHydrated, messages.length, animateIndex]);
 
 	// autoscroll to bottom on new messages when user hasn't scrolled up
 	const scrollToBottom = () => {
@@ -140,13 +144,13 @@ export function ChatView({ messages, mode, loading, initialHydrated }: ChatViewP
 						? "self-end bg-indigo-700 text-white"
 						: "self-start bg-neutral-900 text-white";
 
-					const shouldType =
-						// only assistants
-						!isUser &&
-						// only if content exists
-						!!msg.content &&
-						// only if not typed before
-						!animatedRef.current.has(index);
+                    const shouldType =
+                        // only assistants
+                        !isUser &&
+                        // only if content exists
+                        !!msg.content &&
+                        // only if not typed before
+                        (!animatedRef.current.has(index) || (typeof animateIndex === 'number' && index === animateIndex));
 
 					return (
 						<div key={index} className={`p-4 rounded-xl max-w-[80%] whitespace-pre-wrap ${bubbleClass}`}>
