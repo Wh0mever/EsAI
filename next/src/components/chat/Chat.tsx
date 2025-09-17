@@ -18,7 +18,8 @@ export default function Chat({ mode, chatId }: Props) {
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [attachments, setAttachments] = useState<any[]>([]);
-  const { t } = useTranslation("common");
+  const { t, i18n } = useTranslation("common");
+  const [loading, setLoading] = useState(false);
 
   // load history when chatId provided
   useEffect(() => {
@@ -61,9 +62,12 @@ export default function Chat({ mode, chatId }: Props) {
     JSON.stringify({ message: content }); // no-op
 
     try {
+      setLoading(true);
       const payload: any = { message: content, templates: templates, mode: mode };
       if (chatId) payload.chat_id = chatId; // bind to existing session when provided
       if (readyAttachments.length) payload.attachments = readyAttachments;
+      // pass current UI language to backend so it can respond in user's locale
+      if (i18n?.language) payload.lang = i18n.language;
 
       // hide attachments preview immediately for snappy UX
       if (attachments && attachments.length) setAttachments([]);
@@ -79,12 +83,14 @@ export default function Chat({ mode, chatId }: Props) {
       // already cleared before request; keep as is
     } catch (error) {
       console.error("Ошибка при обращении к /api/chat/:", error);
+    } finally {
+      setLoading(false);
     }
   };
 
   return (
     <div className="h-full py-5 px-5 flex flex-col justify-between gap-3 w-full">
-      <ChatView mode={mode as Mode} messages={messages} />
+      <ChatView mode={mode as Mode} messages={messages} loading={loading} />
       <ChatForm
         input={input}
         setInput={setInput}

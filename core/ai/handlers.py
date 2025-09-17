@@ -16,6 +16,7 @@ from .models import (
     AiGeneratedImage,
 )
 from plans.models import UserSubscription
+from django.core.exceptions import ValidationError
 from .serializers import AiChatMessageSerializer
 
 HISTORY_LIMIT = 15
@@ -192,11 +193,41 @@ def _extract_usage_meta(result: Any, endpoint: str, model_name: str) -> dict:
     return meta
 
 
+def _pick_lang(request) -> tuple[str, str]:
+    """Return (lang_code, human_name) from request (data.lang or Accept-Language)."""
+    # Preferred: explicit lang from client
+    raw = (getattr(request, "data", {}) or {}).get("lang")
+    if isinstance(raw, str) and raw:
+        code = raw.strip().lower()
+    else:
+        # Fallback: Accept-Language header like 'ru,en;q=0.9'
+        header = (request.META.get("HTTP_ACCEPT_LANGUAGE") or "").split(",")[0]
+        code = header.strip().lower() or "ru"
+
+    # Normalize to base language
+    if code.startswith("ru"): return "ru", "Russian"
+    if code.startswith(("kg", "ky")): return "ky", "Kyrgyz"
+    if code.startswith("en"): return "en", "English"
+    if code.startswith("tr"): return "tr", "Turkish"
+    if code.startswith("de"): return "de", "German"
+    if code.startswith("fr"): return "fr", "French"
+    # default
+    return "ru", "Russian"
+
+
 def OpenAIHandler(request):
     try:
-        # 1) Model
-        subscription = UserSubscription.objects.filter(user=request.user).select_related("plan").first()
-        default_model_name = getattr(getattr(subscription, "plan", None), "llm_engine", None) or "gpt-4o-mini"
+        # 1) Model + subscription/limits
+        subscription = (
+            UserSubscription.objects
+            .filter(user=request.user, status="active")
+            .select_related("plan")
+            .order_by("-start_date")
+            .first()
+        )
+        # Use plan's configured engine name if available
+        plan_engine = getattr(getattr(subscription, "plan", None), "llm_engine", None)
+        default_model_name = getattr(plan_engine, "name", None) or "gpt-4o-mini"
         model_name = request.data.get("model", default_model_name)
         template_data = _parse_template(request)
 
@@ -211,8 +242,15 @@ def OpenAIHandler(request):
         except AiProvider.DoesNotExist:
             return {"error": f"Provider '{provider_slug}' not found or inactive"}
 
-        # 3) System prompt
+        # 3) System prompt + locale policy
+        lang_code, lang_name = _pick_lang(request)
         system_prompt = "You are a helpful assistant."
+        # Enforce reply language strictly
+        locale_policy = (
+            f"Always and strictly reply in {lang_name} language (locale: {lang_code}). "
+            f"Do not switch languages unless explicitly told to translate into another language, "
+            f"and prefer {lang_name} for all outputs and explanations."
+        )
         if template_data:
             template = AiPromptTemplate.objects.filter(
                 id=template_data['id'], is_active=True, provider=provider
@@ -221,6 +259,9 @@ def OpenAIHandler(request):
                 system_prompt = template.template
                 template.usage_count = (template.usage_count or 0) + 1
                 template.save(update_fields=["usage_count"])
+
+        # Combine template/system with locale rule
+        system_prompt = f"{system_prompt}\n\n{locale_policy}"
 
         # 4) User message
         message = (request.data.get("message") or "").strip()
@@ -264,7 +305,11 @@ def OpenAIHandler(request):
                 attachments=attachments if isinstance(attachments, list) else None,
             )
 
-        # 6) Build messages and call OpenAI
+        # 6) Limits pre-check (texts)
+        if subscription and not subscription.can_consume("text"):
+            return {"error": "Лимиты на генерацию текста исчерпаны. Пополните лимит или обновите тариф."}
+
+        # 7) Build messages and call OpenAI
         messages = _build_openai_messages(session, message, system_prompt)
         client = _make_openai_client(provider)
 
@@ -302,7 +347,7 @@ def OpenAIHandler(request):
 
         usage_meta = _extract_usage_meta(completion, endpoint, gpt_model.name)
 
-        # 7) Save assistant message
+        # 8) Save assistant message
         assistant_msg = AiChatMessage.objects.create(
             session=session,
             role="assistant",
@@ -310,6 +355,14 @@ def OpenAIHandler(request):
             attachments=None,
             meta=usage_meta,
         )
+
+        # 9) Consume one text unit (best-effort; race-safe inside consume)
+        if subscription:
+            try:
+                subscription.consume("text")
+            except ValidationError:
+                # Very rare race; ignore here to not break user flow
+                pass
 
         return {
             "session": {
@@ -386,6 +439,17 @@ def OpenAIImageHandler(request):
                 attachments=req_attachments,
             )
 
+        # Limits pre-check (images)
+        subscription = (
+            UserSubscription.objects
+            .filter(user=request.user, status="active")
+            .select_related("plan")
+            .order_by("-start_date")
+            .first()
+        )
+        if subscription and not subscription.can_consume("image"):
+            return {"error": "Лимиты на генерацию изображений исчерпаны. Пополните лимит или обновите тариф."}
+
         # Call Images API
         result = client.images.generate(model=model_name, prompt=prompt, size=size, n=1)
         data0 = result.data[0] if getattr(result, "data", None) else None
@@ -427,6 +491,13 @@ def OpenAIImageHandler(request):
         except Exception:
             assistant_msg = None
             url = None
+
+        # Consume one image generation unit
+        if subscription:
+            try:
+                subscription.consume("image")
+            except ValidationError:
+                pass
 
         return {
             "session": {"id": session.id, "title": session.title, "provider": provider.slug, "updated_at": session.updated_at},

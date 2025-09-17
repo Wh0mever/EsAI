@@ -114,12 +114,69 @@ class UserSubscriptionSerializer(serializers.ModelSerializer):
     plan = PlanSerializer(read_only=True)
     usage = GenerationUsageSerializer(read_only=True)
 
+    # Computed remaining counters (plan usage + user bonus if plan limited)
+    remaining_texts = serializers.SerializerMethodField()
+    remaining_images = serializers.SerializerMethodField()
+    remaining_songs = serializers.SerializerMethodField()
+    remaining_music = serializers.SerializerMethodField()
+
+    # Unlimited flags for convenience on client
+    is_texts_unlimited = serializers.SerializerMethodField()
+    is_images_unlimited = serializers.SerializerMethodField()
+    is_songs_unlimited = serializers.SerializerMethodField()
+    is_music_unlimited = serializers.SerializerMethodField()
+
     class Meta:
         model = UserSubscription
         fields = (
             "id", "plan", "status", "payment_status",
             "start_date", "end_date", "payment_date", "usage",
+            # computed remaining
+            "remaining_texts", "remaining_images", "remaining_songs", "remaining_music",
+            # unlimited flags
+            "is_texts_unlimited", "is_images_unlimited", "is_songs_unlimited", "is_music_unlimited",
         )
+
+    def _is_unlimited(self, limit_value) -> bool:
+        return limit_value in (None, 0)
+
+    def _remaining(self, limit_value, left: int | None, bonus: int | None) -> int | None:
+        # If unlimited plan for this resource, return None to indicate infinity
+        if self._is_unlimited(limit_value):
+            return None
+        return int((left or 0) + (bonus or 0))
+
+    def get_is_texts_unlimited(self, obj: UserSubscription) -> bool:
+        return self._is_unlimited(getattr(obj.plan, "text_limit", 0))
+
+    def get_is_images_unlimited(self, obj: UserSubscription) -> bool:
+        return self._is_unlimited(getattr(obj.plan, "image_limit", 0))
+
+    def get_is_songs_unlimited(self, obj: UserSubscription) -> bool:
+        return self._is_unlimited(getattr(obj.plan, "song_limit", 0))
+
+    def get_is_music_unlimited(self, obj: UserSubscription) -> bool:
+        return self._is_unlimited(getattr(obj.plan, "music_limit", 0))
+
+    def get_remaining_texts(self, obj: UserSubscription) -> int | None:
+        user = getattr(obj, "user", None)
+        usage = getattr(obj, "usage", None)
+        return self._remaining(getattr(obj.plan, "text_limit", 0), getattr(usage, "texts_left", 0), getattr(user, "bonus_texts", 0))
+
+    def get_remaining_images(self, obj: UserSubscription) -> int | None:
+        user = getattr(obj, "user", None)
+        usage = getattr(obj, "usage", None)
+        return self._remaining(getattr(obj.plan, "image_limit", 0), getattr(usage, "images_left", 0), getattr(user, "bonus_images", 0))
+
+    def get_remaining_songs(self, obj: UserSubscription) -> int | None:
+        user = getattr(obj, "user", None)
+        usage = getattr(obj, "usage", None)
+        return self._remaining(getattr(obj.plan, "song_limit", 0), getattr(usage, "songs_left", 0), getattr(user, "bonus_songs", 0))
+
+    def get_remaining_music(self, obj: UserSubscription) -> int | None:
+        user = getattr(obj, "user", None)
+        usage = getattr(obj, "usage", None)
+        return self._remaining(getattr(obj.plan, "music_limit", 0), getattr(usage, "music_left", 0), getattr(user, "bonus_music", 0))
 
 
 class AddonPurchaseSerializer(serializers.ModelSerializer):

@@ -225,8 +225,11 @@ class PasswordResetCompleteView(APIView):
 class UserProfileView(APIView):
     def get(self, request):
         user = ProfileSerializer(request.user).data
-        subscription = UserSubscription.objects.filter(
-            user=request.user).first()
+        subscription = (UserSubscription.objects
+                         .select_related("plan", "usage", "user")
+                         .filter(user=request.user)
+                         .order_by("-start_date")
+                         .first())
 
         if subscription:
             subscription = UserSubscriptionSerializer(subscription).data

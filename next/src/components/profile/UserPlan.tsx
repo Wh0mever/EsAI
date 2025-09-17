@@ -138,17 +138,44 @@ export default function UserPlan({ t, data, onUnsubscribe }: Props) {
 		</div>
 	);
 
-	const UsageCard = () => {
-		const usage = sub?.usage || {};
-		const user = data?.user || {};
-		const [copied, setCopied] = React.useState(false);
+    const UsageCard = () => {
+        const usage = sub?.usage || {};
+        const user = data?.user || {};
+        const [copied, setCopied] = React.useState(false);
 
-		const items: { key: string; left?: number; bonus?: number; label: string }[] = [
-			{ key: "texts", left: usage.texts_left, bonus: user.bonus_texts, label: t("profile.left_counters.items.texts") },
-			{ key: "images", left: usage.images_left, bonus: user.bonus_images, label: t("profile.left_counters.items.images") },
-			{ key: "songs", left: usage.songs_left, bonus: user.bonus_songs, label: t("profile.left_counters.items.songs") },
-			{ key: "music", left: usage.music_left, bonus: user.bonus_music, label: t("profile.left_counters.items.music") },
-		];
+        // Compute real remaining using backend-computed totals; fall back to left+bonus
+        const totals = {
+            texts: {
+                total: sub?.remaining_texts ?? ((usage.texts_left ?? 0) + (user.bonus_texts ?? 0)),
+                unlimited: Boolean(sub?.is_texts_unlimited),
+                left: usage.texts_left ?? 0,
+                bonus: user.bonus_texts ?? 0,
+                label: t("profile.left_counters.items.texts"),
+            },
+            images: {
+                total: sub?.remaining_images ?? ((usage.images_left ?? 0) + (user.bonus_images ?? 0)),
+                unlimited: Boolean(sub?.is_images_unlimited),
+                left: usage.images_left ?? 0,
+                bonus: user.bonus_images ?? 0,
+                label: t("profile.left_counters.items.images"),
+            },
+            songs: {
+                total: sub?.remaining_songs ?? ((usage.songs_left ?? 0) + (user.bonus_songs ?? 0)),
+                unlimited: Boolean(sub?.is_songs_unlimited),
+                left: usage.songs_left ?? 0,
+                bonus: user.bonus_songs ?? 0,
+                label: t("profile.left_counters.items.songs"),
+            },
+            music: {
+                total: sub?.remaining_music ?? ((usage.music_left ?? 0) + (user.bonus_music ?? 0)),
+                unlimited: Boolean(sub?.is_music_unlimited),
+                left: usage.music_left ?? 0,
+                bonus: user.bonus_music ?? 0,
+                label: t("profile.left_counters.items.music"),
+            },
+        } as const;
+
+        const items = ["texts", "images", "songs", "music"] as const;
 
 		function copyCode() {
 			if (!user?.referral_uid) return;
@@ -161,19 +188,20 @@ export default function UserPlan({ t, data, onUnsubscribe }: Props) {
 		return (
 			<div className="flex flex-col gap-4 w-full">
 				<h2 className="text-xl font-bold">{t("profile.left_counters.title")}</h2>
-				<div className="grid grid-cols-1 lg:grid-cols-2 md:grid-cols-2 gap-3">
-					{items.map(({ key, label, left, bonus }) => (
-						<div key={key} className="rounded-xl border border-neutral-800 p-4 bg-white/5">
-							<div className="text-sm text-gray-400">{label}</div>
-							<div className="mt-1 text-lg">
-								<strong className="text-white">{t("profile.left_counters.left")}:</strong> {left ?? 0}
-							</div>
-							<div className="text-sm text-gray-300">
-								<strong>{t("profile.bonus_counters.title")}:</strong> {bonus ?? 0}
-							</div>
-						</div>
-					))}
-				</div>
+                <div className="grid grid-cols-1 lg:grid-cols-2 md:grid-cols-2 gap-3">
+                    {items.map((k) => (
+                        <div key={k} className="rounded-xl border border-neutral-800 p-4 bg-white/5">
+                            <div className="text-sm text-gray-400">{totals[k].label}</div>
+                            <div className="mt-1 text-lg">
+                                <strong className="text-white">{t("profile.left_counters.left")}:</strong>{" "}
+                                {totals[k].unlimited ? "∞" : totals[k].total}
+                            </div>
+                            <div className="text-xs text-gray-400 mt-1">
+                                план: {totals[k].left} • бонус: {totals[k].bonus}
+                            </div>
+                        </div>
+                    ))}
+                </div>
 
 				<div className="mt-4">
 					<h3 className="text-lg font-semibold mb-2">{t("profile.referral.title")}</h3>

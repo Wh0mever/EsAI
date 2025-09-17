@@ -145,6 +145,118 @@ class UserSubscription(models.Model):
         usage.images_left = (usage.images_left or 0) + addon.images_added
         usage.save(update_fields=["songs_left", "music_left", "texts_left", "images_left"])
 
+    # ---- Limits helpers ----
+    def _get_usage_locked(self) -> "GenerationUsage":
+        from django.db import transaction
+        from django.db.models import F
+        # Ensure usage row exists and lock for update when mutating
+        with transaction.atomic():
+            usage, _ = GenerationUsage.objects.select_for_update().get_or_create(subscription=self)
+        return usage
+
+    def _has_available(self, kind: str) -> bool:
+        """Quick availability check without locking (best-effort)."""
+        plan = self.plan
+        usage = getattr(self, "usage", None)
+        if kind == "text":
+            if self.is_unlimited(plan.text_limit):
+                return True
+            left = (getattr(usage, "texts_left", 0) or 0)
+            bonus = (getattr(self.user, "bonus_texts", 0) or 0)
+            return (left > 0) or (bonus > 0)
+        if kind == "image":
+            if self.is_unlimited(plan.image_limit):
+                return True
+            left = (getattr(usage, "images_left", 0) or 0)
+            bonus = (getattr(self.user, "bonus_images", 0) or 0)
+            return (left > 0) or (bonus > 0)
+        if kind == "song":
+            if self.is_unlimited(plan.song_limit):
+                return True
+            left = (getattr(usage, "songs_left", 0) or 0)
+            bonus = (getattr(self.user, "bonus_songs", 0) or 0)
+            return (left > 0) or (bonus > 0)
+        if kind == "music":
+            if self.is_unlimited(plan.music_limit):
+                return True
+            left = (getattr(usage, "music_left", 0) or 0)
+            bonus = (getattr(self.user, "bonus_music", 0) or 0)
+            return (left > 0) or (bonus > 0)
+        return False
+
+    def can_consume(self, kind: str) -> bool:
+        """Public best-effort check if user can perform generation of given kind."""
+        return self._has_available(kind)
+
+    def consume(self, kind: str) -> None:
+        """
+        Consume one unit for the given kind.
+        Priority: plan usage -> user bonus. Raises ValidationError if none.
+        """
+        from django.db import transaction
+        from django.core.exceptions import ValidationError
+        from django.db.models import F
+
+        plan = self.plan
+        with transaction.atomic():
+            usage = GenerationUsage.objects.select_for_update().get_or_create(subscription=self)[0]
+            user = type(self.user).objects.select_for_update().get(pk=self.user_id)
+
+            if kind == "text":
+                if not self.is_unlimited(plan.text_limit):
+                    if usage.texts_left and usage.texts_left > 0:
+                        usage.texts_left -= 1
+                        usage.save(update_fields=["texts_left"])
+                        return
+                    if user.bonus_texts and user.bonus_texts > 0:
+                        user.bonus_texts -= 1
+                        user.save(update_fields=["bonus_texts"])
+                        return
+                    raise ValidationError("Лимит текстов исчерпан")
+                # unlimited
+                return
+
+            if kind == "image":
+                if not self.is_unlimited(plan.image_limit):
+                    if usage.images_left and usage.images_left > 0:
+                        usage.images_left -= 1
+                        usage.save(update_fields=["images_left"])
+                        return
+                    if user.bonus_images and user.bonus_images > 0:
+                        user.bonus_images -= 1
+                        user.save(update_fields=["bonus_images"])
+                        return
+                    raise ValidationError("Лимит изображений исчерпан")
+                return
+
+            if kind == "song":
+                if not self.is_unlimited(plan.song_limit):
+                    if usage.songs_left and usage.songs_left > 0:
+                        usage.songs_left -= 1
+                        usage.save(update_fields=["songs_left"])
+                        return
+                    if user.bonus_songs and user.bonus_songs > 0:
+                        user.bonus_songs -= 1
+                        user.save(update_fields=["bonus_songs"])
+                        return
+                    raise ValidationError("Лимит песен исчерпан")
+                return
+
+            if kind == "music":
+                if not self.is_unlimited(plan.music_limit):
+                    if usage.music_left and usage.music_left > 0:
+                        usage.music_left -= 1
+                        usage.save(update_fields=["music_left"])
+                        return
+                    if user.bonus_music and user.bonus_music > 0:
+                        user.bonus_music -= 1
+                        user.save(update_fields=["bonus_music"])
+                        return
+                    raise ValidationError("Лимит музыки исчерпан")
+                return
+
+            raise ValidationError("Неизвестный тип ресурса")
+
 
 class GenerationUsage(models.Model):
     subscription = models.OneToOneField(UserSubscription, on_delete=models.CASCADE, related_name="usage")
