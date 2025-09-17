@@ -6,7 +6,9 @@
     "loading": "Loading...",
     "settings": "Settings",
     "language": "Language",
-    "notifications": "Notifications"
+    "notifications": "Notifications",
+    "prev": "Prev",
+    "next": "Next"
   },
   "compass": {
     "1": "Songs",

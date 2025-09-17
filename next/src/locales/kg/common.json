@@ -6,7 +6,9 @@
     "loading": "Жүктөлүүдө...",
     "settings": "Жөндөөлөр",
     "language": "Тил",
-    "notifications": "Билдирүүлөр"
+    "notifications": "Билдирүүлөр",
+    "prev": "Артка",
+    "next": "Алга"
   },
   "compass": {
     "1": "Ырлар",

@@ -10,7 +10,7 @@ export default function Pricing() {
 	const { t } = useTranslation("common");
 
 	return (
-		<main  className="pt-80 overflow-hidden relative">
+		<main className="pt-80 overflow-hidden relative">
 			<Breadcrumb />
 
 			<div className="flex flex-col items-center gap-3">
@@ -25,13 +25,18 @@ export default function Pricing() {
 							{t("pricing_referral.referral_title", { defaultValue: "Реферальная программа Vokalo" })}
 						</h3>
 						<p className="text-neutral-300">
-							{t("pricing_referral.referral_subtitle", { defaultValue: "Расширьте ваши возможности с нашей реферальной программой." })}
+							{t("pricing_referral.referral_subtitle", {
+								defaultValue: "Расширьте ваши возможности с нашей реферальной программой.",
+							})}
 						</p>
 						<p className="text-neutral-300">
 							{t("pricing_referral.referral_line", { defaultValue: "Друг моего друга — мой друг 🙂" })}
 						</p>
 						<p className="text-neutral-300">
-							{t("pricing_referral.referral_desc", { defaultValue: "Увеличивайте лимиты за каждого нового участника, зарегистрированного по вашему уникальному реферальному коду." })}
+							{t("pricing_referral.referral_desc", {
+								defaultValue:
+									"Увеличивайте лимиты за каждого нового участника, зарегистрированного по вашему уникальному реферальному коду.",
+							})}
 						</p>
 						<div>
 							<Link
@@ -46,16 +51,18 @@ export default function Pricing() {
 				<div className="lg:px-40 px-10 py-10 flex flex-col items-center w-full gap-2 z-10">
 					<h3>{t("pricing.questions")}</h3>
 					<div className="flex gap-1 text-center">
-						<p className="text-gray-400">{t("pricing.questionsText")}</p>
-						<a
-							href="mailto:support@esai.kg"
-							className="text-indigo-400 hover:text-indigo-500 duration-300"
-						>
-							support@esai.kg
-						</a>
+						<p className="text-gray-400">
+							<span>{t("pricing.questionsText")}</span>
+							<a
+								href="mailto:support@esai.kg"
+								className="text-indigo-400 hover:text-indigo-500 duration-300 ms-2"
+							>
+								support@esai.kg
+							</a>
+						</p>
 					</div>
 
-					<Link href="/faq" className="text-indigo-400 hover:text-indigo-500 duration-300">
+					<Link href="/faq" className="text-indigo-400 hover:text-indigo-500 duration-300 mt-3">
 						{t("pricing.questionsLink")}
 					</Link>
 				</div>

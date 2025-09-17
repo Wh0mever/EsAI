@@ -6,7 +6,9 @@
     "loading": "Загрузка...",
     "settings": "Настройки",
     "language": "Язык",
-    "notifications": "Уведомления"
+    "notifications": "Уведомления",
+    "prev": "Назад",
+    "next": "Вперёд"
   },
   "compass": {
     "1": "Песни",
