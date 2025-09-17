@@ -43,6 +43,7 @@ html {
 ::-webkit-scrollbar {
   background-color: #1a1a1a;
   width: 0.5rem;
+  height: 0.25rem;
 }
 
 ::-webkit-scrollbar-thumb {
