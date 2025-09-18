@@ -24,6 +24,8 @@ export function middleware(request: NextRequest) {
   const desired = defaultsByHost(hostname);
   const haveLocale = request.cookies.get('NEXT_LOCALE')?.value;
   const haveCurrency = request.cookies.get('APP_CURRENCY')?.value;
+  const manualLocale = request.cookies.get('NEXT_LOCALE_MANUAL')?.value === '1';
+  const manualCurrency = request.cookies.get('APP_CURRENCY_MANUAL')?.value === '1';
 
   let res: NextResponse;
   if (isProtected && !accessToken) {
@@ -34,10 +36,10 @@ export function middleware(request: NextRequest) {
     res = NextResponse.next();
   }
 
-  if (!haveLocale || !['ru', 'en', 'kg'].includes(haveLocale)) {
+  if ((!haveLocale || !['ru', 'en', 'kg'].includes(haveLocale) || (!manualLocale && haveLocale !== desired.locale))) {
     res.cookies.set('NEXT_LOCALE', desired.locale, { path: '/', maxAge: 60 * 60 * 24 * 365 });
   }
-  if (!haveCurrency || !['USD', 'RUB', 'KGS'].includes(haveCurrency)) {
+  if ((!haveCurrency || !['USD', 'RUB', 'KGS'].includes(haveCurrency) || (!manualCurrency && haveCurrency !== desired.currency))) {
     res.cookies.set('APP_CURRENCY', desired.currency, { path: '/', maxAge: 60 * 60 * 24 * 365 });
   }
 
