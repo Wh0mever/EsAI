@@ -138,13 +138,13 @@ function useActive() {
 function MobileNav({
   className,
   onNavigate,
-  t,
   changeLanguage,
   currentLang,
   currency,
   changeCurrency,
 }: any) {
   const { isActive, anyActive } = useActive();
+  const { t } = useTranslation('home');
 
   const linkCls = (href: string, exact = false) =>
     clsx(
@@ -219,7 +219,7 @@ function MobileNav({
         </li>
 
         <li className="mt-2">
-          <div className="px-4 pb-1 text-xs uppercase tracking-wide text-neutral-400">Language</div>
+          <div className="px-4 pb-1 text-xs uppercase tracking-wide text-neutral-400">{t('nav.language')}</div>
           <div className="flex flex-col">
             {LANGUAGES.map(({ code, label, icon }) => (
               <button
