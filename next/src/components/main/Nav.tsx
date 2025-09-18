@@ -31,6 +31,7 @@ const CATEGORIES_ROUTES = ["/about", "/contact-us", "/faq", "/terms-conditions"]
 
 const CURRENCY_KEY = "APP_CURRENCY";
 const CURRENCY_CHANGED_EVENT = "app:currency-changed";
+import { getInitialCurrency, persistCurrency } from "@/lib/currency";
 
 function useLocale() {
   const current = Cookies.get("NEXT_LOCALE") || "ru";
@@ -43,18 +44,20 @@ function useLocale() {
 
 function useCurrency() {
   const router = useRouter();
-  const [currency, setCurrency] = useState<Currency["code"]>("KGS");
+  const [currency, setCurrency] = useState<Currency["code"]>("USD");
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const saved = window.localStorage.getItem(CURRENCY_KEY) as Currency["code"] | null;
-    if (saved && CURRENCIES.some(c => c.code === saved)) setCurrency(saved);
+    const init = getInitialCurrency();
+    setCurrency(init);
+    // Ensure persistence on first run
+    if (!window.localStorage.getItem(CURRENCY_KEY)) window.localStorage.setItem(CURRENCY_KEY, init);
   }, []);
 
   const changeCurrency = (code: Currency["code"]) => {
     setCurrency(code);
     if (typeof window !== "undefined") {
-      window.localStorage.setItem(CURRENCY_KEY, code);
+      persistCurrency(code);
       window.dispatchEvent(new CustomEvent(CURRENCY_CHANGED_EVENT, { detail: { code } }));
     }
     window.location.reload();

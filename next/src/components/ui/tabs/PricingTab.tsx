@@ -7,6 +7,7 @@ import NextLink from "../nextLink/NextLink";
 import { IoIosCheckmark, IoIosClose } from "react-icons/io";
 import { useTranslation } from "react-i18next";
 import { fetchData } from "@/tools/fetchData";
+import { getInitialCurrency } from "@/lib/currency";
 
 // ==== Types ====
 type PlanDTO = {
@@ -69,11 +70,8 @@ type Currency = "USD" | "RUB" | "KGS";
 
 // ==== Utils ====
 // localStorage currency
-function getPreferredCurrency(): Currency {
-	if (typeof window === "undefined") return "USD";
-	const v = window.localStorage.getItem("APP_CURRENCY");
-	return v === "RUB" || v === "KGS" || v === "USD" ? v : "USD";
-}
+// initial currency from localStorage -> cookie -> hostname
+function getPreferredCurrency(): Currency { return getInitialCurrency(); }
 
 // number formatting per currency
 function formatMoney(amount: number | string | null | undefined, currency: Currency, locale = "ru-RU") {
