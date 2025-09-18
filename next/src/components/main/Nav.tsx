@@ -4,7 +4,7 @@ import Link from "next/link";
 import Cookies from "js-cookie";
 import clsx from "clsx";
 import { useEffect, useMemo, useState, memo } from "react";
-import { useTranslation } from "next-i18next";
+import { useTranslation } from "react-i18next";
 import { DropDownHovered } from "@/components/ui/dropDown/DropDownHovered";
 import { Button } from "@/components/ui/buttons/Buttons";
 import { useRouter, usePathname } from "next/navigation";
@@ -45,7 +45,7 @@ function useLocale() {
 
 function useCurrency() {
   const router = useRouter();
-  const [currency, setCurrency] = useState<Currency["code"]>("USD");
+  const [currency, setCurrency] = useState<Currency["code"]>(() => (typeof window !== 'undefined' ? getInitialCurrency() : "USD"));
 
   useEffect(() => {
     if (typeof window === "undefined") return;
