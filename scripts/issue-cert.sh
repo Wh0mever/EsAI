@@ -23,9 +23,8 @@ fi
 docker compose up -d nginx
 
 docker compose run --rm certbot \
-  certbot certonly --webroot -w "$WEBROOT" \
+  certonly --webroot -w "$WEBROOT" \
   -d "${DOMAINS[0]}" -d "${DOMAINS[1]}" \
   --agree-tos -m "$EMAIL" --no-eff-email --rsa-key-size 4096 $STAGING_FLAG
 
 echo "Certificates issued for: ${DOMAINS[*]}"
-

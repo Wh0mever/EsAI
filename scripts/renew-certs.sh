@@ -8,10 +8,9 @@ cd "$SCRIPT_DIR/.."
 
 WEBROOT="/var/www/certbot"
 
-docker compose run --rm certbot certbot renew --webroot -w "$WEBROOT"
+docker compose run --rm certbot renew --webroot -w "$WEBROOT"
 
 # Reload nginx (works for both HTTP and HTTPS modes)
 docker compose exec nginx nginx -s reload || true
 
 echo "Renewal complete and nginx reloaded"
-
