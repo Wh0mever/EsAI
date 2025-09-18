@@ -4,6 +4,7 @@ import { useEffect } from "react";
 
 function mapByHost(host: string) {
   const h = (host || "").toLowerCase();
+  console.log(h)
   if (h.endsWith("vokalo.ru")) return { locale: "ru", currency: "RUB" } as const;
   if (h.endsWith("vokalo.kg")) return { locale: "kg", currency: "KGS" } as const;
   if (h.endsWith("vokalo.online")) return { locale: "en", currency: "USD" } as const;
