@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 import BackToTopButton from "@/components/ui/toTop/BackToTop";
 import "./globals.css";
 import "@/assets/style.scss";
+import DomainDefaults from "@/components/bootstrap/DomainDefaults";
 
 export const metadata: Metadata = {
 	title: "Vokalo",
@@ -22,6 +23,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
 	return (
 		<html lang={lang} className="dark">
 			<body>
+				<DomainDefaults />
 				<BackToTopButton />
 				<div id="alert-root"></div>
 				<I18nProvider lang={lang}>{children}</I18nProvider>
