@@ -18,7 +18,7 @@ export const initI18n = async (lang: string) => {
       fallbackLng: "ru",
       supportedLngs: languages,
       defaultNS: "common",
-      ns: ["common", "header"],
+      ns: ["common", "header", "home"],
       interpolation: { escapeValue: false },
     });
   } else if (i18n.language !== lang) {
