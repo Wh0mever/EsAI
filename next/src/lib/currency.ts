@@ -17,13 +17,10 @@ function currencyFromHost(hostname: string | undefined | null): Currency {
 export function getInitialCurrency(): Currency {
   if (typeof window === "undefined") return "USD";
   const manualCookie = readCookie("APP_CURRENCY_MANUAL");
-  const manualLS = (() => {
-    try { return window.localStorage.getItem("APP_CURRENCY_SOURCE"); } catch { return null; }
-  })();
   const ls = (() => { try { return window.localStorage.getItem("APP_CURRENCY"); } catch { return null; } })();
   const ck = readCookie("APP_CURRENCY");
 
-  const isManual = manualCookie === "1" || manualLS === "manual";
+  const isManual = manualCookie === "1";
   if (isManual && (ls === "USD" || ls === "RUB" || ls === "KGS")) return ls as Currency;
 
   if (ck === "USD" || ck === "RUB" || ck === "KGS") return ck as Currency;

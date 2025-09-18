@@ -435,7 +435,7 @@ function PlansGrid({
 export default function PricingTab() {
 	const { t, i18n } = useTranslation("common");
 	const [activeTab, setActiveTab] = useState<0 | 1>(0);
-	const [currency, setCurrency] = useState<Currency>("USD");
+	const [currency, setCurrency] = useState<Currency>(() => (typeof window !== "undefined" ? getInitialCurrency() : "USD"));
 	const [monthlyPlans, setMonthlyPlans] = useState<PlanDTO[]>([]);
 	const [yearlyPlans, setYearlyPlans] = useState<PlanDTO[]>([]);
 	const [loading, setLoading] = useState(true);

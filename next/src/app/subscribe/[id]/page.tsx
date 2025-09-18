@@ -167,7 +167,7 @@ export default function SubscribePlanPage() {
 	const params = useParams<{ id: string }>();
 	const [plan, setPlan] = useState<PlanDTO | null>(null);
 	const [loading, setLoading] = useState(true);
-	const [currency, setCurrency] = useState<Currency>("USD");
+	const [currency, setCurrency] = useState<Currency>(() => (typeof window !== "undefined" ? getInitialCurrency() : "USD"));
 	const [authed, setAuthed] = useState(false);
 
 	const lang = useMemo<"ru" | "en" | "kg">(
