@@ -1,0 +1,11 @@
+services:
+  nginx:
+    volumes:
+      - ./nginx/nginx-ssl.conf:/etc/nginx/nginx.conf:ro
+      - static:/var/www/static:ro
+      - media:/var/www/media:ro
+      - certbot-var:/var/www/certbot
+      - certbot-etc:/etc/letsencrypt
+    ports:
+      - "80:80"
+      - "443:443"
