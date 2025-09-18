@@ -38,6 +38,14 @@ if [[ "${FORCE:-}" == "1" ]]; then
   FORCE_FLAG="--force-renewal"
 fi
 
+# Run non-interactively; by default keep existing until expiring.
+NONINT_FLAG="--non-interactive"
+KEEP_FLAG="--keep-until-expiring"
+# If expanding or forcing, drop keep-until-expiring to allow immediate issuance
+if [[ -n "$EXPAND_FLAG" || -n "$FORCE_FLAG" ]]; then
+  KEEP_FLAG=""
+fi
+
 # Ensure nginx is up on :80 to serve the ACME challenge
 docker compose up -d nginx
 
@@ -51,6 +59,6 @@ echo "Requesting certificates for: ${DOMAINS[*]}"
 docker compose run --rm certbot \
   certonly --webroot -w "$WEBROOT" \
   "${DOMAIN_ARGS[@]}" \
-  --agree-tos -m "$EMAIL" --no-eff-email --rsa-key-size 4096 $STAGING_FLAG $EXPAND_FLAG $FORCE_FLAG
+  --agree-tos -m "$EMAIL" --no-eff-email --rsa-key-size 4096 $NONINT_FLAG $KEEP_FLAG $STAGING_FLAG $EXPAND_FLAG $FORCE_FLAG
 
 echo "Certificates issued for: ${DOMAINS[*]}"
