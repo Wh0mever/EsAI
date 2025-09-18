@@ -12,16 +12,18 @@ i18n
 	);
 
 export const initI18n = async (lang: string) => {
-	if (!i18n.isInitialized) {
-		await i18n.init({
-			lng: lang,
-			fallbackLng: "ru",
-			supportedLngs: languages,
-			defaultNS: "common",
-			ns: ["common", "header"],
-			interpolation: { escapeValue: false },
-		});
-	}
+  if (!i18n.isInitialized) {
+    await i18n.init({
+      lng: lang,
+      fallbackLng: "ru",
+      supportedLngs: languages,
+      defaultNS: "common",
+      ns: ["common", "header"],
+      interpolation: { escapeValue: false },
+    });
+  } else if (i18n.language !== lang) {
+    await i18n.changeLanguage(lang);
+  }
 };
 
 export default i18n;
