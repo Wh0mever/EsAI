@@ -11,7 +11,24 @@ environ.Env.read_env(os.path.join(BASE_DIR, ".env"))
 # --- Core settings ---
 SECRET_KEY = env("DJANGO_SECRET_KEY")
 DEBUG = env.bool("DJANGO_DEBUG", default=False)
-ALLOWED_HOSTS = [env("DJANGO_ALLOWED_HOSTS")]
+# Accept comma-separated list in DJANGO_ALLOWED_HOSTS; default to *
+ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS", default=["*"])
+
+# Behind nginx reverse proxy: trust X-Forwarded-Proto
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+
+# CSRF trusted origins for admin/auth on custom domains (HTTPS)
+CSRF_TRUSTED_ORIGINS = env.list(
+    "CSRF_TRUSTED_ORIGINS",
+    default=[
+        "https://vokalo.kg",
+        "https://www.vokalo.kg",
+        "https://vokalo.online",
+        "https://www.vokalo.online",
+        "https://vokalo.ru",
+        "https://www.vokalo.ru",
+    ],
+)
 
 # --- Applications ---
 INSTALLED_APPS = [

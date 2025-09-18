@@ -19,18 +19,28 @@ export default function DomainDefaults() {
 
       const cookies = document.cookie;
       const has = (name: string) => new RegExp("(?:^|; )" + name + "=").test(cookies);
+      const get = (name: string) => {
+        const m = cookies.match(new RegExp("(?:^|; )" + name + "=([^;]+)"));
+        return m ? decodeURIComponent(m[1]) : null;
+      };
 
       let changed = false;
 
-      if (!has("NEXT_LOCALE")) {
+      const manualLang = get("NEXT_LOCALE_MANUAL") === "1";
+      const currLocale = get("NEXT_LOCALE");
+      if (!manualLang && currLocale !== desired.locale) {
         document.cookie = `NEXT_LOCALE=${desired.locale}; path=/; max-age=${60 * 60 * 24 * 365}`;
         changed = true;
       }
-      const currMatch = cookies.match(/(?:^|; )APP_CURRENCY=([^;]+)/);
-      const currVal = currMatch ? decodeURIComponent(currMatch[1]) : null;
-      if (!currVal || !["USD", "RUB", "KGS"].includes(currVal)) {
+      const manualCurr = get("APP_CURRENCY_MANUAL") === "1";
+      const currVal = get("APP_CURRENCY");
+      if (!manualCurr && currVal !== desired.currency) {
         document.cookie = `APP_CURRENCY=${desired.currency}; path=/; max-age=${60 * 60 * 24 * 365}`;
-        try { localStorage.setItem("APP_CURRENCY", desired.currency); } catch {}
+        try {
+          localStorage.setItem("APP_CURRENCY", desired.currency);
+          localStorage.setItem("APP_CURRENCY_SOURCE", "domain");
+        } catch {}
+        changed = true;
       }
 
       // Avoid infinite reloads
@@ -44,4 +54,3 @@ export default function DomainDefaults() {
   }, []);
   return null;
 }
-
