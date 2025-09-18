@@ -9,6 +9,7 @@ import Breadcrumb from "@/components/global/AnimatedCircleBg";
 import { IoIosCheckmark, IoIosClose } from "react-icons/io";
 import { fetchData } from "@/tools/fetchData";
 import Cookies from "js-cookie";
+import { getInitialCurrency } from "@/lib/currency";
 
 // ==== Types ====
 type PlanDTO = {
@@ -69,11 +70,7 @@ type PlanDTO = {
 type Currency = "USD" | "RUB" | "KGS";
 
 // ==== Utils ====
-function getPreferredCurrency(): Currency {
-	if (typeof window === "undefined") return "USD";
-	const v = window.localStorage.getItem("APP_CURRENCY");
-	return v === "RUB" || v === "KGS" || v === "USD" ? v : "USD";
-}
+function getPreferredCurrency(): Currency { return getInitialCurrency(); }
 
 function formatMoney(amount: number | string | null | undefined, currency: Currency, locale = "ru-RU") {
 	if (amount == null) return "";
