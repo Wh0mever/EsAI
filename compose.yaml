@@ -25,8 +25,7 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
-    ports:
-      - "6379:6379" # можно убрать наружу, если не нужно с хоста
+
     networks: [web]
 
   core:
@@ -36,7 +35,7 @@ services:
       dockerfile: Dockerfile
     env_file: .env
     environment:
-      # эти переменные удобно пробрасывать в settings.py через os.getenv
+
       CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
       CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
     depends_on:
@@ -60,7 +59,7 @@ services:
     environment:
       CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
       CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
-      C_FORCE_ROOT: "1"  # если запускаешь под root внутри контейнера
+      C_FORCE_ROOT: "1"
     command: >
       sh -lc "celery -A core worker
       --loglevel=INFO
