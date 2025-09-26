@@ -11,24 +11,25 @@ environ.Env.read_env(os.path.join(BASE_DIR, ".env"))
 # --- Core settings ---
 SECRET_KEY = env("DJANGO_SECRET_KEY")
 DEBUG = env.bool("DJANGO_DEBUG", default=False)
-# Accept comma-separated list in DJANGO_ALLOWED_HOSTS; default to *
-ALLOWED_HOSTS = env.list("DJANGO_ALLOWED_HOSTS", default=["*"])
+
+ALLOWED_HOSTS = env.list(
+    "DJANGO_ALLOWED_HOSTS",
+    default=["localhost", "127.0.0.1"],
+)
 
 # Behind nginx reverse proxy: trust X-Forwarded-Proto
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
-# CSRF trusted origins for admin/auth on custom domains (HTTPS)
-CSRF_TRUSTED_ORIGINS = env.list(
-    "CSRF_TRUSTED_ORIGINS",
-    default=[
-        "https://vokalo.kg",
-        "https://www.vokalo.kg",
-        "https://vokalo.online",
-        "https://www.vokalo.online",
-        "https://vokalo.ru",
-        "https://www.vokalo.ru",
-    ],
-)
+# CSRF trusted origins
+_DEFAULT_CSRF_TRUSTED = [
+    "https://vokalo.kg",
+    "https://www.vokalo.kg",
+    "https://vokalo.online",
+    "https://www.vokalo.online",
+    "https://vokalo.ru",
+    "https://www.vokalo.ru",
+]
+CSRF_TRUSTED_ORIGINS = env.list("CSRF_TRUSTED_ORIGINS", default=_DEFAULT_CSRF_TRUSTED)
 
 # --- Applications ---
 INSTALLED_APPS = [
@@ -185,24 +186,40 @@ SIMPLE_JWT = {
     "AUTH_HEADER_TYPES": ("Bearer",),
 }
 
-# --- CSRF / CORS (dev over http on localhost) ---
-CSRF_TRUSTED_ORIGINS = [
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    "http://localhost:8000",
-    "http://127.0.0.1:8000",
-    "http://127.0.0.1",
-]
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    "http://127.0.0.1",
-]
+# --- Security, CSRF & CORS ---
+# Dev-only relaxations
+if DEBUG:
+    CSRF_TRUSTED_ORIGINS = list(set(CSRF_TRUSTED_ORIGINS + [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+        "http://127.0.0.1",
+    ]))
+    CORS_ALLOWED_ORIGINS = [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1",
+    ]
+else:
+    # В проде CORS явно через переменную окружения
+    CORS_ALLOWED_ORIGINS = env.list("CORS_ALLOWED_ORIGINS", default=[])
+
 CORS_ALLOW_CREDENTIALS = True
-SESSION_COOKIE_SECURE = False
-CSRF_COOKIE_SECURE = False
+SESSION_COOKIE_HTTPONLY = True
+SESSION_COOKIE_SECURE = not DEBUG
+CSRF_COOKIE_SECURE = not DEBUG
 SESSION_COOKIE_SAMESITE = "Lax"
 CSRF_COOKIE_SAMESITE = "Lax"
+
+# Дополнительные заголовки безопасности
+SECURE_CONTENT_TYPE_NOSNIFF = True
+SECURE_REFERRER_POLICY = "same-origin"
+# Включать редирект на https по флагу окружения, чтоб не ломать http-only стенды
+SECURE_SSL_REDIRECT = env.bool("DJANGO_SECURE_SSL_REDIRECT", default=False)
+SECURE_HSTS_SECONDS = 31536000 if not DEBUG else 0
+SECURE_HSTS_INCLUDE_SUBDOMAINS = not DEBUG
+SECURE_HSTS_PRELOAD = not DEBUG
 
 # --- Allauth (Google) ---
 LOGIN_REDIRECT_URL = "/auth/complete/"
