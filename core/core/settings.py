@@ -293,3 +293,6 @@ SITE_BASE_URL = env.str("SITE_BASE_URL", default="")
 EXCHANGE_API_BASE = env.str("EXCHANGE_API_BASE",
                             default="https://v6.exchangerate-api.com/v6")
 EXCHANGE_API_KEY = env.str("EXCHANGE_API_KEY")
+
+# --- OpenAI timeouts ---
+OPENAI_TIMEOUT_SECONDS = env.int("OPENAI_TIMEOUT_SECONDS", default=20)

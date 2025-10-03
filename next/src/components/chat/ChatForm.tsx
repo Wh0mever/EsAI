@@ -10,8 +10,9 @@ import AiTemplates from "./ChatTemplates";
 import { fetchData, BACKEND } from "@/tools/fetchData";
 
 export type Message = {
-	role: "user" | "assistant";
-	content: string;
+  role: "user" | "assistant";
+  content: string;
+  variant?: "normal" | "error";
 };
 
 export function ChatForm({

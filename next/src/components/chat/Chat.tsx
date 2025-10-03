@@ -93,18 +93,12 @@ export default function Chat({ mode, chatId }: Props) {
     // Helper for localized error messages in the chat bubble
     const formatError = (res?: { ok?: boolean; status?: number; error?: string } | null): string => {
       const status = res?.status ?? 0;
-      const detail = (res as any)?.error || "";
-      const withDetail = (base: string) => (detail ? `${base}\n${detail}` : base);
-
-      if (status === 0) return withDetail(t("chat.error_network"));
+      if (status === 0) return t("chat.error_network");
       if (status === 401) return t("chat.error_unauthorized");
       if (status === 403) return t("chat.error_forbidden");
       if (status === 404) return t("chat.error_notfound");
-
-      // For image generation, give more specific copy
-      if (mode === "image-chat") return withDetail(t("chat.error_image_generation"));
-
-      return withDetail(t("chat.error_request_failed"));
+      if (mode === "image-chat") return t("chat.error_image_generation");
+      return t("chat.error_request_failed");
     };
 
     try {
@@ -124,7 +118,7 @@ export default function Chat({ mode, chatId }: Props) {
 
       // If request failed, push a localized error bubble and stop
       if (!res?.ok) {
-        setMessages((prev) => [...prev, { role: "assistant", content: formatError(res) }]);
+        setMessages((prev) => [...prev, { role: "assistant", content: formatError(res), variant: "error" }]);
         return;
       }
 
@@ -138,9 +132,8 @@ export default function Chat({ mode, chatId }: Props) {
 
       // If backend didn't provide output, show generic localized error instead of hanging "thinking"
       if (!assistantContent) {
-        // Prefer specialized message for image generation
         const msg = mode === "image-chat" ? t("chat.error_image_generation") : t("chat.error_generic");
-        setMessages((prev) => [...prev, { role: "assistant", content: msg }]);
+        setMessages((prev) => [...prev, { role: "assistant", content: msg, variant: "error" }]);
       } else {
         setMessages((prev) => [...prev, { role: "assistant", content: assistantContent }]);
       }
