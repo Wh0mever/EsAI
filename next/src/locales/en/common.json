@@ -3,6 +3,8 @@
     "yes": "Yes",
     "no": "No",
     "submit": "Submit",
+    "cancel": "Cancel",
+    "processing": "Processing...",
     "loading": "Loading...",
     "settings": "Settings",
     "language": "Language",
@@ -371,12 +373,17 @@
       "music": "Music generation"
     }
   },
-  "profile": {
+    "profile": {
     "profile": "Profile",
     "fullname": "Full name",
     "email": "Email",
     "phone": "Phone",
     "change": "Change",
+    "leave_feedback": "Leave feedback",
+    "feedback_rating": "Rating",
+    "feedback_placeholder": "Your feedback",
+    "feedback_send": "Send feedback",
+    "feedback_sent": "Thanks! Feedback submitted",
     "card": "Payment card",
     "brand": "Brand",
     "last4": "Last 4 digits",

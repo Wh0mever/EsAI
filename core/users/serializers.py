@@ -1,5 +1,5 @@
 # users/serializers.py
-from .models import User, Notification, NotificationDelivery, UserQuestions
+from .models import User, Notification, NotificationDelivery, UserQuestions, UserFeedback
 from django.db.models import F
 
 from rest_framework import serializers
@@ -151,3 +151,31 @@ class UserQuestionSerializer(serializers.ModelSerializer):
         if v and len(v) > 50:
             raise serializers.ValidationError("Phone is too long")
         return v
+
+
+class UserFeedbackSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UserFeedback
+        fields = ["id", "name", "email", "rating", "message", "source", "created_at"]
+        read_only_fields = ["id", "created_at"]
+
+    def validate_rating(self, v):
+        if v is None:
+            return v
+        if not (1 <= int(v) <= 5):
+            raise serializers.ValidationError("Rating must be between 1 and 5")
+        return int(v)
+
+    def validate_message(self, v):
+        if not (v or "").strip():
+            raise serializers.ValidationError("Message is required")
+        return v
+
+    def create(self, validated_data):
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        if user and user.is_authenticated:
+            validated_data.setdefault("user", user)
+            validated_data.setdefault("email", user.email or "")
+            validated_data.setdefault("name", user.first_name or "")
+        return UserFeedback.objects.create(**validated_data)

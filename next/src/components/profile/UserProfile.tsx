@@ -37,6 +37,13 @@ export default function UserProfile({ t, data }: { t: any; data: any }) {
 	const [unreadCount, setUnreadCount] = useState<number>(0);
 	const dropdownRef = useRef<HTMLDivElement | null>(null);
 
+	// Feedback modal state
+	const [feedbackOpen, setFeedbackOpen] = useState(false);
+	const [feedbackRating, setFeedbackRating] = useState<number | null>(5);
+	const [feedbackText, setFeedbackText] = useState("");
+	const [feedbackSending, setFeedbackSending] = useState(false);
+	const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
+
 	useEffect(() => {
 		if (!notifOpen) return;
 		let ignore = false;
@@ -169,7 +176,7 @@ export default function UserProfile({ t, data }: { t: any; data: any }) {
 				</div>
 				
 				{/* Notifications dropdown button */}
-				<div className="relative pb-5" ref={dropdownRef}>
+		<div className="relative pb-5" ref={dropdownRef}>
 					<button
 						type="button"
 						className="px-3 py-1.5 cursor-pointer rounded-md bg-neutral-800 hover:bg-neutral-700 text-sm border border-white/10 relative"
@@ -181,6 +188,14 @@ export default function UserProfile({ t, data }: { t: any; data: any }) {
 								{unreadCount}
 							</span>
 						)}
+					</button>
+					{/* Feedback button next to notifications */}
+					<button
+						type="button"
+						className="ml-2 px-3 py-1.5 cursor-pointer rounded-md bg-neutral-800 hover:bg-neutral-700 text-sm border border-white/10"
+						onClick={() => setFeedbackOpen(true)}
+					>
+						{t("profile.leave_feedback")}
 					</button>
             {notifOpen && (
                 <div className="absolute left-0 mt-2 w-72 max-h-[450px] overflow-auto bg-neutral-900 border border-white/10 rounded-lg shadow-lg z-50">
@@ -324,6 +339,76 @@ export default function UserProfile({ t, data }: { t: any; data: any }) {
 				size="md"
 			>
 				<div className="text-neutral-100 whitespace-pre-wrap leading-relaxed">{selectedNotif?.body || ""}</div>
+			</Modal>
+
+			{/* Feedback modal */}
+			<Modal
+				title={t("profile.leave_feedback")}
+				open={feedbackOpen}
+				onClose={() => {
+					if (!feedbackSending) setFeedbackOpen(false);
+				}}
+				size="md"
+			>
+				<div className="space-y-3">
+					<label className="block text-sm text-neutral-300">
+						{t("profile.feedback_rating")}
+						<select
+							className="mt-1 w-full bg-neutral-900 border border-white/10 rounded-md p-2"
+							value={feedbackRating ?? ''}
+							onChange={(e) => setFeedbackRating(e.target.value ? Number(e.target.value) : null)}
+						>
+							<option value="">—</option>
+							{[5,4,3,2,1].map((n) => (
+								<option key={n} value={n}>{n} ★</option>
+							))}
+						</select>
+					</label>
+					<label className="block text-sm text-neutral-300">
+						{t("profile.feedback_placeholder")}
+						<textarea
+							className="mt-1 w-full bg-neutral-900 border border-white/10 rounded-md p-2 min-h-[120px]"
+							value={feedbackText}
+							onChange={(e) => setFeedbackText(e.target.value)}
+						/>
+					</label>
+					{feedbackMessage && (
+						<div className="text-sm text-neutral-300">{feedbackMessage}</div>
+					)}
+					<div className="flex justify-end gap-2 pt-2">
+						<Button
+							className="px-4 py-2 rounded-md bg-neutral-800 hover:bg-neutral-700"
+							onClick={() => !feedbackSending && setFeedbackOpen(false)}
+						>
+							{t("common.cancel")}
+						</Button>
+						<Button
+							className="px-4 py-2 rounded-md bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50"
+							disabled={feedbackSending || !feedbackText.trim()}
+							onClick={async () => {
+								try {
+									setFeedbackSending(true);
+									setFeedbackMessage(null);
+									const payload: any = { message: feedbackText.trim() };
+									if (feedbackRating) payload.rating = feedbackRating;
+									const res = await fetchData("users/feedback/", "POST", payload, true);
+									if (res?.ok) {
+										setFeedbackMessage(t("profile.feedback_sent"));
+										setFeedbackText("");
+										setFeedbackRating(5);
+										setTimeout(() => setFeedbackOpen(false), 800);
+									} else {
+										setFeedbackMessage(res?.error || t("status_extended.error"));
+									}
+								} finally {
+									setFeedbackSending(false);
+								}
+							}}
+						>
+							{feedbackSending ? t("common.processing") : t("profile.feedback_send")}
+						</Button>
+					</div>
+				</div>
 			</Modal>
 		</Card>
 	);

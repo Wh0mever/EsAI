@@ -5,7 +5,14 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework import status
 from rest_framework.permissions import AllowAny
-from .serializers import SignUpSerializer, SignInSerializer, ProfileSerializer, NotificationDeliverySerializer, UserQuestionSerializer
+from .serializers import (
+    SignUpSerializer,
+    SignInSerializer,
+    ProfileSerializer,
+    NotificationDeliverySerializer,
+    UserQuestionSerializer,
+    UserFeedbackSerializer,
+)
 from core.format import format_errors
 from mails.sender import send_template_email
 from django.contrib.auth.hashers import make_password
@@ -333,6 +340,28 @@ class NotificationMarkReadView(generics.UpdateAPIView):
 
     def patch(self, request, *args, **kwargs):
         return self._mark(request, *args, **kwargs)
+
+
+class FeedbackView(APIView):
+    """POST to submit feedback by authenticated users; GET list for admins."""
+
+    def get_permissions(self):
+        if self.request.method == "GET":
+            return [permissions.IsAdminUser()]
+        return [permissions.IsAuthenticated()]
+
+    def post(self, request):
+        serializer = UserFeedbackSerializer(data=request.data, context={"request": request})
+        if serializer.is_valid():
+            obj = serializer.save()
+            return Response({"status": "success", "id": obj.id}, status=201)
+        return Response({"status": "error", "errors": serializer.errors}, status=400)
+
+    def get(self, request):
+        # Admin-only list
+        from .models import UserFeedback
+        qs = UserFeedback.objects.all()
+        return Response(UserFeedbackSerializer(qs, many=True).data, status=200)
 
     def put(self, request, *args, **kwargs):
         return self._mark(request, *args, **kwargs)

@@ -3,6 +3,8 @@
     "yes": "Да",
     "no": "Нет",
     "submit": "Отправить",
+    "cancel": "Отмена",
+    "processing": "Обработка...",
     "loading": "Загрузка...",
     "settings": "Настройки",
     "language": "Язык",
@@ -370,12 +372,17 @@
       "music": "Музыка"
     }
   },
-  "profile": {
+    "profile": {
     "profile": "Профиль",
     "fullname": "Полное имя",
     "email": "Email",
     "phone": "Телефон",
     "change": "Изменить",
+    "leave_feedback": "Оставить отзыв",
+    "feedback_rating": "Оценка",
+    "feedback_placeholder": "Ваш отзыв",
+    "feedback_send": "Отправить отзыв",
+    "feedback_sent": "Спасибо! Отзыв отправлен",
     "card": "Платёжная карта",
     "brand": "Бренд",
     "last4": "Последние 4 цифры",
