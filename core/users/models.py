@@ -229,3 +229,22 @@ class NotificationDelivery(models.Model):
             self.is_read = True
             self.read_at = timezone.now()
             self.save(update_fields=["is_read", "read_at"])
+
+
+class UserFeedback(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="feedbacks")
+    name = models.CharField(max_length=100, blank=True, verbose_name="Имя")
+    email = models.EmailField(blank=True, verbose_name="Email")
+    rating = models.PositiveSmallIntegerField(null=True, blank=True, verbose_name="Оценка")
+    message = models.TextField(verbose_name="Отзыв")
+    source = models.CharField(max_length=100, blank=True, verbose_name="Источник")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Создано")
+
+    class Meta:
+        verbose_name = "Отзыв пользователя"
+        verbose_name_plural = "Отзывы пользователей"
+        ordering = ["-created_at"]
+
+    def __str__(self) -> str:
+        who = self.name or (self.user.email if self.user else self.email) or "anonymous"
+        return f"Feedback({who}, {self.rating or '-'}★)"

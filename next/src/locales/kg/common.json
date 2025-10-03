@@ -3,6 +3,8 @@
     "yes": "Ооба",
     "no": "Жок",
     "submit": "Жөнөтүү",
+    "cancel": "Жокко чыгаруу",
+    "processing": "Иштетүүдө...",
     "loading": "Жүктөлүүдө...",
     "settings": "Жөндөөлөр",
     "language": "Тил",
@@ -370,12 +372,17 @@
       "music": "Музыка"
     }
   },
-  "profile": {
+    "profile": {
     "profile": "Профиль",
     "fullname": "Толук аты-жөнү",
     "email": "Email",
     "phone": "Телефон",
     "change": "Өзгөртүү",
+    "leave_feedback": "Пикир калтыруу",
+    "feedback_rating": "Баалоо",
+    "feedback_placeholder": "Сиздин пикириңиз",
+    "feedback_send": "Пикирди жөнөтүү",
+    "feedback_sent": "Рахмат! Пикириңиз жөнөтүлдү",
     "card": "Төлөм картасы",
     "brand": "Бренд",
     "last4": "Акыркы 4 сан",

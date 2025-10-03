@@ -1,6 +1,6 @@
 from django.contrib import admin
 from django import forms
-from .models import User, UserQuestions, Notification, NotificationDelivery
+from .models import User, UserQuestions, Notification, NotificationDelivery, UserFeedback
 from django.utils import timezone
 from django.utils.html import format_html
 
@@ -109,3 +109,17 @@ class NotificationAdmin(admin.ModelAdmin):
                 self.message_user(request, f"Не удалось отправить всем: {e}")
             except Exception:
                 pass
+
+
+@admin.register(UserFeedback)
+class UserFeedbackAdmin(admin.ModelAdmin):
+    list_display = ("id", "created_at", "user", "name", "email", "rating", "short_message")
+    list_filter = ("created_at", "rating")
+    search_fields = ("name", "email", "message")
+    readonly_fields = ("created_at",)
+    ordering = ("-created_at",)
+
+    @admin.display(description="Сообщение")
+    def short_message(self, obj: UserFeedback) -> str:
+        txt = obj.message or ""
+        return (txt[:77] + "…") if len(txt) > 80 else txt
