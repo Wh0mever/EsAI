@@ -40,7 +40,7 @@ export default function Blog() {
 					</div>
 				)}
 				<h2 className="text-2xl font-semibold mb-2">{title}</h2>
-				<p className="text-gray-700 dark:text-gray-400">{content}</p>
+				<p className="text-gray-400">{content}</p>
 				<div className="flex justify-between text-gray-500">
 					<p>{new Date(post.created_at).toLocaleDateString()}</p>
 					<p>{post.author}</p>
@@ -70,15 +70,15 @@ export default function Blog() {
 			<div className="mx-auto max-w-4xl px-4 py-4">
 				<section className="py-10">
 					<h1 className="text-3xl font-bold text-center">{t("blog.title")}</h1>
-					<p className="text-center text-gray-700 dark:text-gray-300 text-base my-10">{t("blog.subtitle")}</p>
+					<p className="text-center text-gray-300 text-base my-10">{t("blog.subtitle")}</p>
 
-					<ul className="space-y-3 list-disc pl-6 text-gray-800 dark:text-gray-200">
+					<ul className="space-y-3 list-disc pl-6 text-gray-200">
 						{points.map((item, index) => (
 							<li key={index}>{item}</li>
 						))}
 					</ul>
 
-					<p className="mt-10 text-center text-gray-600 dark:text-gray-400">{t("blog.footer")}</p>
+					<p className="mt-10 text-center text-gray-400">{t("blog.footer")}</p>
 				</section>
 
 				<section className="py-12">

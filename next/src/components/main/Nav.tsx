@@ -32,13 +32,17 @@ const CATEGORIES_ROUTES = ["/about", "/contact-us", "/faq", "/terms-conditions"]
 const CURRENCY_KEY = "APP_CURRENCY";
 const CURRENCY_CHANGED_EVENT = "app:currency-changed";
 import { getInitialCurrency, persistCurrency } from "@/lib/currency";
+import { redirectToLanguageDomain } from "@/lib/locale";
 
 function useLocale() {
   const current = Cookies.get("NEXT_LOCALE") || "ru";
   const change = (lang: string) => {
-    Cookies.set("NEXT_LOCALE", lang);
-    Cookies.set("NEXT_LOCALE_MANUAL", "1");
-    if (typeof window !== "undefined") window.location.reload();
+    if (typeof window !== "undefined") {
+      redirectToLanguageDomain(lang as "ru" | "en" | "kg");
+    } else {
+      Cookies.set("NEXT_LOCALE", lang);
+      Cookies.set("NEXT_LOCALE_MANUAL", "1");
+    }
   };
   return { currentLang: current, changeLanguage: change };
 }

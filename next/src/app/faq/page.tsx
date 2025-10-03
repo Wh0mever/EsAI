@@ -25,13 +25,13 @@ export default function FAQSection() {
 					{Object.entries(questions).map(([key, { q, a }]) => (
 						<div
 							key={key}
-							className="bg-white dark:bg-neutral-900 rounded-lg shadow-md p-6"
+							className="bg-neutral-900 rounded-lg shadow-md p-6"
 						>
 							<h3 className="text-lg font-medium flex items-center gap-2 mb-2">
 								<FaChevronDown className="text-yellow-500" />
 								{q}
 							</h3>
-							<div className="text-gray-700 dark:text-gray-300 text-sm space-y-2">
+							<div className="text-gray-300 text-sm space-y-2">
 								{Array.isArray(a) ? (
 									<ul className="list-disc pl-5">
 										{a.map((item, i) => (

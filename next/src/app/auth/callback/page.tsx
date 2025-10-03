@@ -12,6 +12,16 @@ export default function AuthCallback() {
     const access = params.get("access");
     const refresh = params.get("refresh");
     const user = params.get("user");
+    const nextUrlRaw = params.get("next");
+    // Only allow internal redirects
+    const nextUrl = (() => {
+      if (!nextUrlRaw) return "/profile";
+      try {
+        const decoded = decodeURIComponent(nextUrlRaw);
+        if (decoded.startsWith("/") && !decoded.startsWith("//")) return decoded;
+      } catch {}
+      return "/profile";
+    })();
 
     if (access && refresh) {
       // Clear old values
@@ -25,7 +35,7 @@ export default function AuthCallback() {
       if (user) {
         Cookies.set("user", user);
       }
-      router.replace("/profile");
+      router.replace(nextUrl);
     } else {
       router.replace("/auth/signin");
     }
@@ -37,4 +47,3 @@ export default function AuthCallback() {
     </div>
   );
 }
-

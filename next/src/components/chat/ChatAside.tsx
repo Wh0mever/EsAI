@@ -479,17 +479,20 @@ export default function Sidebar({ chats, activeChatId, onNewChat, className }: S
 }
 
 function LangBtn({ code }: { code: "ru" | "en" | "kg" }) {
-	const { i18n } = useTranslation();
-	const active = i18n.language === code;
-	return (
-		<button
-			onClick={() => i18n.changeLanguage(code)}
-			className={[
-				"px-3 py-1 rounded-md text-sm transition",
-				active ? "bg-white/20" : "bg-white/10 hover:bg-white/15",
-			].join(" ")}
-		>
-			{code.toUpperCase()}
-		</button>
-	);
+    const { i18n } = useTranslation();
+    const active = i18n.language === code;
+    return (
+        <button
+            onClick={() => {
+                // Navigate to domain of selected language and persist choice
+                import("@/lib/locale").then(m => m.redirectToLanguageDomain(code));
+            }}
+            className={[
+                "px-3 py-1 rounded-md text-sm transition",
+                active ? "bg-white/20" : "bg-white/10 hover:bg-white/15",
+            ].join(" ")}
+        >
+            {code.toUpperCase()}
+        </button>
+    );
 }
