@@ -23,15 +23,50 @@ from .serializers import AiChatMessageSerializer
 HISTORY_LIMIT = None
 
 
-def _build_openai_messages(session: AiChatSession, new_user_text: str, system_prompt: str) -> List[dict]:
-    # Load entire history oldest→newest to preserve context
+def _build_openai_messages(session: AiChatSession, new_user_text: str, system_prompt: str, origin_base: str | None = None) -> List[dict]:
+    """Build messages for Chat Completions, supporting image attachments.
+
+    If a message has attachments with type "image" and a URL, we include them via
+    multi-part content: [{type: 'text', text: ...}, {type: 'image_url', image_url: {url}}].
+    """
+    def to_abs(url: str) -> str:
+        if not url:
+            return url
+        if url.startswith("http://") or url.startswith("https://"):
+            return url
+        base = (origin_base or "").rstrip("/")
+        return f"{base}{url}" if base else url
+
     history = list(session.messages.order_by("created_at"))
-    messages = [{"role": "system", "content": system_prompt}]
+    out: List[dict] = [{"role": "system", "content": system_prompt}]
+
     for m in history:
-        if m.content:
-            messages.append({"role": m.role, "content": m.content})
-    messages.append({"role": "user", "content": new_user_text})
-    return messages
+        parts = []
+        txt = (m.content or "").strip()
+        if txt:
+            parts.append({"type": "text", "text": txt})
+        try:
+            atts = m.attachments or []
+        except Exception:
+            atts = []
+        if isinstance(atts, list):
+            for a in atts:
+                try:
+                    if (a or {}).get("type") == "image":
+                        u = to_abs((a or {}).get("url") or "")
+                        if u:
+                            parts.append({"type": "image_url", "image_url": {"url": u}})
+                except Exception:
+                    continue
+        # Fallback to simple string if no parts
+        content_obj = parts if parts else (txt or "")
+        out.append({"role": m.role, "content": content_obj})
+
+    # Latest user message (already persisted above) is included via history; keep for safety
+    if new_user_text:
+        out.append({"role": "user", "content": new_user_text})
+
+    return out
 
 
 def _parse_template(request):
@@ -331,7 +366,15 @@ def OpenAIHandler(request):
             return {"error": "Лимиты на генерацию текста исчерпаны. Пополните лимит или обновите тариф."}
 
         # 7) Build messages and call OpenAI
-        messages = _build_openai_messages(session, message, system_prompt)
+        # Build origin base for absolute URLs (multi-domain support)
+        try:
+            proto = request.headers.get("X-Forwarded-Proto") or ("https" if request.is_secure() else "http")
+            host = request.get_host() or ""
+            origin_base = f"{proto}://{host}" if host else None
+        except Exception:
+            origin_base = None
+
+        messages = _build_openai_messages(session, message, system_prompt, origin_base)
         client = _make_openai_client(provider)
 
         # Determine completion tokens limit: plan override > model default
