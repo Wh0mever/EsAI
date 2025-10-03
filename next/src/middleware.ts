@@ -1,8 +1,14 @@
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
+function normalizeHost(input: string) {
+  // take first value if proxy adds a list, trim, lowercase, strip port
+  const first = (input || '').split(',')[0].trim().toLowerCase();
+  return first.split(':')[0];
+}
+
 function defaultsByHost(hostname: string) {
-  const h = (hostname || '').toLowerCase();
+  const h = normalizeHost(hostname);
   if (h.endsWith('vokalo.ru')) return { locale: 'ru', currency: 'RUB' } as const;
   if (h.endsWith('vokalo.kg')) return { locale: 'kg', currency: 'KGS' } as const;
   if (h.endsWith('vokalo.online')) return { locale: 'en', currency: 'USD' } as const;
@@ -10,7 +16,10 @@ function defaultsByHost(hostname: string) {
 }
 
 export function middleware(request: NextRequest) {
-  const { pathname, hostname } = request.nextUrl;
+  const { pathname } = request.nextUrl;
+  // Prefer forwarded host/host header, fallback to URL hostname
+  const rawHost = request.headers.get('x-forwarded-host') || request.headers.get('host') || request.nextUrl.hostname;
+  const hostname = normalizeHost(rawHost);
 
   const protectedRoutes = ['/dashboard', '/profile', '/orders', '/admin'];
   const authRoutes = ['/auth/signin', '/auth/signup', '/auth/signup'];
