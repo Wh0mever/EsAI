@@ -185,24 +185,6 @@ export default function Chat({ mode, chatId }: Props) {
         }
       }
 
-      // If this was a new chat (no chatId before) and backend created a session, update URL and notify sidebar
-      if (!chatId && sessionMeta && sessionMeta.id) {
-        try {
-          // mark to animate last assistant once after navigation
-          if (typeof window !== 'undefined') {
-            sessionStorage.setItem(`chat.animate.${sessionMeta.id}`, '1');
-          }
-          // update route to include the new chat id
-          router.push(`/dashboard/${mode}/${sessionMeta.id}`);
-        } catch {}
-        try {
-          window.dispatchEvent(
-            new CustomEvent("chat:session-created", {
-              detail: { id: sessionMeta.id, title: sessionMeta.title || content.slice(0, 60), chat_mode: mode },
-            })
-          );
-        } catch {}
-      }
       // already cleared before request; keep as is
     } catch (error) {
       console.error("Ошибка при обращении к /api/chat/:", error);
