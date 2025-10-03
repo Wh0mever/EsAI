@@ -13,6 +13,7 @@ export type Message = {
   role: "user" | "assistant";
   content: string;
   variant?: "normal" | "error";
+  attachments?: any[];
 };
 
 export function ChatForm({

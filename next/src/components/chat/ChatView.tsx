@@ -180,6 +180,31 @@ export function ChatView({ messages, mode, loading, initialHydrated, animateInde
                                 <span>{msg?.content ?? t("chat.thinking_ellipsis", { defaultValue: "Думаю…" })}</span>
                             )}
                         </div>
+                        {/* attachments under bubble */}
+                        {Array.isArray((msg as any)?.attachments) && (msg as any).attachments.length > 0 && (
+                          <div className="mt-2 self-stretch">
+                            <div className="flex flex-wrap gap-2">
+                              {(msg as any).attachments.map((a: any, i: number) => {
+                                const isImg = (a?.type || "").toLowerCase() === 'image';
+                                const raw = a?.url || a?.preview || '';
+                                const url = raw;
+                                return (
+                                  <div key={i} className="shrink-0">
+                                    {isImg ? (
+                                      <a href={url} target="_blank" rel="noreferrer">
+                                        <img src={url} alt={a?.name || 'attachment'} className="w-24 h-24 object-cover rounded-md border border-white/10" />
+                                      </a>
+                                    ) : (
+                                      <a href={url} target="_blank" rel="noreferrer" className="px-3 py-2 text-xs bg-neutral-800 hover:bg-neutral-700 rounded-md border border-white/10 inline-flex items-center gap-2">
+                                        <span className="truncate max-w-[8rem]">{a?.name || 'file'}</span>
+                                      </a>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
                     );
                 })
             )}

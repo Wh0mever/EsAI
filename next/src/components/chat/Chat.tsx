@@ -81,7 +81,7 @@ export default function Chat({ mode, chatId }: Props) {
     // Snapshot ready attachments for this request, then clear UI preview immediately
     const readyAttachments = (attachments || []).filter((a) => a && a.url);
 
-    const newMessage: Message = { role: "user", content };
+    const newMessage: Message = { role: "user", content, attachments: readyAttachments?.length ? [...readyAttachments] : undefined };
     setMessages((prev) => [...prev, newMessage]);
     setInput("");
 
@@ -151,7 +151,7 @@ export default function Chat({ mode, chatId }: Props) {
           setMessages((prev) => [...prev, { role: "assistant", content: msg, variant: "error" }]);
           return;
         }
-        setMessages((prev) => [...prev, { role: "assistant", content: finalUrl }]);
+        setMessages((prev) => [...prev, { role: "assistant", content: finalUrl, attachments: [{ type: 'image', url: finalUrl }] }]);
 
         // Update route if a new session created
         if (!chatId && sessionMeta && sessionMeta.id) {
