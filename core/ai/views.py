@@ -5,6 +5,9 @@ from rest_framework.response import Response
 from rest_framework.pagination import LimitOffsetPagination
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from .handlers import OpenAIHandler, OpenAIImageHandler
+from .tasks import generate_image_task
+from celery.result import AsyncResult
+from core.celery import app as celery_app
 from .pagination import MessagesPaginator
 from django.shortcuts import get_object_or_404
 from .models import AiProvider, AiChatSession, AiChatMessage, AiPromptTemplate, AiPromptTemplateFavorite
@@ -53,6 +56,60 @@ class DalleImageAPIView(APIView):
             response,
             status=200 if isinstance(response, dict) and "error" not in response else 400,
         )
+
+
+class DalleImageSubmitAPIView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        data = request.data or {}
+        prompt = (data.get("message") or "").strip()
+        if not prompt:
+            return Response({"error": "No prompt provided"}, status=400)
+
+        payload = {
+            "user_id": request.user.id,
+            "prompt": prompt,
+            "size": (data.get("size") or "1024x1024").strip(),
+            "model": (data.get("model") or "gpt-image-1").strip(),
+            "provider_slug": (data.get("provider_slug") or "gpt").strip(),
+            "session_id": data.get("session_id") or data.get("chat_id"),
+            "attachments": data.get("attachments") if isinstance(data.get("attachments"), list) else None,
+        }
+        async_result = generate_image_task.delay(**payload)
+        return Response({
+            "job_id": async_result.id,
+            "status": "queued",
+        }, status=202)
+
+
+class DalleImageStatusAPIView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        job_id = request.query_params.get("job") or request.query_params.get("id")
+        if not job_id:
+            return Response({"error": "job is required"}, status=400)
+        res = AsyncResult(job_id, app=celery_app)
+        state = res.state
+        if state in ("PENDING", "RECEIVED", "STARTED", "RETRY"):
+            return Response({"status": state}, status=200)
+        if state == "FAILURE":
+            # Do not expose raw tracebacks to clients
+            return Response({"status": state, "error": "Failed to generate image."}, status=200)
+        # SUCCESS
+        try:
+            result = res.get(propagate=False)
+        except Exception:
+            result = None
+        ok = isinstance(result, dict) and ("error" not in result)
+        return Response({
+            "status": "SUCCESS" if ok else "FAILURE",
+            "result": result if ok else None,
+            "error": None if ok else (result.get("error") if isinstance(result, dict) else "Failed"),
+        }, status=200)
 
 
 class ChatsHistory(APIView):

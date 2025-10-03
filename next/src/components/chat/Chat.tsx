@@ -112,30 +112,77 @@ export default function Chat({ mode, chatId }: Props) {
       // hide attachments preview immediately for snappy UX
       if (attachments && attachments.length) setAttachments([]);
 
-      const endpoint = mode === "image-chat" ? "ai/image/" : "ai/chat/";
-      const res = await fetchData(endpoint, "POST", payload, true);
-      setInput("");
-
-      // If request failed, push a localized error bubble and stop
-      if (!res?.ok) {
-        setMessages((prev) => [...prev, { role: "assistant", content: formatError(res), variant: "error" }]);
-        return;
-      }
-
-      const sessionMeta = (res?.data?.session ?? null) as { id?: string; title?: string } | null;
-      let assistantContent = "";
       if (mode === "image-chat") {
-        assistantContent = (res?.data as any)?.image?.url || (res?.data as any)?.response || "";
-      } else {
-        assistantContent = (res?.data as any)?.response || "";
-      }
+        // Async pattern: submit job then poll status
+        const submit = await fetchData("ai/image/submit/", "POST", payload, true);
+        setInput("");
+        if (!submit?.ok || !(submit?.data as any)?.job_id) {
+          setMessages((prev) => [...prev, { role: "assistant", content: formatError(submit), variant: "error" }]);
+          return;
+        }
+        const jobId = (submit.data as any).job_id as string;
 
-      // If backend didn't provide output, show generic localized error instead of hanging "thinking"
-      if (!assistantContent) {
-        const msg = mode === "image-chat" ? t("chat.error_image_generation") : t("chat.error_generic");
-        setMessages((prev) => [...prev, { role: "assistant", content: msg, variant: "error" }]);
+        // Poll until done (caps at ~5 minutes)
+        const startedAt = Date.now();
+        const maxMs = 5 * 60 * 1000;
+        const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
+        let finalUrl = "";
+        let sessionMeta: { id?: string; title?: string } | null = null;
+        while (Date.now() - startedAt < maxMs) {
+          const st = await fetchData(`ai/image/status/?job=${encodeURIComponent(jobId)}`, "GET", null, true);
+          if (!st?.ok) { await delay(1500); continue; }
+          const status = (st.data as any)?.status;
+          if (status === "SUCCESS") {
+            const result = (st.data as any)?.result || {};
+            finalUrl = result?.image?.url || "";
+            sessionMeta = result?.session || null;
+            break;
+          }
+          if (status === "FAILURE") {
+            const msg = t("chat.error_image_generation");
+            setMessages((prev) => [...prev, { role: "assistant", content: msg, variant: "error" }]);
+            return;
+          }
+          await delay(1500);
+        }
+
+        if (!finalUrl) {
+          const msg = t("chat.error_image_generation");
+          setMessages((prev) => [...prev, { role: "assistant", content: msg, variant: "error" }]);
+          return;
+        }
+        setMessages((prev) => [...prev, { role: "assistant", content: finalUrl }]);
+
+        // Update route if a new session created
+        if (!chatId && sessionMeta && sessionMeta.id) {
+          try {
+            if (typeof window !== 'undefined') sessionStorage.setItem(`chat.animate.${sessionMeta.id}`, '1');
+            router.push(`/dashboard/${mode}/${sessionMeta.id}`);
+          } catch {}
+          try { window.dispatchEvent(new CustomEvent("chat:session-created", { detail: { id: sessionMeta.id, title: sessionMeta.title || content.slice(0, 60), chat_mode: mode } })); } catch {}
+        }
       } else {
-        setMessages((prev) => [...prev, { role: "assistant", content: assistantContent }]);
+        const res = await fetchData("ai/chat/", "POST", payload, true);
+        setInput("");
+        if (!res?.ok) {
+          setMessages((prev) => [...prev, { role: "assistant", content: formatError(res), variant: "error" }]);
+          return;
+        }
+        const sessionMeta = (res?.data?.session ?? null) as { id?: string; title?: string } | null;
+        const assistantContent = (res?.data as any)?.response || "";
+        if (!assistantContent) {
+          const msg = t("chat.error_generic");
+          setMessages((prev) => [...prev, { role: "assistant", content: msg, variant: "error" }]);
+        } else {
+          setMessages((prev) => [...prev, { role: "assistant", content: assistantContent }]);
+        }
+        if (!chatId && sessionMeta && sessionMeta.id) {
+          try {
+            if (typeof window !== 'undefined') sessionStorage.setItem(`chat.animate.${sessionMeta.id}`, '1');
+            router.push(`/dashboard/${mode}/${sessionMeta.id}`);
+          } catch {}
+          try { window.dispatchEvent(new CustomEvent("chat:session-created", { detail: { id: sessionMeta.id, title: sessionMeta.title || content.slice(0, 60), chat_mode: mode } })); } catch {}
+        }
       }
 
       // If this was a new chat (no chatId before) and backend created a session, update URL and notify sidebar
