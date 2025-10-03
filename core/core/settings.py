@@ -222,7 +222,9 @@ SECURE_HSTS_INCLUDE_SUBDOMAINS = not DEBUG
 SECURE_HSTS_PRELOAD = not DEBUG
 
 # --- Allauth (Google) ---
-LOGIN_REDIRECT_URL = "/auth/complete/"
+# After successful Google auth, allauth redirects here (Django path)
+# We expose users.urls under "/api/users/", so include that prefix
+LOGIN_REDIRECT_URL = "/api/users/auth/complete/"
 ACCOUNT_EMAIL_VERIFICATION = "none"
 ACCOUNT_AUTHENTICATION_METHOD = "email"
 ACCOUNT_EMAIL_REQUIRED = True

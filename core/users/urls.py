@@ -1,11 +1,46 @@
 from django.urls import path, include
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from django.http import HttpResponseRedirect
+from django.conf import settings
+import json
+from django.utils.http import urlencode
+from rest_framework_simplejwt.tokens import RefreshToken
 from .views import *
 
 
 def auth_complete(request):
-    return HttpResponseRedirect("http://127.0.0.1/users/auth/callback")
+    """After social login completes, issue JWT and redirect to frontend.
+
+    Expects allauth to have authenticated the session user. We create
+    access/refresh tokens and redirect the browser to the frontend
+    callback page with tokens in the query string.
+    """
+    # Fallback for SITE_BASE_URL if not provided
+    site_base = getattr(settings, "SITE_BASE_URL", "") or "http://127.0.0.1:3000"
+
+    # If user is not authenticated for some reason, just send back to signin
+    if not getattr(request, "user", None) or not request.user.is_authenticated:
+        return HttpResponseRedirect(f"{site_base}/auth/signin")
+
+    # Issue JWT tokens
+    refresh = RefreshToken.for_user(request.user)
+    access = str(refresh.access_token)
+    refresh_str = str(refresh)
+
+    # Minimal user payload for the FE cookie (match SignIn response structure)
+    user_payload = {
+        "id": request.user.id,
+        "email": request.user.email,
+        "tel": request.user.tel,
+    }
+
+    query = urlencode({
+        "access": access,
+        "refresh": refresh_str,
+        "user": json.dumps(user_payload),
+    })
+
+    return HttpResponseRedirect(f"{site_base}/auth/callback?{query}")
 
 
 urlpatterns = [

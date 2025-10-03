@@ -90,6 +90,23 @@ export default function Chat({ mode, chatId }: Props) {
     // kept to avoid breaking behavior
     JSON.stringify({ message: content }); // no-op
 
+    // Helper for localized error messages in the chat bubble
+    const formatError = (res?: { ok?: boolean; status?: number; error?: string } | null): string => {
+      const status = res?.status ?? 0;
+      const detail = (res as any)?.error || "";
+      const withDetail = (base: string) => (detail ? `${base}\n${detail}` : base);
+
+      if (status === 0) return withDetail(t("chat.error_network"));
+      if (status === 401) return t("chat.error_unauthorized");
+      if (status === 403) return t("chat.error_forbidden");
+      if (status === 404) return t("chat.error_notfound");
+
+      // For image generation, give more specific copy
+      if (mode === "image-chat") return withDetail(t("chat.error_image_generation"));
+
+      return withDetail(t("chat.error_request_failed"));
+    };
+
     try {
       setLoading(true);
       const payload: any = { message: content, templates: templates, mode: mode };
@@ -104,12 +121,29 @@ export default function Chat({ mode, chatId }: Props) {
       const endpoint = mode === "image-chat" ? "ai/image/" : "ai/chat/";
       const res = await fetchData(endpoint, "POST", payload, true);
       setInput("");
+
+      // If request failed, push a localized error bubble and stop
+      if (!res?.ok) {
+        setMessages((prev) => [...prev, { role: "assistant", content: formatError(res) }]);
+        return;
+      }
+
       const sessionMeta = (res?.data?.session ?? null) as { id?: string; title?: string } | null;
-      const assistantContent =
-        mode === "image-chat"
-          ? (res?.data?.image?.url || res?.data?.response || "")
-          : (res?.data?.response || "");
-      setMessages((prev) => [...prev, { role: "assistant", content: assistantContent }]);
+      let assistantContent = "";
+      if (mode === "image-chat") {
+        assistantContent = (res?.data as any)?.image?.url || (res?.data as any)?.response || "";
+      } else {
+        assistantContent = (res?.data as any)?.response || "";
+      }
+
+      // If backend didn't provide output, show generic localized error instead of hanging "thinking"
+      if (!assistantContent) {
+        // Prefer specialized message for image generation
+        const msg = mode === "image-chat" ? t("chat.error_image_generation") : t("chat.error_generic");
+        setMessages((prev) => [...prev, { role: "assistant", content: msg }]);
+      } else {
+        setMessages((prev) => [...prev, { role: "assistant", content: assistantContent }]);
+      }
 
       // If this was a new chat (no chatId before) and backend created a session, update URL and notify sidebar
       if (!chatId && sessionMeta && sessionMeta.id) {

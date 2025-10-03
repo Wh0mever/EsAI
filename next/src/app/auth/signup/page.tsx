@@ -94,7 +94,7 @@ export default function SignUp() {
 			</div>
 
 			<a
-				href="http://127.0.0.1/accounts/google/login/?process=login"
+				href="/api/users/accounts/google/login/?process=login"
 				className="flex gap-3 items-center justify-center bg-white text-black py-2 px-6 w-full rounded-md font-light text-sm"
 			>
 				<img src="/images/icons/google-icon.svg" alt="Google" />
