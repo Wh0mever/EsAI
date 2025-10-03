@@ -2,219 +2,358 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { BACKEND } from "@/tools/fetchData";
-import { Message } from "./ChatForm";
 import { useTranslation } from "react-i18next";
 import type { ChatMode } from "@/types/chat";
+import type { Message } from "./ChatForm";
+
+/* ---------- utils ---------- */
 
 function isImageUrl(s: string): boolean {
-	if (!s) return false;
-	const lower = s.toLowerCase();
-	if (lower.startsWith("/media/generated/") || lower.includes("/generated/")) return true;
-	return /\.(png|jpe?g|webp|gif)(\?.*)?$/.test(lower);
+  if (!s) return false;
+  const lower = s.toLowerCase();
+  if (lower.startsWith("/media/generated/") || lower.includes("/generated/")) return true;
+  return /\.(png|jpe?g|webp|gif)(\?.*)?$/.test(lower);
 }
 
-type ChatViewProps = { messages: Message[]; mode: ChatMode; loading?: boolean; initialHydrated?: boolean; animateIndex?: number | null };
+function toAbsUrl(raw?: string): string {
+  if (!raw) return "";
+  return raw.startsWith("/") ? `${BACKEND}${raw}` : raw;
+}
 
-// types text char-by-char on mount
+/* ---------- types ---------- */
+
+type ChatViewProps = {
+  messages: Message[];
+  mode: ChatMode;
+  loading?: boolean;
+  initialHydrated?: boolean;
+  animateIndex?: number | null;
+};
+
+type Attachment = {
+  type?: string;
+  url?: string;
+  preview?: string;
+  name?: string;
+};
+
+/* ---------- UI atoms ---------- */
+
 function TypingText({
-	text,
-	speed = 18,
-	onDone,
-	className = "",
+  text,
+  speed = 18,
+  onDone,
+  className = "",
 }: {
-	text: string;
-	speed?: number; // ms per char
-	onDone?: () => void;
-	className?: string;
+  text: string;
+  speed?: number; // ms per char
+  onDone?: () => void;
+  className?: string;
 }) {
-	const [i, setI] = useState(0);
-	useEffect(() => {
-		if (!text) {
-			onDone?.();
-			return;
-		}
-		let cancelled = false;
-		const tick = () => {
-			setI((v) => {
-				const nv = Math.min(v + 1, text.length);
-				if (nv === text.length) onDone?.();
-				return nv;
-			});
-			if (!cancelled && i + 1 < text.length) {
-				timer = window.setTimeout(tick, speed);
-			}
-		};
-		let timer = window.setTimeout(tick, speed);
-		return () => {
-			cancelled = true;
-			window.clearTimeout(timer);
-		};
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [text, speed]);
-	return <span className={className}>{text.slice(0, i)}</span>;
-}
+  const [i, setI] = useState(0);
+  const timerRef = useRef<number | null>(null);
+  const cancelledRef = useRef(false);
 
-// animated "Thinking..." placeholder
-function ThinkingDots({ text = "Думаю" }: { text?: string }) {
-	const [n, setN] = useState(0);
-	useEffect(() => {
-		const id = setInterval(() => setN((v) => (v + 1) % 4), 450);
-		return () => clearInterval(id);
-	}, []);
-	return (
-		<span aria-live="polite">
-			{text}
-			{".".repeat(n)}
-		</span>
-	);
-}
-
-export function ChatView({ messages, mode, loading, initialHydrated, animateIndex }: ChatViewProps) {
-	const wrapRef = useRef<HTMLDivElement | null>(null);
-	const { t } = useTranslation("common");
-	const isEmpty = !messages || messages.length === 0;
-
-	// detect "thinking": last assistant message is missing or empty
-	const last = messages[messages.length - 1];
-    const isThinking =
-        !messages.length || (last?.role === "assistant" && (!last.content || last.content.trim() === ""));
-
-	// remember which message indices already animated
-    const animatedRef = useRef<Set<number>>(new Set());
-    const hydrationDoneRef = useRef<boolean>(false);
-    const stickToBottomRef = useRef<boolean>(true); // only autoscroll if near bottom
-
-    // Mark existing messages (e.g., history) as already animated to avoid replaying typing effect
-    useEffect(() => {
-        if (!initialHydrated || hydrationDoneRef.current) return;
-        const set = animatedRef.current;
-        for (let i = 0; i < messages.length; i++) {
-            const m = messages[i];
-            if (m?.role === "assistant" && m?.content) {
-                // Keep one target index un-animated (to re-type) if requested
-                if (typeof animateIndex === 'number' && i === animateIndex) continue;
-                set.add(i);
-            }
+  useEffect(() => {
+    cancelledRef.current = false;
+    setI(0);
+    if (!text) {
+      onDone?.();
+      return;
+    }
+    const tick = () => {
+      setI((prev) => {
+        const next = Math.min(prev + 1, text.length);
+        if (next === text.length) {
+          onDone?.();
+          return next;
         }
-        hydrationDoneRef.current = true;
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [initialHydrated, messages.length, animateIndex]);
+        timerRef.current = window.setTimeout(tick, speed);
+        return next;
+      });
+    };
+    timerRef.current = window.setTimeout(tick, speed);
+    return () => {
+      cancelledRef.current = true;
+      if (timerRef.current) window.clearTimeout(timerRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [text, speed]);
 
-	// autoscroll to bottom on new messages when user hasn't scrolled up
-	const scrollToBottom = () => {
-		const el = wrapRef.current;
-		if (!el) return;
-		el.scrollTop = el.scrollHeight;
-	};
-	useEffect(() => {
-		if (stickToBottomRef.current) scrollToBottom();
-	}, [messages.length]);
+  return <span className={className}>{text.slice(0, i)}</span>;
+}
 
-	const handleScroll = () => {
-		const el = wrapRef.current;
-		if (!el) return;
-		const threshold = 64; // px from bottom considered near-bottom
-		const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
-		stickToBottomRef.current = distance <= threshold;
-	};
+function ThinkingDots({ text = "Думаю" }: { text?: string }) {
+  const [n, setN] = useState(0);
+  useEffect(() => {
+    const id = window.setInterval(() => setN((v) => (v + 1) % 4), 450);
+    return () => window.clearInterval(id);
+  }, []);
+  return (
+    <span aria-live="polite">
+      {text}
+      {".".repeat(n)}
+    </span>
+  );
+}
+
+/* ---------- micro components ---------- */
+
+function EmptyState({ mode }: { mode: ChatMode }) {
+  const { t } = useTranslation("common");
+  const isText = mode === "text-chat";
+  return (
+    <div className="flex-1 grid place-items-center min-h-[50vh]">
+      <div className="text-center space-y-2">
+        <h3 className="text-2xl text-white font-semibold">
+          {isText
+            ? t("chat.empty_text_title", { defaultValue: "Готов творить текст вместе с Vokalo?" })
+            : t("chat.empty_image_title", { defaultValue: "Готов создавать изображения вместе с Vokalo?" })}
+        </h3>
+        <p className="text-neutral-300">
+          {isText
+            ? t("chat.empty_text_subtitle", { defaultValue: "Тогда начнём!" })
+            : t("chat.empty_image_subtitle", { defaultValue: "Тогда начнём!" })}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function AttachmentsList({ atts }: { atts?: Attachment[] }) {
+  if (!Array.isArray(atts) || atts.length === 0) return null;
+  return (
+    <div className="mt-1 self-stretch">
+      <div className="flex flex-wrap gap-2">
+        {atts.map((a, i) => {
+          const isImg = (a?.type || "").toLowerCase() === "image";
+          const raw = a?.url || a?.preview || "";
+          const url = toAbsUrl(raw);
+          return (
+            <div key={i} className="shrink-0">
+              {isImg ? (
+                <a href={url} target="_blank" rel="noreferrer">
+                  <img
+                    src={url}
+                    alt={a?.name || "attachment"}
+                    className="w-24 h-24 object-cover rounded-md border border-white/10"
+                  />
+                </a>
+              ) : (
+                <a
+                  href={url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="px-3 py-2 text-xs bg-neutral-800 hover:bg-neutral-700 rounded-md border border-white/10 inline-flex items-center gap-2"
+                >
+                  <span className="truncate max-w-[8rem]">{a?.name || "file"}</span>
+                </a>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function BubbleContent({
+  isUser,
+  msg,
+  isThinking,
+  shouldType,
+  onTypedDone,
+}: {
+  isUser: boolean;
+  msg: Message;
+  isThinking: boolean;
+  shouldType: boolean;
+  onTypedDone: () => void;
+}) {
+  const { t } = useTranslation("common");
+
+  if (!isUser && msg.content && isImageUrl(msg.content)) {
+    const src = toAbsUrl(msg.content);
+    return <img src={src} alt="generated" className="max-w-full rounded-lg" />;
+  }
+
+  if (!isUser && isThinking) {
+    return <ThinkingDots text={t("chat.thinking", { defaultValue: "Думаю" })} />;
+  }
+
+  if (!isUser && shouldType && msg.content) {
+    return <TypingText text={msg.content} speed={18} onDone={onTypedDone} />;
+  }
+
+  return <span>{msg?.content ?? t("chat.thinking_ellipsis", { defaultValue: "Думаю…" })}</span>;
+}
+
+function ChatBubble({
+  msg,
+  index,
+  isLast,
+  isThinking,
+  shouldType,
+  onTypedDone,
+}: {
+  msg: Message;
+  index: number;
+  isLast: boolean;
+  isThinking: boolean;
+  shouldType: boolean;
+  onTypedDone: () => void;
+}) {
+  const isUser = msg.role === "user";
+  const isError = !isUser && (msg as any)?.variant === "error";
+
+  const bubbleClass = isUser
+    ? "self-end bg-indigo-700 text-white"
+    : isError
+    ? "self-start bg-rose-700/90 border border-rose-400 text-white"
+    : "self-start bg-neutral-900 text-white";
+
+  return (
+    <div className="flex flex-col items-start gap-2 max-w-[80%]">
+      <div className={`p-4 rounded-xl whitespace-pre-wrap ${bubbleClass}`}>
+        <BubbleContent
+          isUser={isUser}
+          msg={msg}
+          isThinking={!isUser && isLast && isThinking}
+          shouldType={shouldType}
+          onTypedDone={onTypedDone}
+        />
+      </div>
+      <AttachmentsList atts={(msg as any)?.attachments} />
+    </div>
+  );
+}
+
+/* ---------- list with animation logic ---------- */
+
+function MessageList({
+  messages,
+  animateIndex,
+  initialHydrated,
+  onAfterType,
+  isThinking,
+  onScrollToBottom,
+}: {
+  messages: Message[];
+  animateIndex?: number | null;
+  initialHydrated?: boolean;
+  onAfterType: (idx: number) => void;
+  isThinking: boolean;
+  onScrollToBottom: () => void;
+}) {
+  const animatedRef = useRef<Set<number>>(new Set());
+  const hydrationDoneRef = useRef<boolean>(false);
+
+  useEffect(() => {
+    if (!initialHydrated || hydrationDoneRef.current) return;
+    const set = animatedRef.current;
+    for (let i = 0; i < messages.length; i++) {
+      const m = messages[i];
+      if (m?.role === "assistant" && m?.content) {
+        if (typeof animateIndex === "number" && i === animateIndex) continue;
+        set.add(i);
+      }
+    }
+    hydrationDoneRef.current = true;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialHydrated, messages.length, animateIndex]);
+
+  return (
+    <>
+      {messages.map((msg, index) => {
+        const isUser = msg.role === "user";
+        const isError = !isUser && (msg as any)?.variant === "error";
+
+        const shouldType =
+          !isUser &&
+          !isError &&
+          !!msg.content &&
+          (!animatedRef.current.has(index) || (typeof animateIndex === "number" && index === animateIndex));
+
+        return (
+          <ChatBubble
+            key={(msg as any)?.id ?? index}
+            msg={msg}
+            index={index}
+            isLast={index === messages.length - 1}
+            isThinking={isThinking}
+            shouldType={shouldType}
+            onTypedDone={() => {
+              animatedRef.current.add(index);
+              onAfterType(index);
+              onScrollToBottom();
+            }}
+          />
+        );
+      })}
+    </>
+  );
+}
+
+/* ---------- main ---------- */
+
+export function ChatView({
+  messages,
+  mode,
+  loading,
+  initialHydrated,
+  animateIndex,
+}: ChatViewProps) {
+  const wrapRef = useRef<HTMLDivElement | null>(null);
+  const { t } = useTranslation("common");
+  const isEmpty = !messages || messages.length === 0;
+
+  const last = messages[messages.length - 1];
+  const isThinking =
+    !messages.length ||
+    (last?.role === "assistant" && (!last.content || last.content.trim() === ""));
+
+  const stickToBottomRef = useRef<boolean>(true);
+
+  const scrollToBottom = () => {
+    const el = wrapRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  };
+
+  useEffect(() => {
+    if (stickToBottomRef.current) scrollToBottom();
+  }, [messages.length]);
+
+  const handleScroll = () => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const threshold = 64;
+    const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+    stickToBottomRef.current = distance <= threshold;
+  };
 
   return (
     <div ref={wrapRef} onScroll={handleScroll} className="flex flex-col gap-4 overflow-y-auto pr-1">
-			{isEmpty ? (
-				<div className="flex-1 grid place-items-center min-h-[50vh]">
-					<div className="text-center space-y-2">
-						<h3 className="text-2xl text-white font-semibold">
-							{mode === "text-chat"
-								? t("chat.empty_text_title", { defaultValue: "Готов творить текст вместе с Vokalo?" })
-								: t("chat.empty_image_title", {
-										defaultValue: "Готов создавать изображения вместе с Vokalo?",
-								  })}
-						</h3>
-						<p className="text-neutral-300">
-							{mode === "text-chat"
-								? t("chat.empty_text_subtitle", { defaultValue: "Тогда начнём!" })
-								: t("chat.empty_image_subtitle", { defaultValue: "Тогда начнём!" })}
-						</p>
-					</div>
-				</div>
-			) : (
-                messages.map((msg, index) => {
-                    const isUser = msg.role === "user";
-                    const errorClass = !isUser && (msg as any)?.variant === 'error';
-                    const bubbleClass = isUser
-                        ? "self-end bg-indigo-700 text-white"
-                        : errorClass
-                          ? "self-start bg-rose-700/90 border border-rose-400 text-white"
-                          : "self-start bg-neutral-900 text-white";
+      {isEmpty ? (
+        <EmptyState mode={mode} />
+      ) : (
+        <MessageList
+          messages={messages}
+          animateIndex={animateIndex}
+          initialHydrated={initialHydrated}
+          isThinking={isThinking}
+          onAfterType={() => {}}
+          onScrollToBottom={() => {
+            if (stickToBottomRef.current) scrollToBottom();
+          }}
+        />
+      )}
 
-                    const shouldType =
-                        // only assistants
-                        !isUser && !errorClass &&
-                        // only if content exists
-                        !!msg.content &&
-                        // only if not typed before
-                        (!animatedRef.current.has(index) || (typeof animateIndex === 'number' && index === animateIndex));
-
-					return (
-						<div key={index} className="flex flex-col items-start gap-2 max-w-[80%]">
-							<div className={`p-4 rounded-xl whitespace-pre-wrap ${bubbleClass}`}>
-							{/* render images when content looks like an image URL */}
-							{!isUser && msg.content && isImageUrl(msg.content) ? (
-								<img
-									src={msg.content.startsWith("/") ? `${BACKEND}${msg.content}` : msg.content}
-									alt="generated"
-									className="max-w-full rounded-lg"
-								/>
-                            ) : !isUser && index === messages.length - 1 && isThinking ? (
-                                <ThinkingDots text={t("chat.thinking", { defaultValue: "Думаю" })} />
-                            ) : shouldType ? (
-                                <TypingText
-                                    text={msg.content}
-                                    speed={18}
-                                    onDone={() => {
-                                        animatedRef.current.add(index);
-                                        // keep view pinned to bottom while finishing typing only if user near bottom
-                                        if (stickToBottomRef.current) scrollToBottom();
-                                    }}
-                                />
-                            ) : (
-                                <span>{msg?.content ?? t("chat.thinking_ellipsis", { defaultValue: "Думаю…" })}</span>
-                            )}
-                            </div>
-                            {/* attachments under bubble */}
-                            {Array.isArray((msg as any)?.attachments) && (msg as any).attachments.length > 0 && (
-                              <div className="mt-1 self-stretch">
-                                <div className="flex flex-wrap gap-2">
-                                  {(msg as any).attachments.map((a: any, i: number) => {
-                                    const isImg = (a?.type || "").toLowerCase() === 'image';
-                                    const raw = a?.url || a?.preview || '';
-                                    const url = typeof raw === 'string' && raw.startsWith('/') ? `${BACKEND}${raw}` : raw;
-                                    return (
-                                      <div key={i} className="shrink-0">
-                                        {isImg ? (
-                                          <a href={url} target="_blank" rel="noreferrer">
-                                            <img src={url} alt={a?.name || 'attachment'} className="w-24 h-24 object-cover rounded-md border border-white/10" />
-                                          </a>
-                                        ) : (
-                                          <a href={url} target="_blank" rel="noreferrer" className="px-3 py-2 text-xs bg-neutral-800 hover:bg-neutral-700 rounded-md border border-white/10 inline-flex items-center gap-2">
-                                            <span className="truncate max-w-[8rem]">{a?.name || 'file'}</span>
-                                          </a>
-                                        )}
-                                      </div>
-                                    );
-                                  })}
-                                </div>
-                              </div>
-                            )}
-                        );
-                })
-            )}
-            {/* If last is user and request is in-flight, show a trailing assistant bubble with thinking */}
-            {messages.length > 0 && loading && last?.role === "user" && (
-                <div className="p-4 rounded-xl max-w-[80%] whitespace-pre-wrap self-start bg-neutral-900 text-white">
-                    <ThinkingDots text={t("chat.thinking", { defaultValue: "Думаю" })} />
-                </div>
-            )}
+      {messages.length > 0 && loading && last?.role === "user" && (
+        <div className="p-4 rounded-xl max-w-[80%] whitespace-pre-wrap self-start bg-neutral-900 text-white">
+          <ThinkingDots text={t("chat.thinking", { defaultValue: "Думаю" })} />
         </div>
-    );
+      )}
+    </div>
+  );
 }
