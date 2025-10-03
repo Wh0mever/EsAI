@@ -156,7 +156,8 @@ export function ChatView({ messages, mode, loading, initialHydrated, animateInde
                         (!animatedRef.current.has(index) || (typeof animateIndex === 'number' && index === animateIndex));
 
 					return (
-						<div key={index} className={`p-4 rounded-xl max-w-[80%] whitespace-pre-wrap ${bubbleClass}`}>
+						<div key={index} className="flex flex-col items-start gap-2 max-w-[80%]">
+							<div className={`p-4 rounded-xl whitespace-pre-wrap ${bubbleClass}`}>
 							{/* render images when content looks like an image URL */}
 							{!isUser && msg.content && isImageUrl(msg.content) ? (
 								<img
@@ -179,33 +180,33 @@ export function ChatView({ messages, mode, loading, initialHydrated, animateInde
                             ) : (
                                 <span>{msg?.content ?? t("chat.thinking_ellipsis", { defaultValue: "Думаю…" })}</span>
                             )}
-                        </div>
-                        {/* attachments under bubble */}
-                        {Array.isArray((msg as any)?.attachments) && (msg as any).attachments.length > 0 && (
-                          <div className="mt-2 self-stretch">
-                            <div className="flex flex-wrap gap-2">
-                              {(msg as any).attachments.map((a: any, i: number) => {
-                                const isImg = (a?.type || "").toLowerCase() === 'image';
-                                const raw = a?.url || a?.preview || '';
-                                const url = raw;
-                                return (
-                                  <div key={i} className="shrink-0">
-                                    {isImg ? (
-                                      <a href={url} target="_blank" rel="noreferrer">
-                                        <img src={url} alt={a?.name || 'attachment'} className="w-24 h-24 object-cover rounded-md border border-white/10" />
-                                      </a>
-                                    ) : (
-                                      <a href={url} target="_blank" rel="noreferrer" className="px-3 py-2 text-xs bg-neutral-800 hover:bg-neutral-700 rounded-md border border-white/10 inline-flex items-center gap-2">
-                                        <span className="truncate max-w-[8rem]">{a?.name || 'file'}</span>
-                                      </a>
-                                    )}
-                                  </div>
-                                );
-                              })}
                             </div>
-                          </div>
-                        )}
-                    );
+                            {/* attachments under bubble */}
+                            {Array.isArray((msg as any)?.attachments) && (msg as any).attachments.length > 0 && (
+                              <div className="mt-1 self-stretch">
+                                <div className="flex flex-wrap gap-2">
+                                  {(msg as any).attachments.map((a: any, i: number) => {
+                                    const isImg = (a?.type || "").toLowerCase() === 'image';
+                                    const raw = a?.url || a?.preview || '';
+                                    const url = typeof raw === 'string' && raw.startsWith('/') ? `${BACKEND}${raw}` : raw;
+                                    return (
+                                      <div key={i} className="shrink-0">
+                                        {isImg ? (
+                                          <a href={url} target="_blank" rel="noreferrer">
+                                            <img src={url} alt={a?.name || 'attachment'} className="w-24 h-24 object-cover rounded-md border border-white/10" />
+                                          </a>
+                                        ) : (
+                                          <a href={url} target="_blank" rel="noreferrer" className="px-3 py-2 text-xs bg-neutral-800 hover:bg-neutral-700 rounded-md border border-white/10 inline-flex items-center gap-2">
+                                            <span className="truncate max-w-[8rem]">{a?.name || 'file'}</span>
+                                          </a>
+                                        )}
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
+                        );
                 })
             )}
             {/* If last is user and request is in-flight, show a trailing assistant bubble with thinking */}
