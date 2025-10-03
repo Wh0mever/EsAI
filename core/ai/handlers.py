@@ -64,6 +64,13 @@ def _make_openai_client(provider: AiProvider) -> OpenAI:
     kwargs = {"api_key": provider.token}
     if provider.base_url:
         kwargs["base_url"] = provider.base_url.rstrip("/")
+    # Respect global timeout to avoid gunicorn worker timeouts
+    try:
+        from django.conf import settings as dj_settings
+        to = int(getattr(dj_settings, "OPENAI_TIMEOUT_SECONDS", 20) or 20)
+    except Exception:
+        to = 20
+    kwargs["timeout"] = to
     return OpenAI(**kwargs)
 
 
@@ -421,6 +428,8 @@ def OpenAIImageHandler(request):
             return {"error": "No prompt provided"}
 
         size = (request.data.get("size") or "1024x1024").strip()
+        if size not in {"256x256", "512x512", "1024x1024"}:
+            size = "1024x1024"
         model_name = (request.data.get("model") or "gpt-image-1").strip()
         provider_slug = request.data.get("provider_slug", "gpt")
 
@@ -428,6 +437,9 @@ def OpenAIImageHandler(request):
             provider = AiProvider.objects.get(slug=provider_slug, is_active=True)
         except AiProvider.DoesNotExist:
             return {"error": f"Provider '{provider_slug}' not found or inactive"}
+
+        if not (provider.token or "").strip():
+            return {"error": "Image provider is not configured."}
 
         client = _make_openai_client(provider)
 
@@ -475,8 +487,17 @@ def OpenAIImageHandler(request):
         if subscription and not subscription.can_consume("image"):
             return {"error": "Лимиты на генерацию изображений исчерпаны. Пополните лимит или обновите тариф."}
 
-        # Call Images API
-        result = client.images.generate(model=model_name, prompt=prompt, size=size, n=1)
+        # Call Images API (with timeout safety)
+        try:
+            result = client.images.generate(model=model_name, prompt=prompt, size=size, n=1)
+        except Exception as e:
+            msg = str(e)
+            low = msg.lower()
+            if "timeout" in low or "timed out" in low or "read timeout" in low:
+                return {"error": "Image generation timed out. Please try again."}
+            if "api key" in low or "authentication" in low:
+                return {"error": "Image provider authentication failed."}
+            return {"error": "Failed to generate image."}
         data0 = result.data[0] if getattr(result, "data", None) else None
         if not data0:
             return {"error": "No image data received"}

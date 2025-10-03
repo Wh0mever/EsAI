@@ -138,15 +138,18 @@ export function ChatView({ messages, mode, loading, initialHydrated, animateInde
 					</div>
 				</div>
 			) : (
-				messages.map((msg, index) => {
-					const isUser = msg.role === "user";
-					const bubbleClass = isUser
-						? "self-end bg-indigo-700 text-white"
-						: "self-start bg-neutral-900 text-white";
+                messages.map((msg, index) => {
+                    const isUser = msg.role === "user";
+                    const errorClass = !isUser && (msg as any)?.variant === 'error';
+                    const bubbleClass = isUser
+                        ? "self-end bg-indigo-700 text-white"
+                        : errorClass
+                          ? "self-start bg-rose-700/90 border border-rose-400 text-white"
+                          : "self-start bg-neutral-900 text-white";
 
                     const shouldType =
                         // only assistants
-                        !isUser &&
+                        !isUser && !errorClass &&
                         // only if content exists
                         !!msg.content &&
                         // only if not typed before
@@ -164,16 +167,16 @@ export function ChatView({ messages, mode, loading, initialHydrated, animateInde
                             ) : !isUser && index === messages.length - 1 && isThinking ? (
                                 <ThinkingDots text={t("chat.thinking", { defaultValue: "Думаю" })} />
                             ) : shouldType ? (
-								<TypingText
-									text={msg.content}
-									speed={18}
-									onDone={() => {
-										animatedRef.current.add(index);
-										// keep view pinned to bottom while finishing typing only if user near bottom
-										if (stickToBottomRef.current) scrollToBottom();
-									}}
-								/>
-							) : (
+                                <TypingText
+                                    text={msg.content}
+                                    speed={18}
+                                    onDone={() => {
+                                        animatedRef.current.add(index);
+                                        // keep view pinned to bottom while finishing typing only if user near bottom
+                                        if (stickToBottomRef.current) scrollToBottom();
+                                    }}
+                                />
+                            ) : (
                                 <span>{msg?.content ?? t("chat.thinking_ellipsis", { defaultValue: "Думаю…" })}</span>
                             )}
                         </div>
