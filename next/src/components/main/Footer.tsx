@@ -52,7 +52,6 @@ export default function Footer() {
                 aria-label="X"
               >
                 <FaXTwitter />
-                <span className="hidden sm:inline">X</span>
               </a>
             </div>
 

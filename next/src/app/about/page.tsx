@@ -19,13 +19,13 @@ export default function About() {
 					{t("about.subtitle")}
 				</p>
 
-				<ul className="space-y-3 list-disc pl-6 dark:text-gray-200">
+				<ul className="space-y-3 list-disc pl-6 text-gray-200">
 					{points.map((item, index) => (
 						<li key={index}>{item}</li>
 					))}
 				</ul>
 
-				<p className="mt-10 text-center dark:text-gray-400">
+				<p className="mt-10 text-center text-gray-400">
 					{t("about.footer")}
 				</p>
 			</section>
