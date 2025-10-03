@@ -16,8 +16,13 @@ export const metadata: Metadata = {
 	},
 };
 
+function normalizeHost(input: string) {
+  const first = (input || "").split(",")[0].trim().toLowerCase();
+  return first.split(":")[0];
+}
+
 function localeByHost(host: string) {
-  const h = (host || "").toLowerCase();
+  const h = normalizeHost(host);
   if (h.endsWith("vokalo.ru")) return "ru";
   if (h.endsWith("vokalo.kg")) return "kg";
   if (h.endsWith("vokalo.online")) return "en";
@@ -26,8 +31,8 @@ function localeByHost(host: string) {
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
 	const cookieStore = await cookies();
-	const hdrs = await headers();
-	const host = hdrs.get("host") || "";
+    const hdrs = await headers();
+    const host = normalizeHost(hdrs.get("x-forwarded-host") || hdrs.get("host") || "");
 
 	const manual = cookieStore.get("NEXT_LOCALE_MANUAL")?.value === "1";
 	const cookieLang = cookieStore.get("NEXT_LOCALE")?.value;
