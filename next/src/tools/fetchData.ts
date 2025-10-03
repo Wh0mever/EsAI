@@ -1,10 +1,16 @@
 // api/fetchData.ts
 
-export const API = "/api/";
-// export const API = "http://127.0.0.1/api/";
-export const BACKEND = "http://127.0.0.1/";
-// export const BACKEND = "http://127.0.0.1/";
-// export const API = "/api/";
+// Domain-aware bases:
+// - API remains a strict same-origin prefix routed by Nginx to Django
+// - BACKEND resolves to the current origin, ensuring media/static links work on all domains
+const isBrowser = typeof window !== "undefined";
+const ORIGIN = isBrowser
+  ? window.location.origin
+  : (process.env.NEXT_PUBLIC_SITE_URL || "").replace(/\/$/, "");
+
+export const API = "/api/"; // keep relative; Nginx maps /api/* -> core
+export const BACKEND = ORIGIN || ""; // used to prefix absolute media URLs if needed
+
 import Cookies from "js-cookie";
 
 export type ApiResponse<T = any> = {

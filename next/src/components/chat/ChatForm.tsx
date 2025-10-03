@@ -147,7 +147,7 @@ export function ChatForm({
                         <div className="absolute inset-0 bg-black/40 grid place-items-center text-xs text-white rounded-md">{t("status.loading")}</div>
                       )}
                       {a?.status === "error" && (
-                        <div className="absolute inset-0 bg-rose-600/40 grid place-items-center text-xs text-white rounded-md">Error</div>
+                        <div className="absolute inset-0 bg-rose-600/40 grid place-items-center text-xs text-white rounded-md">{t("chat.attachment_upload_error")}</div>
                       )}
                     </div>
                   ) : (
@@ -156,7 +156,7 @@ export function ChatForm({
                         <IoDocumentTextOutline className="text-xl opacity-80" />
                         <span className="truncate max-w-[6rem]">{a?.name || "file"}</span>
                         {a?.status === "uploading" && <span className="text-[10px] opacity-80">{t("status.loading")}</span>}
-                        {a?.status === "error" && <span className="text-[10px] text-rose-300">Error</span>}
+                        {a?.status === "error" && <span className="text-[10px] text-rose-300">{t("chat.attachment_upload_error")}</span>}
                       </div>
                     </a>
                   )}
