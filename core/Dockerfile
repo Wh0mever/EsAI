@@ -22,4 +22,4 @@ USER appuser
 
 EXPOSE 8000
 ENTRYPOINT ["/app/entrypoint.sh"]
-CMD ["gunicorn","core.wsgi:application","--bind","0.0.0.0:8000","--workers","3","--timeout","220","--graceful-timeout","30"]
+CMD ["gunicorn","core.wsgi:application","--bind","0.0.0.0:8000","--workers","3","--timeout","420","--graceful-timeout","60"]

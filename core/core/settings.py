@@ -187,6 +187,19 @@ SIMPLE_JWT = {
 }
 
 # --- Security, CSRF & CORS ---
+# Base (prod) CORS allowlist for our three domains
+_DEFAULT_CORS_ALLOWED = [
+    "https://vokalo.kg",
+    "https://www.vokalo.kg",
+    "https://vokalo.online",
+    "https://www.vokalo.online",
+    "https://vokalo.ru",
+    "https://www.vokalo.ru",
+]
+
+# Allow override via env, otherwise use defaults above
+CORS_ALLOWED_ORIGINS = env.list("CORS_ALLOWED_ORIGINS", default=_DEFAULT_CORS_ALLOWED)
+
 # Dev-only relaxations
 if DEBUG:
     CSRF_TRUSTED_ORIGINS = list(set(CSRF_TRUSTED_ORIGINS + [
@@ -196,14 +209,11 @@ if DEBUG:
         "http://127.0.0.1:8000",
         "http://127.0.0.1",
     ]))
-    CORS_ALLOWED_ORIGINS = [
+    CORS_ALLOWED_ORIGINS = list(set(CORS_ALLOWED_ORIGINS + [
         "http://localhost:3000",
         "http://127.0.0.1:3000",
         "http://127.0.0.1",
-    ]
-else:
-    # В проде CORS явно через переменную окружения
-    CORS_ALLOWED_ORIGINS = env.list("CORS_ALLOWED_ORIGINS", default=[])
+    ]))
 
 CORS_ALLOW_CREDENTIALS = True
 SESSION_COOKIE_HTTPONLY = True
@@ -295,4 +305,4 @@ EXCHANGE_API_BASE = env.str("EXCHANGE_API_BASE",
 EXCHANGE_API_KEY = env.str("EXCHANGE_API_KEY")
 
 # --- OpenAI timeouts ---
-OPENAI_TIMEOUT_SECONDS = env.int("OPENAI_TIMEOUT_SECONDS", default=20)
+OPENAI_TIMEOUT_SECONDS = env.int("OPENAI_TIMEOUT_SECONDS", default=300)
