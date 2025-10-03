@@ -67,9 +67,9 @@ def _make_openai_client(provider: AiProvider) -> OpenAI:
     # Respect global timeout to avoid gunicorn worker timeouts
     try:
         from django.conf import settings as dj_settings
-        to = int(getattr(dj_settings, "OPENAI_TIMEOUT_SECONDS", 300) or 300)
+        to = int(getattr(dj_settings, "OPENAI_TIMEOUT_SECONDS", 480) or 480)
     except Exception:
-        to = 300
+        to = 480
     kwargs["timeout"] = to
     return OpenAI(**kwargs)
 
