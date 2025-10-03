@@ -118,8 +118,8 @@ export function ChatView({ messages, mode, loading, initialHydrated, animateInde
 		stickToBottomRef.current = distance <= threshold;
 	};
 
-	return (
-		<div ref={wrapRef} onScroll={handleScroll} className="flex flex-col gap-4 overflow-y-auto max-h-[calc(100vh-300px)] pr-1">
+  return (
+    <div ref={wrapRef} onScroll={handleScroll} className="flex flex-col gap-4 overflow-y-auto pr-1">
 			{isEmpty ? (
 				<div className="flex-1 grid place-items-center min-h-[50vh]">
 					<div className="text-center space-y-2">
