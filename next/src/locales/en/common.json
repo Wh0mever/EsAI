@@ -226,13 +226,14 @@
       },
       "3": {
         "q": "How to activate the trial?",
-        "a": "Just sign up — the trial activates automatically, no card required."
+        "a": "After registration, you’ll immediately get 5 free generations without linking a card. Want full 7-day trial access? Simply link your bank card — this helps us prevent spam. Everything is secure: no charges will be made without your confirmation."
       },
       "4": {
         "q": "How to pay for a subscription?",
         "a": [
           "Freedom Pay (Kyrgyzstan)",
           "YuMoney (Russia & CIS)",
+          "USDT TRC20 (Payment receipt required)",
           "Bank cards and e-wallets",
           "All payments are secure"
         ]

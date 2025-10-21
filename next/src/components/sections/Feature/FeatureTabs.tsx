@@ -26,10 +26,7 @@ const tabCards: any = {
 		"/images/feature/7.webp"
 	],
 	voices: [
-		"/images/feature/8.webp",
-		"/images/feature/9.webp",
-		"/images/feature/10.webp",
-		"/images/feature/11.webp"
+		"/images/feature/8.webp"
 	],
 	text: [
 		"/images/feature/12.webp",
@@ -68,7 +65,7 @@ function FeatureTab({ activeTab }: { activeTab: number }) {
 						${mounted ? "opacity-100 translate-y-0" : "opacity-0 translate-y-5"}`}
 				>
 					<FeatureCard
-						title={t(`feature.${tabKey}.${index}.description`)}
+						title={t(`feature.${tabKey}.${index}.title`)}
 						image={card}
 						description={t(`feature.${tabKey}.${index}.description`)}
 					/>

@@ -48,9 +48,9 @@ export default function SignIn() {
 			setAlertMessage(responseData.message || t("status_extended.success"));
 			setAlertType(responseData.status || "warning");
 			if (responseData.status === "success") {
-				setTimeout(() => {
-					window.location.href = "/profile";
-				}, 2000);
+					setTimeout(() => {
+						window.location.href = "/dashboard/text-chat";
+					}, 2000);
 			}
 		}
 	}, [responseData, t]);
