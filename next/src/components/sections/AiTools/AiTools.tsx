@@ -63,7 +63,10 @@ export default function AiTools() {
 					{/* 3-4 */}
 					<div className="flex flex-col gap-5">
 						<div className="bg-neutral-800/20 hover:bg-neutral-800/50 transition-colors duration-300 rounded-xl p-10 text-center border border-neutral-800 flex flex-col items-center gap-5">
-							<img src="/images/aitools/3.webp" alt="" />
+							<div className="flex gap-3">
+								<img src="/images/icons/freedom.webp" alt="" className='h-10 w-10 rounded-full' />
+								<img src="/images/icons/USDT_Logo.png" alt="" className='h-10 w-10 rounded-full' />
+							</div>
 							<h3 className="font-semibold text-lg mb-2">{t("aiTools.cards.3.title")}</h3>
 							<p className="text-sm text-gray-300">{t("aiTools.cards.3.description")}</p>
 						</div>

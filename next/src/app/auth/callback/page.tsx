@@ -15,12 +15,12 @@ export default function AuthCallback() {
     const nextUrlRaw = params.get("next");
     // Only allow internal redirects
     const nextUrl = (() => {
-      if (!nextUrlRaw) return "/profile";
+      if (!nextUrlRaw) return "/dashboard/text-chat";
       try {
         const decoded = decodeURIComponent(nextUrlRaw);
         if (decoded.startsWith("/") && !decoded.startsWith("//")) return decoded;
       } catch {}
-      return "/profile";
+      return "/dashboard/text-chat";
     })();
 
     if (access && refresh) {

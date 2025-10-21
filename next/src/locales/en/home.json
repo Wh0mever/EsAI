@@ -55,8 +55,8 @@
         },
         "covers": {
             "0": {
-                "title": "Dall-E 2 Images",
-                "description": "Generate images using OpenAI's Dall-E 2"
+                "title": "Create Images",
+                "description": "On Vokalo, you can easily turn text into unique, high-quality images. Advanced generation technologies bring your ideas to life in vivid and original visuals."
             },
             "1": {
                 "title": "Stable Diffusion",
@@ -69,20 +69,20 @@
         },
         "voices": {
             "0": {
-                "title": "Google Text-to-Speech",
-                "description": "Generate voice using Google Text-to-Speech API"
+                "title": "Speech Synthesis Technologies",
+                "description": "At the core of voice generation on Vokalo are advanced speech synthesis technologies. They transform text into natural and realistic voice within seconds."
             },
             "1": {
                 "title": "OpenAI Text-to-Speech",
-                "description": "Generate voice using OpenAI TTS"
+                "description": "At the core of voice generation on Vokalo are advanced speech synthesis technologies. They transform text into natural and realistic voice within seconds."
             },
             "2": {
                 "title": "ElevenLabs TTS",
-                "description": "Generate voice using ElevenLabs API"
+                "description": "At the core of voice generation on Vokalo are advanced speech synthesis technologies. They transform text into natural and realistic voice within seconds."
             },
             "3": {
                 "title": "Azure TTS",
-                "description": "Generate voice using Microsoft Azure"
+                "description": "At the core of voice generation on Vokalo are advanced speech synthesis technologies. They transform text into natural and realistic voice within seconds."
             }
         },
         "text": {
@@ -105,20 +105,20 @@
         },
         "music": {
             "0": {
-                "title": "Twilio Authentication",
-                "description": "Secure login via Twilio"
+                "title": "Secure Login",
+                "description": "Vokalo’s login is powered by a secure email verification system. Your data is protected, and only you have access to your account — simple, safe, and reliable."
             },
             "1": {
-                "title": "Google & Azure TTS",
-                "description": "Use Google & Azure for speech synthesis"
+                "title": "Voice Generation",
+                "description": "Advanced speech synthesis technologies power voice generation on Vokalo. They turn text into natural and realistic voice within seconds."
             },
             "2": {
                 "title": "Storage Management",
                 "description": "Manage and organize your files"
             },
             "3": {
-                "title": "Social Login",
-                "description": "Login using your social media accounts"
+                "title": "Login on Vokalo",
+                "description": "Login is done via email with verification — your data is securely protected, and only you have access to your account. Simple, safe, and reliable."
             }
         }
     },
@@ -140,7 +140,7 @@
             },
             "3": {
                 "title": "Secure Payments",
-                "description": "We support payments in RUB, KGS, and USD"
+                "description": "We support payments in RUB, KGS, and USD. More payment systems will be added soon — we're just getting started."
             },
             "4": {
                 "title": "Account Protection",
@@ -177,11 +177,11 @@
             },
             "1": {
                 "title": "Stable Diffusion",
-                "description": "Stable Diffusion is a deep learning model that converts text into images. Released in 2022, based on diffusion methods."
+                "description": "At the core of image generation on Vokalo is Stable Diffusion — one of the most advanced AI models. It transforms text into high-quality and original images within seconds."
             },
             "2": {
-                "title": "DALL·E 3 Generator",
-                "description": "Generate high-quality images using OpenAI DALL·E 3 features"
+                "title": "High-Quality Image Generation",
+                "description": "On Vokalo, you can create high-quality images within seconds. Advanced generation technologies turn your ideas into vivid, detailed, and original visuals."
             }
         }
     },
