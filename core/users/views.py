@@ -368,3 +368,71 @@ class FeedbackView(APIView):
 
     def post(self, request, *args, **kwargs):
         return self._mark(request, *args, **kwargs)
+
+
+class BindCardView(APIView):
+    """Bind FreedomPay tokenized card to the current user (без сохранения PAN).
+
+    Expected JSON:
+    - token: string (FreedomPay token from JS SDK tokenize)
+    - brand: string (optional, e.g., VISA/MASTERCARD)
+    - last4: string (optional last 4 digits)
+    - exp_month: int (optional)
+    - exp_year: int (optional, 2- or 4-digit)
+    - card_holder: string (optional)
+    """
+
+    def post(self, request):
+        data = request.data or {}
+        token = (data.get("token") or "").strip()
+        if not token:
+            return Response({"message": "token is required"}, status=400)
+
+        # Optional metadata to show in profile
+        brand = (data.get("brand") or "").strip() or None
+        last4 = (data.get("last4") or "").strip() or None
+        exp_month = data.get("exp_month")
+        exp_year = data.get("exp_year")
+        holder = (data.get("card_holder") or "").strip() or None
+
+        # Normalize year and month
+        try:
+            if isinstance(exp_year, str) and exp_year.isdigit():
+                exp_year = int(exp_year)
+            if isinstance(exp_month, str) and exp_month.isdigit():
+                exp_month = int(exp_month)
+        except Exception:
+            pass
+
+        u: User = request.user
+        # Store token and public card meta only
+        u.pay_token = token
+        if brand is not None:
+            u.brand = brand or None
+        if last4:
+            u.last4 = last4[-4:]
+        if holder is not None:
+            u.card_holder = holder or None
+        if isinstance(exp_month, int):
+            u.exp_month = exp_month
+        if isinstance(exp_year, int):
+            # accept 2- or 4-digit, store as 4-digit if possible
+            u.exp_year = (2000 + exp_year) if 0 <= exp_year < 100 else exp_year
+        u.save()
+
+        return Response({"status": "ok"}, status=200)
+
+
+class UnbindCardView(APIView):
+    """Clear saved FreedomPay token and public card meta for the user."""
+
+    def post(self, request):
+        u: User = request.user
+        u.pay_token = None
+        u.brand = None
+        u.last4 = None
+        u.card_holder = None
+        u.exp_month = None
+        u.exp_year = None
+        u.save()
+        return Response({"status": "ok"}, status=200)

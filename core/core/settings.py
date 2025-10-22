@@ -294,7 +294,20 @@ CELERY_TASK_SOFT_TIME_LIMIT = env.int("CELERY_TASK_SOFT_TIME_LIMIT", default=60 
 CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
-CELERY_IMPORTS = ("mails.tasks",)
+CELERY_IMPORTS = ("mails.tasks", "plans.tasks",)
+CELERY_BEAT_SCHEDULE = {
+    # Check and renew subscriptions frequently
+    "plans:process_due_subscriptions": {
+        "task": "plans.tasks.process_due_subscriptions",
+        "schedule": timedelta(minutes=10),
+    },
+    # Refresh currency rates hourly (kept small; adjust as you prefer)
+    "plans:refresh_currency_rates": {
+        "task": "plans.tasks.refresh_currency_rates",
+        "schedule": timedelta(hours=1),
+        "args": (),
+    },
+}
 
 # Public base URL for absolute links in emails
 SITE_BASE_URL = env.str("SITE_BASE_URL", default="")

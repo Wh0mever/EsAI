@@ -126,8 +126,6 @@ export default function UserVisa({
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [relink, setRelink] = useState(false);
-
-  // считаем карту привязанной, если cardData есть
   const hasCard = !!cardData && !relink;
 
   const VisaForm = () => {
@@ -184,8 +182,6 @@ export default function UserVisa({
 
         onLinkCard?.();
         await onSubmitCard?.(payload);
-
-        // после успешной привязки скрываем форму
         setRelink(false);
       } catch (e: any) {
         setErr(e?.message || "Tokenize error");

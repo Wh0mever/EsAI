@@ -53,6 +53,9 @@ urlpatterns = [
     path('token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('profile/', UserProfileView.as_view(), name='profile'),
+    # Card management
+    path('card/bind/', BindCardView.as_view(), name='card-bind'),
+    path('card/unbind/', UnbindCardView.as_view(), name='card-unbind'),
     path('question/', QuestionAPIView.as_view(), name='question'),
     path('feedback/', FeedbackView.as_view(), name='feedback'),
     path("notifications/", NotificationListView.as_view()),

@@ -46,27 +46,36 @@ export default function ProfilePage() {
 		cvv: string; // unused here
 		holder: string;
 	}) {
-		try {
-			const token = await tokenizeBankCard({
-				number: card.number,
-				holder: card.holder,
-				expMonth: card.expMonth,
-				expYear: card.expYear,
-			});
+    try {
+            const token = await tokenizeBankCard({
+                number: card.number,
+                holder: card.holder,
+                expMonth: card.expMonth,
+                expYear: card.expYear,
+            });
 
-			const brand = /^4/.test(card.number)
-				? "VISA"
-				: /^(5[1-5]|2(2[2-9]|[3-6]\d|7[01]))/.test(card.number)
-				? "MASTERCARD"
-				: "CARD";
-			const last4 = card.number.replace(/\D+/g, "").slice(-4);
-			const expiry = `${card.expMonth}/${card.expYear.slice(-2)}`;
+            const brand = /^4/.test(card.number)
+                ? "VISA"
+                : /^(5[1-5]|2(2[2-9]|[3-6]\d|7[01]))/.test(card.number)
+                ? "MASTERCARD"
+                : "CARD";
+            const last4 = card.number.replace(/\D+/g, "").slice(-4);
+            const expiry = `${card.expMonth}/${card.expYear.slice(-2)}`;
 
-			console.log("FP token:", token, { brand, last4, expiry });
-		} catch (e: any) {
-			console.error("FP tokenize error:", e?.response || e);
-			alert(e?.response?.error_message || e?.message || "Tokenize error");
-		}
+            // Persist token + public card meta on backend
+            const bind = await fetchData("users/card/bind/", "POST", {
+                token,
+                brand,
+                last4,
+                exp_month: Number(card.expMonth),
+                exp_year: Number(card.expYear.length === 2 ? `20${card.expYear}` : card.expYear),
+                card_holder: card.holder,
+            }, true);
+            if (!bind.ok) throw new Error(bind.error || "Bind failed");
+        } catch (e: any) {
+            console.error("FP tokenize error:", e?.response || e);
+            alert(e?.response?.error_message || e?.message || "Tokenize error");
+        }
 	}
 
 	return (

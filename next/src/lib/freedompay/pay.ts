@@ -173,3 +173,38 @@ export async function payWithBankCard(
   }
   return res;
 }
+
+/** Recurring/auto charge by previously saved token (безакцептный). */
+export async function payByCardToken(
+  token: string,
+  opts: PaymentOptions,
+  threeDSContainerId = "fp-3ds"
+): Promise<PayResult> {
+  const sdk = await setupSDK();
+
+  const JSPaymentOptions = {
+    order_id: opts.orderId,
+    auto_clearing: opts.autoClearing ?? 0,
+    amount: opts.amount,
+    currency: opts.currency,
+    description: opts.description ?? "",
+    test: opts.test ? 1 : 0,
+    options: {
+      custom_params: {},
+      user: { email: opts.user?.email ?? "", phone: opts.user?.phone ?? "" },
+    },
+  };
+
+  const JSTransactionOptionsToken = {
+    type: "bank_card_token",
+    options: { token },
+  };
+
+  // For безакцептных платежей 3DS should not be required.
+  // However, if provider still returns need_confirm, handle via iframe to be safe.
+  let res: PayResult = await sdk.charge(JSPaymentOptions, JSTransactionOptionsToken);
+  if (res?.payment_status === "need_confirm") {
+    res = await sdk.confirmInIframe(res, threeDSContainerId);
+  }
+  return res;
+}
