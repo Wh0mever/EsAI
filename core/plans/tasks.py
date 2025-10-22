@@ -159,7 +159,7 @@ def _renew_one_subscription(sub: UserSubscription) -> bool:
                 currency=currency,
                 order_id=f"sub-{sub.id}-{int(now.timestamp())}",
                 description=description,
-                user={"email": user.email or "", "phone": user.tel or ""},
+                fp_user={"email": user.email or "", "phone": user.tel or ""},
             )
             # Provider-specific success check; assume any 2xx is ok here
             sub.payment_status = "paid"
