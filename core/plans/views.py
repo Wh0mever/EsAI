@@ -11,7 +11,9 @@ from .serializers import (
     GenerationUsageSerializer, AddonPurchaseSerializer
 )
 from .services import get_currency_per_usd_map_cached
-from core.payments.freedompay import charge_recurring_by_user_token, FreedomPayError
+# Running inside container, apps are at /app (plans, payments, users, core)
+# So import payments as a top-level Django app package
+from payments.freedompay import charge_recurring_by_user_token, FreedomPayError
 from rest_framework.views import APIView
 from django.utils import timezone
 import uuid
