@@ -40,14 +40,14 @@ export default function FAQSection() {
 									</ul>
 								) : (
 									<p>
-										{a.includes("support@vokalo.online") ? (
+										{a.includes("support@esai.kg") ? (
 											<>
 												Пишите на{" "}
 												<a
-													href="mailto:support@vokalo.online"
+													href="mailto:support@esai.kg"
 													className="text-blue-500"
 												>
-													support@vokalo.online
+													support@esai.kg
 												</a>
 												<br />
 												Или через Telegram:{" "}

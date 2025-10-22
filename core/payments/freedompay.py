@@ -101,7 +101,16 @@ class FreedomPayClient:
             return data
 
 
-def charge_recurring_by_user_token(*, user, amount: int, currency: str, order_id: str, description: str = "", **kwargs) -> Dict[str, Any]:
+def charge_recurring_by_user_token(
+    *,
+    user,
+    amount: int,
+    currency: str,
+    order_id: str,
+    description: str = "",
+    fp_user: Optional[Dict[str, Any]] = None,
+    **kwargs,
+) -> Dict[str, Any]:
     token = (getattr(user, "pay_token", None) or "").strip()
     if not token:
         raise FreedomPayError("User has no saved pay_token")
@@ -112,6 +121,6 @@ def charge_recurring_by_user_token(*, user, amount: int, currency: str, order_id
         currency=currency,
         order_id=order_id,
         description=description,
+        user=fp_user,
         **kwargs,
     )
-

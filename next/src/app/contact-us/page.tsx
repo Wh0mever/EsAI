@@ -45,7 +45,7 @@ export default function ContactUs() {
             <p className="text-gray-300">{t("contact_us.call_description")}</p>
 
             <a
-              href={`tel:${t("contact_us.call_phone").replace(/[^+\d]/g, "")}`}
+              href={`tel:+996555919141`}
               className="mt-2 inline-flex items-center gap-1 border border-gray-700 py-3 px-5 rounded-lg bg-neutral-900 hover:bg-indigo-600 transition-all duration-300 w-full sm:w-auto"
             >
               <span>{t("contact_us.call_button")}</span>

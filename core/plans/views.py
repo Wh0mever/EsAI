@@ -135,7 +135,7 @@ class ChargeBySavedCardView(APIView):
                 description=description,
                 auto_clearing=auto_clearing,
                 test=test,
-                user={"email": request.user.email or "", "phone": request.user.tel or ""},
+                fp_user={"email": request.user.email or "", "phone": request.user.tel or ""},
             )
         except FreedomPayError as e:
             return Response({"message": str(e)}, status=400)

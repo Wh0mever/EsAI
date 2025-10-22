@@ -185,7 +185,7 @@
     "write_title": "Write to us",
     "write_description": "Write to us and you'll receive a reply shortly.",
     "write_button": "Write to us",
-    "write_email": "admin@vokalo.online",
+    "write_email": "support@esai.kg",
     "call_title": "Call us",
     "call_description": "Call us. Our experts are ready to talk to you.",
     "call_button": "Call us",
@@ -248,7 +248,7 @@
       },
       "7": {
         "q": "How to contact support?",
-        "a": "Write to support@vokalo.online or Telegram: @VokaloSupportBot"
+        "a": "Write to support@esai.kg or Telegram: @VokaloSupportBot"
       }
     },
     "modalTitle": "Ask a Question",
@@ -555,7 +555,7 @@
           "Cloning others’ voices: with consent obtained, ownership and commercial rights to the generated cover belong to you. If the cloned voice is materially altered and no longer recognizable, ownership and commercial rights also belong to you.",
           "Using platform voices: covers generated with voices built into our platform belong to you.",
           "Platform-generated music (including covers) belongs to you. Our algorithms ensure uniqueness and high quality.",
-          "Custom voice training: if you train a custom voice model on our platform, the model and generated voices belong to you. For questions: support@vokalo.online."
+          "Custom voice training: if you train a custom voice model on our platform, the model and generated voices belong to you. For questions: support@esai.kg."
         ]
       },
       {
