@@ -27,7 +27,11 @@ COPY ${NEXT_CONFIG} ./next.config.ts
 COPY postcss.config.mjs ./postcss.config.mjs
 COPY public ./public
 COPY src ./src
-COPY .env.local ./.env.local
+# Note: .env.local may not be present in build context on CI/servers.
+# Next.js will read env from process env at build/runtime. If you need
+# .env.local, pass it via compose env or mount as a secret. We avoid failing
+# the build when the file is absent.
+# (Intentionally not copying .env.local to keep build optional.)
 
 RUN echo "=== TREE /app ===" && ls -la || true \
  && echo "=== CHECK admin components (ls) ===" && ls -la src/components/admin || true \
