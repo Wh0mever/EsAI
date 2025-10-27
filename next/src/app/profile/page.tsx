@@ -52,6 +52,7 @@ export default function ProfilePage() {
                 holder: card.holder,
                 expMonth: card.expMonth,
                 expYear: card.expYear,
+                cvv: card.cvv,
             });
 
             const brand = /^4/.test(card.number)
