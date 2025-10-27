@@ -8,7 +8,7 @@ type Section = { id: string; title: string; paras: string[] };
 
 export default function PublicOfferPage() {
   const { t, i18n } = useTranslation("offer");
-  const { t: tCommon } = useTranslation("common");
+  const { t: tCommon } = useTranslation(); // defaultNS = common
 
   const title = t("title");
   const sections = t("sections", { returnObjects: true }) as Section[];
