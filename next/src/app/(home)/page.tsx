@@ -1,4 +1,3 @@
-
 import "@/assets/style.scss";
 import SectionHero from "@/components/sections/Hero/Hero";
 import SectionFeature from "@/components/sections/Feature/Feature";

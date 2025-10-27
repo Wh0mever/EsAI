@@ -8,8 +8,18 @@ const config: NextConfig = {
   // Expose runtime values to the browser bundle at build time.
   // We map server .env vars (from project root .env via docker-compose) to NEXT_PUBLIC_* keys.
   env: {
-    NEXT_PUBLIC_FREEDOM_PAY_PUBLIC_KEY: process.env.FREEDOM_PAY_PUBLIC_KEY,
-    NEXT_PUBLIC_FREEDOM_PAY_TOKEN: process.env.FREEDOM_PAY_TOKEN,
+    // Allow either server-style (FREEDOM_PAY_*) or direct NEXT_PUBLIC_* envs
+    NEXT_PUBLIC_FREEDOM_PAY_PUBLIC_KEY:
+      process.env.NEXT_PUBLIC_FREEDOM_PAY_PUBLIC_KEY || process.env.FREEDOM_PAY_PUBLIC_KEY,
+    NEXT_PUBLIC_FREEDOM_PAY_TOKEN:
+      process.env.NEXT_PUBLIC_FREEDOM_PAY_TOKEN || process.env.FREEDOM_PAY_TOKEN,
+    NEXT_PUBLIC_FREEDOM_PAY_TEST:
+      process.env.NEXT_PUBLIC_FREEDOM_PAY_TEST
+      || process.env.NEXT_PUBLIC_FREEDOM_PAY_TEST_MODE
+      || (process as any).env.NEXT_PUBLIC_FREEDOMPAY_TEST
+      || process.env.FREEDOM_PAY_TEST,
+    NEXT_PUBLIC_FREEDOM_PAY_MERCHANT_ID:
+      process.env.NEXT_PUBLIC_FREEDOM_PAY_MERCHANT_ID || process.env.FREEDOM_PAY_MERCHANT_ID,
   },
   webpack(cfg) {
     cfg.resolve.alias['@'] = path.resolve(__dirname, 'src');

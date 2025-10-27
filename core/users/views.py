@@ -17,6 +17,7 @@ from core.format import format_errors
 from mails.sender import send_template_email
 from django.contrib.auth.hashers import make_password
 from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.authentication import JWTAuthentication
 from plans.models import UserSubscription
 from plans.serializers import UserSubscriptionSerializer
 from .models import User, UserQuestions, Notification, NotificationDelivery
@@ -371,6 +372,7 @@ class FeedbackView(APIView):
 
 
 class BindCardView(APIView):
+    authentication_classes = [JWTAuthentication]
     """Bind FreedomPay tokenized card to the current user (без сохранения PAN).
 
     Expected JSON:
@@ -381,6 +383,8 @@ class BindCardView(APIView):
     - exp_year: int (optional, 2- or 4-digit)
     - card_holder: string (optional)
     """
+
+    permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
         data = request.data or {}
@@ -406,7 +410,8 @@ class BindCardView(APIView):
 
         u: User = request.user
         # Store token and public card meta only
-        u.pay_token = token
+        # Store up to model max length to avoid DB errors if migration lags
+        u.pay_token = token[:1024]
         if brand is not None:
             u.brand = brand or None
         if last4:
@@ -420,11 +425,22 @@ class BindCardView(APIView):
             u.exp_year = (2000 + exp_year) if 0 <= exp_year < 100 else exp_year
         u.save()
 
-        return Response({"status": "ok"}, status=200)
+        return Response({
+            "status": "ok",
+            "card": {
+                "last4": u.last4,
+                "card_holder": u.card_holder,
+                "exp_month": u.exp_month,
+                "exp_year": u.exp_year,
+            }
+        }, status=200)
 
 
 class UnbindCardView(APIView):
+    authentication_classes = [JWTAuthentication]
     """Clear saved FreedomPay token and public card meta for the user."""
+
+    permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
         u: User = request.user
