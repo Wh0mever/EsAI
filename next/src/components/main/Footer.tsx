@@ -87,7 +87,7 @@ export default function Footer() {
                 </a>
               </li>
               <li>
-                <a href="/offer" className="hover:text-white transition-colors">
+                <a href="/public-offer" className="hover:text-white transition-colors">
                   {t("nav.offer")}
                 </a>
               </li>

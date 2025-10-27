@@ -33,6 +33,32 @@ declare global {
   }
 }
 
+function isFPDebug() {
+  const v = (process.env.NEXT_PUBLIC_FREEDOM_PAY_DEBUG || "").toLowerCase();
+  return v === "1" || v === "true" || v === "full" || v === "on";
+}
+
+function isFPTestMode(): 0 | 1 {
+  const raw = (process.env.NEXT_PUBLIC_FREEDOM_PAY_TEST
+    || (process.env as any).NEXT_PUBLIC_FREEDOM_PAY_TEST_MODE
+    || (process.env as any).NEXT_PUBLIC_FREEDOMPAY_TEST
+    || "").toString().trim().toLowerCase();
+  if (raw === "1" || raw === "true" || raw === "yes" || raw === "on" || raw === "test" || raw === "sandbox") {
+    return 1;
+  }
+  return 0;
+}
+
+function maskPan(pan: string) {
+  const d = (pan || "").replace(/\D+/g, "");
+  if (d.length <= 8) return d.replace(/\d/g, "*");
+  return d.slice(0, 6) + d.slice(6, -4).replace(/\d/g, "*") + d.slice(-4);
+}
+
+function mask(str: string) {
+  return (str || "").replace(/./g, "*");
+}
+
 /* ---------- internals ---------- */
 async function waitFreedomPaySDK(timeoutMs = 12000): Promise<any> {
   if (typeof window === "undefined") throw new Error("FreedomPaySDK must run in browser");
@@ -65,13 +91,16 @@ function normalizePemLike(str: string) {
   return s;
 }
 
-// get public key for SDK.setup: accept both PEM and base64
+// get public key for SDK.setup: return base64-only content (strip PEM headers)
 function getPublicKeyForSDK(): string {
   const raw = process.env.NEXT_PUBLIC_FREEDOM_PAY_PUBLIC_KEY || "";
-  const pk = normalizePemLike(raw);
-  if (pk.includes("BEGIN PUBLIC KEY") && pk.includes("END PUBLIC KEY")) return pk;
-  if (/^[A-Za-z0-9+/=]+$/.test(pk) && pk.length > 100) return pk;
-  return pk.replace(/\s+/g, "");
+  let pk = normalizePemLike(raw);
+  if (pk.includes("BEGIN PUBLIC KEY") && pk.includes("END PUBLIC KEY")) {
+    const m = pk.match(/-----BEGIN PUBLIC KEY-----([\s\S]*?)-----END PUBLIC KEY-----/);
+    if (m) pk = m[1];
+  }
+  pk = pk.replace(/\s+/g, "");
+  return pk;
 }
 
 function assertEnv() {
@@ -104,6 +133,11 @@ async function setupSDK() {
   const sdk = await waitFreedomPaySDK();
   const publicKey = getPublicKeyForSDK();
   const token = (process.env.NEXT_PUBLIC_FREEDOM_PAY_TOKEN as string).trim();
+  try {
+    if (isFPDebug()) {
+      console.log("[FP] setup", { publicKeyLength: publicKey.length, token: mask(token) });
+    }
+  } catch {}
   sdk.setup(publicKey, token); // idempotent on provider side
   return sdk;
 }
@@ -115,21 +149,45 @@ export async function tokenizeBankCard(card: {
   holder: string;
   expMonth: string;
   expYear: string; // YY or YYYY
+  cvv?: string;    // optional; some providers require CVV for tokenize
 }): Promise<string> {
   validateCardForTokenize(card);
   const sdk = await setupSDK();
 
-  const JSTokenizeOptionsBankCard = {
+  const JSTokenizeOptionsBankCard: any = {
     type: "bank_card",
     options: {
       card_number: card.number.replace(/\D+/g, ""),
-      card_holder_name: card.holder.trim(),
-      card_exp_month: card.expMonth.trim(),
+      card_holder_name: card.holder.trim().replace(/\s+/g, " ").toUpperCase(),
+      card_exp_month: card.expMonth.trim().padStart(2, "0"),
       card_exp_year: normalizeYear(card.expYear.trim()),
     },
   };
+  if (card.cvv && /^\d{3,4}$/.test(card.cvv)) {
+    JSTokenizeOptionsBankCard.options.card_cvv = Number(card.cvv.trim());
+  }
+  try {
+    if (isFPDebug()) {
+      console.log("[FP] tokenize request", {
+        type: JSTokenizeOptionsBankCard.type,
+        options: {
+          card_number: maskPan(JSTokenizeOptionsBankCard.options.card_number),
+          card_holder_name: JSTokenizeOptionsBankCard.options.card_holder_name,
+          card_exp_month: JSTokenizeOptionsBankCard.options.card_exp_month,
+          card_exp_year: JSTokenizeOptionsBankCard.options.card_exp_year,
+          card_cvv: JSTokenizeOptionsBankCard.options.card_cvv ? mask(String(JSTokenizeOptionsBankCard.options.card_cvv)) : undefined,
+        },
+      });
+    }
+  } catch {}
 
-  const res = await sdk.tokenize(JSTokenizeOptionsBankCard);
+  const testFlag = isFPTestMode();
+  const res = await (testFlag ? sdk.tokenize(JSTokenizeOptionsBankCard, { test: testFlag }) : sdk.tokenize(JSTokenizeOptionsBankCard));
+  try {
+    if (isFPDebug()) {
+      console.log("[FP] tokenize response", { ok: !!res?.token, tokenLength: res?.token ? String(res.token).length : 0, raw: res });
+    }
+  } catch {}
   if (!res?.token) throw new Error("Tokenize failed");
   return String(res.token);
 }
@@ -166,10 +224,31 @@ export async function payWithBankCard(
       card_cvv: Number(card.cvv.trim()),
     },
   };
+  try {
+    if (isFPDebug()) {
+      console.log("[FP] charge request", {
+        payment: {
+          ...JSPaymentOptions,
+        },
+        transaction: {
+          type: JSTransactionOptionsBankCard.type,
+          options: {
+            card_number: maskPan(JSTransactionOptionsBankCard.options.card_number),
+            card_holder_name: JSTransactionOptionsBankCard.options.card_holder_name,
+            card_exp_month: JSTransactionOptionsBankCard.options.card_exp_month,
+            card_exp_year: JSTransactionOptionsBankCard.options.card_exp_year,
+            card_cvv: mask(String(JSTransactionOptionsBankCard.options.card_cvv)),
+          },
+        },
+      });
+    }
+  } catch {}
 
   let res: PayResult = await sdk.charge(JSPaymentOptions, JSTransactionOptionsBankCard);
+  try { if (isFPDebug()) console.log("[FP] charge response", res); } catch {}
   if (res?.payment_status === "need_confirm") {
     res = await sdk.confirmInIframe(res, threeDSContainerId);
+    try { if (isFPDebug()) console.log("[FP] confirmInIframe response", res); } catch {}
   }
   return res;
 }
@@ -199,12 +278,22 @@ export async function payByCardToken(
     type: "bank_card_token",
     options: { token },
   };
+  try {
+    if (isFPDebug()) {
+      console.log("[FP] charge by token request", {
+        payment: JSPaymentOptions,
+        transaction: JSTransactionOptionsToken,
+      });
+    }
+  } catch {}
 
   // For безакцептных платежей 3DS should not be required.
   // However, if provider still returns need_confirm, handle via iframe to be safe.
   let res: PayResult = await sdk.charge(JSPaymentOptions, JSTransactionOptionsToken);
+  try { if (isFPDebug()) console.log("[FP] charge by token response", res); } catch {}
   if (res?.payment_status === "need_confirm") {
     res = await sdk.confirmInIframe(res, threeDSContainerId);
+    try { if (isFPDebug()) console.log("[FP] confirmInIframe response", res); } catch {}
   }
   return res;
 }

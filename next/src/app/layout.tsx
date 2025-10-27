@@ -39,12 +39,22 @@ export default async function RootLayout({ children }: { children: React.ReactNo
 	const computed = localeByHost(host);
 	const lang = manual && cookieLang ? cookieLang : (cookieLang && ["ru","en","kg"].includes(cookieLang) ? cookieLang : computed);
 
+	const fpPk = process.env.NEXT_PUBLIC_FREEDOM_PAY_PUBLIC_KEY || process.env.FREEDOM_PAY_PUBLIC_KEY || "";
+	const fpToken = process.env.NEXT_PUBLIC_FREEDOM_PAY_TOKEN || process.env.FREEDOM_PAY_TOKEN || "";
+	const fpMerchantId = process.env.NEXT_PUBLIC_FREEDOM_PAY_MERCHANT_ID || process.env.FREEDOM_PAY_MERCHANT_ID || "";
+
 	return (
 		<html lang={lang} className="dark">
 			<body>
 				<DomainDefaults />
 				<BackToTopButton />
 				<div id="alert-root"></div>
+				<script
+					id="fp-env"
+					dangerouslySetInnerHTML={{
+						__html: `window.__FP_ENV__=${JSON.stringify({ pk: fpPk, token: fpToken, merchantId: fpMerchantId })};`,
+					}}
+				/>
 				<I18nProvider lang={lang}>{children}</I18nProvider>
 			</body>
 		</html>
