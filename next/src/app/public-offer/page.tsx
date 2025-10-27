@@ -17,7 +17,7 @@ export default function PublicOfferPage() {
 
   // Fill dynamic placeholders (site and email) client-side
   const site = typeof window !== "undefined" ? window.location.origin : "";
-  const supportEmail = tCommon("write_email");
+  const supportEmail = (process.env.NEXT_PUBLIC_SUPPORT_EMAIL as string) || tCommon("write_email");
 
   function withVars(text: string) {
     return text
@@ -49,4 +49,3 @@ export default function PublicOfferPage() {
     </main>
   );
 }
-

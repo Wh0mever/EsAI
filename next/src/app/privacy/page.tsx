@@ -13,7 +13,7 @@ export default function PrivacyPolicyPage() {
   const title = t("title");
   const sections = t("sections", { returnObjects: true }) as Section[];
 
-  const supportEmail = tCommon("write_email");
+  const supportEmail = (process.env.NEXT_PUBLIC_SUPPORT_EMAIL as string) || tCommon("write_email");
   const site = typeof window !== "undefined" ? window.location.origin : "";
 
   const withVars = (s: string) => s.replaceAll("{{email}}", supportEmail).replaceAll("{{site}}", site);
@@ -35,4 +35,3 @@ export default function PrivacyPolicyPage() {
     </main>
   );
 }
-
