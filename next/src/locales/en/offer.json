@@ -3,130 +3,161 @@
   "sections": [
     {
       "id": "1",
-      "title": "1. General Provisions",
+      "title": "1) General Information",
       "paras": [
-        "1.1. This Agreement is a public offer in accordance with Articles 386–399 of the Civil Code of the Kyrgyz Republic.",
-        "1.2. The Contractor is a legal entity/sole proprietor providing online access to a service for generating digital content (images, audio, text) using neural networks.",
-        "1.3. The Customer is any individual who accepts the offer by registering on the Website and/or paying for the services.",
-        "1.4. The Website is the Contractor’s online platform available at: vokalo.ru, vokalo.kg, vokalo.online.",
-        "1.5. Personal Account is a secure section of the Website available after the Customer’s registration."
+        "Parties: Contractor — Sole Proprietor Shagidov F.T.; Customer — any individual.",
+        "Form: public offer; concluded by adhesion (acceptance without reservations).",
+        "Subject: paid access to the service for generating music, images and songs via the websites Vokalo.kg / Vokalo.ru / Vokalo.online.",
+        "Legal basis: Civil Code of the Kyrgyz Republic (incl. Arts. 386, 387, 395, 398, 399, etc.).",
+        "Placement: the text is published on Vokalo.kg, Vokalo.ru, Vokalo.online."
       ]
     },
     {
       "id": "2",
-      "title": "2. Subject of the Agreement",
+      "title": "2) Terms",
       "paras": [
-        "2.1. The Contractor provides the Customer with access to the platform’s functionality for generating digital content (images, text, audio), as well as related services.",
-        "2.2. The Customer undertakes to pay for access under the terms set out in this Agreement."
+        "Website — the websites at the stated addresses.",
+        "Personal Account — protected pages accessible by email+password (authentication data).",
+        "Invoice — invoice/bill/price agreement protocol, etc., determining the price and, if necessary, the payment procedure."
       ]
     },
     {
       "id": "3",
-      "title": "3. Procedure for Concluding the Agreement",
+      "title": "3) Conclusion and Access Provision",
       "paras": [
-        "3.1. The Agreement is deemed concluded from the moment of acceptance — payment for the services or registration in the Personal Account.",
-        "3.2. Acceptance means consent to all terms without limitations or reservations.",
-        "3.3. The fact of acceptance is the payment for a subscription or a one-time service package, including automatic recurring debits during auto-renewal."
+        "The Agreement is public; publishing the text constitutes an offer.",
+        "Acceptance: payment for services (including when paid with credit funds — concluding a credit agreement with the bank).",
+        "From the moment of acceptance the Parties are deemed to have concluded the Agreement in writing.",
+        "After acceptance, the Contractor provides access to the service."
       ]
     },
     {
       "id": "4",
-      "title": "4. Services",
+      "title": "4) Contractor’s Duties and Rights",
       "paras": [
-        "4.1. Access to services for generating images, text, and audio.",
-        "4.2. Access to templates, generation history, and additional services.",
-        "4.3. Technical support by e-mail: {{email}} during business hours."
+        "Duties:",
+        "— Provide access to the service.",
+        "— Provide information support on business days 09:00–18:00 (until 17:00 on Friday/shortened days); contact: {{email}}.",
+        "— Fix errors/defects at own expense.",
+        "— Process refunds in the established cases/conditions.",
+        "Rights:",
+        "— Modify the service.",
+        "— Engage/replace third parties without approval.",
+        "— Request necessary information/documents.",
+        "— Change pricing (current prices — on the Website).",
+        "— Temporarily suspend the Website for maintenance/repairs."
       ]
     },
     {
       "id": "5",
-      "title": "5. Rights and Obligations of the Parties",
+      "title": "5) Customer’s Duties and Rights",
       "paras": [
-        "The Contractor undertakes:",
-        "— to ensure access to the platform during the paid period;",
-        "— to correct failures and errors at its own expense;",
-        "— to refund payments in the cases provided for by this Agreement.",
-        "The Contractor has the right:",
-        "— to change rates and service functionality;",
-        "— to temporarily suspend operations for maintenance;",
-        "— to change the service rules without prior approval from the Customer by publishing the current version on the Website.",
-        "The Customer undertakes:",
-        "— to pay for the services on time;",
-        "— to use the service only for lawful purposes and not violate third-party rights;",
-        "— to keep access credentials confidential and not share them with third parties."
+        "Duties:",
+        "— Pay fully and on time.",
+        "— Provide accurate data (incl. during registration).",
+        "— Use access exclusively for personal/non‑commercial purposes.",
+        "— Keep login/password confidential and notify of unauthorized access.",
+        "— Do not publish others’ personal data; do not register on behalf of others/legal entities; do not disrupt the site; do not use malware/scripts without permission.",
+        "Rights:",
+        "— Obtain access after meeting the conditions.",
+        "— Receive information support throughout the Agreement term.",
+        "— Use access only for non‑commercial purposes.",
+        "— Submit comments/suggestions/feedback."
       ]
     },
     {
       "id": "6",
-      "title": "6. Fees and Payment Procedure",
+      "title": "6) Price and Payment",
       "paras": [
-        "6.1. Fees are determined by the rates published on the Website.",
-        "6.2. Payment is made by 100% prepayment: bank cards (VISA, MasterCard, Elcart), e-wallets, as well as via automatic recurring debits.",
-        "6.3. The subscription renews automatically; the Customer agrees to regular recurring debits.",
-        "6.4. The payment date is the date the funds are credited to the Contractor’s account."
+        "Pricing currency: Kyrgyz som; price — per Website or per Invoice.",
+        "Payment: 100% prepayment in a single transfer to the settlement account (unless otherwise specified in the Invoice); the payment date is when funds are credited to the Contractor’s account.",
+        "Payment methods — those supported by the Contractor; current list — on the Website/by other means. Detailed rules — Appendix No. 1.",
+        "Payment on credit — under the bank’s terms; the Contractor is not a lender and is not liable for the bank’s terms/refusal.",
+        "The date of service/goods provision is the date access is granted; from this date the service/goods are deemed provided."
       ]
     },
     {
       "id": "7",
-      "title": "7. Refunds and Subscription Cancellation",
+      "title": "7) Liability and Limitations",
       "paras": [
-        "7.1. Full terms are set out in Appendix No. 1 ‘Payment and Refund Rules’.",
-        "7.2. A refund is possible if the service is not provided due to the Contractor’s fault, or if the Customer requested cancellation before the service begins.",
-        "7.3. If cancellation occurs after the service has started, a partial refund or no refund is made.",
-        "7.4. Subscription cancellation is performed in the Personal Account; funds debited for the current period are non-refundable."
+        "Customer’s penalty for violation: 5000 KGS per each violation (out‑of‑court upon written demand).",
+        "In case of violation: deactivation of Personal Account/blocking access without refund; obligation to pay default interest within 15 calendar days from notification.",
+        "The Contractor is not liable for:",
+        "— content in user chats (WhatsApp/Viber/Telegram) and use of personal data there;",
+        "— Internet connection quality/equipment of the Customer;",
+        "— the Customer’s equipment not meeting requirements (if any);",
+        "— services not matching expectations (subjective opinion is not a quality criterion);",
+        "— the Customer’s errors when using the Website’s functionality;",
+        "— the choice/use of payment method and consequences;",
+        "— actions of banks/third parties in settlements/refunds.",
+        "Uninterrupted Website operation is not guaranteed; no liability for ISP failures/Internet access restrictions and other matters beyond the Contractor’s control.",
+        "Force majeure: natural disasters, strikes, wars, epidemics/pandemics, etc.",
+        "If the Customer fails to perform (incl. under cl. 4.2): unilateral out‑of‑court termination by the Contractor upon email notice; the Agreement terminates on the date of sending or within the stated term; access is deactivated."
       ]
     },
     {
       "id": "8",
-      "title": "8. Liability of the Parties",
+      "title": "8) IP and Confidentiality",
       "paras": [
-        "8.1. The Contractor is not liable for internet connectivity disruptions, actions of banks and payment systems, or the Customer’s subjective expectations regarding the neural network’s operation.",
-        "8.2. If the Customer violates the Agreement, the Contractor may suspend access without a refund."
+        "Access is granted to the Contractor’s/third parties’ IP (software, audiovisual materials, LMS, guides, assignments, information resources, etc.).",
+        "The Customer must:",
+        "— not copy/record/reproduce/replicate/distribute/modify/create derivatives without written permission;",
+        "— report IP infringements;",
+        "— not share credentials with third parties; in case of loss/unauthorized access — immediately notify {{email}}; until notification all actions are deemed made by the Customer.",
+        "Confidential Information: any service‑related information not publicly available; do not disclose without written consent.",
+        "The Contractor may use objects created by the Customer while studying materials and may mention the Customer as a user/client.",
+        "Additional consents: to personal data processing (per the Website’s Policy); to use of reviews (without full name and without image; adaptations allowed without distorting meaning; valid until consent is withdrawn); to receive advertising/information messages (email, phone, messengers Viber/Telegram/WhatsApp, postal mail, SMS, push, calls)."
       ]
     },
     {
       "id": "9",
-      "title": "9. Intellectual Property",
+      "title": "9) Miscellaneous",
       "paras": [
-        "9.1. All platform materials (code, interfaces, databases) belong to the Contractor.",
-        "9.2. Content generated by the User belongs to the User; however, the Contractor has the right to use it in anonymized form to demonstrate the service’s capabilities and for marketing."
+        "The Customer confirms legal capacity and required age.",
+        "Service may be refused if: the bank/payment system does not confirm payment authorization; a refund is initiated; other statutory/contractual grounds.",
+        "Term: from acceptance until obligations are fulfilled.",
+        "The Contractor may amend terms/add new terms/appendices without prior notice; continued use equals consent.",
+        "Texts of amendments/new editions are published on the Website.",
+        "Customer’s silence (no written objections, incl. on tariffs) = consent and accession to the new edition.",
+        "Termination: by mutual agreement; or unilateral termination by either Party upon notice via Personal Account/email at least 15 calendar days before termination date.",
+        "Invalidity of a clause does not invalidate the rest.",
+        "Governing law — laws of the Kyrgyz Republic.",
+        "Disputes: negotiations → courts of the Kyrgyz Republic, with mandatory pre‑trial procedure (a claim is sent in a way that identifies the sender and delivery; returned mail due to absence of recipient does not prevent filing a lawsuit; response to a claim — 10 business days; lack of response = consent to the claim).",
+        "Electronic documents sent electronically/through the Personal Account have legal force."
       ]
     },
     {
       "id": "10",
-      "title": "10. Privacy and Data",
+      "title": "10) Details",
       "paras": [
-        "10.1. The User consents to the processing of personal data in accordance with the Privacy Policy.",
-        "10.2. Bank card details are not stored on the Contractor’s servers."
-      ]
-    },
-    {
-      "id": "11",
-      "title": "11. Force Majeure",
-      "paras": [
-        "11.1. The Parties are released from liability in circumstances of force majeure."
-      ]
-    },
-    {
-      "id": "12",
-      "title": "12. Final Provisions",
-      "paras": [
-        "12.1. The Agreement enters into force upon acceptance and remains effective until the end of the paid period.",
-        "12.2. The Contractor may amend the terms by publishing a new version on the Website.",
-        "12.3. Disputes are resolved through negotiations, and if unresolved — in court in accordance with the laws of the Kyrgyz Republic."
+        "Customer: details — data provided during registration/application/payment.",
+        "Contractor:",
+        "— SP Shagidov F.T.",
+        "— TIN: 22102197700907",
+        "— Address: Kyrgyzstan, Bishkek, Usenbaeva St. 138a",
+        "— Email: {{email}}",
+        "— Tel.: +996 555 919 141"
       ]
     }
   ],
   "appendix": {
     "title": "Appendix No. 1 — Payment and Refund Rules",
     "paras": [
-      "Services are paid non-cash (VISA/MasterCard/Elcart cards, e-wallets).",
-      "By choosing a subscription, the Customer agrees to automatic regular debits (recurring payments).",
-      "Refunds are possible:",
-      "100% — if the service was not provided due to the Contractor’s fault;",
-      "50% — if cancellation occurs within 30 days after service activation;",
-      "0% — if cancellation occurs after 30 days of the paid period.",
-      "Refunds are made to the account from which the payment was made, within up to 30 days."
+      "Payment: final price — per selected plan/service. Non‑cash payment via methods supported on the Website/Personal Account. Accepted: VISA, MasterCard, ELKART, and e‑wallets.",
+      "Payments follow Visa/MasterCard rules with confidentiality/security (checks, encryption, secure channels).",
+      "Process: 1) Choose ‘Pay by bank card’ → ‘Pay’. 2) Redirect to a secure payment page of the operator/bank; 3‑D Secure is used. 3) Enter card details: number, cardholder name, expiry date, CVV2/CVC2; a special password may be required (MasterCard SecureCode / Verified by Visa).",
+      "Card data are not stored on the Contractor’s server/Website; confidentiality is ensured by the PSP/bank; disclosure to third parties only as required by law.",
+      "Possible payment refusal reasons: the card is not enabled for online payments; insufficient funds; incorrect details; expired card.",
+      "If debiting occurred due to errors but without PSP/bank authorization — the PSP/bank (not the Contractor) performs the refund.",
+      "Refunds — grounds: the service/goods were not provided on time due to the Contractor’s fault; the Customer sent a termination/refund notice before the service began; other cases per these Rules.",
+      "Refund procedure: a written request to {{email}} followed by sending the original to: Kyrgyz Republic, Bishkek, Usenbaeva St. 138a, apt. 6. The Contractor may require a prescribed request form.",
+      "Refund amount: 100% — if cancellation occurs before service/goods are provided (except credit payments; see below for credit).",
+      "For payments made with credit funds — refund is made to the bank, less the fees retained by the bank from the Contractor; the Customer’s loan interest is not reimbursed.",
+      "50% — if cancellation occurs within 30 calendar days from the date of service/goods provision (for credit — refund to the bank minus fees; interest is not reimbursed).",
+      "0% — if cancellation occurs after 30 days from the date of service/goods provision.",
+      "Refund timing: to the original payment account, up to 30 days from receipt of the request (actual timing depends on the card‑issuing bank).",
+      "If the Customer’s payment details changed or payment was by credit — the Customer must provide current bank details for the refund; if not provided, the Contractor is not liable for incorrect/late refund.",
+      "Clarification: for ‘credit’ purchases, all amounts/expenses are calculated from the amount actually received by the Contractor from the bank."
     ]
   }
 }

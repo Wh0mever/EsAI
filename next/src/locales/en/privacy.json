@@ -1,111 +1,146 @@
 {
-  "title": "Privacy Policy (Personal Data Processing Policy)",
+  "title": "Privacy Policy (Personal Data Processing)",
   "sections": [
     {
       "id": "1",
       "title": "1. General Provisions",
       "paras": [
-        "1.1. This Policy governs the processing and protection of personal data provided by the User when using the Contractor’s online platform (the ‘Platform’) available under the domain names: vokalo.ru, vokalo.kg, vokalo.online, and other domains owned by the Contractor.",
-        "1.2. ‘User’ means any legally capable individual aged 18 or older who has registered on the Platform or uses its functionality.",
-        "1.3. ‘Personal data’ means any information relating to an identified or identifiable User: surname, name, email address, phone number, payment details, order history, and results of content generation (images, audio, text).",
-        "1.4. This Policy complies with the Law of the Kyrgyz Republic ‘On Personal Information’ and, where applicable, GDPR."
+        "The Policy governs personal data processing between SP Shagidov F.T. (TIN 22102197700907, Bishkek, Usenbaeva St. 138a) — the Company, and Users of the websites: vokalo.kg, vokalo.ru, vokalo.online — the Website.",
+        "User — a legally capable individual aged 18+, wishing to order services, leave a comment, register, or use the site’s functionality.",
+        "Website — the Company’s web resources, including all domain levels.",
+        "Personal data — any information relating to an identifiable individual.",
+        "Processing of personal data — any operation with such data (collection, storage, systematization, transfer, destruction, etc.) with or without automation."
       ]
     },
     {
       "id": "2",
-      "title": "2. User Consent",
+      "title": "2. Scope and User Consent",
       "paras": [
-        "2.1. By providing data during registration, payment, or use of the Platform’s functionality, the User consents to its processing.",
-        "2.2. If the User does not agree with the Policy, they must immediately stop using the Platform."
+        "The Policy defines the procedure, conditions and principles of processing, Users’ rights, the Company’s obligations, and data protection measures.",
+        "The User accepts the Policy by entering their name, phone, and, if required, e‑mail into a Website form (e.g., submitting a request, comment, registration) and clicking ‘Submit’ or ‘Request a consultation’. If the User disagrees, they must immediately stop using the Website."
       ]
     },
     {
       "id": "3",
-      "title": "3. Data Processed",
+      "title": "3. Personal Data the Company May Collect",
       "paras": [
-        "3.1. The Contractor may collect and process:",
-        "— surname, name, contact details (phone, e-mail);",
-        "— payment details (without storing full card numbers);",
-        "— authentication data (login, password, user ID);",
-        "— history of generated content (texts, images, audio);",
-        "— technical data: IP address, cookies, browser and device information."
+        "Possible data depend on the functionality used:",
+        "— surname, name;",
+        "— e‑mail;",
+        "— phone;",
+        "— identification data (user ID).",
+        "The User consents to processing (including transfer to third parties in provided cases) until the purposes are achieved or consent is withdrawn.",
+        "The Company follows: KR Law No. 58 dated 14.04.2008 ‘On Personal Information’; EU GDPR dated 27.04.2016; other acts of KR law."
       ]
     },
     {
       "id": "4",
-      "title": "4. Purposes of Processing",
+      "title": "4. Term and Withdrawal of Consent",
       "paras": [
-        "The Contractor uses data for:",
-        "— user registration and identification;",
-        "— providing access to the Platform’s functionality;",
-        "— recurring payments and subscription renewal;",
-        "— maintaining generation history and service personalization;",
-        "— sending notifications, emails, and marketing materials;",
-        "— analytics and improving the Platform;",
-        "— compliance with legal requirements."
+        "Consent is valid from provision until the purposes are achieved or until the User withdraws it.",
+        "To withdraw or clarify data, send a request to {{email}} with the subject ‘Clarify personal data’ or ‘Stop processing personal data’, indicating your e‑mail and request."
       ]
     },
     {
       "id": "5",
-      "title": "5. Processing Principles",
+      "title": "5. Purposes of Processing Personal Data",
       "paras": [
-        "5.1. Data is processed lawfully, fairly, and transparently.",
-        "5.2. Collection and use are limited to the purposes specified in this Policy.",
-        "5.3. Retention is limited to the service usage period and no longer than necessary to fulfill obligations."
+        "The Company uses data for:",
+        "— user registration and identification;",
+        "— contacting regarding a request, including interaction with partners;",
+        "— consulting;",
+        "— creating an account/access to an account;",
+        "— information mailings;",
+        "— advertising, promotion of goods/services, content personalization;",
+        "— analysis and statistics of the Website;",
+        "— assessing advertising effectiveness;",
+        "— informing about promotions, discounts, offers;",
+        "— conducting marketing research (including via contractors);",
+        "— communication with partner banks regarding lending."
       ]
     },
     {
       "id": "6",
-      "title": "6. Transfer to Third Parties",
+      "title": "6. User Warranties",
       "paras": [
-        "6.1. The Contractor may transfer data to:",
-        "— payment systems and banks for settlements;",
-        "— service providers involved in service delivery (e.g., hosting, analytics, mailings);",
-        "— anonymized form only — for marketing and statistics.",
-        "6.2. All counterparties must maintain confidentiality and ensure data protection."
+        "The Company does not verify data accuracy but assumes that:",
+        "— the User is legally capable;",
+        "— data is accurate and up‑to‑date;",
+        "— the User understands that information they post may be accessible to others."
       ]
     },
     {
       "id": "7",
-      "title": "7. Cookies and Analytics",
+      "title": "7. Processing Principles",
       "paras": [
-        "7.1. The Platform uses cookies to remember User preferences and analyze activity.",
-        "7.2. Using the Platform implies consent to cookie processing."
+        "— lawfulness;",
+        "— limitation by specific purposes;",
+        "— avoiding mismatch between purposes and data scope;",
+        "— accuracy and relevance;",
+        "— destruction or depersonalization after achieving purposes or upon the User’s request."
       ]
     },
     {
       "id": "8",
-      "title": "8. User Rights",
+      "title": "8. Protection Measures",
       "paras": [
-        "The User has the right to:",
-        "— receive information about their data;",
-        "— request correction, blocking, or deletion of data;",
-        "— withdraw consent to data processing (except where retention is required by law)."
+        "The Company applies organizational and technical measures to protect data from unlawful access.",
+        "Processing is performed using databases within the Kyrgyz Republic, both automated and manual."
       ]
     },
     {
       "id": "9",
-      "title": "9. Data Protection",
+      "title": "9. Transfer to Third Parties",
       "paras": [
-        "9.1. The Contractor implements organizational and technical measures to protect data from unauthorized access and leaks.",
-        "9.2. Bank card details are not stored on the Contractor’s servers."
+        "— Transfer to third parties is possible only with the User’s consent for performance of obligations.",
+        "— Partners must maintain confidentiality, ensure data protection, and not transfer data to others.",
+        "— The following does not violate the Policy: disclosure required by law/government; to partners under contract to perform obligations; anonymized disclosure for analysis, recommendations, advertising, and statistics."
       ]
     },
     {
       "id": "10",
-      "title": "10. Policy Changes",
+      "title": "10. Data Storage",
       "paras": [
-        "10.1. The Contractor may update the Policy without prior notice.",
-        "10.2. The new version takes effect upon publication on the Platform."
+        "— On electronic and, if necessary, physical media.",
+        "— Until: the User deletes data via their account; destruction upon request; expiration of consent.",
+        "— Anonymized data may be stored after obligations are fulfilled."
       ]
     },
     {
       "id": "11",
-      "title": "11. Contacts",
+      "title": "11. Cookies and Analytics",
       "paras": [
-        "All questions related to personal data processing should be sent to: {{email}}."
+        "The Company uses cookies — data (IP, geolocation, browser, OS, device, date and time of access) transmitted automatically when using the Website. Cookies are used to remember settings and collect analytics.",
+        "Using the Website = consent to the collection and transfer of this data to third parties. The Company also receives IP and referral source but does not use them to identify a person."
+      ]
+    },
+    {
+      "id": "12",
+      "title": "12. User Rights",
+      "paras": [
+        "The User has the right to:",
+        "— receive information about their data;",
+        "— request correction of inaccurate data (within 7 business days);",
+        "— request destruction of unlawfully processed data (within 7 days after confirmation);",
+        "— request cessation of processing upon withdrawal of consent, achievement of purpose, or detection of violations. Destruction — within 30 days; if impossible, blocking for up to 6 months."
+      ]
+    },
+    {
+      "id": "13",
+      "title": "13. Changes to the Policy",
+      "paras": [
+        "The Company may make changes at any time. The current version is published on the Website. Continued use of the Website = consent to the new version. If the User disagrees, they must stop using the Website."
+      ]
+    },
+    {
+      "id": "14",
+      "title": "14. Contacts",
+      "paras": [
+        "Email: {{email}}",
+        "Phone: +996 555 919 141",
+        "Address: Bishkek, Usenbaeva St. 138a",
+        "SP Shagidov F.T., TIN 22102197700907."
       ]
     }
   ]
 }
-
