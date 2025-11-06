@@ -3,183 +3,186 @@
   "sections": [
     {
       "id": "1",
-      "title": "1. General Provisions and Terms",
+      "title": "1.The Personal Data Processing Policy (hereinafter – the Policy) regulates the legal relations on personal data processing between SP Shagidov F.T., TIN 22102197700907, address: Bishkek, Usenbaeva St. 138a (hereinafter – the Company) and the user of the website vokalo.kg; vokalo.ru; vokalo.online (hereinafter – the User).",
       "paras": [
-        "This Privacy Policy (the ‘Policy’) governs the personal data processing relationship between SP Shagidov F.T., TIN 22102197700907, address: Bishkek, Usenbaeva St. 138a (the ‘Company’) and a user of the websites vokalo.kg; vokalo.ru; vokalo.online (the ‘User’).",
-        "‘User’ means a legally capable individual aged 18+ wishing to order services, leave a comment, register on the website, or perform other actions enabled by the Company’s web resources.",
-        "‘Website’ means the Company’s websites vokalo.kg; vokalo.ru; vokalo.online, including all domain levels.",
-        "‘Personal data’ means any information relating to an identified or identifiable natural person.",
-        "‘Processing of personal data’ means any operation or set of operations performed with or without automation: collection, receipt, recording, systematization, accumulation, storage, updating, extraction, use, transfer (disclosure, provision, access), anonymization, blocking, deletion, destruction."
+        "‘User’ means a legally capable individual aged 18 or older who wishes to order the Company’s services, leave a comment, register on the website, or perform other actions provided by the functionality of the Company’s Internet resource.",
+        "‘Website’ or the ‘Company’s Internet resource’ means the websites vokalo.kg; vokalo.ru; vokalo.online, including all levels of domain names, owned by the Company.",
+        "‘Personal data’ means any information relating to an identified or directly or indirectly identifiable natural person.",
+        "‘Processing of personal data’ means any action (operation) or a set of actions (operations) with personal data performed with or without the use of automation tools. Such actions (operations) include: collection, receipt, recording, systematization, accumulation, storage, clarification (updating, modification), extraction, use, transfer (distribution, provision, access), anonymization, blocking, deletion, destruction of personal data."
       ]
     },
     {
       "id": "2",
-      "title": "2. Scope and Principles",
-      "paras": [
-        "This Policy defines the procedure, conditions and principles of processing, Users’ rights, the Company’s obligations, and implemented protection measures.",
-        "The Policy applies to all personal data the Company receives from Users."
-      ]
+      "title": "2.This Policy defines the procedure for processing personal data of users of the website vokalo.kg; vokalo.ru; vokalo.online (hereinafter – the Website), the conditions and principles of processing personal data, the rights of Users and the obligations of the Company, as well as information about measures implemented to protect processed personal data.",
+      "paras": []
     },
     {
       "id": "3",
-      "title": "3. User Consent",
-      "paras": [
-        "The User accepts the Policy by entering their name, phone number and, if required, e‑mail into a Website form and clicking ‘Submit’, ‘Request a consultation’, etc.",
-        "If the User disagrees, they must immediately stop using the Website."
-      ]
+      "title": "3.This Policy applies to all personal data that the Company receives from Users.",
+      "paras": []
     },
     {
       "id": "4",
-      "title": "4. Personal Data Provided by the User",
+      "title": "4.The User agrees to this Policy by entering their name, phone number and, if necessary, e‑mail address in a special field on the Website with a proposal to send a consultation request, make an appointment, place an order or perform other actions provided by the Website’s functionality, and then clicking the ‘Send’ button,",
       "paras": [
-        "Depending on the functionality used: surname, name, e‑mail address, phone number, user identification data (user ID)."
+        "‘Request a consultation’ or other buttons.",
+        "If the User does not agree with the Policy, they must immediately stop any use of the Website."
       ]
     },
     {
       "id": "5",
-      "title": "5. Legal Basis and Term of Processing",
-      "paras": [
-        "By providing data, the User consents to processing (until withdrawal), including collection, storage, anonymization, transfer to third parties in cases provided by the Policy, for advertising, information, services provision and other purposes under Section 8.",
-        "The Company follows KR Law No. 58 of 14.04.2008 ‘On Personal Information’, EU GDPR of 27.04.2016, other KR legislation and local acts.",
-        "Consent is effective from provision until purposes are achieved or until withdrawn by the User. The User may withdraw consent as set out in this Policy."
-      ]
+      "title": "5.When using the Website’s functionality, the User may provide the Company with the following personal data (the list and types of personal data depend on the specific functionality used by the User): surname, name, e‑mail address, contact phone number, user identification data (user ID).",
+      "paras": []
     },
     {
       "id": "6",
-      "title": "6. Data Clarification and Withdrawal",
+      "title": "6.By providing their personal data, the User consents to its processing (until the User withdraws their consent), including collection, storage, anonymization, transfer to third parties in cases provided by the Policy, by the Company for the purpose of providing the User with advertising, reference information, services in accordance with the Website’s functionality, and for other purposes according to cl. 8 of this Policy. When processing personal data, the Company is guided by the Law of the Kyrgyz Republic of April 14, 2008 No. 58 ‘On Personal Information’ taking into account the provisions of the EU General Data Protection Regulation (GDPR) of April 27, 2016, other legislative acts of the Kyrgyz Republic and the Company’s local regulations.",
       "paras": [
-        "To clarify incomplete/inaccurate/outdated data or to withdraw consent, the User sends an official request to {{email}} with the subject ‘Clarify personal data’ or ‘Stop processing personal data’, indicating their e‑mail and request."
+        "The User’s consent to personal data processing is valid from the date of provision until the purposes of processing are achieved or until the User withdraws consent, unless otherwise provided by applicable law.",
+        "The User may withdraw the consent given to the Company at any time in the manner established by this Policy."
       ]
     },
     {
       "id": "7",
-      "title": "7. Purposes of Processing",
-      "paras": [
-        "8.1 user registration and identification;",
-        "8.2 communication on the User’s request, including with partners; consulting;",
-        "8.3 creating an account and providing access (including on partner sites);",
-        "8.4 sending informational messages;",
-        "8.5 advertising/promotion, content personalization;",
-        "8.6 assessing and analyzing the Website;",
-        "8.7 advertising effectiveness analytics and statistical research based on anonymized data;",
-        "8.8 informing about promotions, discounts and special offers (email, phone);",
-        "8.9 marketing research (including via contractors);",
-        "8.10 communication with partner banks regarding lending."
-      ]
+      "title": "7.If the User wishes to clarify personal data in cases where personal data is incomplete, inaccurate or outdated, or wishes to withdraw their consent to personal data processing, the User must send an official request to the Company with the subject ‘Clarify personal data’ or ‘Stop processing personal data’ to the e‑mail address support@esai.kg. The letter must indicate the User’s e‑mail address and the relevant request.",
+      "paras": []
     },
     {
       "id": "8",
-      "title": "8. Company Assumptions About User Data",
+      "title": "8.The Company uses the data provided by the User for the following purposes:",
       "paras": [
-        "The Company does not verify data and assumes the User is legally capable; provides accurate and up‑to‑date data; understands that information they post may be accessible and, in cases under the Policy, copied or shared by others."
+        "8.1. registration and identification of the User on the Website, providing the User with the ability to fully use the Website;",
+        "8.2. further communication regarding the User’s request, including by third parties – the Company’s partners to fulfill obligations under the User’s request,",
+        "consulting on matters related to the Company’s services;",
+        "8.3. creating an account and providing access to the User’s account/accounts on partner sites;",
+        "8.4. sending informational messages;",
+        "8.5. advertising, promotion of goods, works (services), including based on information received about the User’s personal preferences and settings;",
+        "8.6. evaluating and analyzing the Company’s Website;",
+        "8.7. analyzing advertising effectiveness, conducting statistical research based on anonymized information provided by the User;",
+        "8.8. informing the User about promotions, discounts and special offers via e‑mail newsletters and phone calls;",
+        "8.9. conducting marketing research, including with the involvement of third parties as contractors (performers, consultants);",
+        "8.10. communication with partner banks regarding the provision of loans to the User and/or agreeing credit terms."
       ]
     },
     {
       "id": "9",
-      "title": "9. Processing Principles",
+      "title": "9.The Company does not verify the data provided or indicated by the User. In this regard, the Company assumes that when providing personal data, the User:",
       "paras": [
-        "Lawfulness; limitation by purposes; no incompatible processing; appropriateness of data content/scope; no excessive processing; accuracy, sufficiency and relevance; destruction or anonymization upon achieving purposes, loss of need, receipt of a destruction request or withdrawal of consent."
+        "9.1. is a legally capable person. If an incapacitated person uses the Website, consent to processing personal data is provided by the legal representative.",
+        "9.2. provides accurate information about themselves (or the incapacitated person they represent). The User independently keeps the provided personal data up to date.",
+        "9.3. independently keeps the provided personal data up to date.",
+        "9.4. understands that information posted by the User on the Website may become available to other persons, may be copied or distributed by such users in cases provided by the Policy."
       ]
     },
     {
       "id": "10",
-      "title": "10. Protection Measures and Processing Conditions",
+      "title": "10.The Company processes personal data based on the following principles:",
       "paras": [
-        "The Company implements organizational and technical protection measures.",
-        "Processing uses databases within the Kyrgyz Republic.",
-        "Processing may be automated or manual.",
-        "Transfer to third parties occurs only as provided by the Policy; to partners — based on the User’s consent for performance of obligations.",
-        "Partners must keep data confidential and not disclose without the User’s consent unless required by law/Policy.",
-        "Storage on electronic media and, if needed, on physical media.",
-        "Storage until: deletion by the User; destruction upon request/withdrawal; consent expiry.",
-        "Anonymized storage may continue after obligations are fulfilled for the purposes in 8.7."
+        "10.1. lawfulness;",
+        "10.2. limiting personal data processing to the achievement of specific, pre‑defined lawful purposes;",
+        "10.3. preventing processing of personal data incompatible with the purposes of collecting and/or storing data received from the User;",
+        "",
+        "10.4. matching the content and scope of processed personal data to the purposes of processing;",
+        "10.5. preventing processing of data excessive in relation to the purposes;",
+        "10.6. ensuring accuracy, sufficiency and relevance of personal data in relation to the purposes of processing;",
+        "10.7. destruction or anonymization of personal data to prevent its disclosure upon achieving processing purposes, when processing is no longer needed, or upon receipt of the User’s request for destruction or a statement of withdrawal of consent to processing."
       ]
     },
     {
       "id": "11",
-      "title": "11. Transfers to Partners",
+      "title": "11.When processing personal data, the Company takes necessary and sufficient organizational and technical measures to protect personal data from unauthorized access and other unlawful actions regarding personal data.",
       "paras": [
-        "Partners ensure confidentiality and non‑disclosure;",
-        "Partners implement security measures (protection tools; detection and response to unauthorized access; access limitation; control of measures effectiveness);",
-        "Partners are prohibited from further transfer/dissemination of Users’ personal data."
+        "Processing of Users’ personal data is carried out by the Company taking into account the following:",
+        "11.1. Processing of Users’ personal data is carried out using databases located within the Kyrgyz Republic.",
+        "11.2. Personal data processing is carried out both with and without the use of automated means.",
+        "11.3. The Company undertakes not to transfer information received from the User to third parties, except in cases expressly provided by this Policy.",
+        "Transfer of Users’ personal data to third parties – the Company’s partners – is carried out, if necessary, based on Users’ consent for the purpose of fulfilling obligations to Users.",
+        "11.4. The Company, and if necessary, the Company’s partners receiving Users’ personal data, undertake to keep it confidential, not to disclose or disseminate personal data without the User’s consent, unless otherwise provided by applicable law and/or this Policy.",
+        "11.5. Storage of Users’ personal data is carried out on electronic media, and for the purposes of fulfilling obligations to Users may be carried out on physical media after extracting the personal data.",
+        "11.6. Storage of personal data is carried out for a period objectively necessary to fulfill obligations to Users and is determined by the following events (whichever occurs first):",
+        "11.6.1. until the moment the User deletes personal data via their personal account;",
+        "11.6.2. until the moment the Company destroys personal data due to the User’s request for destruction or withdrawal of consent to processing;",
+        "11.6.3. until the expiration of the User’s consent.",
+        "11.7. The Company has the right to store the User’s personal data, except when a request for destruction or withdrawal of consent has been received, in anonymized form after fulfilling obligations to the User for the purposes specified in cl. 8.7. of this Policy."
       ]
     },
     {
       "id": "12",
-      "title": "12. Lawful Disclosure and Anonymized Sharing",
+      "title": "12.If it is necessary to transfer Users’ personal data to third parties – the Company’s partners – in cases expressly provided by the Policy, such transfer is carried out subject to the following conditions:",
       "paras": [
-        "Not a violation: disclosure under applicable KR law; provision to partners under contract to fulfill obligations; anonymized sharing for assessing/analyzing the Website, providing recommendations, showing ads, marketing/analytics/statistics."
+        "12.1. the third party – a Company partner – ensures confidentiality of personal data during processing and use and undertakes not to disclose data to other persons and not to disseminate Users’ personal data without their consent;",
+        "12.2. the third party – a Company partner – guarantees the following measures to ensure personal data security during processing: use of information protection tools; detection and recording of unauthorized access to personal data and taking measures to restore personal data; restriction of access to personal data; control and evaluation of the effectiveness of applied measures to ensure personal data security; other measures provided by law;",
+        "12.3. the third party – a Company partner – is prohibited from transferring and disseminating Users’ personal data."
       ]
     },
     {
       "id": "13",
-      "title": "13. Cookies and Analytics",
-      "paras": [
-        "The Company may use cookies — data (including IP, geolocation, browser/OS info, device technical characteristics, access date/time) automatically transmitted while using the Website.",
-        "Cookies are used to remember settings and collect analytics. Using the Website signifies consent to cookies/analytics and to their transfer to third parties."
-      ]
+      "title": "13.It is not considered a violation of the obligations under this Policy to disclose information in accordance with reasonable and applicable requirements of the legislation of the Kyrgyz Republic, as well as to provide information by the Company to partners acting under an agreement with the Company to fulfill obligations to the User; transfer by the Company to third parties of data about the User in anonymized form for the purpose of assessing and analyzing the Company’s Website, providing personalized recommendations, showing advertisements based on the User’s personal preferences and settings, as well as conducting marketing, analytical and/or statistical research.",
+      "paras": []
     },
     {
       "id": "14",
-      "title": "14. IP Address and Referrer",
+      "title": "14.The Company may use ‘cookies’. Cookies are data that is automatically transmitted to the Company while using the Website via software installed on the User’s device, including IP address, geographic location, information about the browser and type of operating system on the User’s device, technical characteristics of the hardware and software used by the User, date and time of access to the Website.",
       "paras": [
-        "The Company obtains the User’s IP address and referrer. This is not used to identify the visitor."
+        "Cookies do not contain confidential information. Cookies are used to remember the User’s preferences and settings, as well as to collect analytical data about visits to the Website. Using the Website means that the User agrees to the use of all cookies and analytical data about Website visits, as well as to their transfer to third parties."
       ]
     },
     {
       "id": "15",
-      "title": "15. User Rights and Timelines",
-      "paras": [
-        "The Company provides the User/representative free access to the User’s personal data.",
-        "If incompleteness/inaccuracy/outdated data is found, the Company updates within 7 business days and notifies the User.",
-        "If unlawful obtaining/processing or mismatch with purposes is confirmed, the Company destroys such data within 7 business days and notifies the User."
-      ]
+      "title": "15.The Company receives information about the User’s IP address and information about the website from which they came. This information is not used to identify the visitor.",
+      "paras": []
     },
     {
       "id": "16",
-      "title": "16. Cessation and Destruction",
+      "title": "16.The User has the right to receive from the Company information regarding the processing of their personal data. The Company provides the User or their representative free access to the personal data relating to the User.",
       "paras": [
-        "The Company ceases processing or ensures partner cessation if processing is unlawful; consent is withdrawn; a destruction request is received; the purpose is achieved.",
-        "Destruction within 30 days unless otherwise required by law; if impossible — blocking with subsequent destruction within the statutory period, no more than 6 months."
+        "If incompleteness, inaccuracy or obsolescence of information is found, the Company, based on information from the User, makes the necessary changes to the User’s personal data within no more than 7 (seven) business days and notifies the User of the changes made.",
+        "If the User or their representative provides the Company with confirmation of the fact of unlawful obtaining or processing of their personal data, as well as the fact that actions with their personal data do not correspond to the purposes of processing, the Company undertakes to destroy such personal data of the User within no more than 7 (seven) business days and notify the User of the measures taken."
       ]
     },
     {
       "id": "17",
-      "title": "17. Partners",
+      "title": "17.The Company undertakes to stop processing the User’s personal data or ensure termination of processing by a third party – a Company partner – in the event of:",
       "paras": [
-        "The Company determines the list of partners and publishes it via available means, including on the Website."
+        "17.1. detection of unlawful processing of the User’s personal data;",
+        "17.2. withdrawal by the User of consent to the processing of their personal data;",
+        "17.3. receipt from the User of a request to destroy personal data;",
+        "17.4. achievement of the purpose of personal data processing.",
+        "Upon the occurrence of the cases specified in this clause, the Company ceases processing personal data and ensures destruction of the data within no more than 30 (thirty) days, unless a different period is established by law.",
+        "If it is impossible to destroy the User’s personal data within the specified period, the Company blocks the User’s personal data and ensures their destruction within the period established by law, but not more than 6 (six) months."
       ]
     },
     {
       "id": "18",
-      "title": "18. Policy Changes",
-      "paras": [
-        "The Company may amend the Policy at any time. The current text is published on the Website."
-      ]
+      "title": "18.The Company independently determines the list of third parties – the Company’s Partners – and brings it to the attention of Users by any available means, including by publishing it on the Website.",
+      "paras": []
     },
     {
       "id": "19",
-      "title": "19. Acceptance of New Version",
-      "paras": [
-        "Continued use after publication of an updated Policy constitutes acceptance. If the User disagrees, they must stop using the Website and services."
-      ]
+      "title": "19.The Company may amend this Policy at any time. The current text of the Policy is published on the Website.",
+      "paras": []
     },
     {
       "id": "20",
-      "title": "20. Contacts",
+      "title": "20.Continued use of the Website or its services after publication of a new version of the Policy means the User accepts the Policy and its terms.",
       "paras": [
-        "All questions on the Policy and/or processing: {{email}}"
+        "If the User does not agree with the Policy, they must immediately stop using the Website and its services."
       ]
     },
     {
       "id": "21",
-      "title": "Company Details",
+      "title": "21.All questions regarding this Policy and/or personal data processing should be sent to the Company’s e‑mail address: support@esai.kg",
+      "paras": []
+    },
+    {
+      "id": "22",
+      "title": "Company details:",
       "paras": [
         "SP Shagidov F.T.",
         "TIN 22102197700907",
         "Address: Kyrgyzstan, Bishkek, Usenbaeva St. 138a",
-        "E‑mail: {{email}}",
-        "Tel.: +996 555 919 141"
+        "e‑mail: support@esai.kg",
+        "Tel.: +996555919141"
       ]
     }
   ]
