@@ -307,7 +307,12 @@ class NotificationListView(generics.ListAPIView):
     serializer_class = NotificationDeliverySerializer
 
     def get_queryset(self):
-        qs = NotificationDelivery.objects.filter(recipient=self.request.user).select_related("notification")
+        user = self.request.user
+        qs = (
+            NotificationDelivery.objects
+            .filter(recipient=user, notification__created_at__gte=user.date_joined)
+            .select_related("notification")
+        )
         if self.request.query_params.get("unread") == "1":
             qs = qs.filter(is_read=False)
         return qs.order_by("-assigned_at")
@@ -319,7 +324,12 @@ class NotificationMarkReadView(generics.UpdateAPIView):
     lookup_url_kwarg = "pk"
 
     def get_queryset(self):
-        return NotificationDelivery.objects.filter(recipient=self.request.user).select_related("notification")
+        user = self.request.user
+        return (
+            NotificationDelivery.objects
+            .filter(recipient=user, notification__created_at__gte=user.date_joined)
+            .select_related("notification")
+        )
 
     def get_object(self):
         qs = self.get_queryset()
