@@ -453,6 +453,59 @@ class BindCardView(APIView):
         for k, v in values.items():
             setattr(u, k, v)
 
+        # Auto-activate free plan if available and no active subscription yet
+        auto_activated = False
+        try:
+            from django.utils import timezone
+            from datetime import timedelta
+            from plans.models import (
+                Plan,
+                UserSubscription,
+                SubscriptionStatus,
+                PaymentStatus,
+                GenerationUsage,
+            )
+            import logging as _logging
+
+            has_active = UserSubscription.objects.filter(user=u, status=SubscriptionStatus.ACTIVE).exists()
+            if not has_active:
+                free_plan = (
+                    Plan.objects.filter(is_active=True, is_free=True).order_by("sort_order", "id").first()
+                )
+                if free_plan:
+                    now = timezone.now()
+                    sub = UserSubscription.objects.create(
+                        user=u,
+                        plan=free_plan,
+                        start_date=now,
+                        end_date=now + timedelta(days=int(free_plan.duration_days or 30)),
+                        status=SubscriptionStatus.ACTIVE,
+                        payment_status=PaymentStatus.UNPAID,
+                        payment_date=None,
+                    )
+                    GenerationUsage.objects.get_or_create(
+                        subscription=sub,
+                        defaults={
+                            "songs_left": int(free_plan.song_limit or 0),
+                            "music_left": int(free_plan.music_limit or 0),
+                            "texts_left": int(free_plan.text_limit or 0),
+                            "images_left": int(free_plan.image_limit or 0),
+                        },
+                    )
+                    _logging.getLogger("plans").info(
+                        "auto_subscription_activated user=%s sub_id=%s plan_id=%s end_date=%s",
+                        u.id,
+                        sub.id,
+                        free_plan.id,
+                        sub.end_date,
+                    )
+                    auto_activated = True
+        except Exception as e:
+            import logging as _logging
+            _logging.getLogger("plans").exception(
+                "auto_subscription_activate_failed user=%s error=%s", u.id, e
+            )
+
         return Response({
             "status": "ok",
             "card": {
@@ -460,7 +513,8 @@ class BindCardView(APIView):
                 "card_holder": u.card_holder,
                 "exp_month": u.exp_month,
                 "exp_year": u.exp_year,
-            }
+            },
+            "auto_activated": auto_activated,
         }, status=200)
 
 

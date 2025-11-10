@@ -261,6 +261,7 @@ DEFAULT_FROM_EMAIL = env('DEFAULT_FROM_EMAIL')
 # --- Logging ---
 LOG_DIR = BASE_DIR / "logs"
 LOG_FILE = LOG_DIR / "django.log"
+LOG_PAYMENTS_FILE = LOG_DIR / "payments.log"
 LOG_DIR.mkdir(exist_ok=True)
 LOGGING = {
     "version": 1,
@@ -271,15 +272,24 @@ LOGGING = {
     },
     "handlers": {
         "file": {"level": "DEBUG", "class": "logging.FileHandler", "filename": str(LOG_FILE), "formatter": "verbose"},
+        "payments_file": {"level": "INFO", "class": "logging.FileHandler", "filename": str(LOG_PAYMENTS_FILE), "formatter": "verbose"},
     },
     "loggers": {
         "django": {"handlers": ["file"], "level": "DEBUG", "propagate": True},
+        # Project app loggers -> write to files
+        "plans": {"handlers": ["file"], "level": "INFO", "propagate": False},
+        # Dedicated payments logger always writes to payments.log even when DEBUG=False
+        "payments": {"handlers": ["payments_file"], "level": "INFO", "propagate": False},
     },
 }
 if DEBUG:
     LOGGING["handlers"]["console"] = {
         "level": "DEBUG", "class": "logging.StreamHandler", "formatter": "simple"}
     LOGGING["loggers"]["django"]["handlers"].append("console")
+    # Also mirror our project loggers to console in DEBUG
+    for _name in ("plans", "payments"):
+        LOGGING["loggers"].setdefault(_name, {"handlers": ["file"], "level": "INFO", "propagate": False})
+        LOGGING["loggers"][_name]["handlers"].append("console")
 
 # --- Celery ---
 CELERY_BROKER_URL = env.str(
