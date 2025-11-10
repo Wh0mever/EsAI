@@ -11,6 +11,8 @@ cd "$SCRIPT_DIR/.."
 
 EMAIL_DEFAULT="you@example.com"
 EMAIL="${EMAIL:-$EMAIL_DEFAULT}"
+# Lineage (certificate name) to ensure files land under /etc/letsencrypt/live/<CERT_NAME>
+CERT_NAME="${CERT_NAME:-vokalo.online}"
 
 # Domains: by default request a single SAN certificate for all sites
 # Override with env DOMAINS to customize.
@@ -61,11 +63,12 @@ for d in "${DOMAINS[@]}"; do
   DOMAIN_ARGS+=( -d "$d" )
 done
 
-echo "Requesting certificates for: ${DOMAINS[*]}"
+echo "Requesting certificates for: ${DOMAINS[*]} (cert-name: ${CERT_NAME})"
 
 docker compose run --rm certbot \
   certonly --webroot -w "$WEBROOT" \
   "${DOMAIN_ARGS[@]}" \
+  --cert-name "$CERT_NAME" \
   --agree-tos -m "$EMAIL" --no-eff-email --rsa-key-size 4096 $NONINT_FLAG $KEEP_FLAG $STAGING_FLAG $EXPAND_FLAG $FORCE_FLAG
 
 echo "Certificates issued for: ${DOMAINS[*]}"
