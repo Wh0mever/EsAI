@@ -120,15 +120,22 @@ async function requestOnce<T = any>(
 		const data = (await parseResponse(res)) as T | null;
 
 		let error: string | undefined;
-		if (!res.ok) {
-			if (data && typeof data === "object" && ("detail" in (data as any) || "message" in (data as any))) {
-				error = (data as any).detail || (data as any).message;
-			} else if (typeof data === "string") {
-				error = data;
-			} else {
-				error = `HTTP ${res.status}`;
-			}
-		}
+        if (!res.ok) {
+            if (data && typeof data === "object" && ("detail" in (data as any) || "message" in (data as any))) {
+                error = (data as any).detail || (data as any).message;
+            } else if (typeof data === "string") {
+                const s = (data || "").toString();
+                const looksHtml = /<html|<!DOCTYPE/i.test(s);
+                if (looksHtml) {
+                    error = `HTTP ${res.status}`;
+                } else {
+                    const line = s.split(/\r?\n/)[0];
+                    error = line.length > 200 ? line.slice(0, 200) + "…" : line;
+                }
+            } else {
+                error = `HTTP ${res.status}`;
+            }
+        }
 
 		return { ok: res.ok, status: res.status, url, data, error, headers: res.headers };
 	} catch (e: any) {
