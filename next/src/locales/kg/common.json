@@ -448,6 +448,10 @@
       "monthly": "ай",
       "yearly": "жыл"
     },
+    "plan_period": {
+      "monthly": "айлык мезгил",
+      "yearly": "жылдык мезгил"
+    },
     "left_counters": {
       "title": "Калып жаткан генерациялар",
       "left": "Калды",

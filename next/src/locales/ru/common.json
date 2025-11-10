@@ -448,6 +448,10 @@
       "monthly": "месяц",
       "yearly": "год"
     },
+    "plan_period": {
+      "monthly": "месячный период",
+      "yearly": "годовой период"
+    },
     "left_counters": {
       "title": "Оставшиеся генерации",
       "left": "Осталось",

@@ -12,13 +12,20 @@ cd "$SCRIPT_DIR/.."
 EMAIL_DEFAULT="you@example.com"
 EMAIL="${EMAIL:-$EMAIL_DEFAULT}"
 
-# Domains: by default only apex domain; override with env DOMAINS
-# Example: DOMAINS="vokalo.kg,www.vokalo.kg" ./scripts/issue-cert.sh
+# Domains: by default request a single SAN certificate for all sites
+# Override with env DOMAINS to customize.
+# Example: DOMAINS="vokalo.online,www.vokalo.online" ./scripts/issue-cert.sh
 if [[ -n "${DOMAINS:-}" ]]; then
   # split by comma or space
   IFS=', ' read -r -a DOMAINS <<< "${DOMAINS}"
 else
-  DOMAINS=("vokalo.kg")
+  # IMPORTANT: first domain becomes the certificate lineage directory under /etc/letsencrypt/live/<first>
+  # Keep vokalo.online first so nginx ssl paths like /etc/letsencrypt/live/vokalo.online/... resolve
+  DOMAINS=(
+    "vokalo.online" "www.vokalo.online"
+    "vokalo.ru"     "www.vokalo.ru"
+    "vokalo.kg"     "www.vokalo.kg"
+  )
 fi
 WEBROOT="/var/www/certbot"
 
