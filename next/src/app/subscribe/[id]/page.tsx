@@ -2,7 +2,8 @@
 
 import "@/assets/style.scss";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
+import { ConfirmationModal } from "@/components/dialog/Dialog";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import Breadcrumb from "@/components/global/AnimatedCircleBg";
@@ -171,6 +172,11 @@ export default function SubscribePlanPage() {
 	const [currency, setCurrency] = useState<Currency>(() => (typeof window !== "undefined" ? getInitialCurrency() : "USD"));
     const [authed, setAuthed] = useState(false);
     const [actionLoading, setActionLoading] = useState(false);
+    const [activeForMe, setActiveForMe] = useState(false);
+    const [nextChargeAt, setNextChargeAt] = useState<string | null>(null);
+    const [redirectCounter, setRedirectCounter] = useState<number | null>(null);
+    const router = useRouter();
+    const [confirmOpen, setConfirmOpen] = useState(false);
     const [showAlert, setShowAlert] = useState(false);
     const [alertType, setAlertType] = useState<"success" | "error" | "info" | "warning">("info");
     const [alertTitle, setAlertTitle] = useState<string>("");
@@ -193,7 +199,7 @@ export default function SubscribePlanPage() {
 		};
 		window.addEventListener("app:currency-changed", onCurrency as EventListener);
 		return () => window.removeEventListener("app:currency-changed", onCurrency as EventListener);
-	}, []);
+    }, []);
 
 	useEffect(() => {
 		let mounted = true;
@@ -222,6 +228,36 @@ export default function SubscribePlanPage() {
 		};
 	}, [params.id]);
 
+    // Load my active subscription to decide UI state for this plan
+    useEffect(() => {
+        let abort = false;
+        (async () => {
+            if (!authed || !plan) {
+                setActiveForMe(false);
+                setNextChargeAt(null);
+                return;
+            }
+            const me = await fetchData("plans/me/subscription/", "GET", undefined, true);
+            const sub: any = me?.data || null;
+            const same = sub && sub.plan && Number(sub.plan.id) === Number(plan.id);
+            if (abort) return;
+            setActiveForMe(Boolean(same));
+            setNextChargeAt(same ? (sub.end_date as string) : null);
+        })();
+        return () => { abort = true; };
+    }, [authed, plan]);
+
+    function formatDate(dateString: string | null): string {
+        if (!dateString) return "";
+        try {
+            const d = new Date(dateString);
+            const locale = (i18n.language || "ru").startsWith("en") ? "en-US" : (i18n.language.startsWith("kg") ? "ky-KG" : "ru-RU");
+            return d.toLocaleDateString(locale, { year: "numeric", month: "long", day: "numeric" });
+        } catch {
+            return dateString;
+        }
+    }
+
 	const title = useMemo(() => {
 		if (!plan) return "";
 		const local = selectPlanTitle(plan, lang);
@@ -249,8 +285,17 @@ export default function SubscribePlanPage() {
             if (res.ok) {
                 setAlertType("success");
                 setAlertTitle(t("subscribe.success_title"));
-                setAlertMessage(t("subscribe.success_message"));
-                setShowAlert(true);
+                // For paid plans: start 10s redirect countdown to profile
+                if (!plan.is_free) {
+                    setRedirectCounter(10);
+                    setAlertMessage(
+                        `${t("subscribe.success_message")} ${t("subscribe.redirect_in_profile", { seconds: 10 })}`
+                    );
+                    setShowAlert(true);
+                } else {
+                    setAlertMessage(t("subscribe.success_message"));
+                    setShowAlert(true);
+                }
                 return;
             }
             const code = (res.data as any)?.message || res.error || "unknown";
@@ -289,6 +334,28 @@ export default function SubscribePlanPage() {
             setActionLoading(false);
         }
     }
+
+    function onActivateClick() {
+        // Open confirmation modal instead of immediate activation
+        setConfirmOpen(true);
+    }
+
+    async function onConfirmActivate() {
+        setConfirmOpen(false);
+        await handleConnectPlanClick();
+    }
+
+    // Countdown redirect effect
+    useEffect(() => {
+        if (redirectCounter === null) return;
+        if (redirectCounter <= 0) {
+            setShowAlert(false);
+            router.push("/profile");
+            return;
+        }
+        const id = window.setTimeout(() => setRedirectCounter((s) => (s ? s - 1 : 0)), 1000);
+        return () => window.clearTimeout(id);
+    }, [redirectCounter, router]);
 
 	return (
 		<main className="pt-56 sm:pt-64 overflow-hidden relative">
@@ -433,14 +500,23 @@ export default function SubscribePlanPage() {
 						{/* Bottom CTA */}
 						<div className="mt-12 pb-10 border-t border-white/10 pt-6 flex flex-col items-center gap-3">
                         {authed ? (
-                            <button
-                                type="button"
-                                onClick={handleConnectPlanClick}
-                                disabled={actionLoading}
-                                className="inline-flex items-center justify-center px-6 py-3 rounded-xl bg-indigo-500 hover:bg-indigo-600 transition-colors disabled:opacity-70"
-                            >
-                                {actionLoading ? t("common.processing") : t("pricing.connect_plan")}
-                            </button>
+                            activeForMe ? (
+                                <div className="text-center">
+                                    <div className="text-green-400 font-medium">{t("pricing.plan_already_active")}</div>
+                                    {nextChargeAt && (
+                                        <div className="text-white/70 mt-1">{t("pricing.next_charge_on", { date: formatDate(nextChargeAt) })}</div>
+                                    )}
+                                </div>
+                            ) : (
+                                <button
+                                    type="button"
+                                    onClick={onActivateClick}
+                                    disabled={actionLoading}
+                                    className="inline-flex items-center justify-center px-6 py-3 rounded-xl bg-indigo-500 hover:bg-indigo-600 transition-colors disabled:opacity-70"
+                                >
+                                    {actionLoading ? t("common.processing") : t("pricing.connect_plan")}
+                                </button>
+                            )
                         ) : (
                             <div className="flex flex-col sm:flex-row items-center gap-3">
                                 <Link
@@ -466,10 +542,23 @@ export default function SubscribePlanPage() {
             title={alertTitle}
             message={alertMessage}
             position="top"
-            autoClose={true}
+            autoClose={redirectCounter == null}
             autoCloseDuration={3500}
-            actionHref={alertType === "error" ? "/profile" : undefined}
-            actionText={alertType === "error" ? t("subscribe.go_to_profile") : undefined}
+            actionHref={redirectCounter != null ? "/profile" : (alertType === "error" ? "/profile" : undefined)}
+            actionText={redirectCounter != null ? t("subscribe.go_now") : (alertType === "error" ? t("subscribe.go_to_profile") : undefined)}
+        />
+
+        {/* Confirm activation modal */}
+        <ConfirmationModal
+            isOpen={confirmOpen}
+            title={t("pricing.confirm_title")}
+            description={t("pricing.confirm_description")}
+            confirmText={t("common.yes")}
+            cancelText={t("common.no")}
+            confirmDisabled={actionLoading}
+            confirmLoadingText={t("common.processing")}
+            onConfirm={onConfirmActivate}
+            onCancel={() => setConfirmOpen(false)}
         />
         </main>
     );

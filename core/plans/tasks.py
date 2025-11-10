@@ -169,12 +169,31 @@ def _renew_one_subscription(sub: UserSubscription) -> bool:
             sub.status = SubscriptionStatus.INACTIVE
             sub.save(update_fields=["payment_status", "status"])
             logger.error("Charge failed for sub=%s: %s", sub.id, e)
+            logging.getLogger("payments").error(
+                "charge_failed sub=%s user=%s amount=%s %s error=%s",
+                sub.id,
+                user.id,
+                amount,
+                currency,
+                str(e),
+            )
             return False
 
         # On success: rollover leftovers and advance cycle
         _rollover_leftovers_to_bonus(sub)
         _advance_cycle_dates(sub)
         logger.info("Renewed paid plan for sub=%s", sub.id)
+        try:
+            logging.getLogger("payments").info(
+                "charge_success sub=%s user=%s amount=%s %s data=%s",
+                sub.id,
+                user.id,
+                amount,
+                currency,
+                resp,
+            )
+        except Exception:
+            pass
         return True
     finally:
         cache.delete(lock_key)

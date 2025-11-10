@@ -45,6 +45,8 @@
     "view_all_plans": "View all plans",
     "back_to_all": "Back to all plans",
     "connect_plan": "Activate plan",
+    "plan_already_active": "This plan is already active",
+    "next_charge_on": "Next charge date: {{date}}",
     "plan": "Plan",
     "monthly_short": "mo",
     "yearly_short": "yr",
@@ -53,6 +55,8 @@
     "duration_days": "Duration (days)",
     "addons": "Add-ons",
     "included": "What’s included",
+    "confirm_title": "Confirm plan activation",
+    "confirm_description": "Do you confirm you want to switch to this plan?",
     "not_found": "Plan not found",
     "nothing_found": "Nothing found",
     "features": {
@@ -129,7 +133,9 @@
     "error_no_token": "No recurring token found. Please re-bind your card.",
     "error_already_active": "Subscription is already active.",
     "error_plan_not_found": "Plan not found.",
-    "error_unknown": "Could not connect the plan. Please try again later."
+    "error_unknown": "Could not connect the plan. Please try again later.",
+    "redirect_in_profile": "You will be redirected to profile in {{seconds}}s.",
+    "go_now": "Go now"
   },
   "auth": {
     "title": "Vokalo awaits your genre, lyrics, and instruments.",

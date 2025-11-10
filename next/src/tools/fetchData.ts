@@ -50,28 +50,37 @@ async function parseResponse(res: Response): Promise<any | null> {
 
 // Normalize method to uppercase and build RequestInit
 function buildInit(method: HttpMethodAny, auth: boolean, body?: BodyLike, extra?: Record<string, string>): RequestInit {
-	const m = (method || "GET").toString().toUpperCase() as HttpMethod;
+    const m = (method || "GET").toString().toUpperCase() as HttpMethod;
 
-	const headers: Record<string, string> = {
-		Accept: "application/json",
-		...(extra || {}),
-	};
+    const headers: Record<string, string> = {
+        Accept: "application/json",
+        ...(extra || {}),
+    };
 
-	const init: RequestInit = { method: m, headers };
+    const init: RequestInit = { method: m, headers };
 
-	if (auth) {
-		const token = Cookies.get("access");
-		if (token) headers.Authorization = `Bearer ${token}`;
-	}
+    if (auth) {
+        const token = Cookies.get("access");
+        if (token) headers.Authorization = `Bearer ${token}`;
+    }
+
+    // Add CSRF header for unsafe methods when cookie is present
+    // Be explicit to satisfy TS unions and future-proof method additions
+    const unsafe = m === "POST" || m === "PUT" || m === "PATCH" || m === "DELETE";
+    if (unsafe) {
+        const csrftoken = Cookies.get("csrftoken");
+        if (csrftoken && !headers["X-CSRFToken"]) headers["X-CSRFToken"] = csrftoken;
+        if (!headers["X-Requested-With"]) headers["X-Requested-With"] = "XMLHttpRequest";
+    }
 
 	// Treat null/undefined as no body
 	if (!isNil(body)) {
-		if (body instanceof FormData || body instanceof Blob || body instanceof ArrayBuffer) {
-			init.body = body as any; // Let fetch set boundary/content-type
-		} else if (typeof body === "string") {
-			headers["Content-Type"] = headers["Content-Type"] || "application/json";
-			init.body = body;
-		} else {
+        if (body instanceof FormData || body instanceof Blob || body instanceof ArrayBuffer) {
+            init.body = body as any; // Let fetch set boundary/content-type
+        } else if (typeof body === "string") {
+            headers["Content-Type"] = headers["Content-Type"] || "application/json";
+            init.body = body;
+        } else {
 			// JSON object
 			headers["Content-Type"] = headers["Content-Type"] || "application/json";
 			init.body = JSON.stringify(body);

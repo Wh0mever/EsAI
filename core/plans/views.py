@@ -1,3 +1,4 @@
+import logging
 from django.utils.decorators import method_decorator
 from django.views.decorators.cache import cache_page
 from rest_framework import generics, permissions
@@ -5,7 +6,7 @@ from rest_framework.response import Response
 from django.views.decorators.vary import vary_on_headers
 from rest_framework.exceptions import NotFound
 
-from .models import Plan, UserSubscription, AddonPurchase, SubscriptionStatus
+from .models import Plan, UserSubscription, AddonPurchase, SubscriptionStatus, PaymentStatus
 from .serializers import (
     PlanSerializer, UserSubscriptionSerializer,
     GenerationUsageSerializer, AddonPurchaseSerializer
@@ -15,10 +16,12 @@ from .services import get_currency_per_usd_map_cached
 # So import payments as a top-level Django app package
 from payments.freedompay import charge_recurring_by_user_token, FreedomPayError
 from rest_framework.views import APIView
+from rest_framework_simplejwt.authentication import JWTAuthentication
 from django.utils import timezone
 import uuid
 from datetime import timedelta
 from users.models import User
+from django.db import transaction
 
 
 @method_decorator(cache_page(60), name="dispatch")               # page cache
@@ -142,10 +145,25 @@ class ChargeBySavedCardView(APIView):
                 fp_user={"email": request.user.email or "", "phone": request.user.tel or ""},
             )
         except FreedomPayError as e:
+            logging.getLogger("payments").error(
+                "charge_error user=%s order_id=%s error=%s", request.user.id, order_id, str(e)
+            )
             return Response({"message": str(e)}, status=400)
         except Exception as e:
+            logging.getLogger("payments").exception(
+                "charge_exception user=%s order_id=%s", request.user.id, order_id
+            )
             return Response({"message": "charge failed", "detail": str(e)}, status=502)
 
+        # Log success to payments logger always (DEBUG and production)
+        logging.getLogger("payments").info(
+            "charge_success user=%s order_id=%s amount=%s %s data=%s",
+            request.user.id,
+            order_id,
+            amount,
+            currency,
+            data,
+        )
         return Response(data, status=200)
 
 
@@ -161,17 +179,16 @@ class ActivatePlanView(APIView):
     On success, creates an ACTIVE subscription with UNPAID status and initializes usage.
     """
 
+    authentication_classes = [JWTAuthentication]
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, plan_id: int):
-        # Already active?
+        # Current active subscription (may be for a different plan)
         existing = (UserSubscription.objects
                     .select_related("plan")
                     .filter(user=request.user, status=SubscriptionStatus.ACTIVE)
                     .order_by("-start_date")
                     .first())
-        if existing:
-            return Response({"message": "already_active"}, status=400)
 
         # Plan must exist and be active
         try:
@@ -186,27 +203,57 @@ class ActivatePlanView(APIView):
         if not (u.last4 and (u.exp_month or 0) and (u.exp_year or 0)):
             return Response({"message": "no_card"}, status=400)
 
-        # Create subscription and initialize usage counters
-        now = timezone.now()
-        sub = UserSubscription.objects.create(
-            user=u,
-            plan=plan,
-            start_date=now,
-            end_date=now + timedelta(days=int(plan.duration_days or 30)),
-            status=SubscriptionStatus.ACTIVE,
-            payment_status=PaymentStatus.UNPAID,
-            payment_date=None,
-        )
-        # Initialize usage: for unlimited (0/None) keep 0; otherwise set limits
+        # Switch and activate new plan in a transaction
         from .models import GenerationUsage
-        GenerationUsage.objects.get_or_create(
-            subscription=sub,
-            defaults={
-                "songs_left": int(plan.song_limit or 0),
-                "music_left": int(plan.music_limit or 0),
-                "texts_left": int(plan.text_limit or 0),
-                "images_left": int(plan.image_limit or 0),
-            },
-        )
+        with transaction.atomic():
+            # If already on this plan, keep behavior as 'already_active'
+            if existing and existing.plan_id == plan.id:
+                return Response({"message": "already_active"}, status=400)
 
-        return Response(UserSubscriptionSerializer(sub).data, status=200)
+            # If switching from another active plan: rollover leftovers to bonus and deactivate old
+            if existing and existing.plan_id != plan.id:
+                user_locked = type(u).objects.select_for_update().get(pk=u.pk)
+                usage, _ = GenerationUsage.objects.select_for_update().get_or_create(subscription=existing)
+                old_plan = existing.plan
+                if old_plan.text_limit and (usage.texts_left or 0) > 0:
+                    user_locked.bonus_texts = (user_locked.bonus_texts or 0) + int(usage.texts_left)
+                if old_plan.image_limit and (usage.images_left or 0) > 0:
+                    user_locked.bonus_images = (user_locked.bonus_images or 0) + int(usage.images_left)
+                if old_plan.song_limit and (usage.songs_left or 0) > 0:
+                    user_locked.bonus_songs = (user_locked.bonus_songs or 0) + int(usage.songs_left)
+                if old_plan.music_limit and (usage.music_left or 0) > 0:
+                    user_locked.bonus_music = (user_locked.bonus_music or 0) + int(usage.music_left)
+                user_locked.save(update_fields=["bonus_texts", "bonus_images", "bonus_songs", "bonus_music"])
+                existing.status = SubscriptionStatus.INACTIVE
+                existing.save(update_fields=["status"])
+                logging.getLogger("plans").info(
+                    "subscription_switched user=%s from_sub=%s from_plan=%s to_plan=%s",
+                    u.id, existing.id, old_plan.id, plan.id,
+                )
+
+            # Create subscription and initialize usage counters for the new plan
+            now = timezone.now()
+            sub = UserSubscription.objects.create(
+                user=u,
+                plan=plan,
+                start_date=now,
+                end_date=now + timedelta(days=int(plan.duration_days or 30)),
+                status=SubscriptionStatus.ACTIVE,
+                payment_status=PaymentStatus.UNPAID,
+                payment_date=None,
+            )
+            GenerationUsage.objects.get_or_create(
+                subscription=sub,
+                defaults={
+                    "songs_left": int(plan.song_limit or 0),
+                    "music_left": int(plan.music_limit or 0),
+                    "texts_left": int(plan.text_limit or 0),
+                    "images_left": int(plan.image_limit or 0),
+                },
+            )
+
+        resp = UserSubscriptionSerializer(sub).data
+        logging.getLogger("plans").info(
+            "subscription_created user=%s sub_id=%s plan_id=%s end_date=%s",
+            request.user.id, sub.id, plan.id, sub.end_date)
+        return Response(resp, status=200)
