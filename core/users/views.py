@@ -423,11 +423,15 @@ class BindCardView(APIView):
         # Store up to model max length to avoid DB errors if migration lags
         u.pay_token = token[:1024]
         if brand is not None:
-            u.brand = brand or None
+            u.brand = (brand or None)
+            if u.brand:
+                u.brand = u.brand[:20]
         if last4:
             u.last4 = last4[-4:]
         if holder is not None:
-            u.card_holder = holder or None
+            u.card_holder = (holder or None)
+            if u.card_holder:
+                u.card_holder = u.card_holder[:100]
         if isinstance(exp_month, int):
             u.exp_month = exp_month
         if isinstance(exp_year, int):
