@@ -10,6 +10,7 @@ import { IoIosCheckmark, IoIosClose } from "react-icons/io";
 import { fetchData } from "@/tools/fetchData";
 import Cookies from "js-cookie";
 import { getInitialCurrency } from "@/lib/currency";
+import { Alert } from "@/components/ui/alert/Alert";
 
 // ==== Types ====
 type PlanDTO = {
@@ -168,7 +169,12 @@ export default function SubscribePlanPage() {
 	const [plan, setPlan] = useState<PlanDTO | null>(null);
 	const [loading, setLoading] = useState(true);
 	const [currency, setCurrency] = useState<Currency>(() => (typeof window !== "undefined" ? getInitialCurrency() : "USD"));
-	const [authed, setAuthed] = useState(false);
+    const [authed, setAuthed] = useState(false);
+    const [actionLoading, setActionLoading] = useState(false);
+    const [showAlert, setShowAlert] = useState(false);
+    const [alertType, setAlertType] = useState<"success" | "error" | "info" | "warning">("info");
+    const [alertTitle, setAlertTitle] = useState<string>("");
+    const [alertMessage, setAlertMessage] = useState<string>("");
 
 	const lang = useMemo<"ru" | "en" | "kg">(
 		() => (i18n.language ?? "ru").split("-")[0] as "ru" | "en" | "kg",
@@ -226,7 +232,63 @@ export default function SubscribePlanPage() {
 	const subtitle = useMemo(() => {
 		if (!plan) return "";
 		return plan.is_free ? t("pricing.test_subtitle") : t(`pricing.${plan.period}_subtitle`);
-	}, [plan, t]);
+    }, [plan, t]);
+
+    async function handleConnectPlanClick() {
+        if (!authed) return;
+        setActionLoading(true);
+        try {
+            if (!plan) {
+                setAlertType("error");
+                setAlertTitle(t("subscribe.error_plan_not_found"));
+                setAlertMessage("");
+                setShowAlert(true);
+                return;
+            }
+            const res = await fetchData(`plans/activate/${plan.id}/`, "POST", {}, true);
+            if (res.ok) {
+                setAlertType("success");
+                setAlertTitle(t("subscribe.success_title"));
+                setAlertMessage(t("subscribe.success_message"));
+                setShowAlert(true);
+                return;
+            }
+            const code = (res.data as any)?.message || res.error || "unknown";
+            if (code === "already_active") {
+                setAlertType("error");
+                setAlertTitle(t("subscribe.error_already_active"));
+                setAlertMessage("");
+                setShowAlert(true);
+            } else if (code === "plan_not_found") {
+                setAlertType("error");
+                setAlertTitle(t("subscribe.error_plan_not_found"));
+                setAlertMessage("");
+                setShowAlert(true);
+            } else if (code === "no_card") {
+                setAlertType("error");
+                setAlertTitle(t("subscribe.attach_card_title"));
+                setAlertMessage(t("subscribe.no_card_short"));
+                setShowAlert(true);
+            } else if (code === "no_token") {
+                setAlertType("error");
+                setAlertTitle(t("subscribe.attach_card_title"));
+                setAlertMessage(t("subscribe.error_no_token"));
+                setShowAlert(true);
+            } else {
+                setAlertType("error");
+                setAlertTitle(t("subscribe.error_unknown"));
+                setAlertMessage("");
+                setShowAlert(true);
+            }
+        } catch (e) {
+            setAlertType("error");
+            setAlertTitle(t("subscribe.error_unknown"));
+            setAlertMessage("");
+            setShowAlert(true);
+        } finally {
+            setActionLoading(false);
+        }
+    }
 
 	return (
 		<main className="pt-56 sm:pt-64 overflow-hidden relative">
@@ -370,30 +432,45 @@ export default function SubscribePlanPage() {
 
 						{/* Bottom CTA */}
 						<div className="mt-12 pb-10 border-t border-white/10 pt-6 flex flex-col items-center gap-3">
-							{authed ? (
-								<Link
-									href={`/subscribe/activate/${plan.id}`}
-									className="inline-flex items-center justify-center px-6 py-3 rounded-xl bg-indigo-500 hover:bg-indigo-600 transition-colors"
-								>
-									{t("pricing.connect_plan")}
-								</Link>
-							) : (
-								<div className="flex flex-col sm:flex-row items-center gap-3">
-									<Link
-										href="/auth/signin"
-										className="inline-flex items-center justify-center px-6 py-3 rounded-xl bg-indigo-500 hover:bg-indigo-600 transition-colors"
-									>
-										{t("pricing.startofwork")}
-									</Link>
-								</div>
-							)}
-							<Link href="/pricing" className="text-indigo-400 hover:text-indigo-500 mt-5">
-								{t("pricing.view_all_plans")}
-							</Link>
-						</div>
-					</>
-				)}
-			</section>
-		</main>
-	);
+                        {authed ? (
+                            <button
+                                type="button"
+                                onClick={handleConnectPlanClick}
+                                disabled={actionLoading}
+                                className="inline-flex items-center justify-center px-6 py-3 rounded-xl bg-indigo-500 hover:bg-indigo-600 transition-colors disabled:opacity-70"
+                            >
+                                {actionLoading ? t("common.processing") : t("pricing.connect_plan")}
+                            </button>
+                        ) : (
+                            <div className="flex flex-col sm:flex-row items-center gap-3">
+                                <Link
+                                    href="/auth/signin"
+                                    className="inline-flex items-center justify-center px-6 py-3 rounded-xl bg-indigo-500 hover:bg-indigo-600 transition-colors"
+                                >
+                                    {t("pricing.startofwork")}
+                                </Link>
+                            </div>
+                        )}
+                        <Link href="/pricing" className="text-indigo-400 hover:text-indigo-500 mt-5">
+                            {t("pricing.view_all_plans")}
+                        </Link>
+                    </div>
+                </>
+            )}
+        </section>
+        {/* Inline alert portal trigger */}
+        <Alert
+            show={showAlert}
+            onClose={() => setShowAlert(false)}
+            type={alertType}
+            title={alertTitle}
+            message={alertMessage}
+            position="top"
+            autoClose={true}
+            autoCloseDuration={3500}
+            actionHref={alertType === "error" ? "/profile" : undefined}
+            actionText={alertType === "error" ? t("subscribe.go_to_profile") : undefined}
+        />
+        </main>
+    );
 }

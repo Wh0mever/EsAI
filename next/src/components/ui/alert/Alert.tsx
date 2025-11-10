@@ -23,6 +23,9 @@ interface AlertProps {
   autoClose?: boolean;
   autoCloseDuration?: number;
   offset?: number;
+  actionHref?: string;
+  actionText?: string;
+  onActionClick?: () => void;
 }
 
 export function Alert({
@@ -37,6 +40,9 @@ export function Alert({
   autoClose = true,
   autoCloseDuration = 3000,
   offset = 16,
+  actionHref,
+  actionText,
+  onActionClick,
 }: AlertProps) {
   const [portalEl, setPortalEl] = useState<HTMLElement | null>(null);
   const timerRef = useRef<number | null>(null);
@@ -105,6 +111,19 @@ export function Alert({
           )}
         </div>
         {message && <p className="alert-message">{message}</p>}
+        {(actionHref || onActionClick) && (
+          <div className="alert-actions">
+            {actionHref ? (
+              <a href={actionHref} className="alert-link" onClick={onActionClick}>
+                {actionText || "Open"}
+              </a>
+            ) : (
+              <button className="alert-link" onClick={onActionClick}>
+                {actionText || "Open"}
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </div>,
     portalEl
