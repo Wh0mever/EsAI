@@ -119,6 +119,18 @@
     "check_email": "Please check your email for further instructions",
     "invalid_code": "The code you entered is invalid"
   },
+  "subscribe": {
+    "success_title": "Subscription activated",
+    "success_message": "Plan connected. Payment will be charged automatically.",
+    "attach_card_title": "Add a card",
+    "no_card_short": "To activate this plan, add a card in",
+    "go_to_profile": "profile",
+    "error_no_card": "No card on file. Please add a card in your profile.",
+    "error_no_token": "No recurring token found. Please re-bind your card.",
+    "error_already_active": "Subscription is already active.",
+    "error_plan_not_found": "Plan not found.",
+    "error_unknown": "Could not connect the plan. Please try again later."
+  },
   "auth": {
     "title": "Vokalo awaits your genre, lyrics, and instruments.",
     "subtitle": "No credit card required!",

@@ -17,6 +17,8 @@ from payments.freedompay import charge_recurring_by_user_token, FreedomPayError
 from rest_framework.views import APIView
 from django.utils import timezone
 import uuid
+from datetime import timedelta
+from users.models import User
 
 
 @method_decorator(cache_page(60), name="dispatch")               # page cache
@@ -145,3 +147,66 @@ class ChargeBySavedCardView(APIView):
             return Response({"message": "charge failed", "detail": str(e)}, status=502)
 
         return Response(data, status=200)
+
+
+class ActivatePlanView(APIView):
+    """Activate a plan for the current user if prerequisites are met.
+
+    Conditions:
+    - User must be authenticated
+    - Plan must exist and be active
+    - User must NOT have an active subscription
+    - User must have a saved payment token (pay_token) and basic card meta
+
+    On success, creates an ACTIVE subscription with UNPAID status and initializes usage.
+    """
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, plan_id: int):
+        # Already active?
+        existing = (UserSubscription.objects
+                    .select_related("plan")
+                    .filter(user=request.user, status=SubscriptionStatus.ACTIVE)
+                    .order_by("-start_date")
+                    .first())
+        if existing:
+            return Response({"message": "already_active"}, status=400)
+
+        # Plan must exist and be active
+        try:
+            plan = Plan.objects.get(pk=plan_id, is_active=True)
+        except Plan.DoesNotExist:
+            return Response({"message": "plan_not_found"}, status=404)
+
+        # Must have saved card + token
+        u: User = request.user
+        if not u.pay_token:
+            return Response({"message": "no_token"}, status=400)
+        if not (u.last4 and (u.exp_month or 0) and (u.exp_year or 0)):
+            return Response({"message": "no_card"}, status=400)
+
+        # Create subscription and initialize usage counters
+        now = timezone.now()
+        sub = UserSubscription.objects.create(
+            user=u,
+            plan=plan,
+            start_date=now,
+            end_date=now + timedelta(days=int(plan.duration_days or 30)),
+            status=SubscriptionStatus.ACTIVE,
+            payment_status=PaymentStatus.UNPAID,
+            payment_date=None,
+        )
+        # Initialize usage: for unlimited (0/None) keep 0; otherwise set limits
+        from .models import GenerationUsage
+        GenerationUsage.objects.get_or_create(
+            subscription=sub,
+            defaults={
+                "songs_left": int(plan.song_limit or 0),
+                "music_left": int(plan.music_limit or 0),
+                "texts_left": int(plan.text_limit or 0),
+                "images_left": int(plan.image_limit or 0),
+            },
+        )
+
+        return Response(UserSubscriptionSerializer(sub).data, status=200)

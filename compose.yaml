@@ -114,10 +114,25 @@ services:
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
         NEXT_CONFIG: ${NEXT_CONFIG:-next.config.ts}
+        # Expose FreedomPay vars at build-time so Next can inline them
+        # (fallbacks stay empty if not defined; runtime still injects via server env)
+        NEXT_PUBLIC_FREEDOM_PAY_PUBLIC_KEY: ${NEXT_PUBLIC_FREEDOM_PAY_PUBLIC_KEY:-}
+        NEXT_PUBLIC_FREEDOM_PAY_TOKEN: ${NEXT_PUBLIC_FREEDOM_PAY_TOKEN:-}
+        FREEDOM_PAY_PUBLIC_KEY: ${FREEDOM_PAY_PUBLIC_KEY:-}
+        FREEDOM_PAY_TOKEN: ${FREEDOM_PAY_TOKEN:-}
+        NEXT_PUBLIC_FREEDOM_PAY_MERCHANT_ID: ${NEXT_PUBLIC_FREEDOM_PAY_MERCHANT_ID:-}
+        FREEDOM_PAY_MERCHANT_ID: ${FREEDOM_PAY_MERCHANT_ID:-}
+        NEXT_PUBLIC_FREEDOM_PAY_TEST: ${NEXT_PUBLIC_FREEDOM_PAY_TEST:-}
+        FREEDOM_PAY_TEST: ${FREEDOM_PAY_TEST:-}
     env_file: .env
     environment:
       NODE_ENV: production
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+      # Ensure runtime access for API route and window.__FP_ENV__ injection
+      FREEDOM_PAY_PUBLIC_KEY: ${FREEDOM_PAY_PUBLIC_KEY}
+      FREEDOM_PAY_TOKEN: ${FREEDOM_PAY_TOKEN}
+      FREEDOM_PAY_MERCHANT_ID: ${FREEDOM_PAY_MERCHANT_ID:-}
+      FREEDOM_PAY_TEST: ${FREEDOM_PAY_TEST:-}
     depends_on:
       - core
     expose:
