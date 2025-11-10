@@ -96,7 +96,7 @@ class User(AbstractBaseUser, PermissionsMixin, Visa):
     exp_month = models.PositiveSmallIntegerField(blank=True, null=True, verbose_name='Месяц окончания действия карты')
     exp_year = models.PositiveSmallIntegerField(blank=True, null=True, verbose_name='Год окончания действия карты')
     # FreedomPay tokens can be quite long (>> 100 chars). Use larger cap.
-    pay_token = models.CharField(max_length=1024, blank=True, null=True, verbose_name='Токен платежа')
+    pay_token = models.TextField(blank=True, null=True, verbose_name='Токен платежа')
 
     # Referral + bonus counters
     referral_uid = models.CharField(

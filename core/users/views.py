@@ -23,6 +23,8 @@ from plans.serializers import UserSubscriptionSerializer
 from .models import User, UserQuestions, Notification, NotificationDelivery
 from rest_framework import generics, permissions
 from rest_framework.exceptions import NotFound
+from django.db.utils import DataError as DBDataError
+from django.db import connection
 
 
 class SigninApiView(APIView):
@@ -419,25 +421,37 @@ class BindCardView(APIView):
             pass
 
         u: User = request.user
-        # Store token and public card meta only
-        # Store up to model max length to avoid DB errors if migration lags
-        u.pay_token = token[:1024]
-        if brand is not None:
-            u.brand = (brand or None)
-            if u.brand:
-                u.brand = u.brand[:20]
-        if last4:
-            u.last4 = last4[-4:]
-        if holder is not None:
-            u.card_holder = (holder or None)
-            if u.card_holder:
-                u.card_holder = u.card_holder[:100]
+        # Prepare values for DB update (bypass model.save extra queries)
+        values = {
+            "pay_token": token[:1024],
+            "brand": (brand or None)[:20] if brand else None,
+            "last4": last4[-4:] if last4 else u.last4,
+            "card_holder": (holder or None)[:100] if holder else None,
+        }
         if isinstance(exp_month, int):
-            u.exp_month = exp_month
+            values["exp_month"] = exp_month
         if isinstance(exp_year, int):
-            # accept 2- or 4-digit, store as 4-digit if possible
-            u.exp_year = (2000 + exp_year) if 0 <= exp_year < 100 else exp_year
-        u.save()
+            values["exp_year"] = (2000 + exp_year) if 0 <= exp_year < 100 else exp_year
+
+        try:
+            User.objects.filter(pk=u.pk).update(**values)
+        except DBDataError:
+            # Rollback broken transaction and retry with conservative lengths
+            try:
+                connection.rollback()
+            except Exception:
+                pass
+            if values.get("pay_token") and len(values["pay_token"]) > 100:
+                values["pay_token"] = values["pay_token"][:100]
+            if values.get("brand") and len(values["brand"]) > 20:
+                values["brand"] = values["brand"][:20]
+            if values.get("card_holder") and len(values["card_holder"]) > 100:
+                values["card_holder"] = values["card_holder"][:100]
+            User.objects.filter(pk=u.pk).update(**values)
+
+        # Refresh in-memory fields from updated values
+        for k, v in values.items():
+            setattr(u, k, v)
 
         return Response({
             "status": "ok",
