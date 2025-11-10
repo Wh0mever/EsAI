@@ -449,6 +449,10 @@
       "monthly": "month",
       "yearly": "year"
     },
+    "plan_period": {
+      "monthly": "monthly period",
+      "yearly": "yearly period"
+    },
     "left_counters": {
       "title": "Remaining generations",
       "left": "Left",
