@@ -28,11 +28,11 @@ export default function PublicOfferPage() {
   return (
     <main className="mx-auto lg:pt-80 pt-50 overflow-hidden relative">
       <Breadcrumb />
-      <div className="p-8 max-w-4xl mx-auto space-y-6 text-gray-200">
-        <h1 className="text-3xl font-bold">{title}</h1>
+      <div className="p-8 max-w-4xl mx-auto space-y-6 text-gray-200 text-sm">
+        <h1 className="font-bold">{title}</h1>
         {sections?.map((s) => (
           <section key={s.id} className="flex flex-col gap-4">
-            <h6 className="text-xl">{s.title}</h6>
+            <h6>{s.title}</h6>
             {s.paras.map((p, i) => (
               <p key={i} className={(i > 0 ? "ps-6 " : "") + "text-sm leading-relaxed"}>{withVars(p)}</p>
             ))}
@@ -40,7 +40,7 @@ export default function PublicOfferPage() {
         ))}
 
         <section className="flex flex-col gap-4">
-          <h6 className="text-xl">{appendixTitle}</h6>
+          <h6>{appendixTitle}</h6>
           {appendixParas.map((p, i) => (
             <p key={i} className={(i > 0 ? "ps-6 " : "") + "text-sm leading-relaxed"}>{withVars(p)}</p>
           ))}

@@ -376,11 +376,6 @@ class FeedbackView(APIView):
         qs = UserFeedback.objects.all()
         return Response(UserFeedbackSerializer(qs, many=True).data, status=200)
 
-    def put(self, request, *args, **kwargs):
-        return self._mark(request, *args, **kwargs)
-
-    def post(self, request, *args, **kwargs):
-        return self._mark(request, *args, **kwargs)
 
 
 class BindCardView(APIView):

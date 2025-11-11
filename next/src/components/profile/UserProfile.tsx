@@ -8,6 +8,7 @@ import { PiUserLight } from "react-icons/pi";
 import { fetchData } from "@/tools/fetchData";
 import { ConfirmationModal, Modal } from "@/components/dialog/Dialog";
 import Cookies from "js-cookie";
+import { Alert } from "@/components/ui/alert/Alert";
 
 async function changeUserInfo(data: any): Promise<Number> {
 	let status = 400;
@@ -43,6 +44,12 @@ export default function UserProfile({ t, data }: { t: any; data: any }) {
 	const [feedbackText, setFeedbackText] = useState("");
 	const [feedbackSending, setFeedbackSending] = useState(false);
 	const [feedbackMessage, setFeedbackMessage] = useState<string | null>(null);
+
+	// Floating alert for feedback result
+	const [alertOpen, setAlertOpen] = useState(false);
+	const [alertTitle, setAlertTitle] = useState("");
+	const [alertMessage, setAlertMessage] = useState("");
+	const [alertType, setAlertType] = useState<"success" | "error" | "info" | "warning">("success");
 
 	useEffect(() => {
 		if (!notifOpen) return;
@@ -153,6 +160,7 @@ export default function UserProfile({ t, data }: { t: any; data: any }) {
 	}
 
 	return (
+		<>
 		<Card>
 			<div className="flex-grow flex flex-col gap-3">
 				<div className="flex flex-col gap-2">
@@ -394,6 +402,11 @@ export default function UserProfile({ t, data }: { t: any; data: any }) {
 									const res = await fetchData("users/feedback/", "POST", payload, true);
 									if (res?.ok) {
 										setFeedbackMessage(t("profile.feedback_sent"));
+										// Show translated success alert
+										setAlertType("success");
+										setAlertTitle(t("status_extended.success"));
+										setAlertMessage(t("profile.feedback_sent"));
+										setAlertOpen(true);
 										setFeedbackText("");
 										setFeedbackRating(5);
 										setTimeout(() => setFeedbackOpen(false), 800);
@@ -411,5 +424,17 @@ export default function UserProfile({ t, data }: { t: any; data: any }) {
 				</div>
 			</Modal>
 		</Card>
+		{/* Global alert shown after feedback submission */}
+		<Alert
+			show={alertOpen}
+			onClose={() => setAlertOpen(false)}
+			type={alertType}
+			title={alertTitle}
+			message={alertMessage}
+			position="top"
+			autoClose={true}
+			autoCloseDuration={3000}
+		/>
+		</>
 	);
 }
