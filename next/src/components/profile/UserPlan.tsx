@@ -97,8 +97,16 @@ export default function UserPlan({ t, data, onUnsubscribe }: Props) {
 					<strong>{t("profile.start_date")}:</strong> {formatDate(sub!.start_date, localeTag)}
 				</p>
 
+
 				<p>
-					<strong>{t("profile.write-off")}:</strong> {formatDate(sub!.payment_date, localeTag)}
+					{(() => {
+						const nextChargeIso = sub!.end_date || sub!.payment_date;
+						return (
+							<>
+								<strong>{t("profile.write-off")}:</strong> {formatDate(nextChargeIso, localeTag)}
+							</>
+						);
+					})()}
 				</p>
 
 				<div className="flex gap-2 mt-5">
