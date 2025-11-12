@@ -248,6 +248,7 @@ SOCIALACCOUNT_PROVIDERS = {
         "SCOPE": ["openid", "email", "profile"],
     }
 }
+SOCIALACCOUNT_ADAPTER = "users.adapters.SocialAccountAdapter"
 
 # --- Email ---
 EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
