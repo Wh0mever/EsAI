@@ -91,27 +91,27 @@ function buildInit(method: HttpMethodAny, auth: boolean, body?: BodyLike, extra?
 }
 
 async function refreshAuth(): Promise<boolean> {
-	const refresh = Cookies.get("refresh");
-	if (!refresh) return false;
+    const refresh = Cookies.get("refresh");
+    if (!refresh) return false;
 
-	try {
-		const r = await fetch(`${API}users/token/refresh/`, {
-			method: "POST",
-			headers: { "Content-Type": "application/json", Accept: "application/json" },
-			body: JSON.stringify({ refresh }),
-		});
-		if (!r.ok) return false;
+    try {
+        const r = await fetch(`${API}users/token/refresh/`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Accept: "application/json" },
+            body: JSON.stringify({ refresh }),
+        });
+        if (!r.ok) return false;
 
 		const data = await r.json().catch(() => ({}));
 		const newAccess = data?.access;
 		const newRefresh = data?.refresh;
 
-		if (newAccess) Cookies.set("access", newAccess, { expires: 7 });
-		if (newRefresh) Cookies.set("refresh", newRefresh, { expires: 15 });
-		return Boolean(newAccess);
-	} catch {
-		return false;
-	}
+        if (newAccess) Cookies.set("access", newAccess, { expires: 7 });
+        if (newRefresh) Cookies.set("refresh", newRefresh, { expires: 15 });
+        return Boolean(newAccess);
+    } catch {
+        return false;
+    }
 }
 
 async function requestOnce<T = any>(
@@ -161,21 +161,37 @@ async function requestOnce<T = any>(
 
 /** Public API: always returns body/meta, never throws */
 export async function fetchData<T = any>(
-	endpoint: string,
-	method: HttpMethodAny = "GET",
-	body?: BodyLike,
-	auth: boolean = false,
-	extraHeaders?: Record<string, string>
+    endpoint: string,
+    method: HttpMethodAny = "GET",
+    body?: BodyLike,
+    auth: boolean = false,
+    extraHeaders?: Record<string, string>
 ): Promise<ApiResponse<T>> {
-	const first = await requestOnce<T>(endpoint, method, auth, body, extraHeaders);
+    const first = await requestOnce<T>(endpoint, method, auth, body, extraHeaders);
 
-	if (!(auth && first.status === 401)) return first;
+    if (!(auth && first.status === 401)) return first;
 
-	const refreshed = await refreshAuth();
-	if (!refreshed) {
-		return { ...first, error: first.error || "Unauthorized and refresh failed" };
-	}
+    const refreshed = await refreshAuth();
+    if (!refreshed) {
+        // Soft sign-in redirect: clear tokens and navigate to /auth/signin with next
+        try {
+            Cookies.remove("access");
+            Cookies.remove("refresh");
+            Cookies.remove("user");
+            Cookies.remove("sessionid");
+        } catch {}
+        if (typeof window !== "undefined") {
+            const loc = window.location;
+            const current = `${loc.pathname}${loc.search}${loc.hash}` || "/";
+            const nextParam = encodeURIComponent(current);
+            if (!/\/auth\/(signin|callback)/.test(loc.pathname)) {
+                // Avoid redirect loops if already on auth pages
+                window.location.replace(`/auth/signin?next=${nextParam}`);
+            }
+        }
+        return { ...first, error: first.error || "Unauthorized and refresh failed" };
+    }
 
-	const second = await requestOnce<T>(endpoint, method, auth, body, extraHeaders);
-	return second;
+    const second = await requestOnce<T>(endpoint, method, auth, body, extraHeaders);
+    return second;
 }
