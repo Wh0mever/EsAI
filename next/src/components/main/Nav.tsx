@@ -150,6 +150,7 @@ function MobileNav({
   const { isActive, anyActive } = useActive();
   const { t } = useTranslation('home');
 
+  
   const linkCls = (href: string, exact = false) =>
     clsx(
       "block rounded-xl px-4 py-3 hover:bg-neutral-800 transition-colors",
