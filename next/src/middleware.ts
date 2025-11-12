@@ -38,7 +38,8 @@ export function middleware(request: NextRequest) {
 
   let res: NextResponse;
   if (isProtected && !accessToken) {
-    res = NextResponse.redirect(new URL('/auth/signin', request.url));
+    const nextUrl = encodeURIComponent(pathname + (request.nextUrl.search || ''));
+    res = NextResponse.redirect(new URL(`/auth/signin?next=${nextUrl}`, request.url));
   } else if (isAuthRoute && accessToken) {
     res = NextResponse.redirect(new URL('/dashboard/text-chat', request.url));
   } else {

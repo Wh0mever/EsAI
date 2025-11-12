@@ -179,10 +179,15 @@ CACHES = {
 
 # --- JWT ---
 SIMPLE_JWT = {
+    # Keep tokens alive for at least a couple days
     "ACCESS_TOKEN_LIFETIME": timedelta(days=7),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=15),
-    "ROTATE_REFRESH_TOKENS": True,
-    "BLACKLIST_AFTER_ROTATION": True,
+    # To allow the same refresh token to remain valid across
+    # multiple domains/sessions, disable rotation and blacklisting.
+    # This avoids invalidating the refresh token when it is used on
+    # another domain (kg/ru/online) that holds the same token value.
+    "ROTATE_REFRESH_TOKENS": False,
+    "BLACKLIST_AFTER_ROTATION": False,
     "AUTH_HEADER_TYPES": ("Bearer",),
 }
 

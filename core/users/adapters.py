@@ -3,6 +3,7 @@ from allauth.socialaccount.adapter import DefaultSocialAccountAdapter
 from django.contrib.auth import get_user_model
 from django.conf import settings
 from django.http import HttpResponseRedirect
+from allauth.exceptions import ImmediateHttpResponse
 
 
 class SocialAccountAdapter(DefaultSocialAccountAdapter):
@@ -55,7 +56,9 @@ class SocialAccountAdapter(DefaultSocialAccountAdapter):
             or getattr(sociallogin.user, "email", None)
         )
         if not email:
-            return
+            # Abort gracefully if provider did not return email
+            site_base = getattr(settings, "SITE_BASE_URL", "") or "http://127.0.0.1:3000"
+            raise ImmediateHttpResponse(HttpResponseRedirect(f"{site_base}/auth/signin?error=no_email"))
 
         User = get_user_model()
         try:
@@ -64,7 +67,12 @@ class SocialAccountAdapter(DefaultSocialAccountAdapter):
             return
 
         # Attach this social account to the existing user
-        sociallogin.connect(request, existing)
+        try:
+            sociallogin.connect(request, existing)
+        except Exception as exc:
+            # Any DB constraint issues -> back to signin with an error marker
+            site_base = getattr(settings, "SITE_BASE_URL", "") or "http://127.0.0.1:3000"
+            raise ImmediateHttpResponse(HttpResponseRedirect(f"{site_base}/auth/signin?error=link_failed"))
 
     def authentication_error(self, request, provider_id, error=None, exception=None, extra_context=None):
         """Gracefully handle provider/auth errors instead of a raw 500.
