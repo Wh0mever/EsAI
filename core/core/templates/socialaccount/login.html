@@ -1,0 +1,28 @@
+{% load i18n static %}
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{% trans "Вход через Google" %} — Vokalo</title>
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{% static 'css/allauth.css' %}">
+  </head>
+  <body>
+    <div class="aa-page">
+      <div class="aa-card">
+        <img class="aa-logo" src="{% static 'img/base.svg' %}" alt="Vokalo">
+        <h1 class="aa-title">{% trans "Вход через Google" %}</h1>
+        <p class="aa-sub">{% trans "Вы будете перенаправлены на авторизацию Google." %}</p>
+
+        <form method="post" action="">
+          {% csrf_token %}
+          <button class="aa-button" type="submit">{% trans "Продолжить" %}</button>
+        </form>
+
+        <p class="aa-alt"><a href="/auth/signin">{% trans "Вернуться ко входу" %}</a></p>
+      </div>
+    </div>
+  </body>
+  </html>

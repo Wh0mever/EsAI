@@ -1,0 +1,15 @@
+:root{--bg:#0b0b0f;--card:#141420;--text:#fff;--muted:#b3b3c2;--accent:#6a37d7}
+*{box-sizing:border-box}
+html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.4 Inter,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+.aa-page{min-height:100%;display:grid;place-items:center;padding:24px}
+.aa-card{width:100%;max-width:420px;background:var(--card);border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:28px;box-shadow:0 10px 30px rgba(0,0,0,.25)}
+.aa-logo{width:140px;display:block;margin:0 auto 10px}
+.aa-title{margin:8px 0 6px;font-size:20px;font-weight:600;text-align:center}
+.aa-sub{margin:0 0 18px;color:var(--muted);text-align:center}
+.aa-button{appearance:none;border:0;border-radius:10px;padding:12px 16px;background:var(--accent);color:#fff;font-weight:600;cursor:pointer;width:100%}
+.aa-button:hover{filter:brightness(1.08)}
+.aa-alt{margin:16px 0 0;text-align:center}
+.aa-alt a{color:#bba7ff;text-decoration:none}
+.aa-alt a:hover{text-decoration:underline}
+
