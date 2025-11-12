@@ -169,7 +169,8 @@ export async function fetchData<T = any>(
 ): Promise<ApiResponse<T>> {
     const first = await requestOnce<T>(endpoint, method, auth, body, extraHeaders);
 
-    if (!(auth && first.status === 401)) return first;
+    // Treat both 401 and 403 as auth failures for soft redirect
+    if (!(auth && (first.status === 401 || first.status === 403))) return first;
 
     const refreshed = await refreshAuth();
     if (!refreshed) {
