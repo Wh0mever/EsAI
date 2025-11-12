@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import Cookies from "js-cookie";
+import { isJwtValid } from "@/tools/jwt";
 import { useEffect, useState } from "react";
 import { FiUserPlus, FiLogIn, FiGrid, FiUser } from "react-icons/fi";
 
@@ -10,10 +11,16 @@ export default function AuthButtons() {
 	const { t } = useTranslation("home");
 	const [isAuthenticated, setIsAuthenticated] = useState(false);
 
-	useEffect(() => {
-		const token = Cookies.get("access");
-		setIsAuthenticated(!!token);
-	}, []);
+  useEffect(() => {
+    const check = () => {
+      const token = Cookies.get("access");
+      setIsAuthenticated(isJwtValid(token));
+    };
+    check();
+    const onFocus = () => check();
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
+  }, []);
 
   if (isAuthenticated) {
     return (
