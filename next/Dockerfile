@@ -84,5 +84,10 @@ COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 
+# Ensure runtime cache is writable for image optimization and RSC caches
+USER root
+RUN mkdir -p /app/.next/cache && chown -R nextjs:nodejs /app
+USER nextjs
+
 EXPOSE 3000
 CMD ["node", "server.js"]
