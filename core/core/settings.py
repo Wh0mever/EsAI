@@ -249,6 +249,7 @@ SOCIALACCOUNT_PROVIDERS = {
     }
 }
 SOCIALACCOUNT_ADAPTER = "users.adapters.SocialAccountAdapter"
+SOCIALACCOUNT_LOGIN_ON_GET = True
 
 # --- Email ---
 EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
