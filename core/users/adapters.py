@@ -1,4 +1,5 @@
 from allauth.socialaccount.adapter import DefaultSocialAccountAdapter
+from django.contrib.auth import get_user_model
 
 
 class SocialAccountAdapter(DefaultSocialAccountAdapter):
@@ -35,3 +36,29 @@ class SocialAccountAdapter(DefaultSocialAccountAdapter):
 
         return user
 
+    def pre_social_login(self, request, sociallogin):
+        """Auto-link social account to existing user by email.
+
+        Prevents IntegrityError(UNIQUE email) when Google returns an email
+        that already exists in our DB from classic (password/code) signup.
+        """
+        # If account already linked or no email — nothing to do
+        if sociallogin.is_existing:
+            return
+
+        extra = getattr(sociallogin.account, "extra_data", {}) or {}
+        email = (
+            extra.get("email")
+            or getattr(sociallogin.user, "email", None)
+        )
+        if not email:
+            return
+
+        User = get_user_model()
+        try:
+            existing = User.objects.get(email__iexact=email)
+        except User.DoesNotExist:
+            return
+
+        # Attach this social account to the existing user
+        sociallogin.connect(request, existing)
