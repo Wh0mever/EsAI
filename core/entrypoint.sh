@@ -17,8 +17,8 @@ for _ in range(60):
 sys.exit(1)
 PY
 
-mkdir -p /app/static /app/media
-chown -R "$APP_USER":"$APP_GROUP" /app/static /app/media
+mkdir -p /app/static /app/media /app/core/logs
+chown -R "$APP_USER":"$APP_GROUP" /app/static /app/media /app/core/logs
 
 python manage.py migrate --noinput || true
 python manage.py collectstatic --noinput || true

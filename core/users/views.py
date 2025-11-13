@@ -377,7 +377,6 @@ class FeedbackView(APIView):
         return Response(UserFeedbackSerializer(qs, many=True).data, status=200)
 
 
-
 class BindCardView(APIView):
     authentication_classes = [JWTAuthentication]
     """Bind FreedomPay tokenized card to the current user (без сохранения PAN).
