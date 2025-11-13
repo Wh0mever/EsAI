@@ -202,16 +202,96 @@ def charge_recurring_by_user_token(
     fp_user: Optional[Dict[str, Any]] = None,
     **kwargs,
 ) -> Dict[str, Any]:
+    # Lazy import to avoid issues if used outside Django at import time
+    try:
+        from .models import PaymentLog
+    except Exception:  # pragma: no cover
+        PaymentLog = None  # type: ignore
+
     token = (getattr(user, "pay_token", None) or "").strip()
     if not token:
+        # Record failed attempt if model is available
+        if PaymentLog:
+            try:
+                PaymentLog.objects.create(
+                    user=user,
+                    provider="freedompay",
+                    amount=int(amount),
+                    currency=currency,
+                    order_id=str(order_id),
+                    description=description or "",
+                    is_test=bool(int(kwargs.get("test", 0))) if isinstance(kwargs.get("test", 0), (int, str)) else bool(kwargs.get("test", False)),
+                    success=False,
+                    response={},
+                    error="User has no saved pay_token",
+                )
+            except Exception:
+                pass
         raise FreedomPayError("User has no saved pay_token")
+
     client = FreedomPayClient()
-    return client.charge_by_token(
-        token=token,
-        amount=amount,
-        currency=currency,
-        order_id=order_id,
-        description=description,
-        user=fp_user,
-        **kwargs,
-    )
+    try:
+        data = client.charge_by_token(
+            token=token,
+            amount=amount,
+            currency=currency,
+            order_id=order_id,
+            description=description,
+            user=fp_user,
+            **kwargs,
+        )
+    except FreedomPayError as e:
+        if PaymentLog:
+            try:
+                PaymentLog.objects.create(
+                    user=user,
+                    provider="freedompay",
+                    amount=int(amount),
+                    currency=currency,
+                    order_id=str(order_id),
+                    description=description or "",
+                    is_test=bool(int(kwargs.get("test", 0))) if isinstance(kwargs.get("test", 0), (int, str)) else bool(kwargs.get("test", False)),
+                    success=False,
+                    response={},
+                    error=str(e),
+                )
+            except Exception:
+                pass
+        raise
+    except Exception as e:
+        if PaymentLog:
+            try:
+                PaymentLog.objects.create(
+                    user=user,
+                    provider="freedompay",
+                    amount=int(amount),
+                    currency=currency,
+                    order_id=str(order_id),
+                    description=description or "",
+                    is_test=bool(int(kwargs.get("test", 0))) if isinstance(kwargs.get("test", 0), (int, str)) else bool(kwargs.get("test", False)),
+                    success=False,
+                    response={},
+                    error=str(e),
+                )
+            except Exception:
+                pass
+        raise
+
+    # Success path: persist provider response
+    if PaymentLog:
+        try:
+            PaymentLog.objects.create(
+                user=user,
+                provider="freedompay",
+                amount=int(amount),
+                currency=currency,
+                order_id=str(order_id),
+                description=description or "",
+                is_test=bool(int(kwargs.get("test", 0))) if isinstance(kwargs.get("test", 0), (int, str)) else bool(kwargs.get("test", False)),
+                success=True,
+                response=data if isinstance(data, dict) else {"data": data},
+                error=None,
+            )
+        except Exception:
+            pass
+    return data
