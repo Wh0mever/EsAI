@@ -6,6 +6,8 @@ services:
       - media:/var/www/media:ro
       - certbot-var:/var/www/certbot
       - certbot-etc:/etc/letsencrypt
+      # Expose nginx logs to host in HTTPS mode as well
+      - ./logs/nginx:/var/log/nginx
     ports:
       - "80:80"
       - "443:443"

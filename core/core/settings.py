@@ -65,6 +65,7 @@ INSTALLED_APPS = [
     "content.apps.ContentConfig",
     "ai.apps.AiConfig",
     "plans.apps.PlansConfig",
+    "payments.apps.PaymentsConfig",
 ]
 
 SITE_ID = 1
