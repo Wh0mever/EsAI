@@ -3,6 +3,7 @@ from django import forms
 from .models import User, UserQuestions, Notification, NotificationDelivery, UserFeedback
 from django.utils import timezone
 from django.utils.html import format_html
+from .actions import charge_by_current_plan
 
 @admin.register(User)
 class UserAdmin(admin.ModelAdmin):
@@ -17,7 +18,7 @@ class UserAdmin(admin.ModelAdmin):
     list_filter = ('is_active', 'is_staff', 'is_superuser', 'is_confirmed', 'date_joined')
     ordering = ('-date_joined',)
     readonly_fields = ('date_joined', 'last_login', 'last_session')
-    actions = ("regenerate_referral_uid",)
+    actions = ("regenerate_referral_uid", charge_by_current_plan)
 
     @admin.action(description="Сгенерировать новый Referral UID")
     def regenerate_referral_uid(self, request, queryset):
