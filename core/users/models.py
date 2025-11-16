@@ -118,6 +118,15 @@ class User(AbstractBaseUser, PermissionsMixin, Visa):
     def __str__(self):
         return self.email
 
+    # Django admin expectations for AbstractBaseUser implementations
+    def get_full_name(self) -> str:
+        parts = [self.first_name or "", self.patronymic or "", self.last_name or ""]
+        full = " ".join(p for p in parts if p).strip()
+        return full or self.email
+
+    def get_short_name(self) -> str:
+        return (self.first_name or self.last_name or self.email or "user").strip()
+
     def _generate_unique_uid(self, length: int = 8) -> str:
         alphabet = string.ascii_uppercase + string.digits
         while True:
