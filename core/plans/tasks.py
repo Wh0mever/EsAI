@@ -11,7 +11,7 @@ from django.db import transaction
 from plans.services import update_currency_rates
 from .models import UserSubscription, SubscriptionStatus, GenerationUsage, Plan
 from django.contrib.auth import get_user_model
-from payments.freedompay import charge_recurring_by_user_token, FreedomPayError
+from payments.freedompay_old import charge_recurring_by_user_token, FreedomPayError
 
 logger = logging.getLogger(__name__)
 _LOCK_KEY = "plans:currency_update:lock"

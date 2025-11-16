@@ -12,7 +12,7 @@ from .serializers import (
     GenerationUsageSerializer, AddonPurchaseSerializer
 )
 from .services import get_currency_per_usd_map_cached
-from payments.freedompay import charge_recurring_by_user_token, FreedomPayError
+from payments.freedompay_old import charge_recurring_by_user_token, FreedomPayError
 from rest_framework.views import APIView
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from django.utils import timezone

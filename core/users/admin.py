@@ -18,7 +18,7 @@ class UserAdmin(admin.ModelAdmin):
     list_filter = ('is_active', 'is_staff', 'is_superuser', 'is_confirmed', 'date_joined')
     ordering = ('-date_joined',)
     readonly_fields = ('date_joined', 'last_login', 'last_session')
-    actions = ("regenerate_referral_uid", charge_by_current_plan)
+    actions = [charge_by_current_plan, 'regenerate_referral_uid']
 
     @admin.action(description="Сгенерировать новый Referral UID")
     def regenerate_referral_uid(self, request, queryset):

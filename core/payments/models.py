@@ -27,6 +27,7 @@ class PaymentLog(models.Model):
     description = models.CharField(max_length=255, blank=True, null=True)
     is_test = models.BooleanField(default=False)
     success = models.BooleanField(default=False)
+    request = models.JSONField(default=dict)
     response = models.JSONField(default=dict)
     error = models.TextField(blank=True, null=True)
 
