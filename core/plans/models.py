@@ -49,8 +49,8 @@ class Plan(models.Model):
     template_name_kg = models.CharField(max_length=100, null=True, blank=True)
 
     # Limits (0 => unlimited)
-    ai_templates_limit = models.PositiveIntegerField(null=True, blank=True)  # шаблоны ИИ
-    operations_per_month_limit = models.PositiveIntegerField(null=True, blank=True)  # "Количество в месяц"
+    ai_templates_limit = models.PositiveIntegerField(null=True, blank=True)
+    operations_per_month_limit = models.PositiveIntegerField(null=True, blank=True)
     covers_limit = models.PositiveIntegerField(null=True, blank=True)
 
     # Chat response tokens limit (per reply). If null -> fallback to model default.

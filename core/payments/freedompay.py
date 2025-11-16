@@ -1,25 +1,34 @@
-from __future__ import annotations
 import logging
+import uuid
+import hashlib
 from typing import Optional, Dict, Any
 
+import requests
 from django.conf import settings
+from django.db import DatabaseError, connection
 
-from .models import PaymentLog
+from .models import Payment
 from users.models import User
-from .freedompay_old import FreedomPayClient, FreedomPayError as OldFreedomPayError
 
 
 logger = logging.getLogger("payments.freedompay")
 
 
+def make_signature(params: dict, secret_key: str) -> str:
+    parts = []
+    for key in sorted(params.keys()):
+        parts.append(f"{key}={params[key]}")
+    raw = "".join(parts) + secret_key
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
 def _mask_sensitive(obj: Any) -> Any:
     """Recursively mask tokens and auth values in dicts/lists/strings."""
-    SENSITIVE_KEYS = {"token", "pg_token", "authorization", "Authorization"}
+    sensitive_keys = {"token", "pg_token", "authorization", "Authorization"}
     if isinstance(obj, dict):
         masked = {}
         for k, v in obj.items():
-            if k in SENSITIVE_KEYS:
-                # Keep type stable: mask strings, for others just replace with placeholder
+            if k in sensitive_keys:
                 if isinstance(v, str):
                     if v.lower().startswith("bearer "):
                         masked[k] = "Bearer ***"
@@ -35,39 +44,61 @@ def _mask_sensitive(obj: Any) -> Any:
     return obj
 
 
-class FreedomPayError(Exception):
-    """Domain error for FreedomPay operations.
-
-    Attributes:
-    - message: human-readable error message
-    - code: optional short machine code (e.g., "no_pay_token", "provider_error")
-    - status_code: optional HTTP status from provider (if available)
-    - details: optional dict payload with provider error/response
-    """
-
-    def __init__(self, message: str, code: str | None = None, status_code: int | None = None, details: dict | None = None):
-        super().__init__(message)
-        self.message = message
-        self.code = code
-        self.status_code = status_code
-        self.details = details or {}
-
-    def __str__(self) -> str:  # pragma: no cover - trivial
-        return self.message
-
 class FreedomPay:
-    """FreedomPay recurring charge service.
-
-    Uses:
-    - Access token from env (handled by FreedomPayClient)
-    - Saved user token from `User.pay_token`
-
-    Always writes an audit row to `PaymentLog` with the provider response.
-    Writes to payments.log; the full provider response is included only when DEBUG=True.
-    """
-
     def __init__(self, user: User):
         self.user = user
+        self.salt = uuid.uuid4().hex
+        self.payment: Optional[Payment] = None
+        self.request_data: Dict[str, Any] = {}
+
+    def _build_request_data(
+        self,
+        *,
+        amount: int,
+        currency: str,
+        order_id: str,
+        description: str = "",
+        auto_clearing: int = 0,
+        test: int = 0,
+        custom_params: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Build API request payload and create a Payment log row.
+
+        DB errors here are allowed to propagate to the caller; views with
+        ATOMIC_REQUESTS should handle rollback as needed.
+        """
+        is_test = bool(test or settings.DEBUG)
+        self.payment = Payment.objects.create(
+            user=self.user,
+            amount=int(amount),
+            currency=currency,
+            order_id=order_id,
+            description=description,
+            is_test=is_test,
+        )
+
+        data: Dict[str, Any] = {
+            "pg_merchant_id": settings.FREEDOM_PAY_MERCHANT_ID,
+            "pg_amount": str(amount),
+            "pg_currency": currency,
+            "pg_order_id": order_id or str(self.payment.id),
+            "pg_user_id": str(self.user.id),
+            "pg_card_token": self.user.pay_token,
+            "pg_description": description or f"Payment for user {self.user.id}",
+            "pg_salt": self.salt,
+            "pg_test": 1 if is_test else 0,
+        }
+        if auto_clearing is not None:
+            data["pg_auto_clearing"] = int(auto_clearing)
+        if custom_params:
+            data.update(custom_params)
+
+        sig = make_signature(data, settings.FREEDOM_PAY_TOKEN)
+        data["pg_signature"] = sig
+
+        self.request_data = data
+        return data
 
     def charge(
         self,
@@ -80,203 +111,69 @@ class FreedomPay:
         test: int = 0,
         custom_params: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
-        """Charge by saved user token (безакцептный платеж).
+        """Charge the user's saved payment method and log the result."""
 
-        - `amount` should be an integer in the smallest currency unit if required by the provider.
-        - `currency` like "KGS", "RUB", etc.
-        - `order_id` any unique ID for this charge.
-        """
-
-        token = (getattr(self.user, "pay_token", "") or "").strip()
-        if not token:
-            # Persist failed attempt and log
-            try:
-                # minimal request payload without token
-                masked_request = {
-                    "order_id": str(order_id),
-                    "auto_clearing": auto_clearing,
-                    "amount": int(amount),
-                    "currency": currency,
-                    "description": description or "",
-                    "test": int(test),
-                    "options": {
-                        "custom_params": custom_params or {},
-                        "user": {
-                            "email": getattr(self.user, "email", None) or "",
-                            "phone": getattr(self.user, "tel", None) or "",
-                        },
-                    },
-                    "transaction": {"type": "bank_card_token", "options": {"token": "***"}},
-                }
-                PaymentLog.objects.create(
-                    user=self.user,
-                    provider="freedompay",
-                    amount=int(amount),
-                    currency=currency,
-                    order_id=str(order_id),
-                    description=description or "",
-                    is_test=bool(test),
-                    success=False,
-                    request=masked_request,
-                    response={},
-                    error="User has no saved pay_token",
-                )
-            except Exception:
-                # Avoid breaking flow if DB write fails
-                pass
-            logger.error(
-                "charge_error user=%s order_id=%s error=%s",
-                getattr(self.user, "id", None),
-                order_id,
-                "no_pay_token",
-            )
-            raise FreedomPayError("User has no saved pay_token", code="no_pay_token")
-
-        # Construct request payload we are about to send (JSON mode schema)
-        request_payload: Dict[str, Any] = {
-            "order_id": str(order_id),
-            "auto_clearing": auto_clearing,
-            "amount": int(amount),
-            "currency": currency,
-            "description": description or "",
-            "test": int(test),
-            "options": {
-                "custom_params": custom_params or {},
-                "user": {
-                    "email": getattr(self.user, "email", None) or "",
-                    "phone": getattr(self.user, "tel", None) or "",
-                },
-            },
-            "transaction": {"type": "bank_card_token", "options": {"token": token}},
-        }
-        masked_request = _mask_sensitive(request_payload)
-        # Initialize client (may raise if env not configured)
         try:
-            client = FreedomPayClient()
-        except OldFreedomPayError as e:
-            try:
-                PaymentLog.objects.create(
-                    user=self.user,
-                    provider="freedompay",
-                    amount=int(amount),
-                    currency=currency,
-                    order_id=str(order_id),
-                    description=description or "",
-                    is_test=bool(test),
-                    success=False,
-                    request=masked_request,
-                    response={},
-                    error=str(e),
-                )
-            except Exception:
-                pass
-            logger.error(
-                "charge_error user=%s order_id=%s error=%s",
-                getattr(self.user, "id", None),
-                order_id,
-                str(e),
-            )
-            raise FreedomPayError(str(e), code="config")
-        try:
-            data = client.charge_by_token(
-                token=token,
-                amount=int(amount),
+            request_data = self._build_request_data(
+                amount=amount,
                 currency=currency,
-                order_id=str(order_id),
+                order_id=order_id,
                 description=description,
                 auto_clearing=auto_clearing,
                 test=test,
-                user={
-                    "email": getattr(self.user, "email", None) or "",
-                    "phone": getattr(self.user, "tel", None) or "",
-                },
-                custom_params=custom_params or {},
+                custom_params=custom_params,
             )
-        except OldFreedomPayError as e:
-            # Business error from provider or config; persist and log
-            try:
-                PaymentLog.objects.create(
-                    user=self.user,
-                    provider="freedompay",
-                    amount=int(amount),
-                    currency=currency,
-                    order_id=str(order_id),
-                    description=description or "",
-                    is_test=bool(test),
-                    success=False,
-                    request=masked_request,
-                    response={},
-                    error=str(e),
-                )
-            except Exception:
-                pass
-            logger.error(
-                "charge_error user=%s order_id=%s error=%s",
-                getattr(self.user, "id", None),
-                order_id,
-                str(e),
-            )
-            raise FreedomPayError(str(e), code="provider_error")
-        except Exception as e:
-            # Unexpected error; persist and log with stacktrace
-            try:
-                PaymentLog.objects.create(
-                    user=self.user,
-                    provider="freedompay",
-                    amount=int(amount),
-                    currency=currency,
-                    order_id=str(order_id),
-                    description=description or "",
-                    is_test=bool(test),
-                    success=False,
-                    request=masked_request,
-                    response={},
-                    error=str(e),
-                )
-            except Exception:
-                pass
-            logger.exception(
-                "charge_exception user=%s order_id=%s",
-                getattr(self.user, "id", None),
-                order_id,
-            )
+        except DatabaseError:
+            logger.exception("FreedomPay failed to create Payment")
+            # Propagate DB errors so callers under ATOMIC_REQUESTS can handle rollback.
             raise
 
-        # Success path: persist provider response ALWAYS
+        logger.debug("FreedomPay charge request data: %s", _mask_sensitive(request_data))
+
         try:
-            PaymentLog.objects.create(
-                user=self.user,
-                provider="freedompay",
-                amount=int(amount),
-                currency=currency,
-                order_id=str(order_id),
-                description=description or "",
-                is_test=bool(test),
-                success=True,
-                request=masked_request,
-                response=data if isinstance(data, dict) else {"data": data},
-                error=None,
+            response = requests.post(
+                f"{settings.FREEDOM_PAY_API_BASE}/charge",
+                data=request_data,
+                timeout=30,
             )
-        except Exception:
-            pass
+            try:
+                response_data = response.json()
+            except Exception:
+                response_data = {"raw": response.text}
 
-        # Log to file. Include full response only in DEBUG.
-        if settings.DEBUG:
-            logger.info(
-                "charge_success user=%s order_id=%s amount=%s %s data=%s",
-                getattr(self.user, "id", None),
-                order_id,
-                amount,
-                currency,
-                data,
-            )
-        else:
-            logger.info(
-                "charge_success user=%s order_id=%s amount=%s %s",
-                getattr(self.user, "id", None),
-                order_id,
-                amount,
-                currency,
-            )
+            logger.debug("FreedomPay charge response data: %s", _mask_sensitive(response_data))
+        except Exception as e:
+            logger.exception("FreedomPay HTTP request failed")
+            # Network-level failure: best-effort log into Payment and return error dict.
+            try:
+                if self.payment is not None:
+                    self.payment.request = self.request_data
+                    self.payment.success = False
+                    self.payment.error = str(e)
+                    self.payment.save(update_fields=["request", "success", "error"])
+            except DatabaseError:
+                # Reset broken transaction if ATOMIC_REQUESTS is on.
+                try:
+                    connection.rollback()
+                except Exception:
+                    pass
+            return {"error": str(e)}
 
-        return data
+        # Persist provider response; let DB errors bubble up.
+        if self.payment is not None:
+            self.payment.request = self.request_data
+            self.payment.response = response_data
+            if response.status_code == 200 and response_data.get("pg_status") == "success":
+                self.payment.success = True
+                self.payment.error = ""
+            else:
+                self.payment.success = False
+                self.payment.error = response_data.get("pg_error_message", "Unknown error")
+            self.payment.save(update_fields=["request", "response", "success", "error"])
+
+        return response_data
+        
+        
+        
+        
+        

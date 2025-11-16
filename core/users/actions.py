@@ -5,9 +5,10 @@ from decimal import Decimal
 import os
 from django.utils import timezone
 from django.contrib import messages
+from django.db import DatabaseError, connection, transaction
 
 from plans.models import UserSubscription, SubscriptionStatus
-from payments.freedompay import FreedomPay, FreedomPayError
+from payments.freedompay import FreedomPay
 
 
 logger = logging.getLogger("payments")
@@ -43,7 +44,7 @@ def _charge_one_user(user) -> tuple[bool, str]:
     order_id = f"admin-charge-{user.id}-{int(timezone.now().timestamp())}"
     svc = FreedomPay(user)
     try:
-        svc.charge(
+        resp = svc.charge(
             amount=amount,
             currency=os.environ.get("FREEDOM_PAY_DEFAULT_CURRENCY", "KGS").upper(),
             order_id=order_id,
@@ -51,7 +52,31 @@ def _charge_one_user(user) -> tuple[bool, str]:
             auto_clearing=0,
             test=0,
         )
-    except FreedomPayError as e:
+        # Treat non-success provider response as a failed charge.
+        if not isinstance(resp, dict) or resp.get("pg_status") != "success":
+            logger.error(
+                "charge_failed user=%s amount=%s %s data=%s",
+                user.id,
+                amount,
+                os.environ.get("FREEDOM_PAY_DEFAULT_CURRENCY", "KGS").upper(),
+                resp,
+            )
+            return False, "provider_declined"
+    except DatabaseError as e:
+        logger.error(
+            "charge_db_error user=%s amount=%s %s error=%s",
+            user.id,
+            amount,
+            os.environ.get("FREEDOM_PAY_DEFAULT_CURRENCY", "KGS").upper(),
+            str(e),
+        )
+        # Reset broken transaction so queryset iteration can continue under ATOMIC_REQUESTS.
+        try:
+            connection.rollback()
+        except Exception:
+            pass
+        return False, "db_error"
+    except Exception as e:
         logger.error(
             "charge_failed user=%s amount=%s %s error=%s",
             user.id,
@@ -60,9 +85,6 @@ def _charge_one_user(user) -> tuple[bool, str]:
             str(e),
         )
         return False, f"provider_error:{e}"
-    except Exception as e:
-        logger.exception("charge_exception user=%s", user.id)
-        return False, f"exception:{e}"
 
     # Mark paid for current cycle if applicable (does not shift dates)
     try:
@@ -75,20 +97,30 @@ def _charge_one_user(user) -> tuple[bool, str]:
 
 
 def charge_by_current_plan(modeladmin, request, queryset):
-    """Admin action: charge selected users by their current active plan.
+    """Admin action: charge selected users by their current active plan."""
 
-    - Skips users without active subscription, free plans, or missing pay_token.
-    - Uses FreedomPay via env token + user's saved token.
-    - Logs to payments logger and records PaymentLog automatically.
-    """
-    total = queryset.count()
+    users = list(queryset)  # важный момент: дочитываем пользователей ДО начала биллинга
+
+    total = len(users)
     ok = 0
     skipped = 0
     failed = 0
     details: dict[str, int] = {}
 
-    for user in queryset.iterator():
-        success, reason = _charge_one_user(user)
+    for user in users:
+        try:
+            # изолируем каждого пользователя в отдельной транзакции
+            with transaction.atomic():
+                success, reason = _charge_one_user(user)
+        except DatabaseError:
+            logger.exception("DB error while charging user %s", user.pk)
+            success = False
+            reason = "db_error"
+        except Exception:
+            logger.exception("Unexpected error while charging user %s", user.pk)
+            success = False
+            reason = "unexpected_error"
+
         if success:
             ok += 1
         else:
@@ -96,11 +128,19 @@ def charge_by_current_plan(modeladmin, request, queryset):
                 skipped += 1
             else:
                 failed += 1
-        details[reason] = details.get(reason, 0) + (0 if success else 1)
+            details[reason] = details.get(reason, 0) + 1
 
     msg = f"Processed: {total}. Success: {ok}, Skipped: {skipped}, Failed: {failed}."
     try:
         modeladmin.message_user(request, msg, level=messages.INFO)
     except Exception:
         pass
-    logger.info("admin_charge_summary total=%s ok=%s skipped=%s failed=%s details=%s", total, ok, skipped, failed, details)
+
+    logger.info(
+        "admin_charge_summary total=%s ok=%s skipped=%s failed=%s details=%s",
+        total,
+        ok,
+        skipped,
+        failed,
+        details,
+    )

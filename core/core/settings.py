@@ -292,11 +292,11 @@ LOGGING = {
 }
 if DEBUG:
     LOGGING["handlers"]["console"] = {
-        "level": "DEBUG", "class": "logging.StreamHandler", "formatter": "simple"}
+        "level": "WARNING", "class": "logging.StreamHandler", "formatter": "simple"}
     LOGGING["loggers"]["django"]["handlers"].append("console")
     # Also mirror our project loggers to console in DEBUG
     for _name in ("plans", "payments"):
-        LOGGING["loggers"].setdefault(_name, {"handlers": ["file"], "level": "INFO", "propagate": False})
+        LOGGING["loggers"].setdefault(_name, {"handlers": ["file"], "level": "WARNING", "propagate": False})
         LOGGING["loggers"][_name]["handlers"].append("console")
 
 # --- Celery ---
@@ -337,3 +337,9 @@ EXCHANGE_API_KEY = env.str("EXCHANGE_API_KEY")
 
 # --- OpenAI timeouts ---
 OPENAI_TIMEOUT_SECONDS = env.int("OPENAI_TIMEOUT_SECONDS", default=480)
+
+
+# --- FreedomPay settings ---
+FREEDOM_PAY_MERCHANT_ID = env.str("FREEDOM_PAY_MERCHANT_ID", default="")
+FREEDOM_PAY_API_BASE = env.str("FREEDOM_PAY_API_BASE", default="https://api.freedompay.com/v1")
+FREEDOM_PAY_TOKEN = env.str("FREEDOM_PAY_TOKEN", default="")

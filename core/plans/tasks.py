@@ -10,8 +10,9 @@ from django.db import transaction
 
 from plans.services import update_currency_rates
 from .models import UserSubscription, SubscriptionStatus, GenerationUsage, Plan
-from django.contrib.auth import get_user_model
-from payments.freedompay_old import charge_recurring_by_user_token, FreedomPayError
+from users.models import User
+from payments.freedompay import FreedomPay
+
 
 logger = logging.getLogger(__name__)
 _LOCK_KEY = "plans:currency_update:lock"
@@ -148,36 +149,37 @@ def _renew_one_subscription(sub: UserSubscription) -> bool:
             logger.warning("No token for sub=%s, set INACTIVE", sub.id)
             return False
 
-        # Charge
+        # Charge via FreedomPay
         amount = _price_to_int(plan.price_amount)
         currency = os.environ.get("FREEDOM_PAY_DEFAULT_CURRENCY", "KGS").upper()
         description = f"Subscription plan #{plan.id} renewal"
-        try:
-            resp = charge_recurring_by_user_token(
-                user=user,
-                amount=amount,
-                currency=currency,
-                order_id=f"sub-{sub.id}-{int(now.timestamp())}",
-                description=description,
-                fp_user={"email": user.email or "", "phone": user.tel or ""},
-            )
-            # Provider-specific success check; assume any 2xx is ok here
-            sub.payment_status = "paid"
-            sub.payment_date = now
-        except FreedomPayError as e:
+        fp_client = FreedomPay(user=user)
+        resp = fp_client.charge(
+            amount=amount,
+            currency=currency,
+            order_id=f"sub-{sub.id}-{int(now.timestamp())}",
+            description=description,
+        )
+
+        # FreedomPay client returns JSON dict; check success flag
+        if not isinstance(resp, dict) or resp.get("pg_status") != "success":
             sub.payment_status = "unpaid"
             sub.status = SubscriptionStatus.INACTIVE
             sub.save(update_fields=["payment_status", "status"])
-            logger.error("Charge failed for sub=%s: %s", sub.id, e)
+            logger.error("Charge failed for sub=%s: %s", sub.id, resp)
             logging.getLogger("payments").error(
-                "charge_failed sub=%s user=%s amount=%s %s error=%s",
+                "charge_failed sub=%s user=%s amount=%s %s data=%s",
                 sub.id,
                 user.id,
                 amount,
                 currency,
-                str(e),
+                resp,
             )
             return False
+
+        # On success, mark as paid
+        sub.payment_status = "paid"
+        sub.payment_date = now
 
         # On success: rollover leftovers and advance cycle
         _rollover_leftovers_to_bonus(sub)

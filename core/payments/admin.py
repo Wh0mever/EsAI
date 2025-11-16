@@ -1,9 +1,9 @@
 from django.contrib import admin
-from .models import PaymentLog
+from .models import Payment
 
 
-@admin.register(PaymentLog)
-class PaymentLogAdmin(admin.ModelAdmin):
+@admin.register(Payment)
+class PaymentAdmin(admin.ModelAdmin):
     list_display = (
         'id', 'created_at', 'user', 'provider', 'amount', 'currency', 'success', 'order_id'
     )
