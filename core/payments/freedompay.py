@@ -124,7 +124,6 @@ class FreedomPay:
                 currency=currency,
                 order_id=order_id,
                 description=description,
-                test=test,
                 custom_params=custom_params,
             )
         except DatabaseError:
