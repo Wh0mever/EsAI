@@ -51,6 +51,13 @@ class UserManager(BaseUserManager):
 class User(AbstractBaseUser, PermissionsMixin, Visa):
 
     email = models.EmailField(unique=True, verbose_name='Почта')
+    username = models.CharField(
+        max_length=150,
+        unique=True,
+        blank=True,
+        null=True,
+        verbose_name="Username",
+    )
     first_name = models.CharField(max_length=30, blank=True, verbose_name='Имя')
     last_name = models.CharField(max_length=30, blank=True, verbose_name='Фамилия')
     patronymic = models.CharField(max_length=30, blank=True, verbose_name='Отчество')
@@ -135,6 +142,10 @@ class User(AbstractBaseUser, PermissionsMixin, Visa):
                 return code
 
     def save(self, *args, **kwargs):
+        # If username is empty, fallback to using email as username
+        if (not (self.username or "").strip()) and self.email:
+            self.username = self.email
+
         # Ensure referral_uid is always present and unique
         def uid_exists(uid: str) -> bool:
             qs = User.objects.filter(referral_uid=uid)
