@@ -94,7 +94,6 @@ class FreedomPay:
             "pg_card_token": self.user.pay_token,
             "pg_description": description or f"Payment for user {self.user.id}",
             "pg_salt": self.salt,
-            "pg_test": 1 if is_test else 0,
         }
 
         data["pg_sig"] = make_signature(
