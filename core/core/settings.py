@@ -242,8 +242,8 @@ SECURE_HSTS_PRELOAD = not DEBUG
 # We expose users.urls under "/api/users/", so include that prefix
 LOGIN_REDIRECT_URL = "/api/users/auth/complete/"
 ACCOUNT_EMAIL_VERIFICATION = "none"
-ACCOUNT_AUTHENTICATION_METHOD = "email"
-ACCOUNT_EMAIL_REQUIRED = True
+ACCOUNT_LOGIN_METHODS = {"email"}
+ACCOUNT_SIGNUP_FIELDS = ["email*", "password1*", "password2*"]
 SOCIALACCOUNT_PROVIDERS = {
     "google": {
         "APP": {
@@ -262,7 +262,7 @@ EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
 EMAIL_HOST = "smtp.gmail.com"
 EMAIL_PORT = 587
 EMAIL_USE_TLS = True
-EMAIL_HOST_USER = env('EMAIL_HOST_USER', default="vokalo.online")
+EMAIL_HOST_USER = env('EMAIL_HOST_USER', default="support@esai.kg")
 EMAIL_HOST_PASSWORD = env('EMAIL_HOST_PASSWORD')
 DEFAULT_FROM_EMAIL = env('DEFAULT_FROM_EMAIL')
 
