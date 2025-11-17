@@ -46,10 +46,9 @@ def _charge_one_user(user) -> tuple[bool, str]:
     try:
         resp = svc.charge(
             amount=amount,
-            currency=os.environ.get("FREEDOM_PAY_DEFAULT_CURRENCY", "KGS").upper(),
+            currency=os.environ.get("FREEDOM_PAY_DEFAULT_CURRENCY", "USD").upper(),
             order_id=order_id,
             description=f"Admin action charge for plan #{plan.id}",
-            auto_clearing=0,
             test=0,
         )
         # Treat non-success provider response as a failed charge.
@@ -58,7 +57,7 @@ def _charge_one_user(user) -> tuple[bool, str]:
                 "charge_failed user=%s amount=%s %s data=%s",
                 user.id,
                 amount,
-                os.environ.get("FREEDOM_PAY_DEFAULT_CURRENCY", "KGS").upper(),
+                os.environ.get("FREEDOM_PAY_DEFAULT_CURRENCY", "USD").upper(),
                 resp,
             )
             return False, "provider_declined"
@@ -67,7 +66,7 @@ def _charge_one_user(user) -> tuple[bool, str]:
             "charge_db_error user=%s amount=%s %s error=%s",
             user.id,
             amount,
-            os.environ.get("FREEDOM_PAY_DEFAULT_CURRENCY", "KGS").upper(),
+            os.environ.get("FREEDOM_PAY_DEFAULT_CURRENCY", "USD").upper(),
             str(e),
         )
         # Reset broken transaction so queryset iteration can continue under ATOMIC_REQUESTS.
@@ -81,7 +80,7 @@ def _charge_one_user(user) -> tuple[bool, str]:
             "charge_failed user=%s amount=%s %s error=%s",
             user.id,
             amount,
-            os.environ.get("FREEDOM_PAY_DEFAULT_CURRENCY", "KGS").upper(),
+            os.environ.get("FREEDOM_PAY_DEFAULT_CURRENCY", "USD").upper(),
             str(e),
         )
         return False, f"provider_error:{e}"
@@ -99,7 +98,7 @@ def _charge_one_user(user) -> tuple[bool, str]:
 def charge_by_current_plan(modeladmin, request, queryset):
     """Admin action: charge selected users by their current active plan."""
 
-    users = list(queryset)  # важный момент: дочитываем пользователей ДО начала биллинга
+    users = list(queryset)
 
     total = len(users)
     ok = 0
@@ -109,7 +108,6 @@ def charge_by_current_plan(modeladmin, request, queryset):
 
     for user in users:
         try:
-            # изолируем каждого пользователя в отдельной транзакции
             with transaction.atomic():
                 success, reason = _charge_one_user(user)
         except DatabaseError:

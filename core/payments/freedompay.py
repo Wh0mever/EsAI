@@ -14,11 +14,19 @@ from users.models import User
 logger = logging.getLogger("payments.freedompay")
 
 
-def make_signature(params: dict, secret_key: str) -> str:
-    parts = []
+def make_signature(method: str, params: dict, secret_key: str) -> str:
+
+    params = {k: v for k, v in params.items() if k != "pg_sig"}
+
+    values = [method]
+
     for key in sorted(params.keys()):
-        parts.append(f"{key}={params[key]}")
-    raw = "".join(parts) + secret_key
+        values.append(str(params[key]))
+
+    values.append(secret_key)
+
+    raw = ";".join(values)
+
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
@@ -58,7 +66,6 @@ class FreedomPay:
         currency: str,
         order_id: str,
         description: str = "",
-        auto_clearing: int = 0,
         test: int = 0,
         custom_params: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
@@ -89,13 +96,12 @@ class FreedomPay:
             "pg_salt": self.salt,
             "pg_test": 1 if is_test else 0,
         }
-        if auto_clearing is not None:
-            data["pg_auto_clearing"] = int(auto_clearing)
-        if custom_params:
-            data.update(custom_params)
 
-        sig = make_signature(data, settings.FREEDOM_PAY_TOKEN)
-        data["pg_signature"] = sig
+        data["pg_sig"] = make_signature(
+            method="create",
+            params=data,
+            secret_key=settings.FREEDOM_PAY_TOKEN
+        )
 
         self.request_data = data
         return data
@@ -107,7 +113,6 @@ class FreedomPay:
         currency: str,
         order_id: str,
         description: str = "",
-        auto_clearing: int = 0,
         test: int = 0,
         custom_params: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
@@ -119,20 +124,18 @@ class FreedomPay:
                 currency=currency,
                 order_id=order_id,
                 description=description,
-                auto_clearing=auto_clearing,
                 test=test,
                 custom_params=custom_params,
             )
         except DatabaseError:
             logger.exception("FreedomPay failed to create Payment")
-            # Propagate DB errors so callers under ATOMIC_REQUESTS can handle rollback.
             raise
 
         logger.debug("FreedomPay charge request data: %s", _mask_sensitive(request_data))
 
         try:
             response = requests.post(
-                f"{settings.FREEDOM_PAY_API_BASE}/charge",
+                f"{settings.FREEDOM_PAY_API_BASE}/merchant/{settings.FREEDOM_PAY_MERCHANT_ID}/card/init",
                 data=request_data,
                 timeout=30,
             )
@@ -172,8 +175,3 @@ class FreedomPay:
             self.payment.save(update_fields=["request", "response", "success", "error"])
 
         return response_data
-        
-        
-        
-        
-        
