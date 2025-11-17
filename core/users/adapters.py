@@ -1,9 +1,9 @@
 import logging
 from allauth.socialaccount.adapter import DefaultSocialAccountAdapter
+from allauth.core.exceptions import ImmediateHttpResponse
 from django.contrib.auth import get_user_model
 from django.conf import settings
 from django.http import HttpResponseRedirect
-from allauth.exceptions import ImmediateHttpResponse
 
 
 class SocialAccountAdapter(DefaultSocialAccountAdapter):
@@ -74,14 +74,29 @@ class SocialAccountAdapter(DefaultSocialAccountAdapter):
             site_base = getattr(settings, "SITE_BASE_URL", "") or "http://127.0.0.1:3000"
             raise ImmediateHttpResponse(HttpResponseRedirect(f"{site_base}/auth/signin?error=link_failed"))
 
-    def authentication_error(self, request, provider_id, error=None, exception=None, extra_context=None):
-        """Gracefully handle provider/auth errors instead of a raw 500.
+    def on_authentication_error(
+        self,
+        request,
+        provider,
+        error=None,
+        exception=None,
+        extra_context=None,
+    ):
+        """Handle provider/auth errors and redirect to frontend.
 
-        Redirect the user back to the sign-in page with a short error marker.
+        This is the modern hook used by allauth (authentication_error is deprecated).
+        We raise ImmediateHttpResponse so allauth returns our redirect instead of
+        rendering the default error template.
         """
         log = logging.getLogger(__name__)
-        log.error("Social auth error from provider=%s: %s | exc=%s", provider_id, error, exception)
+        provider_id = getattr(provider, "id", str(provider))
+        log.error(
+            "Social auth error from provider=%s: %s | exc=%s",
+            provider_id,
+            error,
+            exception,
+        )
 
         site_base = getattr(settings, "SITE_BASE_URL", "") or "http://127.0.0.1:3000"
-        # Send user back to sign-in with an error flag
-        return HttpResponseRedirect(f"{site_base}/auth/signin?error=social_login_failed")
+        response = HttpResponseRedirect(f"{site_base}/auth/signin?error=social_login_failed")
+        raise ImmediateHttpResponse(response)
