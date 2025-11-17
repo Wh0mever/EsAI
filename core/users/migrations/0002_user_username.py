@@ -6,13 +6,35 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('users', '0001_initial'),
+        ("users", "0001_initial"),
     ]
 
     operations = [
-        migrations.AddField(
-            model_name='user',
-            name='username',
-            field=models.CharField(blank=True, max_length=150, null=True, unique=True, verbose_name='Username'),
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.AddField(
+                    model_name="user",
+                    name="username",
+                    field=models.CharField(
+                        max_length=150,
+                        unique=True,
+                        blank=True,
+                        null=True,
+                        verbose_name="Username",
+                    ),
+                ),
+            ],
+            database_operations=[
+                migrations.RunSQL(
+                    sql="""
+                    ALTER TABLE users_user
+                    ADD COLUMN IF NOT EXISTS username varchar(150);
+                    """,
+                    reverse_sql="""
+                    ALTER TABLE users_user
+                    DROP COLUMN IF EXISTS username;
+                    """,
+                ),
+            ],
         ),
     ]
