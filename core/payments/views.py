@@ -41,10 +41,10 @@ class StartBindCardAPIView(APIView):
                 back_link=back_link,
             )
         except FreedomPayError as exc:
-            logger.warning("FreedomPay bind start failed: %s", exc)
+            logger.warning("FreedomPay bind start failed: %s payload=%s", exc, getattr(client, "last_request", {}))
             return Response({"detail": str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
         except Exception:
-            logger.exception("FreedomPay bind start unexpected error")
+            logger.exception("FreedomPay bind start unexpected error payload=%s", getattr(client, "last_request", {}))
             return Response({"detail": "freedompay_error"}, status=status.HTTP_502_BAD_GATEWAY)
         return Response({"redirect_url": redirect_url})
 

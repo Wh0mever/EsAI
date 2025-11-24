@@ -50,7 +50,7 @@ export default function UserCardSaveSimple({ payToken }: Props) {
               disabled={loading}
               className="px-5 py-2 rounded-xl bg-indigo-500 hover:bg-indigo-600 disabled:opacity-60"
             >
-              {loading ? t("processing") : t("profile.card_bind_button")}
+              {loading ? t("profile.card_bind_loading") : t("profile.card_bind_button")}
             </Button>
           </div>
         )}

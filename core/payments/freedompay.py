@@ -64,6 +64,7 @@ class FreedomPayHPPClient:
         self.merchant_id = (settings.FP_MERCHANT_ID or "").strip()
         self.secret = (settings.FP_SECRET or "").strip()
         self.base_url = (settings.FP_API_BASE or settings.FREEDOM_PAY_API_BASE or "").rstrip("/")
+        self.last_request: Dict[str, Any] = {}
 
         missing = [
             name for name, value in (
@@ -138,6 +139,7 @@ class FreedomPayHPPClient:
             "pg_back_link": back_link,
             "pg_salt": uuid.uuid4().hex,
         }
+        self.last_request = dict(params)
         params["pg_sig"] = self.sign(params, script)
         data = self.request(script, params)
         pg_status = str(data.get("pg_status") or "").lower()
