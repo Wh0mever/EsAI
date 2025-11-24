@@ -419,6 +419,10 @@
     "cvv": "CVV",
     "expired_date": "Мөөнөтү бүтөт",
     "name_on_card ": "Картадагы аты",
+    "card_bind_description": "Төлөмдөрдү иштетүү үчүн картаны коопсуз FreedomPay барагы аркылуу байлаңыз.",
+    "card_bind_button": "Картаны байлоо",
+    "card_bind_ready_badge": "Карта байланды",
+    "card_bind_ready_text": "Карта байланыштырылды жана төлөмдөргө даяр.",
     "_2fa": "Эки факторлуу аутентификация",
     "plan_info": {
       "empty_title": "7 күн акысыз",

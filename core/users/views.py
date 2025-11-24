@@ -377,154 +377,154 @@ class FeedbackView(APIView):
         return Response(UserFeedbackSerializer(qs, many=True).data, status=200)
 
 
-class BindCardView(APIView):
-    authentication_classes = [JWTAuthentication]
-    """Bind FreedomPay tokenized card to the current user (без сохранения PAN).
+# class BindCardView(APIView):
+#     authentication_classes = [JWTAuthentication]
+#     """Bind FreedomPay tokenized card to the current user (без сохранения PAN).
 
-    Expected JSON:
-    - token: string (FreedomPay token from JS SDK tokenize)
-    - brand: string (optional, e.g., VISA/MASTERCARD)
-    - last4: string (optional last 4 digits)
-    - exp_month: int (optional)
-    - exp_year: int (optional, 2- or 4-digit)
-    - card_holder: string (optional)
-    """
+#     Expected JSON:
+#     - token: string (FreedomPay token from JS SDK tokenize)
+#     - brand: string (optional, e.g., VISA/MASTERCARD)
+#     - last4: string (optional last 4 digits)
+#     - exp_month: int (optional)
+#     - exp_year: int (optional, 2- or 4-digit)
+#     - card_holder: string (optional)
+#     """
 
-    permission_classes = [permissions.IsAuthenticated]
+#     permission_classes = [permissions.IsAuthenticated]
 
-    def post(self, request):
-        data = request.data or {}
-        token = (data.get("token") or "").strip()
-        if not token:
-            return Response({"message": "token is required"}, status=400)
+#     def post(self, request):
+#         data = request.data or {}
+#         token = (data.get("token") or "").strip()
+#         if not token:
+#             return Response({"message": "token is required"}, status=400)
 
-        # Optional metadata to show in profile
-        brand = (data.get("brand") or "").strip() or None
-        last4 = (data.get("last4") or "").strip() or None
-        exp_month = data.get("exp_month")
-        exp_year = data.get("exp_year")
-        holder = (data.get("card_holder") or "").strip() or None
+#         # Optional metadata to show in profile
+#         brand = (data.get("brand") or "").strip() or None
+#         last4 = (data.get("last4") or "").strip() or None
+#         exp_month = data.get("exp_month")
+#         exp_year = data.get("exp_year")
+#         holder = (data.get("card_holder") or "").strip() or None
 
-        # Normalize year and month
-        try:
-            if isinstance(exp_year, str) and exp_year.isdigit():
-                exp_year = int(exp_year)
-            if isinstance(exp_month, str) and exp_month.isdigit():
-                exp_month = int(exp_month)
-        except Exception:
-            pass
+#         # Normalize year and month
+#         try:
+#             if isinstance(exp_year, str) and exp_year.isdigit():
+#                 exp_year = int(exp_year)
+#             if isinstance(exp_month, str) and exp_month.isdigit():
+#                 exp_month = int(exp_month)
+#         except Exception:
+#             pass
 
-        u: User = request.user
-        # Prepare values for DB update (bypass model.save extra queries)
-        values = {
-            "pay_token": token[:1024],
-            "brand": (brand or None)[:20] if brand else None,
-            "last4": last4[-4:] if last4 else u.last4,
-            "card_holder": (holder or None)[:100] if holder else None,
-        }
-        if isinstance(exp_month, int):
-            values["exp_month"] = exp_month
-        if isinstance(exp_year, int):
-            values["exp_year"] = (2000 + exp_year) if 0 <= exp_year < 100 else exp_year
+#         u: User = request.user
+#         # Prepare values for DB update (bypass model.save extra queries)
+#         values = {
+#             "pay_token": token[:1024],
+#             "brand": (brand or None)[:20] if brand else None,
+#             "last4": last4[-4:] if last4 else u.last4,
+#             "card_holder": (holder or None)[:100] if holder else None,
+#         }
+#         if isinstance(exp_month, int):
+#             values["exp_month"] = exp_month
+#         if isinstance(exp_year, int):
+#             values["exp_year"] = (2000 + exp_year) if 0 <= exp_year < 100 else exp_year
 
-        try:
-            User.objects.filter(pk=u.pk).update(**values)
-        except DBDataError:
-            # Rollback broken transaction and retry with conservative lengths
-            try:
-                connection.rollback()
-            except Exception:
-                pass
-            if values.get("pay_token") and len(values["pay_token"]) > 100:
-                values["pay_token"] = values["pay_token"][:100]
-            if values.get("brand") and len(values["brand"]) > 20:
-                values["brand"] = values["brand"][:20]
-            if values.get("card_holder") and len(values["card_holder"]) > 100:
-                values["card_holder"] = values["card_holder"][:100]
-            User.objects.filter(pk=u.pk).update(**values)
+#         try:
+#             User.objects.filter(pk=u.pk).update(**values)
+#         except DBDataError:
+#             # Rollback broken transaction and retry with conservative lengths
+#             try:
+#                 connection.rollback()
+#             except Exception:
+#                 pass
+#             if values.get("pay_token") and len(values["pay_token"]) > 100:
+#                 values["pay_token"] = values["pay_token"][:100]
+#             if values.get("brand") and len(values["brand"]) > 20:
+#                 values["brand"] = values["brand"][:20]
+#             if values.get("card_holder") and len(values["card_holder"]) > 100:
+#                 values["card_holder"] = values["card_holder"][:100]
+#             User.objects.filter(pk=u.pk).update(**values)
 
-        # Refresh in-memory fields from updated values
-        for k, v in values.items():
-            setattr(u, k, v)
+#         # Refresh in-memory fields from updated values
+#         for k, v in values.items():
+#             setattr(u, k, v)
 
-        # Auto-activate free plan if available and no active subscription yet
-        auto_activated = False
-        try:
-            from django.utils import timezone
-            from datetime import timedelta
-            from plans.models import (
-                Plan,
-                UserSubscription,
-                SubscriptionStatus,
-                PaymentStatus,
-                GenerationUsage,
-            )
-            import logging as _logging
+#         # Auto-activate free plan if available and no active subscription yet
+#         auto_activated = False
+#         try:
+#             from django.utils import timezone
+#             from datetime import timedelta
+#             from plans.models import (
+#                 Plan,
+#                 UserSubscription,
+#                 SubscriptionStatus,
+#                 PaymentStatus,
+#                 GenerationUsage,
+#             )
+#             import logging as _logging
 
-            has_active = UserSubscription.objects.filter(user=u, status=SubscriptionStatus.ACTIVE).exists()
-            if not has_active:
-                free_plan = (
-                    Plan.objects.filter(is_active=True, is_free=True).order_by("sort_order", "id").first()
-                )
-                if free_plan:
-                    now = timezone.now()
-                    sub = UserSubscription.objects.create(
-                        user=u,
-                        plan=free_plan,
-                        start_date=now,
-                        end_date=now + timedelta(days=int(free_plan.duration_days or 30)),
-                        status=SubscriptionStatus.ACTIVE,
-                        payment_status=PaymentStatus.UNPAID,
-                        payment_date=None,
-                    )
-                    GenerationUsage.objects.get_or_create(
-                        subscription=sub,
-                        defaults={
-                            "songs_left": int(free_plan.song_limit or 0),
-                            "music_left": int(free_plan.music_limit or 0),
-                            "texts_left": int(free_plan.text_limit or 0),
-                            "images_left": int(free_plan.image_limit or 0),
-                        },
-                    )
-                    _logging.getLogger("plans").info(
-                        "auto_subscription_activated user=%s sub_id=%s plan_id=%s end_date=%s",
-                        u.id,
-                        sub.id,
-                        free_plan.id,
-                        sub.end_date,
-                    )
-                    auto_activated = True
-        except Exception as e:
-            import logging as _logging
-            _logging.getLogger("plans").exception(
-                "auto_subscription_activate_failed user=%s error=%s", u.id, e
-            )
+#             has_active = UserSubscription.objects.filter(user=u, status=SubscriptionStatus.ACTIVE).exists()
+#             if not has_active:
+#                 free_plan = (
+#                     Plan.objects.filter(is_active=True, is_free=True).order_by("sort_order", "id").first()
+#                 )
+#                 if free_plan:
+#                     now = timezone.now()
+#                     sub = UserSubscription.objects.create(
+#                         user=u,
+#                         plan=free_plan,
+#                         start_date=now,
+#                         end_date=now + timedelta(days=int(free_plan.duration_days or 30)),
+#                         status=SubscriptionStatus.ACTIVE,
+#                         payment_status=PaymentStatus.UNPAID,
+#                         payment_date=None,
+#                     )
+#                     GenerationUsage.objects.get_or_create(
+#                         subscription=sub,
+#                         defaults={
+#                             "songs_left": int(free_plan.song_limit or 0),
+#                             "music_left": int(free_plan.music_limit or 0),
+#                             "texts_left": int(free_plan.text_limit or 0),
+#                             "images_left": int(free_plan.image_limit or 0),
+#                         },
+#                     )
+#                     _logging.getLogger("plans").info(
+#                         "auto_subscription_activated user=%s sub_id=%s plan_id=%s end_date=%s",
+#                         u.id,
+#                         sub.id,
+#                         free_plan.id,
+#                         sub.end_date,
+#                     )
+#                     auto_activated = True
+#         except Exception as e:
+#             import logging as _logging
+#             _logging.getLogger("plans").exception(
+#                 "auto_subscription_activate_failed user=%s error=%s", u.id, e
+#             )
 
-        return Response({
-            "status": "ok",
-            "card": {
-                "last4": u.last4,
-                "card_holder": u.card_holder,
-                "exp_month": u.exp_month,
-                "exp_year": u.exp_year,
-            },
-            "auto_activated": auto_activated,
-        }, status=200)
+#         return Response({
+#             "status": "ok",
+#             "card": {
+#                 "last4": u.last4,
+#                 "card_holder": u.card_holder,
+#                 "exp_month": u.exp_month,
+#                 "exp_year": u.exp_year,
+#             },
+#             "auto_activated": auto_activated,
+#         }, status=200)
 
 
-class UnbindCardView(APIView):
-    authentication_classes = [JWTAuthentication]
-    """Clear saved FreedomPay token and public card meta for the user."""
+# class UnbindCardView(APIView):
+#     authentication_classes = [JWTAuthentication]
+#     """Clear saved FreedomPay token and public card meta for the user."""
 
-    permission_classes = [permissions.IsAuthenticated]
+#     permission_classes = [permissions.IsAuthenticated]
 
-    def post(self, request):
-        u: User = request.user
-        u.pay_token = None
-        u.brand = None
-        u.last4 = None
-        u.card_holder = None
-        u.exp_month = None
-        u.exp_year = None
-        u.save()
-        return Response({"status": "ok"}, status=200)
+#     def post(self, request):
+#         u: User = request.user
+#         u.pay_token = None
+#         u.brand = None
+#         u.last4 = None
+#         u.card_holder = None
+#         u.exp_month = None
+#         u.exp_year = None
+#         u.save()
+#         return Response({"status": "ok"}, status=200)

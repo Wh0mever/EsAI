@@ -451,9 +451,3 @@ export function UserVisa({
 		</Card>
 	);
 }
-
-export function UserCardSaveSimple({}) {
-	return (
-		<div>Simple</div>
-	);
-}
