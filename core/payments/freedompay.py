@@ -2,6 +2,7 @@ import logging
 import uuid
 import hashlib
 from typing import Optional, Dict, Any
+import xml.etree.ElementTree as ET
 
 import requests
 from django.conf import settings
@@ -92,8 +93,19 @@ class FreedomPayHPPClient:
             raise FreedomPayError("FreedomPay request failed") from exc
         try:
             data = response.json()
+        except ValueError:
+            try:
+                text = (response.text or "").strip()
+                root = ET.fromstring(text)
+                if list(root):
+                    data = {child.tag: (child.text or "").strip() for child in root}
+                else:
+                    data = {root.tag: (root.text or "").strip()}
+            except ET.ParseError as exc:
+                logger.exception("FreedomPay HPP invalid response: %s", response.text[:200])
+                raise FreedomPayError("FreedomPay response parsing failed") from exc
         except Exception as exc:
-            logger.exception("FreedomPay HPP invalid JSON response: %s", response.text[:200])
+            logger.exception("FreedomPay HPP response decode error: %s", response.text[:200])
             raise FreedomPayError("FreedomPay response parsing failed") from exc
 
         if response.status_code >= 400:
