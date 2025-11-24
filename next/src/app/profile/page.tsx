@@ -8,7 +8,7 @@ import { CiCircleCheck } from "react-icons/ci";
 import Breadcrumb from "@/components/global/AnimatedCircleBg";
 import UserProfile from "@/components/profile/UserProfile";
 import UserPlan from "@/components/profile/UserPlan";
-import { UserCardSaveSimple } from "@/components/profile/UserPayment";
+import UserCardSaveSimple from "@/app/profile/components/UserCardSaveSimple";
 
 
 function ProfileAlert({ t }: { t: any }) {
@@ -46,8 +46,7 @@ export default function ProfilePage() {
                 {!profileData?.subscription && <ProfileAlert t={t} />}
 
 				<UserProfile t={t} data={profileData} />
-				{/* <UserVisa t={t} isCardLinked={false} onSubmitCard={handleSubmitCard} cardData={profileData?.card} /> */}
-                {/* <div id="fp-3ds" className="w-full max-w-md max-h-[400px] min-h-0 p-0" /> */}
+                <UserCardSaveSimple payToken={profileData?.user?.pay_token} />
                 <UserPlan t={t} data={profileData} />
             </div>
         </main>

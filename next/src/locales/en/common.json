@@ -420,6 +420,10 @@
     "cvv": "CVV",
     "expired_date": "Expired date",
     "name_on_card ": "Name on card",
+    "card_bind_description": "Link your card via the secure FreedomPay Hosted Payment Page to enable payments.",
+    "card_bind_button": "Link card",
+    "card_bind_ready_badge": "Card linked",
+    "card_bind_ready_text": "Your card is linked and ready for payments.",
     "_2fa": "Two-factor authentication",
     "plan_info": {
       "empty_title": "7 days free",
