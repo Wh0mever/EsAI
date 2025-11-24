@@ -211,7 +211,7 @@ function detectBrand(num: string) {
 }
 /* ------------------------------------ */
 
-export default function UserVisa({
+export function UserVisa({
 	t,
 	isCardLinked,
 	cardData,
@@ -449,5 +449,11 @@ export default function UserVisa({
 				{hasCard ? <VisaInfo cardData={cardData} /> : <VisaForm />}
 			</div>
 		</Card>
+	);
+}
+
+export function UserCardSaveSimple({}) {
+	return (
+		<div>Simple</div>
 	);
 }
