@@ -1,6 +1,7 @@
 import logging
 import uuid
 
+from django.urls import reverse
 from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -21,7 +22,7 @@ class StartBindCardAPIView(APIView):
         body = request.data or {}
         client = FreedomPayHPPClient()
         order_id = f"bind-{request.user.id}-{uuid.uuid4().hex[:8]}"
-        callback_url = request.build_absolute_uri("/api/card/bind/callback/")
+        callback_url = request.build_absolute_uri(reverse("card-bind-callback"))
 
         back_link_input = body.get("back_link") or body.get("back_path") or "/profile"
         if isinstance(back_link_input, str) and back_link_input.startswith(("http://", "https://")):
