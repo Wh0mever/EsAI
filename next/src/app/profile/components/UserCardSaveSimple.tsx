@@ -21,7 +21,7 @@ export default function UserCardSaveSimple({ payToken }: Props) {
     setLoading(true);
     setError(null);
     try {
-      const result = await fetchData<{ redirect_url?: string }>("card/bind/start/", "POST", null, true);
+      const result = await fetchData<{ redirect_url?: string }>("payments/card/bind/start/", "POST", null, true);
       const url = result?.data?.redirect_url;
       if (!result.ok || !url) {
         throw new Error(result.error || "FreedomPay session error");

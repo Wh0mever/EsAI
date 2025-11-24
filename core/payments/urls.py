@@ -1,8 +1,8 @@
-from django.urls import path, include
+from django.urls import path
 
 from .views import StartBindCardAPIView, FreedomPayCallbackAPIView
 
 urlpatterns = [
-    path('api/card/bind/start/', StartBindCardAPIView.as_view(), name='card-bind-start'),
-    path('api/card/bind/callback/', FreedomPayCallbackAPIView.as_view(), name='card-bind-callback'),
+    path('card/bind/start/', StartBindCardAPIView.as_view(), name='card-bind-start'),
+    path('card/bind/callback/', FreedomPayCallbackAPIView.as_view(), name='card-bind-callback'),
 ]
