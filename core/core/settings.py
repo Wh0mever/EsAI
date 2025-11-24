@@ -345,4 +345,4 @@ FREEDOM_PAY_API_BASE = env.str("FREEDOM_PAY_API_BASE", default="https://api.free
 FREEDOM_PAY_TOKEN = env.str("FREEDOM_PAY_TOKEN", default="")
 FP_API_BASE = env.str("FP_API_BASE", default=FREEDOM_PAY_API_BASE)
 FP_MERCHANT_ID = env.str("FP_MERCHANT_ID", default=FREEDOM_PAY_MERCHANT_ID)
-FP_SECRET = env.str("FP_SECRET", default=FREEDOM_PAY_TOKEN)
+FP_SECRET = env.str("FP_SECRET", default=env.str("FP_SECRET_KEY", default=FREEDOM_PAY_TOKEN))

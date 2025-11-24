@@ -421,6 +421,7 @@
     "name_on_card ": "Имя на карте",
     "card_bind_description": "Подключите карту через защищённую страницу FreedomPay, чтобы оплачивать подписку.",
     "card_bind_button": "Привязать карту",
+    "card_bind_loading": "Обработка…",
     "card_bind_ready_badge": "Карта привязана",
     "card_bind_ready_text": "Карта привязана и готова к оплатам.",
     "_2fa": "Двухфакторная аутентификация",
