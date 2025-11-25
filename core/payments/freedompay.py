@@ -66,6 +66,7 @@ class FreedomPayHPPClient:
         self.base_url = (settings.FP_API_BASE or settings.FREEDOM_PAY_API_BASE or "").rstrip("/")
         self.last_request: Dict[str, Any] = {}
         self.last_response: Dict[str, Any] = {}
+        self.last_endpoint: str = ""
 
         missing = [
             name for name, value in (
@@ -90,7 +91,10 @@ class FreedomPayHPPClient:
 
     def request(self, script: str, params: Dict[str, Any]) -> Dict[str, Any]:
         url = f"{self.base_url}/merchant/{self.merchant_id}/{script}".replace("//merchant", "/merchant")
+        self.last_endpoint = url
         self.last_response = {}
+        if settings.DEBUG:
+            logger.info("FreedomPay bind request url=%s payload=%s", url, _mask_sensitive(params))
         try:
             response = requests.post(url, data=params, timeout=30)
         except requests.RequestException as exc:
@@ -118,7 +122,8 @@ class FreedomPayHPPClient:
         self.last_response = _mask_sensitive(data)
         if settings.DEBUG:
             logger.info(
-                "FreedomPay bind response status=%s payload=%s",
+                "FreedomPay bind response url=%s status=%s payload=%s",
+                self.last_endpoint,
                 response.status_code,
                 self.last_response,
             )
