@@ -281,6 +281,7 @@ LOGGING = {
     "handlers": {
         "file": {"level": "DEBUG", "class": "logging.FileHandler", "filename": str(LOG_FILE), "formatter": "verbose"},
         "payments_file": {"level": "INFO", "class": "logging.FileHandler", "filename": str(LOG_PAYMENTS_FILE), "formatter": "verbose"},
+        "payments_console": {"level": "WARNING", "class": "logging.StreamHandler", "formatter": "simple"},
     },
     "loggers": {
         "django": {"handlers": ["file"], "level": "DEBUG", "propagate": True},
@@ -288,6 +289,7 @@ LOGGING = {
         "plans": {"handlers": ["file"], "level": "INFO", "propagate": False},
         # Dedicated payments logger always writes to payments.log even when DEBUG=False
         "payments": {"handlers": ["payments_file"], "level": "INFO", "propagate": False},
+        "payments.freedompay": {"handlers": ["payments_file", "payments_console"], "level": "INFO", "propagate": False},
     },
 }
 if DEBUG:

@@ -65,6 +65,7 @@ class FreedomPayHPPClient:
         self.secret = (settings.FP_SECRET or "").strip()
         self.base_url = (settings.FP_API_BASE or settings.FREEDOM_PAY_API_BASE or "").rstrip("/")
         self.last_request: Dict[str, Any] = {}
+        self.last_response: Dict[str, Any] = {}
 
         missing = [
             name for name, value in (
@@ -78,15 +79,18 @@ class FreedomPayHPPClient:
             raise FreedomPayError(f"FreedomPay config missing: {', '.join(missing)}")
 
     def sign(self, params: Dict[str, Any], script: str) -> str:
-        pieces = [script]
-        for key in sorted(params.keys()):
-            pieces.append(str(params[key]))
+        method = (script or "").replace("/", ".").strip(".") or (script or "request")
+        filtered = {k: v for k, v in params.items() if k != "pg_sig"}
+        pieces = [method]
+        for key in sorted(filtered.keys()):
+            pieces.append(str(filtered[key]))
         pieces.append(self.secret)
         raw = ";".join(pieces)
         return hashlib.md5(raw.encode()).hexdigest()
 
     def request(self, script: str, params: Dict[str, Any]) -> Dict[str, Any]:
         url = f"{self.base_url}/merchant/{self.merchant_id}/{script}".replace("//merchant", "/merchant")
+        self.last_response = {}
         try:
             response = requests.post(url, data=params, timeout=30)
         except requests.RequestException as exc:
@@ -104,11 +108,20 @@ class FreedomPayHPPClient:
                     data = {root.tag: (root.text or "").strip()}
             except ET.ParseError as exc:
                 logger.exception("FreedomPay HPP invalid response: %s", response.text[:200])
+                self.last_response = {"raw": response.text[:200]}
                 raise FreedomPayError("FreedomPay response parsing failed") from exc
         except Exception as exc:
             logger.exception("FreedomPay HPP response decode error: %s", response.text[:200])
+            self.last_response = {"raw": response.text[:200]}
             raise FreedomPayError("FreedomPay response parsing failed") from exc
 
+        self.last_response = _mask_sensitive(data)
+        if settings.DEBUG:
+            logger.info(
+                "FreedomPay bind response status=%s payload=%s",
+                response.status_code,
+                self.last_response,
+            )
         if response.status_code >= 400:
             error_message = (
                 data.get("pg_error_description")
@@ -139,8 +152,10 @@ class FreedomPayHPPClient:
             "pg_back_link": back_link,
             "pg_salt": uuid.uuid4().hex,
         }
-        self.last_request = dict(params)
         params["pg_sig"] = self.sign(params, script)
+        self.last_request = _mask_sensitive(dict(params))
+        if settings.DEBUG:
+            logger.info("FreedomPay bind request payload=%s", self.last_request)
         data = self.request(script, params)
         pg_status = str(data.get("pg_status") or "").lower()
         if pg_status not in ("ok", "success"):

@@ -1,3 +1,3 @@
 from django.test import TestCase
 
-# Create your tests here.
+# Manual testing only; placeholder to keep Django happy.
