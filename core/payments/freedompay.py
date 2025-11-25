@@ -38,6 +38,8 @@ def make_signature(script_name: str, params: dict, secret_key: str) -> str:
         pieces.append("" if value is None else str(value))
     pieces.append(secret_key or "")
     raw = ";".join(pieces)
+    if settings.DEBUG:
+        logger.info("FreedomPay signature base string: %s", raw)
     return hashlib.md5(raw.encode("utf-8")).hexdigest()
 
 
@@ -90,9 +92,8 @@ class FreedomPayHPPClient:
             raise FreedomPayError(f"FreedomPay config missing: {', '.join(missing)}")
 
     def sign(self, params: Dict[str, Any], script: str) -> str:
-        allowed_keys = ("pg_user_id", "pg_order_id", "pg_salt", "pg_post_link", "pg_back_link")
-        subset = {key: params.get(key) for key in allowed_keys if key in params}
-        return make_signature(script, subset, self.secret)
+        filtered = {k: v for k, v in params.items() if k != "pg_sig"}
+        return make_signature(script, filtered, self.secret)
 
     def request(self, script: str, params: Dict[str, Any]) -> Dict[str, Any]:
         url = f"{self.base_url}/merchant/{self.merchant_id}/{script}".replace("//merchant", "/merchant")
