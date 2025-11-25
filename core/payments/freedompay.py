@@ -90,7 +90,9 @@ class FreedomPayHPPClient:
             raise FreedomPayError(f"FreedomPay config missing: {', '.join(missing)}")
 
     def sign(self, params: Dict[str, Any], script: str) -> str:
-        return make_signature(script, params, self.secret)
+        allowed_keys = ("pg_user_id", "pg_order_id", "pg_salt", "pg_post_link", "pg_back_link")
+        subset = {key: params.get(key) for key in allowed_keys if key in params}
+        return make_signature(script, subset, self.secret)
 
     def request(self, script: str, params: Dict[str, Any]) -> Dict[str, Any]:
         url = f"{self.base_url}/merchant/{self.merchant_id}/{script}".replace("//merchant", "/merchant")
