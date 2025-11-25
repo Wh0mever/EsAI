@@ -26,16 +26,36 @@ def extract_script_name(url: str) -> str:
     path = path.rstrip("/")
     if not path:
         return ""
-    return path.rsplit("/", 1)[-1]
+    parts = [segment for segment in path.split("/") if segment]
+    if not parts:
+        return ""
+    tail = parts[-1]
+    if len(parts) >= 2 and parts[-2] == "cardstorage" and tail == "add":
+        return "card"
+    if len(parts) >= 2 and parts[-2] == "card" and tail == "init":
+        return "card"
+    return tail
 
 
 def make_signature(script_name: str, params: dict, secret_key: str) -> str:
     filtered = {k: v for k, v in (params or {}).items() if k != "pg_sig"}
-    script = extract_script_name(script_name) or (script_name or "").strip()
+    script = extract_script_name(script_name) or "card"
+    ordered_keys = [
+        "pg_back_link",
+        "pg_merchant_id",
+        "pg_order_id",
+        "pg_post_link",
+        "pg_salt",
+        "pg_user_id",
+    ]
     pieces = [script]
-    for key in sorted(filtered.keys()):
-        value = filtered[key]
+    for key in ordered_keys:
+        value = filtered.pop(key, None)
         pieces.append("" if value is None else str(value))
+    if filtered:
+        for key in sorted(filtered.keys()):
+            value = filtered[key]
+            pieces.append("" if value is None else str(value))
     pieces.append(secret_key or "")
     raw = ";".join(pieces)
     if settings.DEBUG:
@@ -152,7 +172,7 @@ class FreedomPayHPPClient:
         back_link: str,
     ) -> str:
         script_path = "cardstorage/add"
-        script_name = "add"
+        script_name = "card"
         pg_order_id = order_id or f"bind-{user_id}-{uuid.uuid4().hex}"
         if not post_link or not back_link:
             raise FreedomPayError("FreedomPay callback/back links are required")
@@ -230,7 +250,7 @@ class FreedomPay:
             "pg_salt": self.salt,
         }
 
-        data["pg_sig"] = make_signature(extract_script_name(endpoint), data, settings.FREEDOM_PAY_TOKEN)
+        data["pg_sig"] = make_signature(endpoint, data, settings.FREEDOM_PAY_TOKEN)
 
         self.request_data = data
         return data
