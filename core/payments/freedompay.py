@@ -26,10 +26,7 @@ def extract_script_name(url: str) -> str:
     path = path.rstrip("/")
     if not path:
         return ""
-    is_full = bool(parsed.scheme or parsed.netloc) or raw.startswith("/")
-    if is_full:
-        return path.rsplit("/", 1)[-1]
-    return path
+    return path.rsplit("/", 1)[-1]
 
 
 def make_signature(script_name: str, params: dict, secret_key: str) -> str:
@@ -151,7 +148,8 @@ class FreedomPayHPPClient:
         post_link: str,
         back_link: str,
     ) -> str:
-        script = "cardstorage/add"
+        script_path = "cardstorage/add"
+        script_name = "add"
         pg_order_id = order_id or f"bind-{user_id}-{uuid.uuid4().hex}"
         if not post_link or not back_link:
             raise FreedomPayError("FreedomPay callback/back links are required")
@@ -163,11 +161,11 @@ class FreedomPayHPPClient:
             "pg_back_link": back_link,
             "pg_salt": uuid.uuid4().hex,
         }
-        params["pg_sig"] = self.sign(params, script)
+        params["pg_sig"] = self.sign(params, script_name)
         self.last_request = _mask_sensitive(dict(params))
         if settings.DEBUG:
             logger.info("FreedomPay bind request payload=%s", self.last_request)
-        data = self.request(script, params)
+        data = self.request(script_path, params)
         pg_status = str(data.get("pg_status") or "").lower()
         if pg_status not in ("ok", "success"):
             message = (
@@ -229,7 +227,7 @@ class FreedomPay:
             "pg_salt": self.salt,
         }
 
-        data["pg_sig"] = make_signature(endpoint, data, settings.FREEDOM_PAY_TOKEN)
+        data["pg_sig"] = make_signature(extract_script_name(endpoint), data, settings.FREEDOM_PAY_TOKEN)
 
         self.request_data = data
         return data
@@ -261,8 +259,10 @@ class FreedomPay:
         logger.debug("FreedomPay charge request data: %s", _mask_sensitive(request_data))
 
         try:
+            api_base = (settings.FREEDOM_PAY_API_BASE or "").rstrip("/")
+            endpoint = f"{api_base}/merchant/{settings.FREEDOM_PAY_MERCHANT_ID}/card/init"
             response = requests.post(
-                f"{settings.FREEDOM_PAY_API_BASE}/merchant/{settings.FREEDOM_PAY_MERCHANT_ID}/card/init",
+                endpoint,
                 data=request_data,
                 timeout=30,
             )
