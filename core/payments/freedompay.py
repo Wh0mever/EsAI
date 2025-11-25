@@ -3,6 +3,7 @@ import uuid
 import hashlib
 from typing import Optional, Dict, Any
 import xml.etree.ElementTree as ET
+from urllib.parse import urlsplit
 
 import requests
 from django.conf import settings
@@ -15,20 +16,32 @@ from users.models import User
 logger = logging.getLogger("payments.freedompay")
 
 
-def make_signature(method: str, params: dict, secret_key: str) -> str:
+def extract_script_name(url: str) -> str:
+    """Return script name from URL or path."""
+    raw = (url or "").strip()
+    if not raw:
+        return ""
+    parsed = urlsplit(raw)
+    path = parsed.path or raw.split("?", 1)[0]
+    path = path.rstrip("/")
+    if not path:
+        return ""
+    is_full = bool(parsed.scheme or parsed.netloc) or raw.startswith("/")
+    if is_full:
+        return path.rsplit("/", 1)[-1]
+    return path
 
-    params = {k: v for k, v in params.items() if k != "pg_sig"}
 
-    values = [method]
-
-    for key in sorted(params.keys()):
-        values.append(str(params[key]))
-
-    values.append(secret_key)
-
-    raw = ";".join(values)
-
-    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+def make_signature(script_name: str, params: dict, secret_key: str) -> str:
+    filtered = {k: v for k, v in (params or {}).items() if k != "pg_sig"}
+    script = extract_script_name(script_name) or (script_name or "").strip()
+    pieces = [script]
+    for key in sorted(filtered.keys()):
+        value = filtered[key]
+        pieces.append("" if value is None else str(value))
+    pieces.append(secret_key or "")
+    raw = ";".join(pieces)
+    return hashlib.md5(raw.encode("utf-8")).hexdigest()
 
 
 def _mask_sensitive(obj: Any) -> Any:
@@ -80,14 +93,7 @@ class FreedomPayHPPClient:
             raise FreedomPayError(f"FreedomPay config missing: {', '.join(missing)}")
 
     def sign(self, params: Dict[str, Any], script: str) -> str:
-        method = (script or "").replace("/", ".").strip(".") or (script or "request")
-        filtered = {k: v for k, v in params.items() if k != "pg_sig"}
-        pieces = [method]
-        for key in sorted(filtered.keys()):
-            pieces.append(str(filtered[key]))
-        pieces.append(self.secret)
-        raw = ";".join(pieces)
-        return hashlib.md5(raw.encode()).hexdigest()
+        return make_signature(script, params, self.secret)
 
     def request(self, script: str, params: Dict[str, Any]) -> Dict[str, Any]:
         url = f"{self.base_url}/merchant/{self.merchant_id}/{script}".replace("//merchant", "/merchant")
@@ -209,6 +215,9 @@ class FreedomPay:
             is_test=is_test,
         )
 
+        api_base = (settings.FREEDOM_PAY_API_BASE or "").rstrip("/")
+        endpoint = f"{api_base}/merchant/{settings.FREEDOM_PAY_MERCHANT_ID}/card/init"
+
         data: Dict[str, Any] = {
             "pg_merchant_id": settings.FREEDOM_PAY_MERCHANT_ID,
             "pg_amount": str(amount),
@@ -220,11 +229,7 @@ class FreedomPay:
             "pg_salt": self.salt,
         }
 
-        data["pg_sig"] = make_signature(
-            method="create",
-            params=data,
-            secret_key=settings.FREEDOM_PAY_TOKEN
-        )
+        data["pg_sig"] = make_signature(endpoint, data, settings.FREEDOM_PAY_TOKEN)
 
         self.request_data = data
         return data
