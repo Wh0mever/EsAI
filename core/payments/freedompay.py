@@ -39,7 +39,7 @@ def make_signature(script_name: str, params: dict, secret_key: str) -> str:
     pieces.append(secret_key or "")
     raw = ";".join(pieces)
     if settings.DEBUG:
-        logger.info("FreedomPay signature base string: %s", raw)
+        logger.warning("FreedomPay signature base string: %s", raw)
     return hashlib.md5(raw.encode("utf-8")).hexdigest()
 
 
