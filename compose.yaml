@@ -47,7 +47,7 @@ services:
       - static:/app/static
       - media:/app/media
       # Expose Django/core logs to host
-      - ./logs/core:/app/core/logs
+      - ./logs:/app/core/logs
     expose:
       - "8000"
     restart: always
@@ -76,7 +76,7 @@ services:
       - static:/app/static
       - media:/app/media
       # Share the same logs directory so Celery writes to host-mounted logs
-      - ./logs/core:/app/core/logs
+      - ./logs:/app/core/logs
     restart: always
     healthcheck:
       test: ["CMD-SHELL", "test -f /tmp/celery.pid && kill -0 $(cat /tmp/celery.pid)"]
@@ -112,7 +112,7 @@ services:
     networks: [web]
     volumes:
       # Celery beat may also emit logs via Django logging config
-      - ./logs/core:/app/core/logs
+      - ./logs:/app/core/logs
 
   next:
     build:
@@ -166,7 +166,7 @@ services:
       - media:/var/www/media:ro
       - certbot-var:/var/www/certbot
       # Expose nginx logs to host
-      - ./logs/nginx:/var/log/nginx
+      - ./logs:/var/log/nginx
     ports:
       - "80:80"
     restart: always

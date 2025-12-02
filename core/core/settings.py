@@ -231,6 +231,7 @@ CSRF_COOKIE_SAMESITE = "Lax"
 # Дополнительные заголовки безопасности
 SECURE_CONTENT_TYPE_NOSNIFF = True
 SECURE_REFERRER_POLICY = "same-origin"
+
 # Включать редирект на https по флагу окружения, чтоб не ломать http-only стенды
 SECURE_SSL_REDIRECT = env.bool("DJANGO_SECURE_SSL_REDIRECT", default=False)
 SECURE_HSTS_SECONDS = 31536000 if not DEBUG else 0
@@ -269,27 +270,44 @@ DEFAULT_FROM_EMAIL = env('DEFAULT_FROM_EMAIL')
 # --- Logging ---
 LOG_DIR = BASE_DIR / "logs"
 LOG_FILE = LOG_DIR / "django.log"
-LOG_PAYMENTS_FILE = LOG_DIR / "payments.log"
 LOG_DIR.mkdir(exist_ok=True)
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
     "formatters": {
-        "verbose": {"format": "[{levelname}] {asctime} {name} | {message}", "style": "{"},
-        "simple": {"format": "[{levelname}] {message}", "style": "{"},
+        "verbose": {
+            "format": "%(asctime)s [%(levelname)s] %(name)s:%(lineno)d %(message)s",
+        },
+        "simple": {
+            "format": "%(levelname)s %(message)s",
+        },
     },
     "handlers": {
-        "file": {"level": "DEBUG", "class": "logging.FileHandler", "filename": str(LOG_FILE), "formatter": "verbose"},
-        "payments_file": {"level": "INFO", "class": "logging.FileHandler", "filename": str(LOG_PAYMENTS_FILE), "formatter": "verbose"},
-        "payments_console": {"level": "WARNING", "class": "logging.StreamHandler", "formatter": "simple"},
+        "file": {
+            "level": "WARNING",
+            "class": "logging.handlers.RotatingFileHandler",
+            "filename": str(LOG_FILE),
+            "maxBytes": 5 * 1024 * 1024,
+            "backupCount": 5,
+            "formatter": "verbose",
+            "encoding": "utf-8",
+        },
+    },
+    "root": {
+        "handlers": ["file"],
+        "level": "WARNING",
     },
     "loggers": {
-        "django": {"handlers": ["file"], "level": "DEBUG", "propagate": True},
-        # Project app loggers -> write to files
-        "plans": {"handlers": ["file"], "level": "INFO", "propagate": False},
-        # Dedicated payments logger always writes to payments.log even when DEBUG=False
-        "payments": {"handlers": ["payments_file"], "level": "INFO", "propagate": False},
-        "payments.freedompay": {"handlers": ["payments_file", "payments_console"], "level": "INFO", "propagate": False},
+        "django": {
+            "handlers": ["file"],
+            "level": "WARNING",
+            "propagate": False,
+        },
+        "django.request": {
+            "handlers": ["file"],
+            "level": "WARNING",
+            "propagate": False,
+        },
     },
 }
 if DEBUG:
