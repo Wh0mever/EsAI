@@ -18,7 +18,14 @@ sys.exit(1)
 PY
 
 mkdir -p /app/static /app/media /app/core/logs
-chown -R "$APP_USER":"$APP_GROUP" /app/static /app/media /app/core/logs
+
+# When running as root we can fix ownership; otherwise just continue.
+if [ "$(id -u)" -eq 0 ]; then
+    chown -R "$APP_USER":"$APP_GROUP" /app/static /app/media /app/core/logs || \
+        echo "Warning: unable to chown static/media/logs, continuing..." >&2
+else
+    echo "Skipping chown; container not running as root." >&2
+fi
 
 python manage.py migrate --noinput || true
 python manage.py collectstatic --noinput || true
