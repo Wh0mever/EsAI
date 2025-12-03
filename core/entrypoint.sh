@@ -5,6 +5,8 @@ set -e
 : "${POSTGRES_PORT:=5432}"
 : "${APP_USER:=appuser}"
 : "${APP_GROUP:=appuser}"
+: "${APP_LOG_DIR:=/app/logs}"
+export APP_LOG_DIR
 
 python - <<'PY'
 import os,socket,time,sys
@@ -17,11 +19,12 @@ for _ in range(60):
 sys.exit(1)
 PY
 
-mkdir -p /app/static /app/media /app/core/logs
+mkdir -p /app/static /app/media "$APP_LOG_DIR"
+touch "$APP_LOG_DIR/django.log" "$APP_LOG_DIR/celery.log" "$APP_LOG_DIR/celery_beat.log" || true
 
 # When running as root we can fix ownership; otherwise just continue.
 if [ "$(id -u)" -eq 0 ]; then
-    chown -R "$APP_USER":"$APP_GROUP" /app/static /app/media /app/core/logs || \
+    chown -R "$APP_USER":"$APP_GROUP" /app/static /app/media "$APP_LOG_DIR" || \
         echo "Warning: unable to chown static/media/logs, continuing..." >&2
 else
     echo "Skipping chown; container not running as root." >&2
