@@ -268,9 +268,10 @@ EMAIL_HOST_PASSWORD = env('EMAIL_HOST_PASSWORD')
 DEFAULT_FROM_EMAIL = env('DEFAULT_FROM_EMAIL')
 
 # --- Logging ---
-LOG_DIR = BASE_DIR / "logs"
+LOG_DIR = Path(os.environ.get("APP_LOG_DIR") or os.environ.get("DJANGO_LOG_DIR") or (BASE_DIR / "logs"))
 LOG_FILE = LOG_DIR / "django.log"
-LOG_DIR.mkdir(exist_ok=True)
+LOG_DIR.mkdir(parents=True, exist_ok=True)
+
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
@@ -284,7 +285,7 @@ LOGGING = {
     },
     "handlers": {
         "file": {
-            "level": "WARNING",
+            "level": "INFO",
             "class": "logging.handlers.RotatingFileHandler",
             "filename": str(LOG_FILE),
             "maxBytes": 5 * 1024 * 1024,
@@ -295,36 +296,42 @@ LOGGING = {
     },
     "root": {
         "handlers": ["file"],
-        "level": "WARNING",
+        "level": "INFO",
     },
     "loggers": {
         "django": {
             "handlers": ["file"],
-            "level": "WARNING",
+            "level": "INFO",
             "propagate": False,
         },
         "django.request": {
             "handlers": ["file"],
-            "level": "WARNING",
+            "level": "INFO",
             "propagate": False,
         },
         "payments.freedompay": {
             "handlers": ["file"],
-            "level": "WARNING",
+            "level": "INFO",
             "propagate": False,
         },
     },
 }
+
+# === DEBUG mode: extra console logging ===
 if DEBUG:
     LOGGING["handlers"]["console"] = {
-        "level": "INFO",
+        "level": "DEBUG",
         "class": "logging.StreamHandler",
         "formatter": "simple",
     }
-    LOGGING["handlers"]["file"]["level"] = "INFO"
+    # ensure file captures DEBUG as well
+    LOGGING["handlers"]["file"]["level"] = "DEBUG"
+    LOGGING["root"]["handlers"].append("console")
+    LOGGING["root"]["level"] = "DEBUG"
     LOGGING["loggers"]["django"]["handlers"].append("console")
+    LOGGING["loggers"]["django"]["level"] = "DEBUG"
     LOGGING["loggers"]["payments.freedompay"]["handlers"].append("console")
-    LOGGING["loggers"]["payments.freedompay"]["level"] = "INFO"
+    LOGGING["loggers"]["payments.freedompay"]["level"] = "DEBUG"
 
 # --- Celery ---
 CELERY_BROKER_URL = env.str(

@@ -20,7 +20,6 @@ class StartBindCardAPIView(APIView):
 
     def post(self, request):
         body = request.data or {}
-        client = FreedomPayHPPClient()
         order_id = f"bind-{request.user.id}-{uuid.uuid4().hex[:8]}"
         callback_url = request.build_absolute_uri(reverse("card-bind-callback"))
 
@@ -32,6 +31,23 @@ class StartBindCardAPIView(APIView):
             if not path.startswith("/"):
                 path = f"/{path}"
             back_link = request.build_absolute_uri(path)
+
+        try:
+            client = FreedomPayHPPClient()
+        except FreedomPayError as exc:
+            logger.warning("FreedomPay client init failed: %s", exc)
+            return Response({"detail": str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
+        except Exception:
+            logger.exception("FreedomPay client init unexpected error")
+            return Response({"detail": "freedompay_error"}, status=status.HTTP_502_BAD_GATEWAY)
+
+        logger.info(
+            "FreedomPay bind init user=%s order=%s callback=%s back=%s",
+            request.user.id,
+            order_id,
+            callback_url,
+            back_link,
+        )
 
         try:
             redirect_url = client.start_card_bind(

@@ -38,25 +38,19 @@ def extract_script_name(url: str) -> str:
 
 
 def make_signature(script_name: str, params: dict, secret_key: str) -> str:
-    filtered = {k: v for k, v in (params or {}).items() if k != "pg_sig"}
-    script = extract_script_name(script_name) or "card"
-    ordered_keys = [
-        "pg_back_link",
-        "pg_merchant_id",
-        "pg_order_id",
-        "pg_post_link",
-        "pg_salt",
-        "pg_user_id",
-    ]
+    filtered = {
+        k: v for k, v in (params or {}).items()
+        if k != "pg_sig" and v is not None
+    }
+
+    script = extract_script_name(script_name) or script_name or ""
+
     pieces = [script]
-    for key in ordered_keys:
-        value = filtered.pop(key, None)
-        pieces.append("" if value is None else str(value))
-    if filtered:
-        for key in sorted(filtered.keys()):
-            value = filtered[key]
-            pieces.append("" if value is None else str(value))
+    for key in sorted(filtered.keys()):
+        pieces.append(str(filtered[key]))
+
     pieces.append(secret_key or "")
+
     raw = ";".join(pieces)
     if settings.DEBUG:
         logger.warning("FreedomPay signature base string: %s", raw)
