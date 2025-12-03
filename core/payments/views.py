@@ -10,7 +10,7 @@ from users.models import User
 from .freedompay import FreedomPayHPPClient, FreedomPayError
 
 
-logger = logging.getLogger("payments.freedompay")
+logger = logging.getLogger()
 
 
 class StartBindCardAPIView(APIView):
