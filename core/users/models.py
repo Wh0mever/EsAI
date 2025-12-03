@@ -12,20 +12,6 @@ def generate_referral_uid(length: int = 8) -> str:
     return ''.join(random.choices(alphabet, k=length))
 
 
-class Visa(models.Model):
-    last4 = models.CharField(max_length=4, blank=True, null=True)
-    brand = models.CharField(max_length=20, blank=True, null=True)
-    exp_month = models.PositiveSmallIntegerField(blank=True, null=True)
-    exp_year = models.PositiveSmallIntegerField(blank=True, null=True)
-    created_at = models.DateTimeField(auto_now_add=True, blank=True, null=True)
-
-    def __str__(self):
-        return f"{self.brand} **** {self.last4}"
-
-    class Meta:
-        abstract=True
-
-
 class UserManager(BaseUserManager):
     def create_user(self, email, password=None, **extra_fields):
         if not email:
@@ -48,7 +34,7 @@ class UserManager(BaseUserManager):
         return self.create_user(email, password, **extra_fields)
 
 
-class User(AbstractBaseUser, PermissionsMixin, Visa):
+class User(AbstractBaseUser, PermissionsMixin):
 
     email = models.EmailField(unique=True, verbose_name='Почта')
     username = models.CharField(
@@ -97,12 +83,7 @@ class User(AbstractBaseUser, PermissionsMixin, Visa):
     _2fa = models.BooleanField(default=True, verbose_name="Двух факторная аутентификация")
 
     objects = UserManager()
-    
-    last4 = models.CharField(max_length=4, blank=True, null=True, verbose_name='Последние 4 цифры карты')
-    card_holder = models.CharField(max_length=100, blank=True, null=True, verbose_name='Держатель карты')
-    exp_month = models.PositiveSmallIntegerField(blank=True, null=True, verbose_name='Месяц окончания действия карты')
-    exp_year = models.PositiveSmallIntegerField(blank=True, null=True, verbose_name='Год окончания действия карты')
-    # FreedomPay tokens can be quite long (>> 100 chars). Use larger cap.
+
     pay_token = models.TextField(blank=True, null=True, verbose_name='Токен платежа')
 
     # Referral + bonus counters
@@ -172,7 +153,6 @@ class User(AbstractBaseUser, PermissionsMixin, Visa):
         indexes = [
             models.Index(fields=["referral_uid"]),
         ]
-
 
         
 class UserQuestions(models.Model):
