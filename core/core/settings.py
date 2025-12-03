@@ -308,16 +308,23 @@ LOGGING = {
             "level": "WARNING",
             "propagate": False,
         },
+        "payments.freedompay": {
+            "handlers": ["file"],
+            "level": "WARNING",
+            "propagate": False,
+        },
     },
 }
 if DEBUG:
     LOGGING["handlers"]["console"] = {
-        "level": "WARNING", "class": "logging.StreamHandler", "formatter": "simple"}
+        "level": "INFO",
+        "class": "logging.StreamHandler",
+        "formatter": "simple",
+    }
+    LOGGING["handlers"]["file"]["level"] = "INFO"
     LOGGING["loggers"]["django"]["handlers"].append("console")
-    # Also mirror our project loggers to console in DEBUG
-    for _name in ("plans", "payments"):
-        LOGGING["loggers"].setdefault(_name, {"handlers": ["file"], "level": "WARNING", "propagate": False})
-        LOGGING["loggers"][_name]["handlers"].append("console")
+    LOGGING["loggers"]["payments.freedompay"]["handlers"].append("console")
+    LOGGING["loggers"]["payments.freedompay"]["level"] = "INFO"
 
 # --- Celery ---
 CELERY_BROKER_URL = env.str(
