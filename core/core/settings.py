@@ -180,13 +180,8 @@ CACHES = {
 
 # --- JWT ---
 SIMPLE_JWT = {
-    # Keep tokens alive for at least a couple days
     "ACCESS_TOKEN_LIFETIME": timedelta(days=7),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=15),
-    # To allow the same refresh token to remain valid across
-    # multiple domains/sessions, disable rotation and blacklisting.
-    # This avoids invalidating the refresh token when it is used on
-    # another domain (kg/ru/online) that holds the same token value.
     "ROTATE_REFRESH_TOKENS": False,
     "BLACKLIST_AFTER_ROTATION": False,
     "AUTH_HEADER_TYPES": ("Bearer",),
@@ -285,7 +280,7 @@ LOGGING = {
     },
     "handlers": {
         "file": {
-            "level": "INFO",
+            "level": "WARNING",
             "class": "logging.handlers.RotatingFileHandler",
             "filename": str(LOG_FILE),
             "maxBytes": 5 * 1024 * 1024,
@@ -296,22 +291,22 @@ LOGGING = {
     },
     "root": {
         "handlers": ["file"],
-        "level": "INFO",
+        "level": "WARNING",
     },
     "loggers": {
         "django": {
             "handlers": ["file"],
-            "level": "INFO",
+            "level": "WARNING",
             "propagate": False,
         },
         "django.request": {
             "handlers": ["file"],
-            "level": "INFO",
+            "level": "WARNING",
             "propagate": False,
         },
         "payments.freedompay": {
             "handlers": ["file"],
-            "level": "INFO",
+            "level": "WARNING",
             "propagate": False,
         },
     },
@@ -379,4 +374,3 @@ FREEDOM_PAY_API_BASE = env.str("FREEDOM_PAY_API_BASE", default="https://api.free
 FREEDOM_PAY_TOKEN = env.str("FREEDOM_PAY_TOKEN", default="")
 FP_API_BASE = env.str("FP_API_BASE", default=FREEDOM_PAY_API_BASE)
 FP_MERCHANT_ID = env.str("FP_MERCHANT_ID", default=FREEDOM_PAY_MERCHANT_ID)
-FP_SECRET = env.str("FP_SECRET", default=env.str("FP_SECRET_KEY", default=FREEDOM_PAY_TOKEN))
