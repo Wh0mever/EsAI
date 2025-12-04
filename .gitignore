@@ -1,3 +1,7 @@
 venv/
 *.pyc
 *.log
+static/
+media/
+logs/
+__pycache__/

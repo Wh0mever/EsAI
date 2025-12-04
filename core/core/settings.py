@@ -315,18 +315,18 @@ LOGGING = {
 # === DEBUG mode: extra console logging ===
 if DEBUG:
     LOGGING["handlers"]["console"] = {
-        "level": "DEBUG",
+        "level": "WARNING",
         "class": "logging.StreamHandler",
         "formatter": "simple",
     }
     # ensure file captures DEBUG as well
-    LOGGING["handlers"]["file"]["level"] = "DEBUG"
+    LOGGING["handlers"]["file"]["level"] = "WARNING"
     LOGGING["root"]["handlers"].append("console")
-    LOGGING["root"]["level"] = "DEBUG"
+    LOGGING["root"]["level"] = "WARNING"
     LOGGING["loggers"]["django"]["handlers"].append("console")
-    LOGGING["loggers"]["django"]["level"] = "DEBUG"
+    LOGGING["loggers"]["django"]["level"] = "WARNING"
     LOGGING["loggers"]["payments.freedompay"]["handlers"].append("console")
-    LOGGING["loggers"]["payments.freedompay"]["level"] = "DEBUG"
+    LOGGING["loggers"]["payments.freedompay"]["level"] = "WARNING"
 
 # --- Celery ---
 CELERY_BROKER_URL = env.str(
