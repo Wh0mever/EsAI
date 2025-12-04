@@ -54,6 +54,8 @@ def make_signature(script_name: str, params: dict, secret_key: str) -> str:
     raw = ";".join(pieces)
     if settings.DEBUG:
         logger.warning("FreedomPay signature base string: %s", raw)
+
+    print(pieces)
     return hashlib.md5(raw.encode("utf-8")).hexdigest()
 
 
@@ -88,7 +90,7 @@ class FreedomPayHPPClient:
 
     def __init__(self):
         self.merchant_id = (settings.FP_MERCHANT_ID or "").strip()
-        self.secret = (settings.FP_SECRET or "").strip()
+        self.secret = (settings.FREEDOM_PAY_TOKEN or "").strip()
         self.base_url = (settings.FP_API_BASE or settings.FREEDOM_PAY_API_BASE or "").rstrip("/")
         self.last_request: Dict[str, Any] = {}
         self.last_response: Dict[str, Any] = {}

@@ -35,7 +35,6 @@ services:
       dockerfile: Dockerfile
     env_file: .env
     environment:
-
       CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
       CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
     depends_on:
@@ -46,7 +45,6 @@ services:
     volumes:
       - static:/app/static
       - media:/app/media
-      # Expose Django/core logs to host
       - ./logs:/app/logs
     expose:
       - "8000"
