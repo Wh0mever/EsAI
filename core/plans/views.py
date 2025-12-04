@@ -133,11 +133,9 @@ class ActivatePlanView(APIView):
         except Plan.DoesNotExist:
             return Response({"message": "plan_not_found"}, status=404)
 
-        # Must have saved card + token
+        # Must have saved card token
         u: User = request.user
         if not u.pay_token:
-            return Response({"message": "no_token"}, status=400)
-        if not (u.last4 and (u.exp_month or 0) and (u.exp_year or 0)):
             return Response({"message": "no_card"}, status=400)
 
         # Switch and activate new plan in a transaction

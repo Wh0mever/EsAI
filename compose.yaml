@@ -43,9 +43,10 @@ services:
       redis:
         condition: service_healthy
     volumes:
-      - static:/app/static
-      - media:/app/media
+      - ./static:/app/static
+      - ./media:/app/media
       - ./logs:/app/logs
+      - ./core:/app
     expose:
       - "8000"
     restart: always

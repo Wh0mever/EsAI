@@ -52,7 +52,6 @@ class StartBindCardAPIView(APIView):
         try:
             redirect_url = client.start_card_bind(
                 user_id=request.user.id,
-                order_id=order_id,
                 post_link=callback_url,
                 back_link=back_link,
             )

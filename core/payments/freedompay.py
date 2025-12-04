@@ -37,25 +37,34 @@ def extract_script_name(url: str) -> str:
     return tail
 
 
-def make_signature(script_name: str, params: dict, secret_key: str) -> str:
+def make_signature(params: dict, secret_key: str) -> str:
+    pieces = [
+        "add",
+        params["pg_back_link"],
+        params["pg_merchant_id"],
+        params["pg_post_link"],
+        params["pg_salt"],
+        params["pg_user_id"],
+        secret_key,
+    ]
+    raw = ";".join(str(x) for x in pieces)
+    logger.warning("FreedomPay ADD signature base: %s", raw)
+    return hashlib.md5(raw.encode()).hexdigest()
+
+
+def make_api_signature(script_name: str, params: Dict[str, Any], secret_key: str) -> str:
     filtered = {
         k: v for k, v in (params or {}).items()
         if k != "pg_sig" and v is not None
     }
-
     script = extract_script_name(script_name) or script_name or ""
-
     pieces = [script]
     for key in sorted(filtered.keys()):
         pieces.append(str(filtered[key]))
-
     pieces.append(secret_key or "")
-
     raw = ";".join(pieces)
     if settings.DEBUG:
-        logger.warning("FreedomPay signature base string: %s", raw)
-
-    print(pieces)
+        logger.warning("FreedomPay API signature base string: %s", raw)
     return hashlib.md5(raw.encode("utf-8")).hexdigest()
 
 
@@ -84,7 +93,6 @@ def _mask_sensitive(obj: Any) -> Any:
 class FreedomPayError(Exception):
     """FreedomPay request failed."""
 
-
 class FreedomPayHPPClient:
     """FreedomPay Hosted Payment Page client."""
 
@@ -107,97 +115,128 @@ class FreedomPayHPPClient:
         if missing:
             raise FreedomPayError(f"FreedomPay config missing: {', '.join(missing)}")
 
-    def sign(self, params: Dict[str, Any], script: str) -> str:
-        filtered = {k: v for k, v in params.items() if k != "pg_sig"}
-        return make_signature(script, filtered, self.secret)
+    # ----------------------------- SIGNATURE (ADD) -----------------------------
+
+    def sign_add(self, params: Dict[str, Any]) -> str:
+        """
+        Signature for cardstorage/add.
+
+        ORDER (STRICT):
+        add;pg_back_link;pg_merchant_id;pg_post_link;pg_salt;pg_user_id;SECRET
+        """
+        pieces = [
+            "add",
+            params["pg_back_link"],
+            params["pg_merchant_id"],
+            params["pg_post_link"],
+            params["pg_salt"],
+            params["pg_user_id"],
+            self.secret,
+        ]
+        raw = ";".join(str(x) for x in pieces)
+
+        if settings.DEBUG:
+            logger.warning("FreedomPay ADD signature base: %s", raw)
+
+        return hashlib.md5(raw.encode("utf-8")).hexdigest()
+
+    # ----------------------------- HTTP REQUEST -----------------------------
 
     def request(self, script: str, params: Dict[str, Any]) -> Dict[str, Any]:
         url = f"{self.base_url}/merchant/{self.merchant_id}/{script}".replace("//merchant", "/merchant")
         self.last_endpoint = url
         self.last_response = {}
+
         if settings.DEBUG:
-            logger.info("FreedomPay bind request url=%s payload=%s", url, _mask_sensitive(params))
+            logger.info("FreedomPay request url=%s payload=%s", url, _mask_sensitive(params))
+
         try:
             response = requests.post(url, data=params, timeout=30)
-        except requests.RequestException as exc:
+        except requests.RequestException:
             logger.exception("FreedomPay HPP HTTP error")
-            raise FreedomPayError("FreedomPay request failed") from exc
+            raise FreedomPayError("FreedomPay request failed")
+
+        # Try parse JSON first, then XML
         try:
             data = response.json()
         except ValueError:
             try:
-                text = (response.text or "").strip()
-                root = ET.fromstring(text)
+                root = ET.fromstring(response.text)
                 if list(root):
                     data = {child.tag: (child.text or "").strip() for child in root}
                 else:
                     data = {root.tag: (root.text or "").strip()}
-            except ET.ParseError as exc:
+            except Exception:
                 logger.exception("FreedomPay HPP invalid response: %s", response.text[:200])
-                self.last_response = {"raw": response.text[:200]}
-                raise FreedomPayError("FreedomPay response parsing failed") from exc
-        except Exception as exc:
-            logger.exception("FreedomPay HPP response decode error: %s", response.text[:200])
-            self.last_response = {"raw": response.text[:200]}
-            raise FreedomPayError("FreedomPay response parsing failed") from exc
+                raise FreedomPayError("FreedomPay response parsing failed")
 
         self.last_response = _mask_sensitive(data)
+
         if settings.DEBUG:
             logger.info(
-                "FreedomPay bind response url=%s status=%s payload=%s",
+                "FreedomPay response url=%s status=%s payload=%s",
                 self.last_endpoint,
                 response.status_code,
                 self.last_response,
             )
+
         if response.status_code >= 400:
-            error_message = (
+            raise FreedomPayError(
                 data.get("pg_error_description")
                 or data.get("pg_error_message")
-                or response.text
                 or "FreedomPay rejected the request"
             )
-            raise FreedomPayError(error_message)
+
         return data
+
+    # ----------------------------- BIND CARD -----------------------------
 
     def start_card_bind(
         self,
         user_id: int,
-        order_id: Optional[str] = None,
         *,
         post_link: str,
         back_link: str,
     ) -> str:
+        """
+        Start card binding session (cardstorage/add)
+        """
         script_path = "cardstorage/add"
-        script_name = "card"
-        pg_order_id = order_id or f"bind-{user_id}-{uuid.uuid4().hex}"
+
         if not post_link or not back_link:
             raise FreedomPayError("FreedomPay callback/back links are required")
+
         params: Dict[str, Any] = {
             "pg_merchant_id": self.merchant_id,
             "pg_user_id": str(user_id),
-            "pg_order_id": pg_order_id,
             "pg_post_link": post_link,
             "pg_back_link": back_link,
             "pg_salt": uuid.uuid4().hex,
         }
-        params["pg_sig"] = self.sign(params, script_name)
+
+        # SIGNATURE FOR ADD
+        params["pg_sig"] = self.sign_add(params)
+
         self.last_request = _mask_sensitive(dict(params))
+
         if settings.DEBUG:
             logger.info("FreedomPay bind request payload=%s", self.last_request)
+
         data = self.request(script_path, params)
+
         pg_status = str(data.get("pg_status") or "").lower()
         if pg_status not in ("ok", "success"):
-            message = (
+            raise FreedomPayError(
                 data.get("pg_error_description")
                 or data.get("pg_error_message")
                 or "FreedomPay declined card binding session"
             )
-            raise FreedomPayError(message)
+
         redirect_url = data.get("pg_redirect_url")
         if not redirect_url:
             raise FreedomPayError("FreedomPay did not return redirect URL")
-        return str(redirect_url)
 
+        return str(redirect_url)
 
 class FreedomPay:
     def __init__(self, user: User):
@@ -246,7 +285,7 @@ class FreedomPay:
             "pg_salt": self.salt,
         }
 
-        data["pg_sig"] = make_signature(endpoint, data, settings.FREEDOM_PAY_TOKEN)
+        data["pg_sig"] = make_api_signature(endpoint, data, settings.FREEDOM_PAY_TOKEN)
 
         self.request_data = data
         return data

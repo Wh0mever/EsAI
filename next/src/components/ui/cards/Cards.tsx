@@ -13,7 +13,7 @@ interface ICard {
 }
 
 export function Card({ children }: ICard) {
-	return <div className="bg-neutral-900/80 p-10 rounded-4xl flex gap-2 items-center">{children}</div>;
+	return <div className="bg-neutral-900 p-10 rounded-4xl flex gap-2 items-center">{children}</div>;
 }
 
 export function TemplateCard({ template, localTemplates, setLocalTemplates }: any) {

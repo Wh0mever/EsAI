@@ -112,20 +112,9 @@ class SignInSerializer(serializers.Serializer):
 
 
 class ProfileSerializer(serializers.ModelSerializer):
-    card = serializers.SerializerMethodField()
-
     class Meta:
         model = User
         exclude = ['password']
-
-    def get_card(self, obj):
-        if obj.last4 and obj.brand:
-            return {
-                'brand': obj.brand,
-                'last4': obj.last4,
-                'expiry': f"{obj.exp_month:02}/{obj.exp_year}" if obj.exp_month and obj.exp_year else None
-            }
-        return None
 
 
 class NotificationDeliverySerializer(serializers.ModelSerializer):
