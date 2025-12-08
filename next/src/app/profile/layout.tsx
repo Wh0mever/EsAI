@@ -13,7 +13,7 @@ export default function RootLayout({
 
 	const { t } = useTranslation('common');
 	useEffect(() => {
-		document.title = t('pages_titles.pricing');
+		document.title = t('pages_titles.profile');
 	}, [t]);
 
 
