@@ -17,7 +17,6 @@ logger = logging.getLogger("payments.freedompay")
 
 
 def extract_script_name(url: str) -> str:
-    """Return script name from URL or path."""
     raw = (url or "").strip()
     if not raw:
         return ""
@@ -29,27 +28,25 @@ def extract_script_name(url: str) -> str:
     parts = [segment for segment in path.split("/") if segment]
     if not parts:
         return ""
+
+    # имя файла
     tail = parts[-1]
+
+    # cardstorage/add → add
     if len(parts) >= 2 and parts[-2] == "cardstorage" and tail == "add":
-        return "card"
+        return "add"
+
+    # card/init → init
     if len(parts) >= 2 and parts[-2] == "card" and tail == "init":
-        return "card"
+        return "init"
+
+    # card/direct → direct
+    if len(parts) >= 2 and parts[-2] == "card" and tail == "direct":
+        return "direct"
+
+    # fallback
     return tail
 
-
-def make_signature(params: dict, secret_key: str) -> str:
-    pieces = [
-        "add",
-        params["pg_back_link"],
-        params["pg_merchant_id"],
-        params["pg_post_link"],
-        params["pg_salt"],
-        params["pg_user_id"],
-        secret_key,
-    ]
-    raw = ";".join(str(x) for x in pieces)
-    logger.warning("FreedomPay ADD signature base: %s", raw)
-    return hashlib.md5(raw.encode()).hexdigest()
 
 
 def make_api_signature(script_name: str, params: Dict[str, Any], secret_key: str) -> str:
@@ -116,28 +113,15 @@ class FreedomPayHPPClient:
             raise FreedomPayError(f"FreedomPay config missing: {', '.join(missing)}")
 
     # ----------------------------- SIGNATURE (ADD) -----------------------------
-
+    
     def sign_add(self, params: Dict[str, Any]) -> str:
-        """
-        Signature for cardstorage/add.
-
-        ORDER (STRICT):
-        add;pg_back_link;pg_merchant_id;pg_post_link;pg_salt;pg_user_id;SECRET
-        """
-        pieces = [
-            "add",
-            params["pg_back_link"],
-            params["pg_merchant_id"],
-            params["pg_post_link"],
-            params["pg_salt"],
-            params["pg_user_id"],
-            self.secret,
-        ]
-        raw = ";".join(str(x) for x in pieces)
-
-        if settings.DEBUG:
-            logger.warning("FreedomPay ADD signature base: %s", raw)
-
+        filtered = {k: v for k, v in params.items() if k != "pg_sig"}
+        pieces = ["add"]
+        for key in sorted(filtered.keys()):
+            pieces.append(str(filtered[key]))
+        pieces.append(self.secret)
+        raw = ";".join(pieces)
+        logger.warning("FreedomPay ADD signature base: %s", raw)
         return hashlib.md5(raw.encode("utf-8")).hexdigest()
 
     # ----------------------------- HTTP REQUEST -----------------------------
