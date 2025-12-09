@@ -13,6 +13,27 @@ def generate_referral_uid(length: int = 8) -> str:
     return ''.join(random.choices(alphabet, k=length))
 
 
+class UserCardBind(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="card_binds")
+    card_id = models.CharField(max_length=64, verbose_name="Card ID")
+    card_token = models.CharField(max_length=128, verbose_name="Card Token")
+    card_hash = models.CharField(max_length=32, verbose_name="Card Hash")
+    card_month = models.CharField(max_length=2, verbose_name="Card Expiry Month")
+    card_year = models.CharField(max_length=2, verbose_name="Card Expiry Year")
+    card_bank = models.CharField(max_length=64, verbose_name="Card Bank")
+    card_country = models.CharField(max_length=2, verbose_name="Card Country")
+    card_3ds = models.BooleanField(default=False, verbose_name="3DS Enabled")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Created At")
+
+    def __str__(self):
+        return f"UserCardBind(user={self.user_id}, card_id={self.card_id})"
+
+    class Meta:
+        verbose_name = "User Card Bind"
+        verbose_name_plural = "User Card Binds"
+        ordering = ["-created_at"]
+
+
 class UserManager(BaseUserManager):
     def create_user(self, email, password=None, **extra_fields):
         if not email:
