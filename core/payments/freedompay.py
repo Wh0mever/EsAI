@@ -2,9 +2,8 @@ import logging
 import uuid
 import hashlib
 from typing import Optional, Dict, Any
-import xml.etree.ElementTree as ET
 from urllib.parse import urlsplit
-
+import xml.etree.ElementTree as ET
 import requests
 from django.conf import settings
 from django.db import DatabaseError, connection
@@ -47,7 +46,29 @@ def extract_script_name(url: str) -> str:
     # fallback
     return tail
 
+def parse_freedompay_callback(payload) -> dict:
+    """
+    Extracts and parses pg_xml from request.data and returns a dict.
+    payload = request.data (QueryDict or dict)
+    """
+    pg_xml_raw = payload.get("pg_xml")
+    if not pg_xml_raw:
+        return {}
 
+    # FreedomPay sometimes sends as list: {'pg_xml': ['<xml...>']}
+    if isinstance(pg_xml_raw, list):
+        pg_xml_raw = pg_xml_raw[0]
+
+    try:
+        root = ET.fromstring(pg_xml_raw)
+    except Exception:
+        return {}
+
+    result = {}
+    for child in root:
+        result[child.tag] = (child.text or "").strip()
+
+    return result
 
 def make_api_signature(script_name: str, params: Dict[str, Any], secret_key: str) -> str:
     filtered = {
@@ -63,7 +84,6 @@ def make_api_signature(script_name: str, params: Dict[str, Any], secret_key: str
     if settings.DEBUG:
         logger.warning("FreedomPay API signature base string: %s", raw)
     return hashlib.md5(raw.encode("utf-8")).hexdigest()
-
 
 def _mask_sensitive(obj: Any) -> Any:
     """Recursively mask tokens and auth values in dicts/lists/strings."""
@@ -86,6 +106,9 @@ def _mask_sensitive(obj: Any) -> Any:
         return [_mask_sensitive(v) for v in obj]
     return obj
 
+def save_freedompay_callback(callback_data: Dict[str, Any]) -> None:
+
+    print("Saving FreedomPay callback data:", callback_data)
 
 class FreedomPayError(Exception):
     """FreedomPay request failed."""

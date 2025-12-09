@@ -3,6 +3,7 @@ from django.db import models
 from django.db.utils import IntegrityError
 from django.utils import timezone
 from django.conf import settings
+import xml.etree.ElementTree as ET
 import random
 import string
 

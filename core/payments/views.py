@@ -8,7 +8,7 @@ from rest_framework.views import APIView
 from django.conf import settings
 
 from users.models import User
-from .freedompay import FreedomPayHPPClient, FreedomPayError
+from .freedompay import FreedomPayHPPClient, FreedomPayError, save_freedompay_callback
 
 
 logger = logging.getLogger()
@@ -83,35 +83,6 @@ class FreedomPayCallbackAPIView(APIView):
     permission_classes = []
 
     def post(self, request):
+        save_freedompay_callback(request.data or {})
 
-        if settings.DEBUG:
-            logger.warning("FreedomPay callback received: %s", request.data)
-
-        # payload = request.data or {}
-        # pg_status = str(payload.get("pg_status") or "").lower()
-        # if pg_status != "ok":
-        #     logger.warning("FreedomPay callback ignored, status=%s", pg_status)
-        #     return Response({"status": "ignored"}, status=status.HTTP_400_BAD_REQUEST)
-
-        # token = (payload.get("pg_card_token") or "").strip()
-        # user_id_raw = payload.get("pg_user_id")
-
-        # if not token or not user_id_raw:
-        #     logger.warning("FreedomPay callback missing parameters")
-        #     return Response({"status": "error", "detail": "missing_params"}, status=status.HTTP_400_BAD_REQUEST)
-
-        # try:
-        #     user_id = int(user_id_raw)
-        # except (TypeError, ValueError):
-        #     logger.warning("FreedomPay callback invalid user id: %s", user_id_raw)
-        #     return Response({"status": "error", "detail": "invalid_user"}, status=status.HTTP_400_BAD_REQUEST)
-
-        # try:
-        #     user = User.objects.get(pk=user_id)
-        # except User.DoesNotExist:
-        #     logger.warning("FreedomPay callback user not found: %s", user_id)
-        #     return Response({"status": "error", "detail": "user_not_found"}, status=status.HTTP_404_NOT_FOUND)
-
-        # User.objects.filter(pk=user.pk).update(pay_token=token[:1024])
-        # logger.info("FreedomPay token saved for user %s", user_id)
         return Response({"status": "ok"})
