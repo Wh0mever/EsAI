@@ -198,13 +198,14 @@ class FreedomPayHPPClient:
             "pg_salt": uuid.uuid4().hex,
         }
 
+
         # SIGNATURE FOR ADD
         params["pg_sig"] = self.sign_add(params)
 
         self.last_request = _mask_sensitive(dict(params))
 
         if settings.DEBUG:
-            logger.info("FreedomPay bind request payload=%s", self.last_request)
+            logger.warning("FreedomPay bind request payload=%s", self.last_request)
 
         data = self.request(script_path, params)
 
