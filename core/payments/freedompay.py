@@ -110,7 +110,7 @@ def save_freedompay_callback(callback_data: Dict[str, Any]) -> None:
 
     data = parse_freedompay_callback(callback_data)
 
-    {'pg_card_hash': '4111-11XX-XXXX-1111', 'pg_card_month': '12', 'pg_card_year': '30', 'pg_bank': '<bank>', 'pg_country': 'CA', 'pg_card_3ds': '0', 'pg_status': 'success', 'pg_card_id': '<card_id>', 'pg_card_token': '<card-token-uuid>', 'pg_user_id': '<user_id>',}
+    # {'pg_card_hash': '4111-11XX-XXXX-1111', 'pg_card_month': '12', 'pg_card_year': '30', 'pg_bank': '<bank>', 'pg_country': 'CA', 'pg_card_3ds': '0', 'pg_status': 'success', 'pg_card_id': '<card_id>', 'pg_card_token': '<card-token-uuid>', 'pg_user_id': '<user_id>',}
     
     if not data or data.get("pg_status") != "success":
         logger.warning("FreedomPay callback with invalid or failed status: %s", data)
