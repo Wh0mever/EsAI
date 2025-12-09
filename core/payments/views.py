@@ -83,5 +83,9 @@ class FreedomPayCallbackAPIView(APIView):
     permission_classes = []
 
     def post(self, request):
-        save_freedompay_callback(request.data or {})
+        is_success = save_freedompay_callback(request.data or {})
+        
+        if is_success is False:
+            return Response({"status": "error"}, status=status.HTTP_400_BAD_REQUEST)
+            
         return Response({"status": "ok"})
