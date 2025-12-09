@@ -108,7 +108,9 @@ def _mask_sensitive(obj: Any) -> Any:
 
 def save_freedompay_callback(callback_data: Dict[str, Any]) -> None:
 
-    print("Saving FreedomPay callback data:", callback_data)
+    data = parse_freedompay_callback(callback_data)
+
+    print("Saving FreedomPay callback data:", data)
 
 class FreedomPayError(Exception):
     """FreedomPay request failed."""
