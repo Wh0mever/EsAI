@@ -33,10 +33,18 @@ class UserAdmin(admin.ModelAdmin):
 @admin.register(UserCardBind)
 class UserCardBindAdmin(admin.ModelAdmin):
     list_display = ('user', 'card_mask', 'card_token', 'created_at', 'is_active')
-    search_fields = ('user__email', 'card_mask', 'card_token')
-    list_filter = ('is_active', 'created_at')
+    search_fields = ('user__email', 'card_hash', 'card_token')
+    list_filter = ('user__is_active', 'created_at')
     ordering = ('-created_at',)
     readonly_fields = ('user', 'card_mask', 'card_token', 'created_at', 'is_active')
+
+    @admin.display(description="Card", ordering="card_hash")
+    def card_mask(self, obj):
+        return obj.card_hash or obj.card_id
+
+    @admin.display(description="User active", boolean=True, ordering="user__is_active")
+    def is_active(self, obj):
+        return obj.user.is_active
 
 
 @admin.register(UserQuestions)
