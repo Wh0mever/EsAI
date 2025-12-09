@@ -84,5 +84,4 @@ class FreedomPayCallbackAPIView(APIView):
 
     def post(self, request):
         save_freedompay_callback(request.data or {})
-
         return Response({"status": "ok"})
