@@ -1,6 +1,6 @@
 from django.contrib import admin
 from django import forms
-from .models import User, UserQuestions, Notification, NotificationDelivery, UserFeedback
+from .models import User, UserQuestions, Notification, NotificationDelivery, UserFeedback, UserCardBind
 from django.utils import timezone
 from django.utils.html import format_html
 from .actions import charge_by_current_plan
@@ -28,6 +28,15 @@ class UserAdmin(admin.ModelAdmin):
             user.save(update_fields=["referral_uid"])  # save() сгенерирует уникальный UID
             count += 1
         self.message_user(request, f"Сгенерировано новых UID: {count}")
+
+
+@admin.register(UserCardBind)
+class UserCardBindAdmin(admin.ModelAdmin):
+    list_display = ('user', 'card_mask', 'card_token', 'created_at', 'is_active')
+    search_fields = ('user__email', 'card_mask', 'card_token')
+    list_filter = ('is_active', 'created_at')
+    ordering = ('-created_at',)
+    readonly_fields = ('user', 'card_mask', 'card_token', 'created_at', 'is_active')
 
 
 @admin.register(UserQuestions)
