@@ -122,7 +122,7 @@ class FreedomPayHPPClient:
         pieces.append(self.secret)
         raw = ";".join(pieces)
         logger.warning("FreedomPay ADD signature base: %s", raw)
-        return hashlib.md5(raw.encode("utf-8")).hexdigest()
+        return hashlib.md5(raw.encode()).hexdigest()
 
     # ----------------------------- HTTP REQUEST -----------------------------
 
@@ -193,8 +193,8 @@ class FreedomPayHPPClient:
         params: Dict[str, Any] = {
             "pg_merchant_id": self.merchant_id,
             "pg_user_id": str(user_id),
-            "pg_post_link": post_link,
-            "pg_back_link": back_link,
+            "pg_post_link": post_link.rstrip("/"),
+            "pg_back_link": back_link.rstrip("/"),
             "pg_salt": uuid.uuid4().hex,
         }
 
