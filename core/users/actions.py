@@ -38,7 +38,9 @@ def _charge_one_user(user) -> tuple[bool, str]:
     amount = _price_to_int(plan.price_amount)
     if plan.is_free or amount <= 0:
         return False, "free_plan"
-    if not (user.pay_token or "").strip():
+    
+    card = UserCardBind.objects.filter(user=u).order_by("-created_at").first()
+    if not (card.card_token or "").strip():
         return False, "no_pay_token"
 
     order_id = f"admin-charge-{user.id}-{int(timezone.now().timestamp())}"
@@ -98,47 +100,4 @@ def _charge_one_user(user) -> tuple[bool, str]:
 def charge_by_current_plan(modeladmin, request, queryset):
     """Admin action: charge selected users by their current active plan."""
 
-    users = list(queryset)
-
-    total = len(users)
-    ok = 0
-    skipped = 0
-    failed = 0
-    details: dict[str, int] = {}
-
-    for user in users:
-        try:
-            with transaction.atomic():
-                success, reason = _charge_one_user(user)
-        except DatabaseError:
-            logger.exception("DB error while charging user %s", user.pk)
-            success = False
-            reason = "db_error"
-        except Exception:
-            logger.exception("Unexpected error while charging user %s", user.pk)
-            success = False
-            reason = "unexpected_error"
-
-        if success:
-            ok += 1
-        else:
-            if reason in ("no_active_subscription", "free_plan", "no_pay_token"):
-                skipped += 1
-            else:
-                failed += 1
-            details[reason] = details.get(reason, 0) + 1
-
-    msg = f"Processed: {total}. Success: {ok}, Skipped: {skipped}, Failed: {failed}."
-    try:
-        modeladmin.message_user(request, msg, level=messages.INFO)
-    except Exception:
-        pass
-
-    logger.info(
-        "admin_charge_summary total=%s ok=%s skipped=%s failed=%s details=%s",
-        total,
-        ok,
-        skipped,
-        failed,
-        details,
-    )
+    messages.info(request, "Starting to charge selected users...")

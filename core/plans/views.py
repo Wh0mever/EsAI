@@ -135,7 +135,8 @@ class ActivatePlanView(APIView):
 
         # Must have saved card token
         u: User = request.user
-        if not u.pay_token:
+        card = UserCardBind.objects.filter(user=u).order_by("-created_at").first()
+        if not card:
             return Response({"message": "no_card"}, status=400)
 
         # Switch and activate new plan in a transaction

@@ -141,7 +141,8 @@ def _renew_one_subscription(sub: UserSubscription) -> bool:
             return True
 
         # Paid plan: require token
-        if not (user.pay_token or "").strip():
+        card = UserCardBind.objects.filter(user=user).order_by("-created_at").first()
+        if not (card.card_token or "").strip():
             # No token — deactivate
             sub.status = SubscriptionStatus.INACTIVE
             sub.payment_status = "unpaid"

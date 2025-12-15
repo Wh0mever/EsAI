@@ -106,8 +106,6 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     objects = UserManager()
 
-    pay_token = models.TextField(blank=True, null=True, verbose_name='Токен платежа')
-
     # Referral + bonus counters
     referral_uid = models.CharField(
         max_length=16,

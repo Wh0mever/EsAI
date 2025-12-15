@@ -46,7 +46,7 @@ export default function ProfilePage() {
                 {!profileData?.subscription && <ProfileAlert t={t} />}
 
 				<UserProfile t={t} data={profileData} />
-                <UserCardSaveSimple payToken={profileData?.user?.pay_token} />
+                <UserCardSaveSimple data={profileData?.user} />
                 <UserPlan t={t} data={profileData} />
             </div>
         </main>

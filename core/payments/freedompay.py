@@ -311,7 +311,7 @@ class FreedomPay:
             "pg_currency": currency,
             "pg_order_id": order_id or str(self.payment.id),
             "pg_user_id": str(self.user.id),
-            "pg_card_token": self.user.pay_token,
+            "pg_card_token": UserCardBind.objects.filter(user=self.user).order_by("-created_at").first().card_token,
             "pg_description": description or f"Payment for user {self.user.id}",
             "pg_salt": self.salt,
         }
