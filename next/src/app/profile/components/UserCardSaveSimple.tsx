@@ -6,15 +6,14 @@ import { Button } from "@/components/ui/buttons/Buttons";
 import { fetchData } from "@/tools/fetchData";
 import { useTranslation } from "react-i18next";
 
-type Props = {
-  payToken?: string | null;
-};
 
-export default function UserCardSaveSimple({ payToken }: Props) {
+export default function UserCardSaveSimple({ data }: any) {
   const { t } = useTranslation("common");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const hasCard = Boolean((payToken || "").trim());
+  const cardToken = (data?.card?.card_token || "").trim();
+  const hasCard = Boolean(cardToken);
+  console.log("UserCardSaveSimple data:", data);
 
   const startBind = async () => {
     if (loading) return;

@@ -1,5 +1,5 @@
 # users/serializers.py
-from .models import User, Notification, NotificationDelivery, UserQuestions, UserFeedback
+from .models import User, Notification, NotificationDelivery, UserQuestions, UserFeedback, UserCardBind
 from django.db.models import F
 
 from rest_framework import serializers
@@ -111,10 +111,29 @@ class SignInSerializer(serializers.Serializer):
         }
 
 
+class UserCardBindSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UserCardBind
+        fields = [
+            "card_id",
+            "card_hash",
+            "card_month",
+            "card_year",
+            "card_bank",
+            "card_country",
+        ]
+
+
 class ProfileSerializer(serializers.ModelSerializer):
+    card = serializers.SerializerMethodField()
+
     class Meta:
         model = User
-        exclude = ['password']
+        exclude = ["password"]
+
+    def get_card(self, user):
+        obj = user.card_binds.order_by("-created_at").first()
+        return UserCardBindSerializer(obj).data if obj else None
 
 
 class NotificationDeliverySerializer(serializers.ModelSerializer):
@@ -130,7 +149,6 @@ class NotificationDeliverySerializer(serializers.ModelSerializer):
         fields = ["id", "delivery_id", "title", "body", "is_read", "created_at", "read_at"]
         
         
-
 class UserQuestionSerializer(serializers.ModelSerializer):
     class Meta:
         model = UserQuestions

@@ -36,7 +36,7 @@ class UserCardBindAdmin(admin.ModelAdmin):
     search_fields = ('user__email', 'card_hash', 'card_token')
     list_filter = ('user__is_active', 'created_at')
     ordering = ('-created_at',)
-    readonly_fields = ('user', 'card_mask', 'card_token', 'created_at', 'is_active')
+    # readonly_fields = ('user', 'card_mask', 'card_token', 'created_at', 'is_active')
 
     @admin.display(description="Card", ordering="card_hash")
     def card_mask(self, obj):
