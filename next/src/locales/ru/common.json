@@ -424,6 +424,11 @@
     "card_bind_loading": "Обработка…",
     "card_bind_ready_badge": "Карта привязана",
     "card_bind_ready_text": "Карта привязана и готова к оплатам.",
+    "card_bind_new_button": "Привязать новую карту",
+    "card_hash_label": "Карта",
+    "card_hash_unknown": "Данные карты недоступны",
+    "card_expiry_label": "Срок действия",
+    "card_expiry_unknown": "Не указан",
     "_2fa": "Двухфакторная аутентификация",
     "plan_info": {
       "empty_title": "7 дней бесплатно",

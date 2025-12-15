@@ -21,6 +21,7 @@ from rest_framework_simplejwt.authentication import JWTAuthentication
 from plans.models import UserSubscription
 from plans.serializers import UserSubscriptionSerializer
 from .models import User, UserQuestions, Notification, NotificationDelivery
+from .services import activate_free_plan_for_user
 from rest_framework import generics, permissions
 from rest_framework.exceptions import NotFound
 from django.db.utils import DataError as DBDataError
@@ -271,6 +272,9 @@ class UserProfileView(APIView):
 
         if changed:
             request.user.save()
+
+        if not getattr(request.user, "free_plan_activated", False):
+            activate_free_plan_for_user(request.user)
 
         return Response({}, status=200)
 
