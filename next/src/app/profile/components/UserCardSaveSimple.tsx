@@ -12,8 +12,11 @@ export default function UserCardSaveSimple({ data }: any) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const cardToken = (data?.card?.card_token || "").trim();
-  const hasCard = Boolean(cardToken);
-  console.log("UserCardSaveSimple data:", data);
+  const cardHash = (data?.card?.card_hash || "").trim();
+  const cardMonth = (data?.card?.card_month || "").trim();
+  const cardYear = (data?.card?.card_year || "").trim();
+  const cardExpiry = [cardMonth, cardYear].filter(Boolean).join("/");
+  const hasCard = Boolean(cardToken || cardHash || data?.card?.card_id);
 
   const startBind = async () => {
     if (loading) return;
@@ -35,7 +38,7 @@ export default function UserCardSaveSimple({ data }: any) {
   return (
     <Card>
       <div className="flex flex-col gap-3">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col justify-between">
           <h2 className="text-xl font-bold">{t("profile.card")}</h2>
           {hasCard && <span className="text-sm text-green-500 font-semibold">{t("profile.card_bind_ready_badge")}</span>}
         </div>
@@ -53,7 +56,31 @@ export default function UserCardSaveSimple({ data }: any) {
             </Button>
           </div>
         )}
-        {hasCard && <p className="text-sm text-gray-300">{t("profile.card_bind_ready_text")}</p>}
+        {hasCard && (
+          <>
+            <div className="text-sm text-gray-300 space-y-1">
+              <p>{t("profile.card_bind_ready_text")}</p>
+              <p className="text-base font-mono">
+                <span className="text-gray-400">{t("profile.card_hash_label")}:</span>{" "}
+                {cardHash || t("profile.card_hash_unknown")}
+              </p>
+              <p>
+                <span className="text-gray-400">{t("profile.card_expiry_label")}:</span>{" "}
+                <span className="font-semibold">{cardExpiry || t("profile.card_expiry_unknown")}</span>
+              </p>
+            </div>
+            <div>
+              <Button
+                type="button"
+                onClick={startBind}
+                disabled={loading}
+                className="px-5 py-2 rounded-xl bg-indigo-500 hover:bg-indigo-600 disabled:opacity-60"
+              >
+                {loading ? t("profile.card_bind_loading") : t("profile.card_bind_new_button")}
+              </Button>
+            </div>
+          </>
+        )}
       </div>
     </Card>
   );

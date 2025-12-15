@@ -10,6 +10,12 @@ import UserProfile from "@/components/profile/UserProfile";
 import UserPlan from "@/components/profile/UserPlan";
 import UserCardSaveSimple from "@/app/profile/components/UserCardSaveSimple";
 
+const checkHasCard = (user?: { card?: any }) => {
+	const cardToken = (user?.card?.card_token || "").trim();
+	const cardHash = (user?.card?.card_hash || "").trim();
+	return Boolean(cardToken || cardHash || user?.card?.card_id);
+};
+
 
 function ProfileAlert({ t }: { t: any }) {
 	const EmptyPlanAlert = () => (
@@ -30,20 +36,35 @@ function ProfileAlert({ t }: { t: any }) {
 export default function ProfilePage() {
     const { t } = useTranslation("common");
     const [profileData, setProfileData] = useState<{ subscription?: boolean; user?: any; card?: any }>({});
+	const [isLoadingProfile, setIsLoadingProfile] = useState(true);
 
 
 	useEffect(() => {
-		fetchData("users/profile/", "get", null, true).then((responseData) => {
-			setProfileData(responseData?.data);
-		});
+		let mounted = true;
+		const loadProfile = async () => {
+			try {
+				const responseData = await fetchData("users/profile/", "get", null, true);
+				if (!mounted) return;
+				setProfileData(responseData?.data || {});
+			} finally {
+				if (mounted) {
+					setIsLoadingProfile(false);
+				}
+			}
+		};
+		loadProfile();
+		return () => {
+			mounted = false;
+		};
 	}, []);
 
+	const shouldShowAlert = !isLoadingProfile && !profileData?.subscription && !checkHasCard(profileData?.user);
 
     return (
         <main className="mx-auto pt-80 pb-20 overflow-hidden relative">
             <Breadcrumb />
             <div className="max-w-4xl mx-auto flex flex-col gap-3 scale-z-50 px-2">
-                {!profileData?.subscription && <ProfileAlert t={t} />}
+                {shouldShowAlert && <ProfileAlert t={t} />}
 
 				<UserProfile t={t} data={profileData} />
                 <UserCardSaveSimple data={profileData?.user} />

@@ -10,6 +10,7 @@ from django.db import DatabaseError, connection
 
 from .models import Payment
 from users.models import User, UserCardBind
+from users.services import activate_free_plan_for_user
 
 
 logger = logging.getLogger("payments.freedompay")
@@ -128,6 +129,10 @@ def save_freedompay_callback(callback_data: Dict[str, Any]) -> None:
             card_country=data.get("pg_country", ""),
             card_3ds=bool(int(data.get("pg_card_3ds", "0"))),
         )
+        try:
+            activate_free_plan_for_user(user)
+        except Exception:
+            logger.exception("Failed to auto-activate free plan for user=%s", user.id)
         return True
     except Exception as e:
         logger.exception("Failed to save FreedomPay card bind: %s", e)

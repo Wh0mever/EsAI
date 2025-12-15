@@ -10,7 +10,7 @@ class UserAdmin(admin.ModelAdmin):
     list_display = (
         'email', 'first_name', 'last_name', 'patronymic', 'tel', 
         'telegram', 'country', 'city', 'is_active', 'is_staff', 
-        'is_superuser', 'is_confirmed', 'date_joined', 
+        'is_superuser', 'is_confirmed', 'free_plan_activated', 'date_joined', 
         'last_login', 'last_session', 'date_of_birth',
         'referral_uid', 'bonus_texts', 'bonus_images', 'bonus_songs', 'bonus_music'
     )
