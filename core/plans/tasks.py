@@ -163,7 +163,8 @@ def _renew_one_subscription(sub: UserSubscription) -> bool:
         )
 
         # FreedomPay client returns JSON dict; check success flag
-        if not isinstance(resp, dict) or resp.get("pg_status") != "success":
+        status = resp.get("pg_status") if isinstance(resp, dict) else None
+        if not isinstance(resp, dict) or (status or "").lower() != "ok":
             sub.payment_status = "unpaid"
             sub.status = SubscriptionStatus.INACTIVE
             sub.save(update_fields=["payment_status", "status"])
