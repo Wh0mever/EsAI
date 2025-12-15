@@ -9,6 +9,7 @@ from django.conf import settings
 
 from users.models import User
 from .freedompay import FreedomPayHPPClient, FreedomPayError, save_freedompay_callback
+from .models import Payment
 
 
 logger = logging.getLogger()
@@ -89,3 +90,64 @@ class FreedomPayCallbackAPIView(APIView):
             return Response({"status": "error"}, status=status.HTTP_400_BAD_REQUEST)
             
         return Response({"status": "ok"})
+
+
+class FreedomPayChargeResultView(APIView):
+    """Record recurring charge redirects/callbacks."""
+
+    authentication_classes = []
+    permission_classes = []
+    result_type = "success"  # overridden in subclasses
+
+    def get(self, request, *args, **kwargs):
+        return self._handle(request.query_params)
+
+    def post(self, request, *args, **kwargs):
+        return self._handle(request.data)
+
+    def _handle(self, payload_source):
+        payload = self._normalize_payload(payload_source)
+        order_id = payload.get("pg_order_id") or payload.get("order_id")
+        self._persist_payment(order_id, payload)
+        logger.warning(
+            "FreedomPay %s callback order=%s payload=%s",
+            self.result_type,
+            order_id,
+            payload,
+        )
+        message = {"status": "received", "result": self.result_type, "order_id": order_id}
+        return Response(message, status=status.HTTP_200_OK)
+
+    def _normalize_payload(self, data):
+        if hasattr(data, "lists"):
+            return {key: values[-1] if values else "" for key, values in data.lists()}
+        if isinstance(data, dict):
+            return {k: v for k, v in data.items()}
+        return {}
+
+    def _persist_payment(self, order_id, payload):
+        if not order_id:
+            return
+        payment = Payment.objects.filter(order_id=order_id).order_by("-id").first()
+        if not payment:
+            return
+        response = payment.response or {}
+        callbacks = list(response.get("callbacks") or [])
+        callbacks.append({"type": self.result_type, "payload": payload})
+        response["callbacks"] = callbacks
+        payment.response = response
+        if self.result_type == "success":
+            payment.success = True
+            payment.error = ""
+        elif self.result_type == "failure":
+            payment.success = False
+            payment.error = payload.get("pg_error_description") or payload.get("pg_error_message") or "freedompay_failure"
+        payment.save(update_fields=["response", "success", "error"])
+
+
+class FreedomPayChargeFailureView(FreedomPayChargeResultView):
+    result_type = "failure"
+
+
+class FreedomPayChargePostbackView(FreedomPayChargeResultView):
+    result_type = "post"
