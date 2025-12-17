@@ -18,9 +18,9 @@ from mails.sender import send_template_email
 from django.contrib.auth.hashers import make_password
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.authentication import JWTAuthentication
-from plans.models import UserSubscription
+from plans.models import UserSubscription, Plan
 from plans.serializers import UserSubscriptionSerializer
-from .models import User, UserQuestions, Notification, NotificationDelivery
+from .models import User, UserQuestions, Notification, NotificationDelivery, UserCardBind
 from .services import activate_free_plan_for_user
 from rest_framework import generics, permissions
 from rest_framework.exceptions import NotFound
@@ -240,6 +240,18 @@ class UserProfileView(APIView):
                          .filter(user=request.user)
                          .order_by("-start_date")
                          .first())
+        
+        if not subscription and not user.free_plan_activated:
+            card_binds = UserCardBind.objects.filter(user=user)
+            if card_binds.exists():
+                free_plan = Plan.objects.filter(is_free=True).first()
+                if free_plan:
+                    subscription = UserSubscription.objects.create(
+                        user=request.user,
+                        plan=free_plan,
+                    )
+                    request.user.free_plan_activated = True
+                    request.user.save()
 
         if subscription:
             subscription = UserSubscriptionSerializer(subscription).data
