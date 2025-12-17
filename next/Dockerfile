@@ -4,13 +4,19 @@ WORKDIR /app
 
 COPY package.json package-lock.json* ./
 
-# Install deps strictly, then force-update vulnerable packages
+# Install deps from lock, then force exact Next.js version
 RUN npm ci \
- && npm install next@latest react@latest react-dom@latest --save-exact
+ && npm install next@16.0.8 react@19.0.0 react-dom@19.0.0 --save-exact \
+ && npm dedupe
 
 # --- builder ---
 FROM node:20-alpine AS builder
 WORKDIR /app
+
+ENV NODE_ENV=production \
+    NODE_OPTIONS=--max-old-space-size=4096 \
+    NEXT_TELEMETRY_DISABLED=1 \
+    NEXT_DISABLE_SOURCEMAPS=1
 
 ARG NEXT_PUBLIC_API_URL
 ARG NEXT_PUBLIC_FREEDOM_PAY_PUBLIC_KEY
@@ -18,11 +24,7 @@ ARG NEXT_PUBLIC_FREEDOM_PAY_TOKEN
 ARG NEXT_PUBLIC_FREEDOM_PAY_MERCHANT_ID
 ARG NEXT_PUBLIC_FREEDOM_PAY_TEST
 
-ENV NODE_ENV=production \
-    NODE_OPTIONS=--max-old-space-size=4096 \
-    NEXT_TELEMETRY_DISABLED=1 \
-    NEXT_DISABLE_SOURCEMAPS=1 \
-    NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL \
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL \
     NEXT_PUBLIC_FREEDOM_PAY_PUBLIC_KEY=$NEXT_PUBLIC_FREEDOM_PAY_PUBLIC_KEY \
     NEXT_PUBLIC_FREEDOM_PAY_TOKEN=$NEXT_PUBLIC_FREEDOM_PAY_TOKEN \
     NEXT_PUBLIC_FREEDOM_PAY_MERCHANT_ID=$NEXT_PUBLIC_FREEDOM_PAY_MERCHANT_ID \
@@ -36,13 +38,11 @@ COPY postcss.config.mjs ./
 COPY public ./public
 COPY src ./src
 
-# Safety check: ensure prod build only
-RUN node -e "const p=require('./package.json'); if(p.scripts?.dev){console.log('dev script present (ok)')}"
+# Safety check: fail build if wrong Next.js version
+RUN node -e "const v=require('next/package.json').version; if(v!=='16.0.8'){throw new Error('Next.js version mismatch: '+v)}"
 
-# Build
-RUN set -eux; \
-  npx next telemetry disable || true; \
-  npm run build
+RUN npx next telemetry disable || true
+RUN npm run build
 
 # --- runner ---
 FROM node:20-alpine AS runner
@@ -58,7 +58,6 @@ COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 
-# Runtime cache permissions
 RUN mkdir -p /app/.next/cache \
  && chown -R nextjs:nodejs /app
 
