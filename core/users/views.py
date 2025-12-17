@@ -241,7 +241,7 @@ class UserProfileView(APIView):
                          .order_by("-start_date")
                          .first())
         
-        if not subscription and not user.free_plan_activated:
+        if not subscription and not request.user.free_plan_activated:
             card_binds = UserCardBind.objects.filter(user=user)
             if card_binds.exists():
                 free_plan = Plan.objects.filter(is_free=True).first()
