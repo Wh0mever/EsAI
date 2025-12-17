@@ -18,9 +18,9 @@ from mails.sender import send_template_email
 from django.contrib.auth.hashers import make_password
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.authentication import JWTAuthentication
-from plans.models import UserSubscription, Plan
+from plans.models import UserSubscription
 from plans.serializers import UserSubscriptionSerializer
-from .models import User, UserQuestions, Notification, NotificationDelivery, UserCardBind
+from .models import User, UserQuestions, Notification, NotificationDelivery
 from .services import activate_free_plan_for_user
 from rest_framework import generics, permissions
 from rest_framework.exceptions import NotFound
@@ -234,36 +234,33 @@ class PasswordResetCompleteView(APIView):
 
 class UserProfileView(APIView):
     def get(self, request):
-        user = ProfileSerializer(request.user).data
-        subscription = (UserSubscription.objects
-                         .select_related("plan", "usage", "user")
-                         .filter(user=request.user)
-                         .order_by("-start_date")
-                         .first())
-        
-        if not subscription and not request.user.free_plan_activated:
-            card_binds = UserCardBind.objects.filter(user=user)
-            if card_binds.exists():
-                free_plan = Plan.objects.filter(is_free=True).first()
-                if free_plan:
-                    subscription = UserSubscription.objects.create(
-                        user=request.user,
-                        plan=free_plan,
-                    )
-                    request.user.free_plan_activated = True
-                    request.user.save()
+        user_obj = request.user
+        user_data = ProfileSerializer(user_obj).data
+        subscription = (
+            UserSubscription.objects
+            .select_related("plan", "usage", "user")
+            .filter(user=user_obj)
+            .order_by("-start_date")
+            .first()
+        )
 
-        if subscription:
-            subscription = UserSubscriptionSerializer(subscription).data
-        else:
-            subscription = None
+        if not subscription and not getattr(user_obj, "free_plan_activated", False):
+            activated, _ = activate_free_plan_for_user(user_obj)
+            if activated:
+                subscription = (
+                    UserSubscription.objects
+                    .select_related("plan", "usage", "user")
+                    .filter(user=user_obj)
+                    .order_by("-start_date")
+                    .first()
+                )
 
-        responseData = {
-            'user': user,
-            'subscription': subscription,
+        subscription_data = UserSubscriptionSerializer(subscription).data if subscription else None
+        response_data = {
+            "user": user_data,
+            "subscription": subscription_data,
         }
-
-        return Response(responseData, status=200)
+        return Response(response_data, status=200)
 
     def put(self, request):
 
