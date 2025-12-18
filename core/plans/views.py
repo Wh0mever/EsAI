@@ -17,7 +17,7 @@ from rest_framework_simplejwt.authentication import JWTAuthentication
 from django.utils import timezone
 import uuid
 from datetime import timedelta
-from users.models import User
+from users.models import User, UserCardBind
 from django.db import transaction
 
 
