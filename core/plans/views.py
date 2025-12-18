@@ -19,6 +19,8 @@ import uuid
 from datetime import timedelta
 from users.models import User, UserCardBind
 from django.db import transaction
+from payments.freedompay import FreedomPay
+from decimal import Decimal
 
 
 @method_decorator(cache_page(60), name="dispatch")               # page cache
@@ -187,7 +189,48 @@ class ActivatePlanView(APIView):
                     "images_left": int(plan.image_limit or 0),
                 },
             )
-
+            
+                svc = FreedomPay(user)
+                try:
+                    resp = svc.charge(
+                        amount=amount,
+                        currency=currency,
+                        order_id=order_id,
+                        description=f"Admin action charge for plan #{plan.id}",
+                        card_token=card_token,
+                        test=False,
+                    )
+                    if resp.get("status") == "success":
+                        logging.getLogger("payments").info(
+                            "charge_success user=%s plan=%s sub=%s order=%s charge_id=%s",
+                            user.id,
+                            plan.id,
+                            sub.id,
+                            order_id,
+                            resp.get("charge_id"),
+                        )
+                        return True, "charged"
+                    else:
+                        logger.error(
+                            "charge_failed user=%s plan=%s sub=%s order=%s resp=%s",
+                            user.id,
+                            plan.id,
+                            sub.id,
+                            order_id,
+                            resp,
+                        )
+                        return False, "charge_failed"
+                except Exception as e:
+                    logger.exception(
+                        "charge_exception user=%s plan=%s sub=%s order=%s error=%s",
+                        user.id,
+                        plan.id,
+                        sub.id,
+                        order_id,
+                        str(e),
+                    )
+                    return False, "charge_exception"
+        
         resp = UserSubscriptionSerializer(sub).data
         logging.getLogger("plans").info(
             "subscription_created user=%s sub_id=%s plan_id=%s end_date=%s",
