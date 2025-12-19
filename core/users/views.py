@@ -12,6 +12,7 @@ from .serializers import (
     NotificationDeliverySerializer,
     UserQuestionSerializer,
     UserFeedbackSerializer,
+    CurrencyPreferenceSerializer,
 )
 from core.format import format_errors
 from mails.sender import send_template_email
@@ -286,6 +287,17 @@ class UserProfileView(APIView):
             activate_free_plan_for_user(request.user)
 
         return Response({}, status=200)
+
+
+class CurrencyPreferenceView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        serializer = CurrencyPreferenceSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        request.user.selected_currency = serializer.validated_data["currency"]
+        request.user.save(update_fields=["selected_currency"])
+        return Response({"currency": request.user.selected_currency}, status=200)
 
 
 class QuestionAPIView(APIView):

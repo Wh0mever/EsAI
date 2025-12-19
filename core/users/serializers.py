@@ -7,6 +7,8 @@ from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from django.contrib.auth import authenticate
 from rest_framework_simplejwt.tokens import RefreshToken
 
+ALLOWED_CURRENCIES = ("USD", "RUB", "KGS")
+
 
 class SignUpSerializer(serializers.Serializer):
     name = serializers.CharField(max_length=150)
@@ -134,6 +136,16 @@ class ProfileSerializer(serializers.ModelSerializer):
     def get_card(self, user):
         obj = user.card_binds.order_by("-created_at").first()
         return UserCardBindSerializer(obj).data if obj else None
+
+
+class CurrencyPreferenceSerializer(serializers.Serializer):
+    currency = serializers.CharField()
+
+    def validate_currency(self, value):
+        code = (value or "").strip().upper()
+        if code not in ALLOWED_CURRENCIES:
+            raise serializers.ValidationError("Unsupported currency")
+        return code
 
 
 class NotificationDeliverySerializer(serializers.ModelSerializer):

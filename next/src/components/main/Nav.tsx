@@ -7,7 +7,10 @@ import { useEffect, useMemo, useState, memo } from "react";
 import { useTranslation } from "react-i18next";
 import { DropDownHovered } from "@/components/ui/dropDown/DropDownHovered";
 import { Button } from "@/components/ui/buttons/Buttons";
-import { useRouter, usePathname } from "next/navigation";
+import { usePathname } from "next/navigation";
+import { fetchData } from "@/tools/fetchData";
+import { getInitialCurrency, persistCurrency } from "@/lib/currency";
+import { redirectToLanguageDomain } from "@/lib/locale";
 
 type Variant = "desktop" | "mobile";
 type Props = { variant?: Variant; className?: string; onNavigate?: () => void };
@@ -31,8 +34,6 @@ const CATEGORIES_ROUTES = ["/about", "/contact-us", "/faq", "/terms-conditions"]
 
 const CURRENCY_KEY = "APP_CURRENCY";
 const CURRENCY_CHANGED_EVENT = "app:currency-changed";
-import { getInitialCurrency, persistCurrency } from "@/lib/currency";
-import { redirectToLanguageDomain } from "@/lib/locale";
 
 function useLocale() {
   const current = Cookies.get("NEXT_LOCALE") || "ru";
@@ -48,7 +49,6 @@ function useLocale() {
 }
 
 function useCurrency() {
-  const router = useRouter();
   const [currency, setCurrency] = useState<Currency["code"]>(() => (typeof window !== 'undefined' ? getInitialCurrency() : "USD"));
 
   useEffect(() => {
@@ -61,11 +61,18 @@ function useCurrency() {
 
   const changeCurrency = (code: Currency["code"]) => {
     setCurrency(code);
-    if (typeof window !== "undefined") {
-      persistCurrency(code, true);
-      window.dispatchEvent(new CustomEvent(CURRENCY_CHANGED_EVENT, { detail: { code } }));
+    if (typeof window === "undefined") return;
+
+    persistCurrency(code, true);
+    window.dispatchEvent(new CustomEvent(CURRENCY_CHANGED_EVENT, { detail: { code } }));
+
+    const reload = () => window.location.reload();
+    const hasAccessToken = Boolean(Cookies.get("access"));
+    if (hasAccessToken) {
+      fetchData("users/currency/", "POST", { currency: code }, true).finally(reload);
+      return;
     }
-    window.location.reload();
+    reload();
   };
 
   const display = useMemo(() => {
