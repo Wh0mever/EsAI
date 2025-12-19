@@ -58,6 +58,7 @@ urlpatterns = [
     # path('card/unbind/', UnbindCardView.as_view(), name='card-unbind'),
     path('question/', QuestionAPIView.as_view(), name='question'),
     path('feedback/', FeedbackView.as_view(), name='feedback'),
+    path('currency/', CurrencyPreferenceView.as_view(), name='currency-preference'),
     path("notifications/", NotificationListView.as_view()),
     path("notifications/<int:pk>/read/", NotificationMarkReadView.as_view()),
     path("accounts/", include("allauth.urls")),

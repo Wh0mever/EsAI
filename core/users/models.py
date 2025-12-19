@@ -86,6 +86,8 @@ class User(AbstractBaseUser, PermissionsMixin):
     last_session = models.DateTimeField(null=True, blank=True, verbose_name='Последняя сессия')
     date_of_birth = models.DateField(null=True, blank=True, verbose_name='Дата рождения')
     
+    selected_currency = models.CharField(max_length=10, blank=True, verbose_name='Выбранная валюта', default='USD')
+    
     ip = models.GenericIPAddressField(null=True, blank=True)
     
     groups = models.ManyToManyField(
