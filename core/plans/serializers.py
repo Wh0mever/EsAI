@@ -131,7 +131,7 @@ class UserSubscriptionSerializer(serializers.ModelSerializer):
         model = UserSubscription
         fields = (
             "id", "plan", "status", "payment_status",
-            "start_date", "end_date", "payment_date", "usage",
+            "start_date", "end_date", "payment_date", "usage", "auto_renew",
             # computed remaining
             "remaining_texts", "remaining_images", "remaining_songs", "remaining_music",
             # unlimited flags

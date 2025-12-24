@@ -35,7 +35,7 @@ function ProfileAlert({ t }: { t: any }) {
 
 export default function ProfilePage() {
     const { t } = useTranslation("common");
-    const [profileData, setProfileData] = useState<{ subscription?: boolean; user?: any; card?: any }>({});
+	const [profileData, setProfileData] = useState<{ subscription?: boolean; user?: any; card?: any }>({});
 	const [isLoadingProfile, setIsLoadingProfile] = useState(true);
 
 
@@ -59,6 +59,12 @@ export default function ProfilePage() {
 	}, []);
 
 	const shouldShowAlert = !isLoadingProfile && !profileData?.subscription && !checkHasCard(profileData?.user);
+	const handleUnsubscribe = async () => {
+		const response = await fetchData("plans/me/unsubscribe/", "post", {}, true);
+		if (response.ok && response.data) {
+			setProfileData((prev) => ({ ...prev, subscription: response.data }));
+		}
+	};
 
     return (
         <main className="mx-auto pt-80 pb-20 overflow-hidden relative">
@@ -68,7 +74,7 @@ export default function ProfilePage() {
 
 				<UserProfile t={t} data={profileData} />
                 <UserCardSaveSimple data={profileData?.user} />
-                <UserPlan t={t} data={profileData} />
+                <UserPlan t={t} data={profileData} onUnsubscribe={handleUnsubscribe} />
             </div>
         </main>
     );

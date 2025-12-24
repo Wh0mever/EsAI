@@ -507,7 +507,7 @@ export default function SubscribePlanPage() {
                                         <div className="text-white/70 mt-1">{t("pricing.next_charge_on", { date: formatDate(nextChargeAt) })}</div>
                                     )}
                                 </div>
-                            ) : (
+                            ) : plan?.is_free ? null : (
                                 <button
                                     type="button"
                                     onClick={onActivateClick}
@@ -517,7 +517,7 @@ export default function SubscribePlanPage() {
                                     {actionLoading ? t("common.processing") : t("pricing.connect_plan")}
                                 </button>
                             )
-                        ) : (
+                        ) : plan?.is_free ? null : (
                             <div className="flex flex-col sm:flex-row items-center gap-3">
                                 <Link
                                     href="/auth/signin"

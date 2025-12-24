@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/buttons/Buttons";
 import { IoExitOutline } from "react-icons/io5";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
+import { ConfirmationModal } from "@/components/dialog/Dialog";
 
 type Props = {
 	t: (k: string) => string;
@@ -67,6 +68,21 @@ export default function UserPlan({ t, data, onUnsubscribe }: Props) {
 	const sub = data?.subscription;
 	const hasSub = Boolean(sub && sub.plan);
 	const currency = typeof window !== "undefined" ? localStorage.getItem("APP_CURRENCY") || "USD" : "USD";
+	const [confirmOpen, setConfirmOpen] = React.useState(false);
+	const [isUnsubscribing, setIsUnsubscribing] = React.useState(false);
+
+	const canUnsubscribe = Boolean(sub?.status === "active" && sub?.auto_renew !== false && onUnsubscribe);
+
+	const handleConfirmUnsubscribe = async () => {
+		if (!onUnsubscribe) return;
+		setIsUnsubscribing(true);
+		try {
+			await onUnsubscribe();
+		} finally {
+			setIsUnsubscribing(false);
+			setConfirmOpen(false);
+		}
+	};
 
 	const CurrentPlan = () => {
 		const plan = sub!.plan!;
@@ -112,8 +128,8 @@ export default function UserPlan({ t, data, onUnsubscribe }: Props) {
 				<div className="flex gap-2 mt-5">
 					<Button
 						className="px-6 py-2 rounded-xl bg-rose-500 hover:bg-rose-700 w-fit"
-						onClick={onUnsubscribe}
-						disabled={sub!.status !== "active"}
+						onClick={() => setConfirmOpen(true)}
+						disabled={!canUnsubscribe}
 					>
 						{t("profile.unsubscribe")}
 					</Button>
@@ -235,6 +251,17 @@ export default function UserPlan({ t, data, onUnsubscribe }: Props) {
 				<Card>
 					<UsageCard />
 				</Card>
+				<ConfirmationModal
+					isOpen={confirmOpen}
+					title={t("profile.unsubscribe_confirm_title")}
+					description={t("profile.unsubscribe_confirm_desc")}
+					confirmText={t("common.yes")}
+					confirmLoadingText={t("common.loading")}
+					cancelText={t("common.no")}
+					onConfirm={handleConfirmUnsubscribe}
+					onCancel={() => setConfirmOpen(false)}
+					confirmDisabled={isUnsubscribing}
+				/>
 			</>
 		);
 	}

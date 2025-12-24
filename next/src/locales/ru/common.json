@@ -413,6 +413,8 @@
     "pricing": "Тарифы",
     "write-off": "Следующее списание",
     "unsubscribe": "Отписаться",
+    "unsubscribe_confirm_title": "Подтвердите отписку",
+    "unsubscribe_confirm_desc": "Автосписание будет отключено. Продолжить?",
     "add_card": "Добавить карту",
     "no_card": "Карта не добавлена",
     "card_number": "Номер карты",

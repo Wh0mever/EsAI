@@ -106,6 +106,26 @@ class MeAddonsView(generics.ListAPIView):
                 .order_by("-purchase_date"))
 
 
+class UnsubscribeView(APIView):
+    """Disable auto-renew for the current active subscription."""
+
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, *args, **kwargs):
+        sub = (UserSubscription.objects
+               .select_related("plan", "usage", "user")
+               .filter(user=request.user, status=SubscriptionStatus.ACTIVE)
+               .order_by("-start_date")
+               .first())
+        if not sub:
+            raise NotFound("Active subscription not found.")
+        if sub.auto_renew:
+            sub.auto_renew = False
+            sub.save(update_fields=["auto_renew"])
+        return Response(UserSubscriptionSerializer(sub).data, status=200)
+
+
 class ActivatePlanView(APIView):
     """Activate a plan for the current user if prerequisites are met.
 
@@ -189,47 +209,6 @@ class ActivatePlanView(APIView):
                     "images_left": int(plan.image_limit or 0),
                 },
             )
-            
-                svc = FreedomPay(user)
-                try:
-                    resp = svc.charge(
-                        amount=amount,
-                        currency=currency,
-                        order_id=order_id,
-                        description=f"Admin action charge for plan #{plan.id}",
-                        card_token=card_token,
-                        test=False,
-                    )
-                    if resp.get("status") == "success":
-                        logging.getLogger("payments").info(
-                            "charge_success user=%s plan=%s sub=%s order=%s charge_id=%s",
-                            user.id,
-                            plan.id,
-                            sub.id,
-                            order_id,
-                            resp.get("charge_id"),
-                        )
-                        return True, "charged"
-                    else:
-                        logger.error(
-                            "charge_failed user=%s plan=%s sub=%s order=%s resp=%s",
-                            user.id,
-                            plan.id,
-                            sub.id,
-                            order_id,
-                            resp,
-                        )
-                        return False, "charge_failed"
-                except Exception as e:
-                    logger.exception(
-                        "charge_exception user=%s plan=%s sub=%s order=%s error=%s",
-                        user.id,
-                        plan.id,
-                        sub.id,
-                        order_id,
-                        str(e),
-                    )
-                    return False, "charge_exception"
         
         resp = UserSubscriptionSerializer(sub).data
         logging.getLogger("plans").info(
