@@ -508,7 +508,7 @@ class FreedomPay:
         payload["pg_salt"] = uuid.uuid4().hex
         payload["pg_sig"] = make_api_signature("remove", payload, self.secret)
 
-        url = f"{self.base_url}/merchant/{self.merchant_id}/card/remove"
+        url = f"{self.base_url}/merchant/{self.merchant_id}/cardstorage/remove"
         masked_payload = self._mask(payload)
         self.logger.warning(
             "FreedomPay remove request user=%s payload=%s",
