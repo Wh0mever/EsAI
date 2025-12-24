@@ -413,6 +413,8 @@
     "pricing": "Тарифтер",
     "write-off": "Кийинки эсептен чыгаруулар",
     "unsubscribe": "Жазылуудан чыгуу",
+    "unsubscribe_confirm_title": "Жазылуудан чыгуу ырасталсын",
+    "unsubscribe_confirm_desc": "Авто-төлөм өчүрүлөт. Улантабызбы?",
     "add_card": "Карта кошуу",
     "no_card": "Карта кошула элек",
     "card_number": "Карта номери",

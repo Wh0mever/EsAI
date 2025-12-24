@@ -282,12 +282,14 @@ function PlanCard({
 			</div>
 
 			<div className="flex justify-center relative">
-				<NextLink
-					href={`subscribe/${plan.id}/`}
-					className="select-text mt-3 py-2 px-4 rounded-lg bg-indigo-500 hover:bg-indigo-600 duration-300"
-				>
-					{t("pricing.startofwork")}
-				</NextLink>
+				{plan.is_free ? null : (
+					<NextLink
+						href={`subscribe/${plan.id}/`}
+						className="select-text mt-3 py-2 px-4 rounded-lg bg-indigo-500 hover:bg-indigo-600 duration-300"
+					>
+						{t("pricing.startofwork")}
+					</NextLink>
+				)}
 			</div>
 		</div>
 	);

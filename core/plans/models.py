@@ -122,6 +122,7 @@ class UserSubscription(models.Model):
     status = models.CharField(max_length=20, choices=SubscriptionStatus.choices, default=SubscriptionStatus.ACTIVE)
     payment_status = models.CharField(max_length=20, choices=PaymentStatus.choices, default=PaymentStatus.UNPAID)
     payment_date = models.DateTimeField(null=True, blank=True)
+    auto_renew = models.BooleanField(default=True)
 
     class Meta:
         indexes = [

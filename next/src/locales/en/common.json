@@ -414,6 +414,8 @@
     "pricing": "Pricing",
     "write-off": "Next write-off",
     "unsubscribe": "Unsubscribe",
+    "unsubscribe_confirm_title": "Confirm unsubscribe",
+    "unsubscribe_confirm_desc": "Auto-renewal will be disabled. Continue?",
     "add_card": "Add card",
     "no_card": "No card",
     "card_number": "Card number",
