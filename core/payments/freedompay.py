@@ -13,7 +13,7 @@ from django.db import DatabaseError, connection
 from .models import Payment
 from users.models import User, UserCardBind
 from users.services import activate_free_plan_for_user
-
+from plans.models import CurrencyRate
 
 logger = logging.getLogger("payments.freedompay")
 
@@ -302,6 +302,31 @@ class FreedomPay:
             raise FreedomPayError("Amount must be at least 0.01")
         return value
 
+    def _apply_user_currency(self, amount: Decimal, currency: str) -> tuple[Decimal, str]:
+        selected = (getattr(self.user, "selected_currency", "") or "").upper()
+        base_currency = (currency or "").upper()
+        if not selected:
+            return amount, base_currency
+        if selected == base_currency:
+            return amount, base_currency
+        if selected == "USD":
+            return amount, "USD"
+
+        rate = CurrencyRate.objects.filter(currency=selected).values_list("rate_to_usd", flat=True).first()
+        if not rate:
+            logger.warning("Currency rate missing for %s; fallback to %s", selected, base_currency)
+            return amount, base_currency
+
+        try:
+            rate_dec = Decimal(str(rate))
+            if rate_dec <= 0:
+                raise ValueError("rate_to_usd must be positive")
+            converted = amount / rate_dec  # rate_to_usd: 1 unit currency in USD
+            return self._normalize_amount(converted), selected
+        except Exception as exc:
+            logger.warning("Currency conversion failed for %s: %s", selected, exc)
+            return amount, base_currency
+
     def _fetch_card_token(self) -> str:
         card = UserCardBind.objects.filter(user=self.user).order_by("-created_at").first()
         token = (card.card_token or "").strip() if card else ""
@@ -424,6 +449,7 @@ class FreedomPay:
         currency_code = (currency or "").upper()
         if not currency_code:
             raise FreedomPayError("Currency is required")
+        normalized_amount, currency_code = self._apply_user_currency(normalized_amount, currency_code)
         order_id = (order_id or "").strip()
         if not order_id:
             raise FreedomPayError("Order ID is required")
