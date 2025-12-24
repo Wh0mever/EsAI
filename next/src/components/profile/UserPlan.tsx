@@ -11,7 +11,8 @@ import { ConfirmationModal } from "@/components/dialog/Dialog";
 type Props = {
 	t: (k: string) => string;
 	data: any;
-	onUnsubscribe?: () => void;
+	onUnsubscribe?: () => Promise<{ ok: boolean; error?: string }>;
+	onResume?: () => Promise<{ ok: boolean; error?: string }>;
 };
 
 function mapLangToLocale(lang?: string) {
@@ -60,7 +61,7 @@ function formatMoney(currency: any, plan: any) {
 	return `${pricing[currency] ?? plan.price_amount} ${currency}`;
 }
 
-export default function UserPlan({ t, data, onUnsubscribe }: Props) {
+export default function UserPlan({ t, data, onUnsubscribe, onResume }: Props) {
 	const { i18n } = useTranslation();
 	const lang = (i18n?.language || "ru").toLowerCase(); // "ru" | "en" | "kg/ky"
 	const localeTag = mapLangToLocale(lang); // "ru-RU" | "en-US" | "ky-KG"
@@ -70,17 +71,40 @@ export default function UserPlan({ t, data, onUnsubscribe }: Props) {
 	const currency = typeof window !== "undefined" ? localStorage.getItem("APP_CURRENCY") || "USD" : "USD";
 	const [confirmOpen, setConfirmOpen] = React.useState(false);
 	const [isUnsubscribing, setIsUnsubscribing] = React.useState(false);
+	const [actionNotice, setActionNotice] = React.useState<string | null>(null);
+	const [actionError, setActionError] = React.useState<string | null>(null);
 
-	const canUnsubscribe = Boolean(sub?.status === "active" && sub?.auto_renew !== false && onUnsubscribe);
+	const autoRenewEnabled = sub?.auto_renew !== false && data?.user?.auto_renew !== false;
+	const canUnsubscribe = Boolean(sub?.status === "active" && autoRenewEnabled && onUnsubscribe);
+	const canResume = Boolean(sub?.status === "active" && !autoRenewEnabled && onResume);
 
 	const handleConfirmUnsubscribe = async () => {
 		if (!onUnsubscribe) return;
 		setIsUnsubscribing(true);
+		setActionError(null);
+		setActionNotice(null);
 		try {
-			await onUnsubscribe();
+			const res = await onUnsubscribe();
+			if (res?.ok) {
+				setActionNotice(t("profile.unsubscribe_notice"));
+			} else {
+				setActionError(res?.error || t("common.error"));
+			}
 		} finally {
 			setIsUnsubscribing(false);
 			setConfirmOpen(false);
+		}
+	};
+
+	const handleResume = async () => {
+		if (!onResume) return;
+		setActionError(null);
+		setActionNotice(null);
+		const res = await onResume();
+		if (res?.ok) {
+			setActionNotice(t("profile.resume_notice"));
+		} else {
+			setActionError(res?.error || t("common.error"));
 		}
 	};
 
@@ -125,14 +149,27 @@ export default function UserPlan({ t, data, onUnsubscribe }: Props) {
 					})()}
 				</p>
 
+				{actionNotice && <p className="text-sm text-green-400">{actionNotice}</p>}
+				{actionError && <p className="text-sm text-rose-400">{actionError}</p>}
+
 				<div className="flex gap-2 mt-5">
-					<Button
-						className="px-6 py-2 rounded-xl bg-rose-500 hover:bg-rose-700 w-fit"
-						onClick={() => setConfirmOpen(true)}
-						disabled={!canUnsubscribe}
-					>
-						{t("profile.unsubscribe")}
-					</Button>
+					{autoRenewEnabled ? (
+						<Button
+							className="px-6 py-2 rounded-xl bg-rose-500 hover:bg-rose-700 w-fit"
+							onClick={() => setConfirmOpen(true)}
+							disabled={!canUnsubscribe}
+						>
+							{t("profile.unsubscribe")}
+						</Button>
+					) : (
+						<Button
+							className="px-6 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-600 w-fit"
+							onClick={handleResume}
+							disabled={!canResume}
+						>
+							{t("profile.resume_subscription")}
+						</Button>
+					)}
 
 					<Link
 						href="/pricing"

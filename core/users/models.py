@@ -87,6 +87,7 @@ class User(AbstractBaseUser, PermissionsMixin):
     date_of_birth = models.DateField(null=True, blank=True, verbose_name='Дата рождения')
     
     selected_currency = models.CharField(max_length=10, blank=True, verbose_name='Выбранная валюта', default='USD')
+    auto_renew = models.BooleanField(default=True, verbose_name="Автосписание")
     
     ip = models.GenericIPAddressField(null=True, blank=True)
     

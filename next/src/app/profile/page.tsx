@@ -59,12 +59,21 @@ export default function ProfilePage() {
 	}, []);
 
 	const shouldShowAlert = !isLoadingProfile && !profileData?.subscription && !checkHasCard(profileData?.user);
-	const handleUnsubscribe = async () => {
-		const response = await fetchData("plans/me/unsubscribe/", "post", {}, true);
-		if (response.ok && response.data) {
-			setProfileData((prev) => ({ ...prev, subscription: response.data }));
-		}
-	};
+    const handleUnsubscribe = async () => {
+        const response = await fetchData("plans/me/unsubscribe/", "post", {}, true);
+        if (response.ok && response.data) {
+            setProfileData((prev) => ({ ...prev, subscription: response.data }));
+        }
+        return response;
+    };
+
+    const handleResume = async () => {
+        const response = await fetchData("plans/me/resume/", "post", {}, true);
+        if (response.ok && response.data) {
+            setProfileData((prev) => ({ ...prev, subscription: response.data }));
+        }
+        return response;
+    };
 
     return (
         <main className="mx-auto pt-80 pb-20 overflow-hidden relative">
@@ -74,7 +83,7 @@ export default function ProfilePage() {
 
 				<UserProfile t={t} data={profileData} />
                 <UserCardSaveSimple data={profileData?.user} />
-                <UserPlan t={t} data={profileData} onUnsubscribe={handleUnsubscribe} />
+                <UserPlan t={t} data={profileData} onUnsubscribe={handleUnsubscribe} onResume={handleResume} />
             </div>
         </main>
     );

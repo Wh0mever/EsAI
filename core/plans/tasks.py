@@ -131,7 +131,7 @@ def _renew_one_subscription(sub: UserSubscription) -> bool:
         if now < due_at:
             return False
 
-        if not getattr(sub, "auto_renew", True):
+        if not getattr(sub, "auto_renew", True) or not getattr(user, "auto_renew", True):
             sub.status = SubscriptionStatus.INACTIVE
             sub.save(update_fields=["status"])
             logger.info("Auto renew disabled; deactivated sub=%s", sub.id)

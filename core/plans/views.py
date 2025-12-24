@@ -123,6 +123,32 @@ class UnsubscribeView(APIView):
         if sub.auto_renew:
             sub.auto_renew = False
             sub.save(update_fields=["auto_renew"])
+        if getattr(request.user, "auto_renew", True):
+            request.user.auto_renew = False
+            request.user.save(update_fields=["auto_renew"])
+        return Response(UserSubscriptionSerializer(sub).data, status=200)
+
+
+class ResumeSubscriptionView(APIView):
+    """Re-enable auto-renew for the current active subscription."""
+
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, *args, **kwargs):
+        sub = (UserSubscription.objects
+               .select_related("plan", "usage", "user")
+               .filter(user=request.user, status=SubscriptionStatus.ACTIVE)
+               .order_by("-start_date")
+               .first())
+        if not sub:
+            raise NotFound("Active subscription not found.")
+        if not sub.auto_renew:
+            sub.auto_renew = True
+            sub.save(update_fields=["auto_renew"])
+        if not getattr(request.user, "auto_renew", True):
+            request.user.auto_renew = True
+            request.user.save(update_fields=["auto_renew"])
         return Response(UserSubscriptionSerializer(sub).data, status=200)
 
 
