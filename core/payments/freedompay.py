@@ -534,6 +534,10 @@ class FreedomPay:
         )
 
         if response.status_code >= 400:
+            error_code = str(body.get("pg_error_code") or "")
+            error_desc = str(body.get("pg_error_description") or "").lower()
+            if error_code == "1804" or "карта не найдена" in error_desc:
+                return body
             raise FreedomPayError(f"remove_http_error:{response.status_code}")
         status = (body.get("pg_status") or "").lower()
         if status and status != "deleted":
