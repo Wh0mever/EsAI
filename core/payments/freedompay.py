@@ -536,6 +536,10 @@ class FreedomPay:
         if response.status_code >= 400:
             raise FreedomPayError(f"remove_http_error:{response.status_code}")
         status = (body.get("pg_status") or "").lower()
-        if status != "deleted":
-            raise FreedomPayError(f"remove_status_error:{status or 'unknown'}")
+        if status and status != "deleted":
+            raise FreedomPayError(f"remove_status_error:{status}")
+        if not status:
+            card_value = body.get("card")
+            if card_value not in ("", None):
+                raise FreedomPayError("remove_status_error:unknown")
         return body
