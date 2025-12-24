@@ -496,3 +496,46 @@ class FreedomPay:
         except Exception as exc:
             self._finalize_payment(success=False, error=str(exc))
             raise
+
+    def remove_card(self, card_token: Optional[str] = None) -> Dict[str, Any]:
+        self._ensure_config()
+        token = (card_token or "").strip() or self._fetch_card_token()
+        payload: Dict[str, Any] = {
+            "pg_merchant_id": self.merchant_id,
+            "pg_user_id": str(self.user.id),
+            "pg_card_token": token,
+        }
+        payload["pg_salt"] = uuid.uuid4().hex
+        payload["pg_sig"] = make_api_signature("remove", payload, self.secret)
+
+        url = f"{self.base_url}/merchant/{self.merchant_id}/card/remove"
+        masked_payload = self._mask(payload)
+        self.logger.warning(
+            "FreedomPay remove request user=%s payload=%s",
+            self.user.id,
+            masked_payload,
+        )
+        try:
+            response = requests.post(url, data=payload, timeout=30)
+        except requests.RequestException as exc:
+            raise FreedomPayError(f"remove_request_failed:{exc}") from exc
+        try:
+            body = response.json()
+        except ValueError:
+            body = self._parse_xml_response(response.text)
+        except Exception:
+            body = {"raw": response.text}
+
+        self.logger.warning(
+            "FreedomPay remove response user=%s status=%s body=%s",
+            self.user.id,
+            response.status_code,
+            body,
+        )
+
+        if response.status_code >= 400:
+            raise FreedomPayError(f"remove_http_error:{response.status_code}")
+        status = (body.get("pg_status") or "").lower()
+        if status != "deleted":
+            raise FreedomPayError(f"remove_status_error:{status or 'unknown'}")
+        return body

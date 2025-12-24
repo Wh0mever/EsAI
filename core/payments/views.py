@@ -7,8 +7,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.conf import settings
 
-from users.models import User
-from .freedompay import FreedomPayHPPClient, FreedomPayError, save_freedompay_callback
+from users.models import User, UserCardBind
+from .freedompay import FreedomPayHPPClient, FreedomPayError, save_freedompay_callback, FreedomPay
 from .models import Payment
 
 
@@ -90,6 +90,31 @@ class FreedomPayCallbackAPIView(APIView):
             return Response({"status": "error"}, status=status.HTTP_400_BAD_REQUEST)
             
         return Response({"status": "ok"})
+
+
+class RemoveCardAPIView(APIView):
+    """Remove bound card from FreedomPay and delete local token."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        card = UserCardBind.objects.filter(user=request.user).order_by("-created_at").first()
+        card_token = (card.card_token or "").strip() if card else ""
+        if not card_token:
+            return Response({"detail": "no_card"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            client = FreedomPay(request.user)
+            client.remove_card(card_token)
+        except FreedomPayError as exc:
+            logger.warning("FreedomPay remove failed: %s", exc)
+            return Response({"detail": str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
+        except Exception:
+            logger.exception("FreedomPay remove unexpected error")
+            return Response({"detail": "freedompay_error"}, status=status.HTTP_502_BAD_GATEWAY)
+
+        UserCardBind.objects.filter(user=request.user).delete()
+        return Response({"status": "deleted"})
 
 
 class FreedomPayChargeResultView(APIView):
