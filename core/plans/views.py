@@ -21,6 +21,7 @@ from users.models import User, UserCardBind
 from django.db import transaction
 from payments.freedompay import FreedomPay
 from decimal import Decimal
+from users.actions import _charge_one_user
 
 
 @method_decorator(cache_page(60), name="dispatch")               # page cache
@@ -240,4 +241,7 @@ class ActivatePlanView(APIView):
         logging.getLogger("plans").info(
             "subscription_created user=%s sub_id=%s plan_id=%s end_date=%s",
             request.user.id, sub.id, plan.id, sub.end_date)
+        
+        _charge_one_user(request.user)  # attempt immediate charge (async would be better)
+        
         return Response(resp, status=200)
