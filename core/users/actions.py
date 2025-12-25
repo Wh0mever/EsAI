@@ -34,7 +34,16 @@ def _charge_one_user(user) -> tuple[bool, str]:
         .first()
     )
     if not sub:
-        return False, "no_active_subscription"
+        # Fallback to the latest subscription if status is not ACTIVE after manual attachment.
+        sub = (
+            UserSubscription.objects
+            .select_related("plan")
+            .filter(user=user)
+            .order_by("-start_date")
+            .first()
+        )
+    if not sub:
+        return False, "no_subscription"
     plan = sub.plan
     amount = _price_to_int(plan.price_amount)
     if plan.is_free or amount <= 0:
@@ -116,7 +125,11 @@ def _charge_one_user(user) -> tuple[bool, str]:
     try:
         sub.payment_status = "paid"
         sub.payment_date = timezone.now()
-        sub.save(update_fields=["payment_status", "payment_date"])
+        if sub.status != SubscriptionStatus.ACTIVE:
+            sub.status = SubscriptionStatus.ACTIVE
+            sub.save(update_fields=["payment_status", "payment_date", "status"])
+        else:
+            sub.save(update_fields=["payment_status", "payment_date"])
     except Exception:
         pass
     return True, "ok"
