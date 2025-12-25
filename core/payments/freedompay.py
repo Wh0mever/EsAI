@@ -303,8 +303,8 @@ class FreedomPay:
         return value
 
     def _apply_user_currency(self, amount: Decimal, currency: str) -> tuple[Decimal, str]:
-        selected = (getattr(self.user, "selected_currency", "") or "").upper()
-        base_currency = (currency or "").upper()
+        selected = (getattr(self.user, "selected_currency", "") or "").strip().upper()
+        base_currency = (currency or "").strip().upper()
         if not selected:
             return amount, base_currency
         if selected == base_currency:
@@ -415,10 +415,10 @@ class FreedomPay:
             payload["pg_payment_id"] = body["pg_payment_id"]
         return body
 
-    def _create_payment_log(self, *, amount_minor: int, currency: str, order_id: str, description: str, test: bool) -> None:
+    def _create_payment_log(self, *, amount_major: Decimal, currency: str, order_id: str, description: str, test: bool) -> None:
         self.payment = Payment.objects.create(
             user=self.user,
-            amount=amount_minor,
+            amount=amount_major,
             currency=currency,
             order_id=order_id,
             description=description,
@@ -458,7 +458,7 @@ class FreedomPay:
         amount_minor = int((normalized_amount * 100).quantize(Decimal("1")))
 
         self._create_payment_log(
-            amount_minor=amount_minor,
+            amount_major=normalized_amount,
             currency=currency_code,
             order_id=order_id,
             description=description,

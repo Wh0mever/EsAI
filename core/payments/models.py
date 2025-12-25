@@ -19,7 +19,7 @@ class Payment(models.Model):
     
     # Payment details
     provider = models.CharField(max_length=32, choices=PROVIDER_CHOICES, default="freedompay")
-    amount = models.IntegerField()
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
     currency = models.CharField(max_length=10, default="USD")
     order_id = models.CharField(max_length=64, blank=True, null=True, db_index=True)
     description = models.CharField(max_length=255, blank=True, null=True)
