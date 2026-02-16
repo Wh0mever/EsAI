@@ -372,5 +372,9 @@ OPENAI_TIMEOUT_SECONDS = env.int("OPENAI_TIMEOUT_SECONDS", default=480)
 FREEDOM_PAY_MERCHANT_ID = env.str("FREEDOM_PAY_MERCHANT_ID", default="")
 FREEDOM_PAY_API_BASE = env.str("FREEDOM_PAY_API_BASE", default="https://api.freedompay.com/v1")
 FREEDOM_PAY_TOKEN = env.str("FREEDOM_PAY_TOKEN", default="")
+FREEDOM_PAY_INIT_PAYMENT_URL = env.str(
+    "FREEDOM_PAY_INIT_PAYMENT_URL",
+    default="https://api.freedompay.kg/init_payment",
+)
 FP_API_BASE = env.str("FP_API_BASE", default=FREEDOM_PAY_API_BASE)
 FP_MERCHANT_ID = env.str("FP_MERCHANT_ID", default=FREEDOM_PAY_MERCHANT_ID)

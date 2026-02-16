@@ -1,14 +1,30 @@
 import logging
 import uuid
+import xml.etree.ElementTree as ET
+from datetime import timedelta
+from decimal import Decimal
+from urllib.parse import urlencode, urljoin
+
+import requests
 
 from django.urls import reverse
+from django.utils import timezone
+from django.db import transaction
 from rest_framework import permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.conf import settings
+from django.http import HttpResponseRedirect
 
 from users.models import User, UserCardBind
-from .freedompay import FreedomPayHPPClient, FreedomPayError, save_freedompay_callback, FreedomPay
+from plans.models import Plan, UserSubscription, GenerationUsage, SubscriptionStatus, PaymentStatus
+from .freedompay import (
+    FreedomPayHPPClient,
+    FreedomPayError,
+    save_freedompay_callback,
+    FreedomPay,
+    make_api_signature,
+)
 from .models import Payment
 
 
@@ -115,6 +131,266 @@ class RemoveCardAPIView(APIView):
 
         UserCardBind.objects.filter(user=request.user).delete()
         return Response({"status": "deleted"})
+
+
+def _normalize_payload(data):
+    if hasattr(data, "lists"):
+        return {key: values[-1] if values else "" for key, values in data.lists()}
+    if isinstance(data, dict):
+        return {k: v for k, v in data.items()}
+    return {}
+
+
+def _parse_fp_response(raw: str):
+    text = (raw or "").strip()
+    if not text:
+        return {"raw": raw}
+    try:
+        root = ET.fromstring(text)
+    except Exception:
+        return {"raw": raw}
+    result = {}
+    for child in root:
+        result[child.tag] = (child.text or "").strip()
+    if not result:
+        result[root.tag] = (root.text or "").strip()
+    return result
+
+
+def _frontend_absolute_url(request, path: str, query: dict | None = None) -> str:
+    base = (settings.SITE_BASE_URL or "").rstrip("/")
+    if not base:
+        base = f"{request.scheme}://{request.get_host()}"
+    full = urljoin(f"{base}/", path.lstrip("/"))
+    if query:
+        return f"{full}?{urlencode(query)}"
+    return full
+
+
+def _activate_paid_plan_for_user(user: User, plan: Plan) -> tuple[UserSubscription, str]:
+    existing = (
+        UserSubscription.objects
+        .select_related("plan")
+        .filter(user=user, status=SubscriptionStatus.ACTIVE)
+        .order_by("-start_date")
+        .first()
+    )
+
+    with transaction.atomic():
+        now = timezone.now()
+        if existing and existing.plan_id == plan.id:
+            changed_fields = []
+            if existing.payment_status != PaymentStatus.PAID:
+                existing.payment_status = PaymentStatus.PAID
+                changed_fields.append("payment_status")
+            existing.payment_date = now
+            changed_fields.append("payment_date")
+            if existing.auto_renew:
+                existing.auto_renew = False
+                changed_fields.append("auto_renew")
+            if changed_fields:
+                existing.save(update_fields=changed_fields)
+            if getattr(user, "auto_renew", True):
+                user.auto_renew = False
+                user.save(update_fields=["auto_renew"])
+            return existing, "already_active"
+
+        if existing and existing.plan_id != plan.id:
+            user_locked = type(user).objects.select_for_update().get(pk=user.pk)
+            usage, _ = GenerationUsage.objects.select_for_update().get_or_create(subscription=existing)
+            old_plan = existing.plan
+            if old_plan.text_limit and (usage.texts_left or 0) > 0:
+                user_locked.bonus_texts = (user_locked.bonus_texts or 0) + int(usage.texts_left)
+            if old_plan.image_limit and (usage.images_left or 0) > 0:
+                user_locked.bonus_images = (user_locked.bonus_images or 0) + int(usage.images_left)
+            if old_plan.song_limit and (usage.songs_left or 0) > 0:
+                user_locked.bonus_songs = (user_locked.bonus_songs or 0) + int(usage.songs_left)
+            if old_plan.music_limit and (usage.music_left or 0) > 0:
+                user_locked.bonus_music = (user_locked.bonus_music or 0) + int(usage.music_left)
+            user_locked.auto_renew = False
+            user_locked.save(update_fields=["bonus_texts", "bonus_images", "bonus_songs", "bonus_music", "auto_renew"])
+            existing.status = SubscriptionStatus.INACTIVE
+            existing.save(update_fields=["status"])
+
+        sub = UserSubscription.objects.create(
+            user=user,
+            plan=plan,
+            start_date=now,
+            end_date=now + timedelta(days=int(plan.duration_days or 30)),
+            status=SubscriptionStatus.ACTIVE,
+            payment_status=PaymentStatus.PAID,
+            payment_date=now,
+            auto_renew=False,
+        )
+        GenerationUsage.objects.get_or_create(
+            subscription=sub,
+            defaults={
+                "songs_left": int(plan.song_limit or 0),
+                "music_left": int(plan.music_limit or 0),
+                "texts_left": int(plan.text_limit or 0),
+                "images_left": int(plan.image_limit or 0),
+            },
+        )
+        if getattr(user, "auto_renew", True):
+            user.auto_renew = False
+            user.save(update_fields=["auto_renew"])
+        return sub, "activated"
+
+
+class StartOneTimePaymentAPIView(APIView):
+    """Initialize one-time FreedomPay payment and return redirect URL."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, plan_id: int):
+        try:
+            plan = Plan.objects.get(pk=plan_id, is_active=True)
+        except Plan.DoesNotExist:
+            return Response({"message": "plan_not_found"}, status=status.HTTP_404_NOT_FOUND)
+
+        amount = Decimal(str(plan.price_amount or 0)).quantize(Decimal("0.01"))
+        if plan.is_free or amount <= 0:
+            return Response({"message": "plan_not_payable"}, status=status.HTTP_400_BAD_REQUEST)
+
+        merchant_id = (settings.FREEDOM_PAY_MERCHANT_ID or settings.FP_MERCHANT_ID or "").strip()
+        secret = (settings.FREEDOM_PAY_TOKEN or "").strip()
+        init_url = (settings.FREEDOM_PAY_INIT_PAYMENT_URL or "").strip()
+        if not (merchant_id and secret and init_url):
+            return Response({"detail": "freedompay_config_missing"}, status=status.HTTP_502_BAD_GATEWAY)
+
+        order_id = f"ot-{request.user.id}-{plan.id}-{uuid.uuid4().hex[:10]}"
+        currency = "USD"
+
+        payload = {
+            "pg_merchant_id": merchant_id,
+            "pg_amount": format(amount, "f"),
+            "pg_currency": currency,
+            "pg_order_id": order_id,
+            "pg_user_id": str(request.user.id),
+            "pg_description": f"One-time payment for plan #{plan.id}",
+            "pg_salt": uuid.uuid4().hex,
+            "pg_success_url": request.build_absolute_uri(reverse("payments:freedompay-onetime-success")),
+            "pg_failure_url": request.build_absolute_uri(reverse("payments:freedompay-onetime-failure")),
+            "pg_post_link": request.build_absolute_uri(reverse("payments:freedompay-onetime-postback")),
+            "pg_testing_mode": int(settings.DEBUG),
+        }
+        payload["pg_sig"] = make_api_signature("init_payment", payload, secret)
+
+        payment = Payment.objects.create(
+            user=request.user,
+            amount=amount,
+            currency=currency,
+            order_id=order_id,
+            description=f"One-time plan payment #{plan.id}",
+            is_test=settings.DEBUG,
+            request={"one_time_init": {"plan_id": plan.id, "payload": payload}},
+            response={},
+        )
+
+        try:
+            response = requests.post(init_url, data=payload, timeout=30)
+            try:
+                body = response.json()
+            except ValueError:
+                body = _parse_fp_response(response.text)
+            except Exception:
+                body = {"raw": response.text}
+        except requests.RequestException as exc:
+            payment.error = str(exc)
+            payment.save(update_fields=["error"])
+            return Response({"detail": "freedompay_request_failed"}, status=status.HTTP_502_BAD_GATEWAY)
+
+        payment.response = {"one_time_init": body}
+        if response.status_code >= 400:
+            payment.error = body.get("pg_error_description") or body.get("pg_error_message") or "freedompay_http_error"
+            payment.save(update_fields=["response", "error"])
+            return Response({"detail": payment.error}, status=status.HTTP_502_BAD_GATEWAY)
+
+        redirect_url = body.get("pg_redirect_url") or body.get("redirect_url") or body.get("payment_url")
+        if not redirect_url:
+            payment.error = "freedompay_redirect_url_missing"
+            payment.save(update_fields=["response", "error"])
+            return Response({"detail": payment.error}, status=status.HTTP_502_BAD_GATEWAY)
+
+        payment.save(update_fields=["response"])
+        return Response({"redirect_url": redirect_url}, status=status.HTTP_200_OK)
+
+
+class FreedomPayOneTimeResultBaseView(APIView):
+    authentication_classes = []
+    permission_classes = []
+    result_type = "success"
+
+    def get(self, request, *args, **kwargs):
+        return self._handle(request, request.query_params)
+
+    def post(self, request, *args, **kwargs):
+        return self._handle(request, request.data)
+
+    def _handle(self, request, payload_source):
+        payload = _normalize_payload(payload_source)
+        order_id = payload.get("pg_order_id") or payload.get("order_id")
+        payment = Payment.objects.filter(order_id=order_id).order_by("-id").first() if order_id else None
+        plan_id = None
+        if payment and isinstance(payment.request, dict):
+            plan_id = ((payment.request.get("one_time_init") or {}).get("plan_id"))
+
+        if payment:
+            response = payment.response or {}
+            callbacks = list(response.get("callbacks") or [])
+            callbacks.append({"type": self.result_type, "payload": payload})
+            response["callbacks"] = callbacks
+            payment.response = response
+
+            if self.result_type == "success":
+                error_text = payload.get("pg_error_description") or payload.get("pg_error_message") or ""
+                status_text = str(payload.get("pg_status") or "").lower()
+                result_flag = str(payload.get("pg_result") or "").strip()
+                is_ok_status = (not status_text) or (status_text in {"ok", "success"})
+                is_ok_result = (not result_flag) or (result_flag == "1")
+                if error_text or (not is_ok_status) or (not is_ok_result):
+                    payment.success = False
+                    payment.error = str(error_text or f"freedompay_status_error:{status_text or result_flag or 'unknown'}")
+                else:
+                    payment.success = True
+                    payment.error = ""
+                    try:
+                        if payment.user and plan_id:
+                            plan = Plan.objects.get(pk=int(plan_id), is_active=True)
+                            _activate_paid_plan_for_user(payment.user, plan)
+                    except Exception as exc:
+                        payment.success = False
+                        payment.error = f"plan_activate_failed:{exc}"
+            elif self.result_type == "failure":
+                payment.success = False
+                payment.error = payload.get("pg_error_description") or payload.get("pg_error_message") or "freedompay_failure"
+            payment.save(update_fields=["response", "success", "error"])
+
+        if self.result_type == "post":
+            return Response({"status": "ok"}, status=status.HTTP_200_OK)
+
+        if self.result_type == "success":
+            success_path = f"/subscribe/{plan_id}/" if plan_id else "/pricing"
+            return HttpResponseRedirect(
+                _frontend_absolute_url(request, success_path, {"payment": "one_time_success"})
+            )
+
+        fallback_path = f"/subscribe/{plan_id}/" if plan_id else "/pricing"
+        return HttpResponseRedirect(
+            _frontend_absolute_url(request, fallback_path, {"payment": "one_time_failed"})
+        )
+
+
+class FreedomPayOneTimeSuccessView(FreedomPayOneTimeResultBaseView):
+    result_type = "success"
+
+
+class FreedomPayOneTimeFailureView(FreedomPayOneTimeResultBaseView):
+    result_type = "failure"
+
+
+class FreedomPayOneTimePostbackView(FreedomPayOneTimeResultBaseView):
+    result_type = "post"
 
 
 class FreedomPayChargeResultView(APIView):

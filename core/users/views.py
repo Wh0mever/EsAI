@@ -22,7 +22,7 @@ from rest_framework_simplejwt.authentication import JWTAuthentication
 from plans.models import UserSubscription
 from plans.serializers import UserSubscriptionSerializer
 from .models import User, UserQuestions, Notification, NotificationDelivery
-from .services import activate_free_plan_for_user
+from .services import activate_free_plan_for_user, process_free_plan_triggers
 from rest_framework import generics, permissions
 from rest_framework.exceptions import NotFound
 from django.db.utils import DataError as DBDataError
@@ -257,6 +257,11 @@ class UserProfileView(APIView):
                 )
 
         subscription_data = UserSubscriptionSerializer(subscription).data if subscription else None
+        if subscription and getattr(subscription, "plan", None) and subscription.plan.is_free:
+            try:
+                process_free_plan_triggers(subscription)
+            except Exception:
+                pass
         response_data = {
             "user": user_data,
             "subscription": subscription_data,

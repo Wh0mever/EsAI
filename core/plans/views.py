@@ -17,7 +17,7 @@ from rest_framework_simplejwt.authentication import JWTAuthentication
 from django.utils import timezone
 import uuid
 from datetime import timedelta
-from users.models import User, UserCardBind
+from users.models import User
 from django.db import transaction
 from payments.freedompay import FreedomPay
 from decimal import Decimal
@@ -160,7 +160,6 @@ class ActivatePlanView(APIView):
     - User must be authenticated
     - Plan must exist and be active
     - User must NOT have an active subscription
-    - User must have a saved payment token (pay_token) and basic card meta
 
     On success, creates an ACTIVE subscription with UNPAID status and initializes usage.
     """
@@ -182,11 +181,7 @@ class ActivatePlanView(APIView):
         except Plan.DoesNotExist:
             return Response({"message": "plan_not_found"}, status=404)
 
-        # Must have saved card token
         u: User = request.user
-        card = UserCardBind.objects.filter(user=u).order_by("-created_at").first()
-        if not card:
-            return Response({"message": "no_card"}, status=400)
 
         # Switch and activate new plan in a transaction
         from .models import GenerationUsage

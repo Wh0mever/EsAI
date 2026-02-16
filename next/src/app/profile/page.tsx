@@ -58,7 +58,9 @@ export default function ProfilePage() {
 		};
 	}, []);
 
-	const shouldShowAlert = !isLoadingProfile && !profileData?.subscription && !checkHasCard(profileData?.user);
+	const hasCard = checkHasCard(profileData?.user);
+	const shouldShowAlert = !isLoadingProfile && !profileData?.subscription && !hasCard;
+	const shouldShowNoCardPaymentNotice = !isLoadingProfile && !hasCard;
     const handleUnsubscribe = async () => {
         const response = await fetchData("plans/me/unsubscribe/", "post", {}, true);
         if (response.ok && response.data) {
@@ -80,6 +82,11 @@ export default function ProfilePage() {
             <Breadcrumb />
             <div className="max-w-4xl mx-auto flex flex-col gap-3 scale-z-50 px-2">
                 {shouldShowAlert && <ProfileAlert t={t} />}
+                {shouldShowNoCardPaymentNotice && (
+                    <div className="w-full p-6 bg-neutral-900 border border-amber-600/60 rounded-2xl text-amber-100">
+                        {t("profile.no_card_payment_notice")}
+                    </div>
+                )}
 
 				<UserProfile t={t} data={profileData} />
                 <UserCardSaveSimple data={profileData?.user} />
