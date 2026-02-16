@@ -2,6 +2,7 @@
 
 import "@/assets/style.scss";
 import Link from "next/link";
+import Image from "next/image";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { ConfirmationModal, Modal } from "@/components/dialog/Dialog";
 import { useEffect, useMemo, useState } from "react";
@@ -187,6 +188,7 @@ export default function SubscribePlanPage() {
     const searchParams = useSearchParams();
     const [confirmOpen, setConfirmOpen] = useState(false);
     const [paymentOptionsOpen, setPaymentOptionsOpen] = useState(false);
+    const [cryptoHelpOpen, setCryptoHelpOpen] = useState(false);
     const [showAlert, setShowAlert] = useState(false);
     const [alertType, setAlertType] = useState<"success" | "error" | "info" | "warning">("info");
     const [alertTitle, setAlertTitle] = useState<string>("");
@@ -439,6 +441,11 @@ export default function SubscribePlanPage() {
         } finally {
             setActionLoading(false);
         }
+    }
+
+    function onCryptoPaymentOpen() {
+        setPaymentOptionsOpen(false);
+        setCryptoHelpOpen(true);
     }
 
     // Countdown redirect effect
@@ -711,9 +718,55 @@ export default function SubscribePlanPage() {
                     </button>
                 </div>
 
+                <div className="rounded-xl border border-white/10 bg-neutral-800/60 p-4">
+                    <h3 className="text-base font-semibold">{t("subscribe.crypto_title")}</h3>
+                    <p className="text-sm text-white/70 mt-2">
+                        {t("subscribe.crypto_description")}
+                    </p>
+                    <button
+                        type="button"
+                        onClick={onCryptoPaymentOpen}
+                        className="mt-4 w-full inline-flex items-center justify-center px-4 py-3 rounded-xl bg-emerald-700 hover:bg-emerald-800 transition-colors"
+                    >
+                        {t("subscribe.crypto_button")}
+                    </button>
+                </div>
+
                 <div className="rounded-xl border border-white/10 bg-neutral-900/80 p-4 text-sm text-white/85">
                     {t("subscribe.payment_optional_note")}
                 </div>
+            </div>
+        </Modal>
+
+        <Modal
+            open={cryptoHelpOpen}
+            onClose={() => setCryptoHelpOpen(false)}
+            size="md"
+            title={t("subscribe.crypto_modal_title")}
+        >
+            <div className="space-y-4">
+                <p className="text-sm text-white/80 leading-6">
+                    {t("subscribe.crypto_modal_description")}
+                </p>
+                <div className="rounded-xl border border-white/10 bg-neutral-800/60 p-3">
+                    <Image
+                        src="/images/binance.jpg"
+                        alt="Binance QR"
+                        width={900}
+                        height={900}
+                        className="w-full h-auto rounded-lg"
+                        priority={false}
+                    />
+                </div>
+                <p className="text-sm text-white/80 leading-6">
+                    {t("subscribe.crypto_receipt_text")}
+                </p>
+                <a
+                    href="mailto:support@esai.kg"
+                    className="inline-flex items-center justify-center px-4 py-2 rounded-xl border border-white/20 hover:border-white/40 transition-colors text-sm"
+                >
+                    support@esai.kg
+                </a>
             </div>
         </Modal>
         </main>
