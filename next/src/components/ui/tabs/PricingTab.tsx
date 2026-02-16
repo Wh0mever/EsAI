@@ -110,6 +110,14 @@ function limitLabel(value: number | null | undefined, unlimited: string) {
 	return String(value);
 }
 
+function aiToolsCount(plan: PlanDTO): number {
+	let count = 0;
+	if (plan.ai_chat_enabled) count += 1;
+	if (plan.music_enabled) count += 1;
+	if (plan.images_enabled || plan.diffusion_images_enabled) count += 1;
+	return count;
+}
+
 // derived prices
 function pickPrices(plan: PlanDTO, currency: Currency) {
 	const usdAmount = plan.price_amount ? parseFloat(plan.price_amount) : null;
@@ -178,7 +186,7 @@ function PlanFeatures({ plan, t }: { plan: PlanDTO; t: (k: string) => string }) 
 		ok: true,
 		content: (
 			<p>
-				<span className="text-yellow-400 font-bold">{limitLabel(plan.ai_templates_limit, unlimited)} </span>
+				<span className="text-yellow-400 font-bold">{aiToolsCount(plan)} </span>
 				{t("pricing.features.ai_templates")}
 			</p>
 		),

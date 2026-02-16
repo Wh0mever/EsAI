@@ -2,8 +2,8 @@
 
 import "@/assets/style.scss";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
-import { ConfirmationModal } from "@/components/dialog/Dialog";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { ConfirmationModal, Modal } from "@/components/dialog/Dialog";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import Breadcrumb from "@/components/global/AnimatedCircleBg";
@@ -120,6 +120,14 @@ function limitLabel(value: number | null | undefined, unlimited: string) {
 	return String(value);
 }
 
+function aiToolsCount(plan: PlanDTO): number {
+	let count = 0;
+	if (plan.ai_chat_enabled) count += 1;
+	if (plan.music_enabled) count += 1;
+	if (plan.images_enabled || plan.diffusion_images_enabled) count += 1;
+	return count;
+}
+
 function selectPlanTitle(plan: PlanDTO, lang: "ru" | "en" | "kg") {
 	const map: Record<string, string | null | undefined> = {
 		ru: plan.template_name_ru,
@@ -176,7 +184,9 @@ export default function SubscribePlanPage() {
     const [nextChargeAt, setNextChargeAt] = useState<string | null>(null);
     const [redirectCounter, setRedirectCounter] = useState<number | null>(null);
     const router = useRouter();
+    const searchParams = useSearchParams();
     const [confirmOpen, setConfirmOpen] = useState(false);
+    const [paymentOptionsOpen, setPaymentOptionsOpen] = useState(false);
     const [showAlert, setShowAlert] = useState(false);
     const [alertType, setAlertType] = useState<"success" | "error" | "info" | "warning">("info");
     const [alertTitle, setAlertTitle] = useState<string>("");
@@ -283,17 +293,18 @@ export default function SubscribePlanPage() {
             }
             const res = await fetchData(`plans/activate/${plan.id}/`, "POST", {}, true);
             if (res.ok) {
+                const endDate = (res.data as any)?.end_date || null;
+                const planName = title || t("pricing.plan");
+                const main = `${t("subscribe.success_plan_activated", { plan: planName })}\n${t("subscribe.success_access_until", { date: formatDate(endDate) })}`;
+                const extra = t("subscribe.success_card_extra");
                 setAlertType("success");
                 setAlertTitle(t("subscribe.success_title"));
-                // For paid plans: start 10s redirect countdown to profile
                 if (!plan.is_free) {
                     setRedirectCounter(10);
-                    setAlertMessage(
-                        `${t("subscribe.success_message")} ${t("subscribe.redirect_in_profile", { seconds: 10 })}`
-                    );
+                    setAlertMessage(`${main}\n${extra}\n${t("subscribe.redirect_in_profile", { seconds: 10 })}`);
                     setShowAlert(true);
                 } else {
-                    setAlertMessage(t("subscribe.success_message"));
+                    setAlertMessage(main);
                     setShowAlert(true);
                 }
                 return;
@@ -335,14 +346,99 @@ export default function SubscribePlanPage() {
         }
     }
 
-    function onActivateClick() {
-        // Open confirmation modal instead of immediate activation
-        setConfirmOpen(true);
+    function hasSavedCard(user: any): boolean {
+        const card = user?.card;
+        if (!card) return false;
+        return Boolean((card?.card_hash || "").trim() || (card?.card_id || "").trim());
+    }
+
+    async function onActivateClick() {
+        if (!authed || !plan || actionLoading) return;
+        setActionLoading(true);
+        try {
+            const profileRes = await fetchData("users/profile/", "GET", null, true);
+            if (!profileRes?.ok) {
+                setAlertType("error");
+                setAlertTitle(t("subscribe.error_unknown"));
+                setAlertMessage("");
+                setShowAlert(true);
+                return;
+            }
+
+            if (!hasSavedCard(profileRes?.data?.user)) {
+                setPaymentOptionsOpen(true);
+                return;
+            }
+            setConfirmOpen(true);
+        } catch {
+            setAlertType("error");
+            setAlertTitle(t("subscribe.error_unknown"));
+            setAlertMessage("");
+            setShowAlert(true);
+        } finally {
+            setActionLoading(false);
+        }
     }
 
     async function onConfirmActivate() {
         setConfirmOpen(false);
         await handleConnectPlanClick();
+    }
+
+    async function onOneTimePaymentActivate() {
+        if (!plan) {
+            setAlertType("error");
+            setAlertTitle(t("subscribe.error_plan_not_found"));
+            setAlertMessage("");
+            setShowAlert(true);
+            return;
+        }
+        setActionLoading(true);
+        try {
+            const res = await fetchData(`payments/one-time/start/${plan.id}/`, "POST", {}, true);
+            const redirectUrl = (res?.data as any)?.redirect_url;
+            if (res.ok && typeof redirectUrl === "string" && redirectUrl.length > 0) {
+                setPaymentOptionsOpen(false);
+                window.location.href = redirectUrl;
+                return;
+            }
+            setAlertType("error");
+            setAlertTitle(t("subscribe.error_unknown"));
+            setAlertMessage("");
+            setShowAlert(true);
+        } catch {
+            setAlertType("error");
+            setAlertTitle(t("subscribe.error_unknown"));
+            setAlertMessage("");
+            setShowAlert(true);
+        } finally {
+            setActionLoading(false);
+        }
+    }
+
+    async function onCardBindStart() {
+        if (!plan) return;
+        setActionLoading(true);
+        try {
+            const backPath = `/subscribe/${plan.id}/`;
+            const res = await fetchData("payments/card/bind/start/", "POST", { back_path: backPath }, true);
+            const redirectUrl = (res?.data as any)?.redirect_url;
+            if (res.ok && typeof redirectUrl === "string" && redirectUrl.length > 0) {
+                window.location.href = redirectUrl;
+                return;
+            }
+            setAlertType("error");
+            setAlertTitle(t("subscribe.error_unknown"));
+            setAlertMessage("");
+            setShowAlert(true);
+        } catch {
+            setAlertType("error");
+            setAlertTitle(t("subscribe.error_unknown"));
+            setAlertMessage("");
+            setShowAlert(true);
+        } finally {
+            setActionLoading(false);
+        }
     }
 
     // Countdown redirect effect
@@ -356,6 +452,19 @@ export default function SubscribePlanPage() {
         const id = window.setTimeout(() => setRedirectCounter((s) => (s ? s - 1 : 0)), 1000);
         return () => window.clearTimeout(id);
     }, [redirectCounter, router]);
+
+    useEffect(() => {
+        const paymentState = (searchParams?.get("payment") || "").toLowerCase();
+        if (paymentState !== "one_time_success") return;
+        if (!plan) return;
+        const planName = title || t("pricing.plan");
+        const dateLabel = formatDate(nextChargeAt);
+        const main = `${t("subscribe.success_plan_activated", { plan: planName })}\n${t("subscribe.success_access_until", { date: dateLabel })}`;
+        setAlertType("success");
+        setAlertTitle(t("subscribe.success_title"));
+        setAlertMessage(`${main}\n${t("subscribe.success_one_time_extra")}`);
+        setShowAlert(true);
+    }, [searchParams, plan, title, nextChargeAt, t]);
 
 	return (
 		<main className="pt-56 sm:pt-64 overflow-hidden relative">
@@ -423,7 +532,7 @@ export default function SubscribePlanPage() {
 										<Check />
 										<p>
 											<span className="text-yellow-400 font-bold">
-												{limitLabel(plan.ai_templates_limit, t("pricing.unlimited"))}{" "}
+												{aiToolsCount(plan)}{" "}
 											</span>
 											{t("pricing.features.ai_templates")}
 										</p>
@@ -560,6 +669,53 @@ export default function SubscribePlanPage() {
             onConfirm={onConfirmActivate}
             onCancel={() => setConfirmOpen(false)}
         />
+
+        <Modal
+            open={paymentOptionsOpen}
+            onClose={() => setPaymentOptionsOpen(false)}
+            size="md"
+            title={t("subscribe.payment_modal_title")}
+        >
+            <div className="space-y-5">
+                <div className="text-sm text-white/80 leading-6">
+                    {t("subscribe.payment_modal_description")}
+                </div>
+
+                <div className="rounded-xl border border-white/10 bg-neutral-800/60 p-4">
+                    <h3 className="text-base font-semibold">{t("subscribe.card_title")}</h3>
+                    <p className="text-sm text-white/70 mt-2">
+                        {t("subscribe.card_description")}
+                    </p>
+                    <button
+                        type="button"
+                        onClick={onCardBindStart}
+                        disabled={actionLoading}
+                        className="mt-4 w-full inline-flex items-center justify-center px-4 py-3 rounded-xl bg-indigo-500 hover:bg-indigo-600 transition-colors disabled:opacity-70"
+                    >
+                        {actionLoading ? t("common.processing") : t("subscribe.card_button")}
+                    </button>
+                </div>
+
+                <div className="rounded-xl border border-white/10 bg-neutral-800/60 p-4">
+                    <h3 className="text-base font-semibold">{t("subscribe.wallets_title")}</h3>
+                    <p className="text-sm text-white/70 mt-2">
+                        {t("subscribe.wallets_description")}
+                    </p>
+                    <button
+                        type="button"
+                        onClick={onOneTimePaymentActivate}
+                        disabled={actionLoading}
+                        className="mt-4 w-full inline-flex items-center justify-center px-4 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 transition-colors"
+                    >
+                        {actionLoading ? t("common.processing") : t("subscribe.wallets_button")}
+                    </button>
+                </div>
+
+                <div className="rounded-xl border border-white/10 bg-neutral-900/80 p-4 text-sm text-white/85">
+                    {t("subscribe.payment_optional_note")}
+                </div>
+            </div>
+        </Modal>
         </main>
     );
 }

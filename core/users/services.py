@@ -14,10 +14,14 @@ from plans.models import (
     PaymentStatus,
     GenerationUsage,
 )
-from .models import User, UserCardBind
+from .models import User, UserCardBind, Notification, NotificationDelivery
 
 
 logger = logging.getLogger("plans")
+
+FREE_TRIGGER_FIRST_GEN = "Хочешь ещё? В платных тарифах больше лимитов"
+FREE_TRIGGER_LOW_LIMIT = "Лимиты почти закончились"
+FREE_TRIGGER_LAST_DAY = "Сегодня последний день бесплатного доступа"
 
 
 def activate_free_plan_for_user(user: User) -> Tuple[bool, str]:
@@ -93,3 +97,67 @@ def activate_free_plan_for_user(user: User) -> Tuple[bool, str]:
         activated_sub_id,
     )
     return True, "activated"
+
+
+def _notify_user_once(user: User, title: str) -> bool:
+    if not user or not title:
+        return False
+    exists = NotificationDelivery.objects.filter(
+        recipient=user,
+        notification__title=title,
+    ).exists()
+    if exists:
+        return False
+    n = Notification.objects.create(title=title, body="")
+    NotificationDelivery.objects.get_or_create(notification=n, recipient=user)
+    return True
+
+
+def _calc_plan_initial_and_left(sub: UserSubscription, usage: GenerationUsage) -> tuple[int, int, int]:
+    plan = sub.plan
+    resources = (
+        ("text_limit", "texts_left"),
+        ("image_limit", "images_left"),
+        ("song_limit", "songs_left"),
+        ("music_limit", "music_left"),
+    )
+    initial_total = 0
+    left_total = 0
+    consumed_total = 0
+    for limit_attr, left_attr in resources:
+        limit = int(getattr(plan, limit_attr, 0) or 0)
+        if limit <= 0:
+            continue
+        left = int(getattr(usage, left_attr, 0) or 0)
+        initial_total += limit
+        left_total += max(left, 0)
+        consumed_total += max(limit - left, 0)
+    return initial_total, left_total, consumed_total
+
+
+def process_free_plan_triggers(sub: UserSubscription) -> dict[str, bool]:
+    """
+    Emit one-time notifications for free-plan milestones:
+    1) first successful generation
+    2) 20% limits remaining
+    3) last day of free access
+    """
+    result = {"first_gen": False, "low_limits": False, "last_day": False}
+    if not sub or not getattr(sub, "plan", None) or not sub.plan.is_free:
+        return result
+    if str(sub.status or "").lower() != SubscriptionStatus.ACTIVE:
+        return result
+
+    usage, _ = GenerationUsage.objects.get_or_create(subscription=sub)
+    initial_total, left_total, consumed_total = _calc_plan_initial_and_left(sub, usage)
+
+    if consumed_total >= 1:
+        result["first_gen"] = _notify_user_once(sub.user, FREE_TRIGGER_FIRST_GEN)
+
+    if initial_total > 0 and (left_total / initial_total) <= 0.2:
+        result["low_limits"] = _notify_user_once(sub.user, FREE_TRIGGER_LOW_LIMIT)
+
+    if sub.end_date and sub.end_date.date() == timezone.localdate():
+        result["last_day"] = _notify_user_once(sub.user, FREE_TRIGGER_LAST_DAY)
+
+    return result

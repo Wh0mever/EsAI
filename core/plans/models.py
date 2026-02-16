@@ -200,6 +200,7 @@ class UserSubscription(models.Model):
         from django.db import transaction
         from django.core.exceptions import ValidationError
         from django.db.models import F
+        from users.services import process_free_plan_triggers
 
         plan = self.plan
         with transaction.atomic():
@@ -211,13 +212,16 @@ class UserSubscription(models.Model):
                     if usage.texts_left and usage.texts_left > 0:
                         usage.texts_left -= 1
                         usage.save(update_fields=["texts_left"])
+                        process_free_plan_triggers(self)
                         return
                     if user.bonus_texts and user.bonus_texts > 0:
                         user.bonus_texts -= 1
                         user.save(update_fields=["bonus_texts"])
+                        process_free_plan_triggers(self)
                         return
                     raise ValidationError("Лимит текстов исчерпан")
                 # unlimited
+                process_free_plan_triggers(self)
                 return
 
             if kind == "image":
@@ -225,12 +229,15 @@ class UserSubscription(models.Model):
                     if usage.images_left and usage.images_left > 0:
                         usage.images_left -= 1
                         usage.save(update_fields=["images_left"])
+                        process_free_plan_triggers(self)
                         return
                     if user.bonus_images and user.bonus_images > 0:
                         user.bonus_images -= 1
                         user.save(update_fields=["bonus_images"])
+                        process_free_plan_triggers(self)
                         return
                     raise ValidationError("Лимит изображений исчерпан")
+                process_free_plan_triggers(self)
                 return
 
             if kind == "song":
@@ -238,12 +245,15 @@ class UserSubscription(models.Model):
                     if usage.songs_left and usage.songs_left > 0:
                         usage.songs_left -= 1
                         usage.save(update_fields=["songs_left"])
+                        process_free_plan_triggers(self)
                         return
                     if user.bonus_songs and user.bonus_songs > 0:
                         user.bonus_songs -= 1
                         user.save(update_fields=["bonus_songs"])
+                        process_free_plan_triggers(self)
                         return
                     raise ValidationError("Лимит песен исчерпан")
+                process_free_plan_triggers(self)
                 return
 
             if kind == "music":
@@ -251,12 +261,15 @@ class UserSubscription(models.Model):
                     if usage.music_left and usage.music_left > 0:
                         usage.music_left -= 1
                         usage.save(update_fields=["music_left"])
+                        process_free_plan_triggers(self)
                         return
                     if user.bonus_music and user.bonus_music > 0:
                         user.bonus_music -= 1
                         user.save(update_fields=["bonus_music"])
+                        process_free_plan_triggers(self)
                         return
                     raise ValidationError("Лимит музыки исчерпан")
+                process_free_plan_triggers(self)
                 return
 
             raise ValidationError("Неизвестный тип ресурса")

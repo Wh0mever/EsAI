@@ -7,6 +7,10 @@ from .views import (
     FreedomPayChargeResultView,
     FreedomPayChargeFailureView,
     FreedomPayChargePostbackView,
+    StartOneTimePaymentAPIView,
+    FreedomPayOneTimeSuccessView,
+    FreedomPayOneTimeFailureView,
+    FreedomPayOneTimePostbackView,
 )
 
 app_name = "payments"
@@ -18,4 +22,8 @@ urlpatterns = [
     path('card/charge/success/', FreedomPayChargeResultView.as_view(), name='freedompay-charge-success'),
     path('card/charge/failure/', FreedomPayChargeFailureView.as_view(), name='freedompay-charge-failure'),
     path('card/charge/postback/', FreedomPayChargePostbackView.as_view(), name='freedompay-charge-postback'),
+    path('one-time/start/<int:plan_id>/', StartOneTimePaymentAPIView.as_view(), name='freedompay-onetime-start'),
+    path('one-time/success/', FreedomPayOneTimeSuccessView.as_view(), name='freedompay-onetime-success'),
+    path('one-time/failure/', FreedomPayOneTimeFailureView.as_view(), name='freedompay-onetime-failure'),
+    path('one-time/postback/', FreedomPayOneTimePostbackView.as_view(), name='freedompay-onetime-postback'),
 ]
