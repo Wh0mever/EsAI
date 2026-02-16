@@ -14,6 +14,7 @@ def q2(v: Decimal | None) -> Decimal | None:
 class PlanSerializer(serializers.ModelSerializer):
     has_discount = serializers.SerializerMethodField()
     discount_percent = serializers.SerializerMethodField()
+    llm_engine_name = serializers.SerializerMethodField()
 
     ai_templates_limit = serializers.SerializerMethodField()
     operations_per_month_limit = serializers.SerializerMethodField()
@@ -32,7 +33,7 @@ class PlanSerializer(serializers.ModelSerializer):
             # USD (как было)
             "price_amount", "price_base_amount",
             "has_discount", "discount_percent",
-            "llm_engine_id",
+            "llm_engine_id", "llm_engine_name",
             "chat_output_tokens_limit",
             "ai_templates_limit", "operations_per_month_limit", "covers_limit",
             "song_limit", "music_limit", "text_limit", "image_limit",
@@ -58,6 +59,10 @@ class PlanSerializer(serializers.ModelSerializer):
             except Exception:
                 return 0
         return 0
+
+    def get_llm_engine_name(self, obj: Plan) -> str | None:
+        engine = getattr(obj, "llm_engine", None)
+        return getattr(engine, "name", None) if engine else None
 
     # ---- limits ----
     def _norm(self, v):  # None -> 0

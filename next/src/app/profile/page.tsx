@@ -4,7 +4,6 @@
 import React, { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { fetchData } from "@/tools/fetchData";
-import { CiCircleCheck } from "react-icons/ci";
 import Breadcrumb from "@/components/global/AnimatedCircleBg";
 import UserProfile from "@/components/profile/UserProfile";
 import UserPlan from "@/components/profile/UserPlan";
@@ -15,23 +14,6 @@ const checkHasCard = (user?: { card?: any }) => {
 	const cardHash = (user?.card?.card_hash || "").trim();
 	return Boolean(cardToken || cardHash || user?.card?.card_id);
 };
-
-
-function ProfileAlert({ t }: { t: any }) {
-	const EmptyPlanAlert = () => (
-		<div className="w-full p-10 bg-neutral-900 border border-green-700 rounded-3xl flex flex-col gap-2">
-			<div className="flex gap-2 items-center">
-				<h3 className="text-xl">{t("profile.plan_info.empty_alert_title")}</h3>
-				<i className="text-2xl text-green-700">
-					<CiCircleCheck />
-				</i>
-			</div>
-			<p className="text-lg text-gray-400">{t("profile.plan_info.empty_alert_text")}</p>
-			<p className="text-gray-400">{t("profile.plan_info.empty_alert_text2")}</p>
-		</div>
-	);
-	return EmptyPlanAlert();
-}
 
 export default function ProfilePage() {
     const { t } = useTranslation("common");
@@ -59,7 +41,6 @@ export default function ProfilePage() {
 	}, []);
 
 	const hasCard = checkHasCard(profileData?.user);
-	const shouldShowAlert = !isLoadingProfile && !profileData?.subscription && !hasCard;
 	const shouldShowNoCardPaymentNotice = !isLoadingProfile && !hasCard;
     const handleUnsubscribe = async () => {
         const response = await fetchData("plans/me/unsubscribe/", "post", {}, true);
@@ -81,7 +62,6 @@ export default function ProfilePage() {
         <main className="mx-auto pt-80 pb-20 overflow-hidden relative">
             <Breadcrumb />
             <div className="max-w-4xl mx-auto flex flex-col gap-3 scale-z-50 px-2">
-                {shouldShowAlert && <ProfileAlert t={t} />}
                 {shouldShowNoCardPaymentNotice && (
                     <div className="w-full p-6 bg-neutral-900 border border-amber-600/60 rounded-2xl text-amber-100">
                         {t("profile.no_card_payment_notice")}
