@@ -6,6 +6,21 @@ from django.conf import settings
 from django.http import HttpResponseRedirect
 
 
+def _frontend_base_from_request(request) -> str:
+    configured = (getattr(settings, "SITE_BASE_URL", "") or "").strip().rstrip("/")
+    raw_host = (
+        request.headers.get("x-forwarded-host")
+        or request.headers.get("host")
+        or request.get_host()
+    )
+    host = (raw_host or "").split(",")[0].strip()
+    proto_raw = request.headers.get("x-forwarded-proto") or ""
+    proto = (proto_raw.split(",")[0].strip().lower() or ("https" if request.is_secure() else "http"))
+    if host:
+        return f"{proto}://{host}"
+    return configured or "http://127.0.0.1:3000"
+
+
 class SocialAccountAdapter(DefaultSocialAccountAdapter):
     """Map Google profile data into our custom User model.
 
@@ -57,7 +72,7 @@ class SocialAccountAdapter(DefaultSocialAccountAdapter):
         )
         if not email:
             # Abort gracefully if provider did not return email
-            site_base = getattr(settings, "SITE_BASE_URL", "") or "http://127.0.0.1:3000"
+            site_base = _frontend_base_from_request(request)
             raise ImmediateHttpResponse(HttpResponseRedirect(f"{site_base}/auth/signin?error=no_email"))
 
         User = get_user_model()
@@ -71,7 +86,7 @@ class SocialAccountAdapter(DefaultSocialAccountAdapter):
             sociallogin.connect(request, existing)
         except Exception as exc:
             # Any DB constraint issues -> back to signin with an error marker
-            site_base = getattr(settings, "SITE_BASE_URL", "") or "http://127.0.0.1:3000"
+            site_base = _frontend_base_from_request(request)
             raise ImmediateHttpResponse(HttpResponseRedirect(f"{site_base}/auth/signin?error=link_failed"))
 
     def on_authentication_error(
@@ -97,6 +112,6 @@ class SocialAccountAdapter(DefaultSocialAccountAdapter):
             exception,
         )
 
-        site_base = getattr(settings, "SITE_BASE_URL", "") or "http://127.0.0.1:3000"
+        site_base = _frontend_base_from_request(request)
         response = HttpResponseRedirect(f"{site_base}/auth/signin?error=social_login_failed")
         raise ImmediateHttpResponse(response)

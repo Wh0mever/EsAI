@@ -25,6 +25,7 @@ type PlanDTO = {
 	discount_percent?: number;
 
 	llm_engine_id: string | null;
+	llm_engine_name?: string | null;
 
 	ai_templates_limit: number | null;
 	operations_per_month_limit: number | null;
@@ -175,7 +176,7 @@ function PlanFeatures({ plan, t }: { plan: PlanDTO; t: (k: string) => string }) 
 			ok: true,
 			content: (
 				<p>
-					<span className="text-yellow-400 font-bold">{plan.llm_engine_id} </span>
+					<span className="text-yellow-400 font-bold">{plan.llm_engine_name || plan.llm_engine_id} </span>
 					{t("pricing.features.open_ai_model")}
 				</p>
 			),

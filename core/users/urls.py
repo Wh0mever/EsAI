@@ -8,6 +8,21 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from .views import *
 
 
+def _frontend_base_from_request(request) -> str:
+    configured = (getattr(settings, "SITE_BASE_URL", "") or "").strip().rstrip("/")
+    raw_host = (
+        request.headers.get("x-forwarded-host")
+        or request.headers.get("host")
+        or request.get_host()
+    )
+    host = (raw_host or "").split(",")[0].strip()
+    proto_raw = request.headers.get("x-forwarded-proto") or ""
+    proto = (proto_raw.split(",")[0].strip().lower() or ("https" if request.is_secure() else "http"))
+    if host:
+        return f"{proto}://{host}"
+    return configured or "http://127.0.0.1:3000"
+
+
 def auth_complete(request):
     """After social login completes, issue JWT and redirect to frontend.
 
@@ -15,8 +30,7 @@ def auth_complete(request):
     access/refresh tokens and redirect the browser to the frontend
     callback page with tokens in the query string.
     """
-    # Fallback for SITE_BASE_URL if not provided
-    site_base = getattr(settings, "SITE_BASE_URL", "") or "http://127.0.0.1:3000"
+    site_base = _frontend_base_from_request(request)
 
     # If user is not authenticated for some reason, just send back to signin
     if not getattr(request, "user", None) or not request.user.is_authenticated:

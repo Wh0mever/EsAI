@@ -30,6 +30,7 @@ type PlanDTO = {
 	discount_percent?: number;
 
 	llm_engine_id: string | null;
+	llm_engine_name?: string | null;
 
 	ai_templates_limit: number | null;
 	operations_per_month_limit: number | null;
@@ -524,7 +525,7 @@ export default function SubscribePlanPage() {
 										<li className="flex items-start gap-3 p-4 rounded-xl bg-neutral-900/60 border border-white/10">
 											<Check />
 											<p>
-												<span className="text-yellow-400 font-bold">{plan.llm_engine_id} </span>
+												<span className="text-yellow-400 font-bold">{plan.llm_engine_name || plan.llm_engine_id} </span>
 												{t("pricing.features.open_ai_model")}
 											</p>
 										</li>
