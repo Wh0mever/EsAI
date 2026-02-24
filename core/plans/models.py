@@ -4,13 +4,13 @@ from django.core.exceptions import ValidationError
 
 
 class Currency(models.TextChoices):
-    RUB = "RUB", "Russian Ruble"
-    KGS = "KGS", "Kyrgyz Som"
+    RUB = "RUB", "Российский рубль"
+    KGS = "KGS", "Кыргызский сом"
 
 
 class BillingPeriod(models.TextChoices):
-    MONTHLY = "monthly", "Monthly"
-    YEARLY  = "yearly", "Yearly"
+    MONTHLY = "monthly", "Месяц"
+    YEARLY  = "yearly", "Год"
     
 
 class CurrencyRate(models.Model):
@@ -22,9 +22,34 @@ class CurrencyRate(models.Model):
 
     class Meta:
         db_table = "currency_rate"
+        verbose_name = "Курс валюты"
+        verbose_name_plural = "Курсы валют"
 
     def __str__(self):
         return f"{self.currency}={self.rate_to_usd} USD"
+
+
+class GenerationUnitPrice(models.Model):
+    """Singleton config for one-off generation unit prices."""
+    music_price = models.DecimalField(max_digits=12, decimal_places=2, default=0, verbose_name="Цена за музыку (USD)")
+    image_price = models.DecimalField(max_digits=12, decimal_places=2, default=0, verbose_name="Цена за изображение (USD)")
+    text_price = models.DecimalField(max_digits=12, decimal_places=2, default=0, verbose_name="Цена за текст (USD)")
+
+    class Meta:
+        verbose_name = "Цена докупки генерации"
+        verbose_name_plural = "Цены докупки генераций"
+
+    def __str__(self):
+        return "Цены докупки генераций"
+
+    def clean(self):
+        exists_qs = type(self).objects.exclude(pk=self.pk)
+        if exists_qs.exists():
+            raise ValidationError("Разрешена только одна запись с ценами докупки генераций.")
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
 
 
 class Plan(models.Model):
@@ -87,6 +112,8 @@ class Plan(models.Model):
 
     class Meta:
         ordering = ["sort_order", "id"]
+        verbose_name = "Тариф"
+        verbose_name_plural = "Тарифы"
 
     def __str__(self):
         tag = "FREE" if self.is_free else self.period.upper()
@@ -102,13 +129,13 @@ class Plan(models.Model):
 
 
 class SubscriptionStatus(models.TextChoices):
-    ACTIVE = "active", "Active"
-    INACTIVE = "inactive", "Inactive"
+    ACTIVE = "active", "Активна"
+    INACTIVE = "inactive", "Неактивна"
 
 
 class PaymentStatus(models.TextChoices):
-    PAID = "paid", "Paid"
-    UNPAID = "unpaid", "Unpaid"
+    PAID = "paid", "Оплачено"
+    UNPAID = "unpaid", "Не оплачено"
 
 
 class UserSubscription(models.Model):
@@ -129,6 +156,8 @@ class UserSubscription(models.Model):
             models.Index(fields=["user", "status"]),
             models.Index(fields=["start_date"]),
         ]
+        verbose_name = "Подписка пользователя"
+        verbose_name_plural = "Подписки пользователей"
 
     def __str__(self):
         return f"{self.user} — Plan #{self.plan_id}"
@@ -289,6 +318,8 @@ class GenerationUsage(models.Model):
 
     class Meta:
         indexes = [models.Index(fields=["subscription"])]
+        verbose_name = "Остатки генераций"
+        verbose_name_plural = "Остатки генераций"
 
     def __str__(self):
         return f"Usage for {self.subscription_id}"
@@ -317,12 +348,12 @@ class GenerationUsage(models.Model):
 
 
 class AddonType(models.TextChoices):
-    SONG_BOOST = "song_boost", "20 Songs"
-    MUSIC_PACK = "music_pack", "20 Music"
-    TEXT_EXPAND = "text_expand", "50 Texts"
-    IMAGE_PACK = "image_pack", "30 Images"
-    ALL_IN_ONE = "all_in_one", "Mixed Pack"
-    MAX_BOOST = "max_boost", "Max Boost"
+    SONG_BOOST = "song_boost", "20 песен"
+    MUSIC_PACK = "music_pack", "20 музыки"
+    TEXT_EXPAND = "text_expand", "50 текстов"
+    IMAGE_PACK = "image_pack", "30 изображений"
+    ALL_IN_ONE = "all_in_one", "Смешанный пакет"
+    MAX_BOOST = "max_boost", "Максимальный пакет"
 
 
 class AddonPurchase(models.Model):
@@ -337,6 +368,8 @@ class AddonPurchase(models.Model):
 
     class Meta:
         indexes = [models.Index(fields=["subscription", "purchase_date"])]
+        verbose_name = "Покупка дополнения"
+        verbose_name_plural = "Покупки дополнений"
 
     def __str__(self):
         return f"{self.subscription.user} — {self.get_addon_type_display()}"

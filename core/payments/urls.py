@@ -11,6 +11,10 @@ from .views import (
     FreedomPayOneTimeSuccessView,
     FreedomPayOneTimeFailureView,
     FreedomPayOneTimePostbackView,
+    StartGenerationTopupPaymentAPIView,
+    FreedomPayGenerationTopupSuccessView,
+    FreedomPayGenerationTopupFailureView,
+    FreedomPayGenerationTopupPostbackView,
 )
 
 app_name = "payments"
@@ -26,4 +30,8 @@ urlpatterns = [
     path('one-time/success/', FreedomPayOneTimeSuccessView.as_view(), name='freedompay-onetime-success'),
     path('one-time/failure/', FreedomPayOneTimeFailureView.as_view(), name='freedompay-onetime-failure'),
     path('one-time/postback/', FreedomPayOneTimePostbackView.as_view(), name='freedompay-onetime-postback'),
+    path('topup/start/', StartGenerationTopupPaymentAPIView.as_view(), name='freedompay-topup-start'),
+    path('topup/success/', FreedomPayGenerationTopupSuccessView.as_view(), name='freedompay-topup-success'),
+    path('topup/failure/', FreedomPayGenerationTopupFailureView.as_view(), name='freedompay-topup-failure'),
+    path('topup/postback/', FreedomPayGenerationTopupPostbackView.as_view(), name='freedompay-topup-postback'),
 ]

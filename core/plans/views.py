@@ -6,10 +6,10 @@ from rest_framework.response import Response
 from django.views.decorators.vary import vary_on_headers
 from rest_framework.exceptions import NotFound
 
-from .models import Plan, UserSubscription, AddonPurchase, SubscriptionStatus, PaymentStatus
+from .models import Plan, UserSubscription, AddonPurchase, SubscriptionStatus, PaymentStatus, GenerationUnitPrice
 from .serializers import (
     PlanSerializer, UserSubscriptionSerializer,
-    GenerationUsageSerializer, AddonPurchaseSerializer
+    GenerationUsageSerializer, AddonPurchaseSerializer, GenerationUnitPriceSerializer
 )
 from .services import get_currency_per_usd_map_cached
 from rest_framework.views import APIView
@@ -151,6 +151,22 @@ class ResumeSubscriptionView(APIView):
             request.user.auto_renew = True
             request.user.save(update_fields=["auto_renew"])
         return Response(UserSubscriptionSerializer(sub).data, status=200)
+
+
+class GenerationUnitPriceView(APIView):
+    """Singleton prices for one-off generation units (music/image/text)."""
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request, *args, **kwargs):
+        unit_prices = GenerationUnitPrice.objects.order_by("id").first()
+        if not unit_prices:
+            return Response({"configured": False, "data": None}, status=200)
+
+        serializer = GenerationUnitPriceSerializer(
+            unit_prices,
+            context={"currency_per_usd": get_currency_per_usd_map_cached(["RUB", "KGS"], timeout=300)},
+        )
+        return Response({"configured": True, "data": serializer.data}, status=200)
 
 
 class ActivatePlanView(APIView):

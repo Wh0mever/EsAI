@@ -83,6 +83,7 @@ MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
     "corsheaders.middleware.CorsMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
+    "django.middleware.locale.LocaleMiddleware",
     "django.middleware.common.CommonMiddleware",
     "django.middleware.csrf.CsrfViewMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
@@ -144,6 +145,10 @@ LANGUAGE_CODE = "en-us"
 TIME_ZONE = "Asia/Bishkek"
 USE_I18N = True
 USE_TZ = True
+LANGUAGES = [
+    ("ru", "Русский"),
+    ("en", "English"),
+]
 DATE_FORMAT = "d.m.Y"
 DATETIME_FORMAT = "d.m.Y H:i:s"
 TIME_FORMAT = "H:i:s"

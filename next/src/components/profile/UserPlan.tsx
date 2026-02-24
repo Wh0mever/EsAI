@@ -6,13 +6,28 @@ import { Button } from "@/components/ui/buttons/Buttons";
 import { IoExitOutline } from "react-icons/io5";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
-import { ConfirmationModal } from "@/components/dialog/Dialog";
+import { ConfirmationModal, Modal } from "@/components/dialog/Dialog";
+import { fetchData } from "@/tools/fetchData";
 
 type Props = {
 	t: (k: string) => string;
 	data: any;
 	onUnsubscribe?: () => Promise<{ ok: boolean; error?: string }>;
 	onResume?: () => Promise<{ ok: boolean; error?: string }>;
+};
+
+type CurrencyCode = "USD" | "RUB" | "KGS";
+
+type UnitPricesData = {
+	music_price: string | number;
+	image_price: string | number;
+	text_price: string | number;
+	music_price_rub?: string | number | null;
+	music_price_kgs?: string | number | null;
+	image_price_rub?: string | number | null;
+	image_price_kgs?: string | number | null;
+	text_price_rub?: string | number | null;
+	text_price_kgs?: string | number | null;
 };
 
 function mapLangToLocale(lang?: string) {
@@ -73,10 +88,50 @@ export default function UserPlan({ t, data, onUnsubscribe, onResume }: Props) {
 	const [isUnsubscribing, setIsUnsubscribing] = React.useState(false);
 	const [actionNotice, setActionNotice] = React.useState<string | null>(null);
 	const [actionError, setActionError] = React.useState<string | null>(null);
+	const [purchaseModalOpen, setPurchaseModalOpen] = React.useState(false);
+	const [unitPrices, setUnitPrices] = React.useState<UnitPricesData | null>(null);
+	const [isUnitPricesLoading, setIsUnitPricesLoading] = React.useState(false);
+	const [purchaseCounters, setPurchaseCounters] = React.useState({ music: 0, images: 0, texts: 0 });
 
 	const autoRenewEnabled = sub?.auto_renew !== false && data?.user?.auto_renew !== false;
 	const canUnsubscribe = Boolean(sub?.status === "active" && autoRenewEnabled && onUnsubscribe);
 	const canResume = Boolean(sub?.status === "active" && !autoRenewEnabled && onResume);
+
+	React.useEffect(() => {
+		if (!hasSub) return;
+		let mounted = true;
+
+		const loadUnitPrices = async () => {
+			setIsUnitPricesLoading(true);
+			try {
+				const res = await fetchData<{ configured?: boolean; data?: UnitPricesData | null }>(
+					"plans/unit-prices/",
+					"GET",
+					undefined,
+					true
+				);
+				if (!mounted) return;
+				if (res.ok && res.data?.configured && res.data.data) {
+					setUnitPrices(res.data.data);
+				} else {
+					setUnitPrices(null);
+				}
+			} finally {
+				if (mounted) setIsUnitPricesLoading(false);
+			}
+		};
+
+		loadUnitPrices();
+		return () => {
+			mounted = false;
+		};
+	}, [hasSub]);
+
+	React.useEffect(() => {
+		if (!purchaseModalOpen) {
+			setPurchaseCounters({ music: 0, images: 0, texts: 0 });
+		}
+	}, [purchaseModalOpen]);
 
 	const handleConfirmUnsubscribe = async () => {
 		if (!onUnsubscribe) return;
@@ -106,6 +161,38 @@ export default function UserPlan({ t, data, onUnsubscribe, onResume }: Props) {
 		} else {
 			setActionError(res?.error || t("common.error"));
 		}
+	};
+
+	const safeCurrency: CurrencyCode = currency === "RUB" || currency === "KGS" ? currency : "USD";
+	const fmt = new Intl.NumberFormat(localeTag, { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+	const toNum = (v: string | number | null | undefined) => {
+		const n = Number(v);
+		return Number.isFinite(n) ? n : 0;
+	};
+	const money = (amount: number) => `${fmt.format(amount)} ${safeCurrency}`;
+	const unitPriceByCurrency = {
+		music: safeCurrency === "RUB" ? toNum(unitPrices?.music_price_rub) : safeCurrency === "KGS" ? toNum(unitPrices?.music_price_kgs) : toNum(unitPrices?.music_price),
+		images: safeCurrency === "RUB" ? toNum(unitPrices?.image_price_rub) : safeCurrency === "KGS" ? toNum(unitPrices?.image_price_kgs) : toNum(unitPrices?.image_price),
+		texts: safeCurrency === "RUB" ? toNum(unitPrices?.text_price_rub) : safeCurrency === "KGS" ? toNum(unitPrices?.text_price_kgs) : toNum(unitPrices?.text_price),
+	};
+
+	const purchaseRows = [
+		{ key: "music", label: t("profile.buy_generations.items.music"), unitPrice: unitPriceByCurrency.music },
+		{ key: "images", label: t("profile.buy_generations.items.images"), unitPrice: unitPriceByCurrency.images },
+		{ key: "texts", label: t("profile.buy_generations.items.texts"), unitPrice: unitPriceByCurrency.texts },
+	] as const;
+
+	const totalSelected = purchaseCounters.music + purchaseCounters.images + purchaseCounters.texts;
+	const totalAmount = purchaseRows.reduce(
+		(sum, row) => sum + purchaseCounters[row.key] * row.unitPrice,
+		0
+	);
+
+	const changeCounter = (kind: "music" | "images" | "texts", delta: number) => {
+		setPurchaseCounters((prev) => ({
+			...prev,
+			[kind]: Math.max(0, (prev[kind] || 0) + delta),
+		}));
 	};
 
 	const CurrentPlan = () => {
@@ -248,21 +335,29 @@ export default function UserPlan({ t, data, onUnsubscribe, onResume }: Props) {
 
 		return (
 			<div className="flex flex-col gap-4 w-full">
-				<h2 className="text-xl font-bold">{t("profile.left_counters.title")}</h2>
-                <div className="grid grid-cols-1 lg:grid-cols-2 md:grid-cols-2 gap-3">
-                    {items.map((k) => (
-                        <div key={k} className="rounded-xl border border-neutral-800 p-4 bg-white/5">
+				<div className="flex items-center justify-between gap-3">
+					<h2 className="text-xl font-bold">{t("profile.left_counters.title")}</h2>
+					<Button
+						className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-sm"
+						onClick={() => setPurchaseModalOpen(true)}
+					>
+						{t("profile.buy_generations.open_button")}
+					</Button>
+				</div>
+	                <div className="grid grid-cols-1 lg:grid-cols-2 md:grid-cols-2 gap-3">
+	                    {items.map((k) => (
+	                        <div key={k} className="rounded-xl border border-neutral-800 p-4 bg-white/5">
                             <div className="text-sm text-gray-400">{totals[k].label}</div>
                             <div className="mt-1 text-lg">
                                 <strong className="text-white">{t("profile.left_counters.left")}:</strong>{" "}
                                 {totals[k].unlimited ? "∞" : totals[k].total}
-                            </div>
-                            <div className="text-xs text-gray-400 mt-1">
-                                план: {totals[k].left} • бонус: {totals[k].bonus}
-                            </div>
-                        </div>
-                    ))}
-                </div>
+	                            </div>
+	                            <div className="text-xs text-gray-400 mt-1">
+	                                {t("profile.left_counters.plan_part")}: {totals[k].left} • {t("profile.left_counters.bonus_part")}: {totals[k].bonus}
+	                            </div>
+	                        </div>
+	                    ))}
+	                </div>
 
 				<div className="mt-4">
 					<h3 className="text-lg font-semibold mb-2">{t("profile.referral.title")}</h3>
@@ -285,12 +380,71 @@ export default function UserPlan({ t, data, onUnsubscribe, onResume }: Props) {
 				<Card>
 					<CurrentPlan />
 				</Card>
-				<Card>
-					<UsageCard />
-				</Card>
-				<ConfirmationModal
-					isOpen={confirmOpen}
-					title={t("profile.unsubscribe_confirm_title")}
+					<Card>
+						<UsageCard />
+					</Card>
+					<Modal
+						open={purchaseModalOpen}
+						onClose={() => setPurchaseModalOpen(false)}
+						title={t("profile.buy_generations.title")}
+						size="md"
+					>
+						<div className="flex flex-col gap-4">
+							{isUnitPricesLoading ? (
+								<p className="text-sm text-gray-400">{t("profile.buy_generations.loading")}</p>
+							) : !unitPrices ? (
+								<p className="text-sm text-gray-300">{t("profile.buy_generations.empty_state")}</p>
+							) : (
+								<>
+									{purchaseRows.map((row) => (
+										<div key={row.key} className="rounded-xl border border-neutral-800 bg-white/5 p-3">
+											<div className="flex items-center justify-between gap-3">
+												<div>
+													<div className="font-medium text-white">{row.label}</div>
+													<div className="text-xs text-gray-400">
+														{t("profile.buy_generations.unit_price")}: {money(row.unitPrice)}
+													</div>
+												</div>
+												<div className="flex items-center gap-2">
+													<button
+														type="button"
+														className="w-8 h-8 rounded-lg bg-neutral-800 hover:bg-neutral-700"
+														onClick={() => changeCounter(row.key, -1)}
+													>
+														-
+													</button>
+													<div className="min-w-10 text-center font-semibold">{purchaseCounters[row.key]}</div>
+													<button
+														type="button"
+														className="w-8 h-8 rounded-lg bg-neutral-800 hover:bg-neutral-700"
+														onClick={() => changeCounter(row.key, 1)}
+													>
+														+
+													</button>
+												</div>
+											</div>
+											<div className="text-xs text-gray-400 mt-2">
+												{t("profile.buy_generations.row_total")}: {money(purchaseCounters[row.key] * row.unitPrice)}
+											</div>
+										</div>
+									))}
+									<div className="rounded-xl border border-neutral-800 bg-neutral-900 p-3">
+										<div className="flex justify-between text-sm text-gray-300">
+											<span>{t("profile.buy_generations.selected")}:</span>
+											<strong>{totalSelected}</strong>
+										</div>
+										<div className="flex justify-between text-lg mt-2">
+											<span>{t("profile.buy_generations.total")}:</span>
+											<strong>{money(totalAmount)}</strong>
+										</div>
+									</div>
+								</>
+							)}
+						</div>
+					</Modal>
+					<ConfirmationModal
+						isOpen={confirmOpen}
+						title={t("profile.unsubscribe_confirm_title")}
 					description={t("profile.unsubscribe_confirm_desc")}
 					confirmText={t("common.yes")}
 					confirmLoadingText={t("common.loading")}

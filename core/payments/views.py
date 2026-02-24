@@ -17,7 +17,7 @@ from django.conf import settings
 from django.http import HttpResponseRedirect
 
 from users.models import User, UserCardBind
-from plans.models import Plan, UserSubscription, GenerationUsage, SubscriptionStatus, PaymentStatus
+from plans.models import Plan, UserSubscription, GenerationUsage, SubscriptionStatus, PaymentStatus, GenerationUnitPrice, CurrencyRate
 from .freedompay import (
     FreedomPayHPPClient,
     FreedomPayError,
@@ -165,6 +165,48 @@ def _frontend_absolute_url(request, path: str, query: dict | None = None) -> str
     if query:
         return f"{full}?{urlencode(query)}"
     return full
+
+
+def _normalize_positive_int(value, default: int = 0) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    return max(parsed, 0)
+
+
+def _convert_usd_to_user_currency(user: User, amount_usd: Decimal) -> tuple[Decimal, str]:
+    selected = (getattr(user, "selected_currency", "") or "USD").strip().upper()
+    if selected not in {"USD", "RUB", "KGS"}:
+        selected = "USD"
+    if selected == "USD":
+        return amount_usd, "USD"
+
+    rate_to_usd = CurrencyRate.objects.filter(currency=selected).values_list("rate_to_usd", flat=True).first()
+    if not rate_to_usd:
+        return amount_usd, "USD"
+
+    try:
+        rate_dec = Decimal(str(rate_to_usd))
+        if rate_dec <= 0:
+            return amount_usd, "USD"
+        converted = (amount_usd / rate_dec).quantize(Decimal("0.01"))
+        return converted, selected
+    except Exception:
+        return amount_usd, "USD"
+
+
+def _get_user_active_paid_subscription(user: User) -> UserSubscription | None:
+    sub = (
+        UserSubscription.objects
+        .select_related("plan")
+        .filter(user=user, status=SubscriptionStatus.ACTIVE)
+        .order_by("-start_date")
+        .first()
+    )
+    if not sub or not getattr(sub, "plan", None) or bool(sub.plan.is_free):
+        return None
+    return sub
 
 
 def _activate_paid_plan_for_user(user: User, plan: Plan) -> tuple[UserSubscription, str]:
@@ -316,6 +358,141 @@ class StartOneTimePaymentAPIView(APIView):
         return Response({"redirect_url": redirect_url}, status=status.HTTP_200_OK)
 
 
+def _apply_generation_topup_to_user(user: User, payload: dict) -> None:
+    if not _get_user_active_paid_subscription(user):
+        raise ValueError("paid_active_subscription_required")
+
+    counts = payload.get("counts") or {}
+    music = _normalize_positive_int(counts.get("music"), 0)
+    images = _normalize_positive_int(counts.get("images"), 0)
+    texts = _normalize_positive_int(counts.get("texts"), 0)
+
+    if music <= 0 and images <= 0 and texts <= 0:
+        raise ValueError("no_generations_selected")
+
+    with transaction.atomic():
+        user_locked = type(user).objects.select_for_update().get(pk=user.pk)
+        user_locked.bonus_music = int(user_locked.bonus_music or 0) + music
+        user_locked.bonus_images = int(user_locked.bonus_images or 0) + images
+        user_locked.bonus_texts = int(user_locked.bonus_texts or 0) + texts
+        user_locked.save(update_fields=["bonus_music", "bonus_images", "bonus_texts"])
+
+
+class StartGenerationTopupPaymentAPIView(APIView):
+    """Initialize one-time payment for extra generations and return redirect URL."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        if not _get_user_active_paid_subscription(request.user):
+            return Response({"message": "paid_active_subscription_required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        unit_prices = GenerationUnitPrice.objects.order_by("id").first()
+        if not unit_prices:
+            return Response({"message": "unit_prices_not_configured"}, status=status.HTTP_400_BAD_REQUEST)
+
+        payload = request.data or {}
+        music_count = _normalize_positive_int(payload.get("music"), 0)
+        image_count = _normalize_positive_int(payload.get("images"), 0)
+        text_count = _normalize_positive_int(payload.get("texts"), 0)
+        total_units = music_count + image_count + text_count
+        if total_units <= 0:
+            return Response({"message": "empty_selection"}, status=status.HTTP_400_BAD_REQUEST)
+
+        total_usd = (
+            Decimal(str(unit_prices.music_price or 0)) * music_count
+            + Decimal(str(unit_prices.image_price or 0)) * image_count
+            + Decimal(str(unit_prices.text_price or 0)) * text_count
+        ).quantize(Decimal("0.01"))
+        if total_usd <= 0:
+            return Response({"message": "topup_not_payable"}, status=status.HTTP_400_BAD_REQUEST)
+
+        amount, currency = _convert_usd_to_user_currency(request.user, total_usd)
+
+        merchant_id = (settings.FREEDOM_PAY_MERCHANT_ID or settings.FP_MERCHANT_ID or "").strip()
+        secret = (settings.FREEDOM_PAY_TOKEN or "").strip()
+        init_url = (settings.FREEDOM_PAY_INIT_PAYMENT_URL or "").strip()
+        if not (merchant_id and secret and init_url):
+            return Response({"detail": "freedompay_config_missing"}, status=status.HTTP_502_BAD_GATEWAY)
+
+        order_id = f"topup-{request.user.id}-{uuid.uuid4().hex[:10]}"
+        fp_payload = {
+            "pg_merchant_id": merchant_id,
+            "pg_amount": format(amount, "f"),
+            "pg_currency": currency,
+            "pg_order_id": order_id,
+            "pg_user_id": str(request.user.id),
+            "pg_description": f"Generation top-up for user #{request.user.id}",
+            "pg_salt": uuid.uuid4().hex,
+            "pg_success_url": request.build_absolute_uri(reverse("payments:freedompay-topup-success")),
+            "pg_failure_url": request.build_absolute_uri(reverse("payments:freedompay-topup-failure")),
+            "pg_post_link": request.build_absolute_uri(reverse("payments:freedompay-topup-postback")),
+            "pg_testing_mode": int(settings.DEBUG),
+        }
+        fp_payload["pg_sig"] = make_api_signature("init_payment", fp_payload, secret)
+
+        payment = Payment.objects.create(
+            user=request.user,
+            amount=amount,
+            currency=currency,
+            order_id=order_id,
+            description="Generation top-up payment",
+            is_test=settings.DEBUG,
+            request={
+                "topup_init": {
+                    "counts": {"music": music_count, "images": image_count, "texts": text_count},
+                    "unit_prices_usd": {
+                        "music": str(unit_prices.music_price or 0),
+                        "images": str(unit_prices.image_price or 0),
+                        "texts": str(unit_prices.text_price or 0),
+                    },
+                    "amount_usd": str(total_usd),
+                    "amount": str(amount),
+                    "currency": currency,
+                    "payload": fp_payload,
+                }
+            },
+            response={},
+        )
+
+        try:
+            response = requests.post(init_url, data=fp_payload, timeout=30)
+            try:
+                body = response.json()
+            except ValueError:
+                body = _parse_fp_response(response.text)
+            except Exception:
+                body = {"raw": response.text}
+        except requests.RequestException as exc:
+            payment.error = str(exc)
+            payment.save(update_fields=["error"])
+            return Response({"detail": "freedompay_request_failed"}, status=status.HTTP_502_BAD_GATEWAY)
+
+        payment.response = {"topup_init": body}
+        if response.status_code >= 400:
+            payment.error = body.get("pg_error_description") or body.get("pg_error_message") or "freedompay_http_error"
+            payment.save(update_fields=["response", "error"])
+            return Response({"detail": payment.error}, status=status.HTTP_502_BAD_GATEWAY)
+
+        redirect_url = body.get("pg_redirect_url") or body.get("redirect_url") or body.get("payment_url")
+        if not redirect_url:
+            payment.error = "freedompay_redirect_url_missing"
+            payment.save(update_fields=["response", "error"])
+            return Response({"detail": payment.error}, status=status.HTTP_502_BAD_GATEWAY)
+
+        payment.save(update_fields=["response"])
+        return Response(
+            {
+                "redirect_url": redirect_url,
+                "amount": str(amount),
+                "currency": currency,
+                "amount_usd": str(total_usd),
+                "counts": {"music": music_count, "images": image_count, "texts": text_count},
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
 class FreedomPayOneTimeResultBaseView(APIView):
     authentication_classes = []
     permission_classes = []
@@ -390,6 +567,80 @@ class FreedomPayOneTimeFailureView(FreedomPayOneTimeResultBaseView):
 
 
 class FreedomPayOneTimePostbackView(FreedomPayOneTimeResultBaseView):
+    result_type = "post"
+
+
+class FreedomPayGenerationTopupResultBaseView(APIView):
+    authentication_classes = []
+    permission_classes = []
+    result_type = "success"
+
+    def get(self, request, *args, **kwargs):
+        return self._handle(request, request.query_params)
+
+    def post(self, request, *args, **kwargs):
+        return self._handle(request, request.data)
+
+    def _handle(self, request, payload_source):
+        payload = _normalize_payload(payload_source)
+        order_id = payload.get("pg_order_id") or payload.get("order_id")
+        payment = Payment.objects.filter(order_id=order_id).order_by("-id").first() if order_id else None
+
+        if payment:
+            response = payment.response or {}
+            callbacks = list(response.get("callbacks") or [])
+            callbacks.append({"type": self.result_type, "payload": payload})
+            response["callbacks"] = callbacks
+            payment.response = response
+
+            if self.result_type == "success":
+                error_text = payload.get("pg_error_description") or payload.get("pg_error_message") or ""
+                status_text = str(payload.get("pg_status") or "").lower()
+                result_flag = str(payload.get("pg_result") or "").strip()
+                is_ok_status = (not status_text) or (status_text in {"ok", "success"})
+                is_ok_result = (not result_flag) or (result_flag == "1")
+                if error_text or (not is_ok_status) or (not is_ok_result):
+                    payment.success = False
+                    payment.error = str(error_text or f"freedompay_status_error:{status_text or result_flag or 'unknown'}")
+                else:
+                    payment.success = True
+                    payment.error = ""
+                    try:
+                        if not bool(response.get("topup_applied")):
+                            topup_init = (payment.request or {}).get("topup_init") or {}
+                            if payment.user and topup_init:
+                                _apply_generation_topup_to_user(payment.user, topup_init)
+                                response["topup_applied"] = True
+                                payment.response = response
+                    except Exception as exc:
+                        payment.success = False
+                        payment.error = f"generation_topup_apply_failed:{exc}"
+            elif self.result_type == "failure":
+                payment.success = False
+                payment.error = payload.get("pg_error_description") or payload.get("pg_error_message") or "freedompay_failure"
+            payment.save(update_fields=["response", "success", "error"])
+
+        if self.result_type == "post":
+            return Response({"status": "ok"}, status=status.HTTP_200_OK)
+
+        if self.result_type == "success":
+            return HttpResponseRedirect(
+                _frontend_absolute_url(request, "/profile", {"payment": "topup_success"})
+            )
+        return HttpResponseRedirect(
+            _frontend_absolute_url(request, "/profile", {"payment": "topup_failed"})
+        )
+
+
+class FreedomPayGenerationTopupSuccessView(FreedomPayGenerationTopupResultBaseView):
+    result_type = "success"
+
+
+class FreedomPayGenerationTopupFailureView(FreedomPayGenerationTopupResultBaseView):
+    result_type = "failure"
+
+
+class FreedomPayGenerationTopupPostbackView(FreedomPayGenerationTopupResultBaseView):
     result_type = "post"
 
 
