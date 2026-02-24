@@ -17,6 +17,10 @@ class GPTModels(models.Model):
     def __str__(self):
         return self.name
 
+    class Meta:
+        verbose_name = "GPT модель"
+        verbose_name_plural = "GPT модели"
+
 
 class AiProvider(models.Model):
     name = models.CharField(max_length=100, unique=True)
@@ -31,6 +35,10 @@ class AiProvider(models.Model):
 
     def __str__(self):
         return self.name
+
+    class Meta:
+        verbose_name = "AI провайдер"
+        verbose_name_plural = "AI провайдеры"
 
 
 class AiPromptTemplate(models.Model):
@@ -58,6 +66,10 @@ class AiPromptTemplate(models.Model):
     def __str__(self):
         return self.name
 
+    class Meta:
+        verbose_name = "AI шаблон промпта"
+        verbose_name_plural = "AI шаблоны промптов"
+
 
 class AiPromptTemplateFavorite(models.Model):
     user = models.OneToOneField(
@@ -67,6 +79,10 @@ class AiPromptTemplateFavorite(models.Model):
 
     def __str__(self):
         return f"{self.user.email} favorite templates"
+
+    class Meta:
+        verbose_name = "Избранный шаблон"
+        verbose_name_plural = "Избранные шаблоны"
 
 
 class AiChatSession(models.Model):
@@ -84,6 +100,10 @@ class AiChatSession(models.Model):
 
     def __str__(self):
         return f"Chat {self.id} ({self.user.email})"
+
+    class Meta:
+        verbose_name = "AI сессия чата"
+        verbose_name_plural = "AI сессии чата"
 
 
 class AiChatMessage(models.Model):
@@ -110,6 +130,8 @@ class AiChatMessage(models.Model):
 
     class Meta:
         ordering = ["created_at"]
+        verbose_name = "AI сообщение чата"
+        verbose_name_plural = "AI сообщения чата"
 
 
 def _gen_image_upload_path(instance: "AiGeneratedImage", filename: str) -> str:
@@ -136,3 +158,7 @@ class AiGeneratedImage(models.Model):
 
     def __str__(self) -> str:
         return f"{self.user_id}:{self.model_name}:{self.uniqid}"
+
+    class Meta:
+        verbose_name = "AI сгенерированное изображение"
+        verbose_name_plural = "AI сгенерированные изображения"

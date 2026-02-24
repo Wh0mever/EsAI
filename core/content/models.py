@@ -23,3 +23,7 @@ class BlogPost(models.Model):
 
     def get_content(self, lang):
         return getattr(self, f"content_{lang}", self.content_ru)
+
+    class Meta:
+        verbose_name = "Пост блога"
+        verbose_name_plural = "Посты блога"

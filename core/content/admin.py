@@ -8,4 +8,4 @@ class BlogAdmin(admin.ModelAdmin):
     
     
 admin.site.site_header = "Vokalo Admin"
-admin.site.site_title = "Control panel"
+admin.site.site_title = "Панель управления"

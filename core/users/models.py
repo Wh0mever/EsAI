@@ -29,8 +29,8 @@ class UserCardBind(models.Model):
         return f"UserCardBind(user={self.user_id}, card_id={self.card_id})"
 
     class Meta:
-        verbose_name = "User Card Bind"
-        verbose_name_plural = "User Card Binds"
+        verbose_name = "Привязка карты пользователя"
+        verbose_name_plural = "Привязки карт пользователей"
         ordering = ["-created_at"]
 
 
@@ -177,6 +177,8 @@ class User(AbstractBaseUser, PermissionsMixin):
         indexes = [
             models.Index(fields=["referral_uid"]),
         ]
+        verbose_name = "Пользователь"
+        verbose_name_plural = "Пользователи"
 
         
 class UserQuestions(models.Model):
@@ -191,8 +193,8 @@ class UserQuestions(models.Model):
         return f'{self.email} - {self.created_at}'
     
     class Meta:
-        verbose_name = "User question"
-        verbose_name_plural = "User questions"
+        verbose_name = "Вопрос пользователя"
+        verbose_name_plural = "Вопросы пользователей"
         ordering = ['-created_at']
         
         
@@ -214,6 +216,8 @@ class Notification(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
+        verbose_name = "Уведомление"
+        verbose_name_plural = "Уведомления"
 
     def __str__(self):
         return f"Notification({self.title})"
@@ -245,6 +249,8 @@ class NotificationDelivery(models.Model):
     class Meta:
         ordering = ["-assigned_at"]
         unique_together = ("notification", "recipient")
+        verbose_name = "Доставка уведомления"
+        verbose_name_plural = "Доставки уведомлений"
 
     def __str__(self):
         return f"Delivery(n={self.notification_id}, u={self.recipient_id}, read={self.is_read})"

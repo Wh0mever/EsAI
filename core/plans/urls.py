@@ -2,7 +2,7 @@ from django.urls import path
 from .views import (
     PlanListView, PlanRetrieveView,
     MeSubscriptionView, MeUsageView, MeAddonsView,
-    ActivatePlanView, UnsubscribeView, ResumeSubscriptionView,
+    ActivatePlanView, UnsubscribeView, ResumeSubscriptionView, GenerationUnitPriceView,
 )
 
 
@@ -16,4 +16,5 @@ urlpatterns = [
     path("me/addons/", MeAddonsView.as_view(), name="me-addons"),
     path("me/unsubscribe/", UnsubscribeView.as_view(), name="me-unsubscribe"),
     path("me/resume/", ResumeSubscriptionView.as_view(), name="me-resume"),
+    path("unit-prices/", GenerationUnitPriceView.as_view(), name="unit-prices"),
 ]

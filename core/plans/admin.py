@@ -1,4 +1,4 @@
-from .models import Plan, UserSubscription, GenerationUsage, AddonPurchase, CurrencyRate
+from .models import Plan, UserSubscription, GenerationUsage, AddonPurchase, CurrencyRate, GenerationUnitPrice
 from django.contrib import admin, messages
 from django.core.management import call_command
 from django.urls import path, reverse
@@ -79,33 +79,44 @@ class PlanAdmin(admin.ModelAdmin):
     search_fields = ("id",)
     ordering = ("sort_order", "id")
     fieldsets = (
-        ("Meta", {"fields": ("is_active", "is_free", "period", "duration_days", "sort_order")}),
-        ("Names", {
+        ("Основное", {"fields": ("is_active", "is_free", "period", "duration_days", "sort_order")}),
+        ("Названия", {
             "fields": (
                 "template_name_ru", "template_name_en", "template_name_kg",
             )
         }),
-        ("Pricing", {"fields": ( "price_amount", "price_base_amount")}),
-        ("Engine", {"fields": ("llm_engine",)}),
-        ("Limits (0 = unlimited)", {
+        ("Цены", {"fields": ( "price_amount", "price_base_amount")}),
+        ("Модель", {"fields": ("llm_engine",)}),
+        ("Лимиты (0 = безлимит)", {
             "fields": (
                 "ai_templates_limit", "operations_per_month_limit", "covers_limit",
                 "song_limit", "music_limit", "text_limit", "image_limit",
             )
         }),
-        ("Chat", {"fields": ("chat_output_tokens_limit",)}),
-        ("Sunday Bonuses", {
+        ("Чат", {"fields": ("chat_output_tokens_limit",)}),
+        ("Воскресные бонусы", {
             "fields": ("sunday_bonus_songs", "sunday_bonus_music", "sunday_bonus_texts", "sunday_bonus_images")
         }),
-        ("Features", {
+        ("Функции", {
             "fields": (
                 "ai_chat_enabled", "realtime_chat_enabled", "rewriter_enabled", "antiplag_enabled",
                 "images_enabled", "diffusion_images_enabled", "blog_master_enabled",
                 "music_enabled", "tts_enabled", "my_templates_enabled", "manager_enabled", "support_enabled",
             )
         }),
-        ("Purchases", {"fields": ("can_purchase_addons",)}),
+        ("Покупки", {"fields": ("can_purchase_addons",)}),
     )
+
+
+@admin.register(GenerationUnitPrice)
+class GenerationUnitPriceAdmin(admin.ModelAdmin):
+    list_display = ("id", "music_price", "image_price", "text_price")
+    fields = ("music_price", "image_price", "text_price")
+
+    def has_add_permission(self, request):
+        if GenerationUnitPrice.objects.exists():
+            return False
+        return super().has_add_permission(request)
 
 
 class GenerationUsageInline(admin.StackedInline):

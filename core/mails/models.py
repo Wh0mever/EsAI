@@ -24,6 +24,8 @@ class MailContext(models.Model):
 
     class Meta:
         ordering = ["-updated_at", "id"]
+        verbose_name = "Почтовый контекст"
+        verbose_name_plural = "Почтовые контексты"
 
     def __str__(self):
         return self.name
@@ -48,6 +50,8 @@ class SimpleMail(models.Model):
 
     class Meta:
         ordering = ["-created_at", "id"]
+        verbose_name = "Простое письмо"
+        verbose_name_plural = "Простые письма"
 
     def __str__(self):
         return self.name

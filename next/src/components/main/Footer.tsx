@@ -61,7 +61,7 @@ export default function Footer() {
           </div>
 
           <div className="flex justify-center order-last md:order-none">
-            <p className="text-xs text-white/40">© 2025 | Vokalo.online</p>
+            <p className="text-xs text-white/40">© 2026 | Vokalo.online</p>
           </div>
 
           <nav className="flex md:justify-end justify-center">

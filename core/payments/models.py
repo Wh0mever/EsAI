@@ -37,6 +37,8 @@ class Payment(models.Model):
             models.Index(fields=["created_at"]),
             models.Index(fields=["order_id"]),
         ]
+        verbose_name = "Платеж"
+        verbose_name_plural = "Платежи"
 
     def __str__(self) -> str:
         return f"[{self.created_at:%Y-%m-%d %H:%M}] {self.provider} {self.amount} {self.currency} -> {'OK' if self.success else 'FAIL'}"

@@ -498,10 +498,27 @@
     "left_counters": {
       "title": "Remaining generations",
       "left": "Left",
+      "plan_part": "plan",
+      "bonus_part": "bonus",
       "items": {
         "texts": "Texts",
         "images": "Images",
         "songs": "Songs",
+        "music": "Music"
+      }
+    },
+    "buy_generations": {
+      "open_button": "Buy more generations",
+      "title": "Generation top-up",
+      "loading": "Loading prices...",
+      "empty_state": "This section will soon let you buy extra generations for your plan.",
+      "unit_price": "Price per 1",
+      "row_total": "Row total",
+      "selected": "Selected generations",
+      "total": "Total",
+      "items": {
+        "texts": "Texts",
+        "images": "Images",
         "music": "Music"
       }
     },
