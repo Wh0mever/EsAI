@@ -5,6 +5,7 @@ import { Card } from "@/components/ui/cards/Cards";
 import { Button } from "@/components/ui/buttons/Buttons";
 import { IoExitOutline } from "react-icons/io5";
 import Link from "next/link";
+import Image from "next/image";
 import { useTranslation } from "react-i18next";
 import { ConfirmationModal, Modal } from "@/components/dialog/Dialog";
 import { fetchData } from "@/tools/fetchData";
@@ -89,9 +90,15 @@ export default function UserPlan({ t, data, onUnsubscribe, onResume }: Props) {
 	const [actionNotice, setActionNotice] = React.useState<string | null>(null);
 	const [actionError, setActionError] = React.useState<string | null>(null);
 	const [purchaseModalOpen, setPurchaseModalOpen] = React.useState(false);
+	const [paymentOptionsOpen, setPaymentOptionsOpen] = React.useState(false);
+	const [cryptoHelpOpen, setCryptoHelpOpen] = React.useState(false);
 	const [unitPrices, setUnitPrices] = React.useState<UnitPricesData | null>(null);
 	const [isUnitPricesLoading, setIsUnitPricesLoading] = React.useState(false);
+	const [isPurchaseProcessing, setIsPurchaseProcessing] = React.useState(false);
+	const [purchaseError, setPurchaseError] = React.useState<string | null>(null);
 	const [purchaseCounters, setPurchaseCounters] = React.useState({ music: 0, images: 0, texts: 0 });
+	const PURCHASE_STEP = 10;
+	const MIN_PURCHASE_UNITS = 10;
 
 	const autoRenewEnabled = sub?.auto_renew !== false && data?.user?.auto_renew !== false;
 	const canUnsubscribe = Boolean(sub?.status === "active" && autoRenewEnabled && onUnsubscribe);
@@ -128,10 +135,11 @@ export default function UserPlan({ t, data, onUnsubscribe, onResume }: Props) {
 	}, [hasSub]);
 
 	React.useEffect(() => {
-		if (!purchaseModalOpen) {
+		if (!purchaseModalOpen && !paymentOptionsOpen && !cryptoHelpOpen) {
 			setPurchaseCounters({ music: 0, images: 0, texts: 0 });
+			setPurchaseError(null);
 		}
-	}, [purchaseModalOpen]);
+	}, [purchaseModalOpen, paymentOptionsOpen, cryptoHelpOpen]);
 
 	const handleConfirmUnsubscribe = async () => {
 		if (!onUnsubscribe) return;
@@ -191,8 +199,72 @@ export default function UserPlan({ t, data, onUnsubscribe, onResume }: Props) {
 	const changeCounter = (kind: "music" | "images" | "texts", delta: number) => {
 		setPurchaseCounters((prev) => ({
 			...prev,
-			[kind]: Math.max(0, (prev[kind] || 0) + delta),
+			[kind]: (() => {
+				const current = prev[kind] || 0;
+				if (delta > 0) {
+					return current > 0 ? current + PURCHASE_STEP : MIN_PURCHASE_UNITS;
+				}
+				if (delta < 0) {
+					return current > MIN_PURCHASE_UNITS ? current - PURCHASE_STEP : 0;
+				}
+				return current;
+			})(),
 		}));
+	};
+
+	const openPaymentOptions = () => {
+		if (totalSelected <= 0) return;
+		setPurchaseError(null);
+		setPurchaseModalOpen(false);
+		setPaymentOptionsOpen(true);
+	};
+
+	const onTopupPaymentStart = async () => {
+		if (totalSelected <= 0) return;
+		setIsPurchaseProcessing(true);
+		setPurchaseError(null);
+		try {
+			const payload = {
+				music: purchaseCounters.music,
+				images: purchaseCounters.images,
+				texts: purchaseCounters.texts,
+			};
+			const res = await fetchData("payments/topup/start/", "POST", payload, true);
+			const redirectUrl = (res?.data as any)?.redirect_url;
+			if (res.ok && typeof redirectUrl === "string" && redirectUrl.length > 0) {
+				setPaymentOptionsOpen(false);
+				window.location.href = redirectUrl;
+				return;
+			}
+			setPurchaseError(res?.error || t("subscribe.error_unknown"));
+		} catch {
+			setPurchaseError(t("subscribe.error_unknown"));
+		} finally {
+			setIsPurchaseProcessing(false);
+		}
+	};
+
+	const onCardBindStart = async () => {
+		setIsPurchaseProcessing(true);
+		setPurchaseError(null);
+		try {
+			const res = await fetchData("payments/card/bind/start/", "POST", { back_path: "/profile" }, true);
+			const redirectUrl = (res?.data as any)?.redirect_url;
+			if (res.ok && typeof redirectUrl === "string" && redirectUrl.length > 0) {
+				window.location.href = redirectUrl;
+				return;
+			}
+			setPurchaseError(res?.error || t("subscribe.error_unknown"));
+		} catch {
+			setPurchaseError(t("subscribe.error_unknown"));
+		} finally {
+			setIsPurchaseProcessing(false);
+		}
+	};
+
+	const onCryptoPaymentOpen = () => {
+		setPaymentOptionsOpen(false);
+		setCryptoHelpOpen(true);
 	};
 
 	const CurrentPlan = () => {
@@ -409,7 +481,7 @@ export default function UserPlan({ t, data, onUnsubscribe, onResume }: Props) {
 													<button
 														type="button"
 														className="w-8 h-8 rounded-lg bg-neutral-800 hover:bg-neutral-700"
-														onClick={() => changeCounter(row.key, -1)}
+														onClick={() => changeCounter(row.key, -PURCHASE_STEP)}
 													>
 														-
 													</button>
@@ -417,7 +489,7 @@ export default function UserPlan({ t, data, onUnsubscribe, onResume }: Props) {
 													<button
 														type="button"
 														className="w-8 h-8 rounded-lg bg-neutral-800 hover:bg-neutral-700"
-														onClick={() => changeCounter(row.key, 1)}
+														onClick={() => changeCounter(row.key, PURCHASE_STEP)}
 													>
 														+
 													</button>
@@ -438,8 +510,113 @@ export default function UserPlan({ t, data, onUnsubscribe, onResume }: Props) {
 											<strong>{money(totalAmount)}</strong>
 										</div>
 									</div>
+									{purchaseError && (
+										<p className="text-sm text-rose-400">{purchaseError}</p>
+									)}
+									<Button
+										className="w-full px-4 py-3 rounded-xl bg-indigo-500 hover:bg-indigo-600 disabled:opacity-60"
+										onClick={openPaymentOptions}
+										disabled={totalSelected <= 0}
+									>
+										{t("subscribe.wallets_button")}
+									</Button>
 								</>
 							)}
+						</div>
+					</Modal>
+					<Modal
+						open={paymentOptionsOpen}
+						onClose={() => setPaymentOptionsOpen(false)}
+						size="md"
+						title={t("subscribe.payment_modal_title")}
+					>
+						<div className="space-y-5">
+							<div className="text-sm text-white/80 leading-6">
+								{t("subscribe.payment_modal_description")}
+							</div>
+
+							<div className="rounded-xl border border-white/10 bg-neutral-800/60 p-4">
+								<h3 className="text-base font-semibold">{t("subscribe.card_title")}</h3>
+								<p className="text-sm text-white/70 mt-2">
+									{t("subscribe.card_description")}
+								</p>
+								<button
+									type="button"
+									onClick={onCardBindStart}
+									disabled={isPurchaseProcessing}
+									className="mt-4 w-full inline-flex items-center justify-center px-4 py-3 rounded-xl bg-indigo-500 hover:bg-indigo-600 transition-colors disabled:opacity-70"
+								>
+									{isPurchaseProcessing ? t("common.processing") : t("subscribe.card_button")}
+								</button>
+							</div>
+
+							<div className="rounded-xl border border-white/10 bg-neutral-800/60 p-4">
+								<h3 className="text-base font-semibold">{t("subscribe.wallets_title")}</h3>
+								<p className="text-sm text-white/70 mt-2">
+									{t("subscribe.wallets_description")}
+								</p>
+								<button
+									type="button"
+									onClick={onTopupPaymentStart}
+									disabled={isPurchaseProcessing || totalSelected <= 0}
+									className="mt-4 w-full inline-flex items-center justify-center px-4 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 transition-colors disabled:opacity-70"
+								>
+									{isPurchaseProcessing ? t("common.processing") : t("subscribe.wallets_button")}
+								</button>
+							</div>
+
+							<div className="rounded-xl border border-white/10 bg-neutral-800/60 p-4">
+								<h3 className="text-base font-semibold">{t("subscribe.crypto_title")}</h3>
+								<p className="text-sm text-white/70 mt-2">
+									{t("subscribe.crypto_description")}
+								</p>
+								<button
+									type="button"
+									onClick={onCryptoPaymentOpen}
+									className="mt-4 w-full inline-flex items-center justify-center px-4 py-3 rounded-xl bg-emerald-700 hover:bg-emerald-800 transition-colors"
+								>
+									{t("subscribe.crypto_button")}
+								</button>
+							</div>
+
+							{purchaseError && (
+								<p className="text-sm text-rose-400">{purchaseError}</p>
+							)}
+
+							<div className="rounded-xl border border-white/10 bg-neutral-900/80 p-4 text-sm text-white/85">
+								{t("subscribe.payment_optional_note")}
+							</div>
+						</div>
+					</Modal>
+					<Modal
+						open={cryptoHelpOpen}
+						onClose={() => setCryptoHelpOpen(false)}
+						size="md"
+						title={t("subscribe.crypto_modal_title")}
+					>
+						<div className="space-y-4">
+							<p className="text-sm text-white/80 leading-6">
+								{t("subscribe.crypto_modal_description")}
+							</p>
+							<div className="rounded-xl border border-white/10 bg-neutral-800/60 p-3">
+								<Image
+									src="/images/binance.jpg"
+									alt="Binance QR"
+									width={900}
+									height={900}
+									className="w-full h-auto rounded-lg"
+									priority={false}
+								/>
+							</div>
+							<p className="text-sm text-white/80 leading-6">
+								{t("subscribe.crypto_receipt_text")}
+							</p>
+							<a
+								href="mailto:support@esai.kg"
+								className="inline-flex items-center justify-center px-4 py-2 rounded-xl border border-white/20 hover:border-white/40 transition-colors text-sm"
+							>
+								support@esai.kg
+							</a>
 						</div>
 					</Modal>
 					<ConfirmationModal
