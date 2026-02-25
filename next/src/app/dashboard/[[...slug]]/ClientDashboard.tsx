@@ -35,9 +35,9 @@ export default function ClientDashboard({ slug, chatId }: Props) {
       const d = e?.detail;
       if (!d || !d.id) return;
       setChatsList((prev) => {
-        const exists = Array.isArray(prev) && prev.some((c: any) => String(c.id) === String(d.id));
+        const exists = Array.isArray(prev) && prev.some((c: any) => String(c.uid || c.id) === String(d.uid || d.id));
         if (exists) return prev;
-        const item = { id: d.id, title: d.title || "New Chat", chat_mode: d.chat_mode || slug };
+        const item = { id: d.id, uid: d.uid || d.id, title: d.title || "New Chat", chat_mode: d.chat_mode || slug };
         return [item, ...(Array.isArray(prev) ? prev : [])];
       });
     };

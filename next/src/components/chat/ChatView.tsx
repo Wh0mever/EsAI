@@ -276,7 +276,7 @@ function MessageList({
 
         return (
           <ChatBubble
-            key={(msg as any)?.id ?? index}
+            key={(msg as any)?.id != null ? `id-${(msg as any).id}` : `idx-${index}`}
             msg={msg}
             index={index}
             isLast={index === messages.length - 1}

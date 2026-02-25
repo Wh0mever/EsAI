@@ -21,7 +21,13 @@ if [[ "${1:-}" == "--build" ]]; then
   docker compose "${FILES[@]}" build
 fi
 
-docker compose "${FILES[@]}" up -d --remove-orphans
+docker compose "${FILES[@]}" up -d db redis
+
+echo "Generating and applying migrations (dev auto-bootstrap) ..."
+docker compose "${FILES[@]}" run --rm core python manage.py makemigrations --noinput
+docker compose "${FILES[@]}" run --rm core python manage.py migrate --noinput
+
+docker compose "${FILES[@]}" up -d --remove-orphans core next celery celery_beat nginx
 
 echo "Waiting for app readiness on http://localhost ..."
 for i in $(seq 1 120); do
@@ -35,6 +41,32 @@ if ! curl -fsS http://localhost/ >/dev/null 2>&1; then
   echo "App is still not ready after timeout. Check logs:"
   echo "  docker compose -f compose.dev.yaml logs -f next core nginx"
   exit 1
+fi
+
+echo "Ensuring dev superuser exists ..."
+if ! docker compose "${FILES[@]}" exec -T core python manage.py shell -c "
+from django.contrib.auth import get_user_model
+User = get_user_model()
+email = 'admin@example.com'
+password = 'change-me'
+u = User.objects.filter(email=email).first()
+if u is None:
+    try:
+        User.objects.create_superuser(email=email, password=password)
+    except TypeError:
+        u = User(email=email, is_staff=True, is_superuser=True, is_active=True)
+        u.set_password(password)
+        u.save()
+    print('created')
+else:
+    u.is_staff = True
+    u.is_superuser = True
+    u.is_active = True
+    u.set_password(password)
+    u.save(update_fields=['is_staff', 'is_superuser', 'is_active', 'password'])
+    print('updated')
+"; then
+  echo "Warning: failed to ensure dev superuser (admin@example.com)."
 fi
 
 cat <<'EOF'

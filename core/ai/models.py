@@ -5,6 +5,10 @@ import uuid
 
 # Create your models here.
 
+def _gen_chat_session_uid() -> str:
+    return uuid.uuid4().hex
+
+
 class GPTModels(models.Model):
     name = models.CharField(max_length=100, unique=True)
     description = models.TextField(blank=True)
@@ -113,6 +117,7 @@ class AiChatSession(models.Model):
     """Одна сессия чата с ИИ (как диалог в GPT)."""
     user = models.ForeignKey(
         User, on_delete=models.CASCADE, related_name="ai_chat_sessions")
+    uid = models.CharField(max_length=32, unique=True, db_index=True, editable=False, default=_gen_chat_session_uid)
     provider = models.ForeignKey(
         AiProvider, on_delete=models.SET_NULL, null=True, blank=True, related_name="chat_sessions")
     title = models.CharField(max_length=255, blank=True,

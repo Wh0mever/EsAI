@@ -25,6 +25,6 @@ urlpatterns = [
     path('templates/', AiTemplatesApiView.as_view(), name='ai_template'),
     path('templates/favorites/', AiTemplatesFavoriteApiView.as_view(), name='ai_template_favorite'),
     path('sessions/', ChatSessionListAPIView.as_view(), name='chat_sessions'),
-    path('sessions/<int:session_id>/', ChatSessionDetailAPIView.as_view(), name='chat_sessions_detail'),
+    path('sessions/<str:session_ref>/', ChatSessionDetailAPIView.as_view(), name='chat_sessions_detail'),
     path("providers/", AiProvidersApiView.as_view(), name="ai-providers"),
 ]

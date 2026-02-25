@@ -37,6 +37,8 @@ services:
     env_file: .env
     environment:
       DJANGO_DEBUG: "1"
+      RUN_MIGRATIONS: "0"
+      RUN_COLLECTSTATIC: "0"
       CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
       CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
     command: sh -lc "python manage.py runserver 0.0.0.0:8000"
@@ -70,6 +72,8 @@ services:
     env_file: .env
     environment:
       DJANGO_DEBUG: "1"
+      RUN_MIGRATIONS: "0"
+      RUN_COLLECTSTATIC: "0"
       CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
       CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
       C_FORCE_ROOT: "1"
@@ -99,6 +103,8 @@ services:
     env_file: .env
     environment:
       DJANGO_DEBUG: "1"
+      RUN_MIGRATIONS: "0"
+      RUN_COLLECTSTATIC: "0"
       CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
       CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
     command: >

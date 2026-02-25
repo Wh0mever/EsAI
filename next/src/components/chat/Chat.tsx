@@ -34,7 +34,9 @@ export default function Chat({ mode, chatId }: Props) {
       try {
         const res = await fetchData(`ai/sessions/${chatId}/`, "GET", null, true);
         if (!ignore) {
-          const history = res?.data?.messages as Message[] | undefined;
+          const history =
+            (res?.data?.messages as Message[] | undefined)
+            || (res?.data?.results?.messages as Message[] | undefined);
           if (Array.isArray(history)) {
             setMessages(history);
             setHistoryHydrated(true);
@@ -127,7 +129,7 @@ export default function Chat({ mode, chatId }: Props) {
         const maxMs = 5 * 60 * 1000;
         const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
         let finalUrl = "";
-        let sessionMeta: { id?: string; title?: string } | null = null;
+        let sessionMeta: { id?: string; uid?: string; title?: string } | null = null;
         while (Date.now() - startedAt < maxMs) {
           const st = await fetchData(`ai/image/status/?job=${encodeURIComponent(jobId)}`, "GET", null, true);
           if (!st?.ok) { await delay(1500); continue; }
@@ -154,12 +156,13 @@ export default function Chat({ mode, chatId }: Props) {
         setMessages((prev) => [...prev, { role: "assistant", content: finalUrl, attachments: [{ type: 'image', url: finalUrl }] }]);
 
         // Update route if a new session created
-        if (!chatId && sessionMeta && sessionMeta.id) {
+        const routeSessionId = sessionMeta?.uid || sessionMeta?.id;
+        if (!chatId && sessionMeta && routeSessionId) {
           try {
-            if (typeof window !== 'undefined') sessionStorage.setItem(`chat.animate.${sessionMeta.id}`, '1');
-            router.push(`/dashboard/${mode}/${sessionMeta.id}`);
+            if (typeof window !== 'undefined') sessionStorage.setItem(`chat.animate.${routeSessionId}`, '1');
+            router.push(`/dashboard/${mode}/${routeSessionId}`);
           } catch {}
-          try { window.dispatchEvent(new CustomEvent("chat:session-created", { detail: { id: sessionMeta.id, title: sessionMeta.title || content.slice(0, 60), chat_mode: mode } })); } catch {}
+          try { window.dispatchEvent(new CustomEvent("chat:session-created", { detail: { id: routeSessionId, uid: sessionMeta.uid, title: sessionMeta.title || content.slice(0, 60), chat_mode: mode } })); } catch {}
         }
       } else {
         const res = await fetchData("ai/chat/", "POST", payload, true);
@@ -168,7 +171,7 @@ export default function Chat({ mode, chatId }: Props) {
           setMessages((prev) => [...prev, { role: "assistant", content: formatError(res), variant: "error" }]);
           return;
         }
-        const sessionMeta = (res?.data?.session ?? null) as { id?: string; title?: string } | null;
+        const sessionMeta = (res?.data?.session ?? null) as { id?: string; uid?: string; title?: string } | null;
         const assistantContent = (res?.data as any)?.response || "";
         if (!assistantContent) {
           const msg = t("chat.error_generic");
@@ -176,12 +179,13 @@ export default function Chat({ mode, chatId }: Props) {
         } else {
           setMessages((prev) => [...prev, { role: "assistant", content: assistantContent }]);
         }
-        if (!chatId && sessionMeta && sessionMeta.id) {
+        const routeSessionId = sessionMeta?.uid || sessionMeta?.id;
+        if (!chatId && sessionMeta && routeSessionId) {
           try {
-            if (typeof window !== 'undefined') sessionStorage.setItem(`chat.animate.${sessionMeta.id}`, '1');
-            router.push(`/dashboard/${mode}/${sessionMeta.id}`);
+            if (typeof window !== 'undefined') sessionStorage.setItem(`chat.animate.${routeSessionId}`, '1');
+            router.push(`/dashboard/${mode}/${routeSessionId}`);
           } catch {}
-          try { window.dispatchEvent(new CustomEvent("chat:session-created", { detail: { id: sessionMeta.id, title: sessionMeta.title || content.slice(0, 60), chat_mode: mode } })); } catch {}
+          try { window.dispatchEvent(new CustomEvent("chat:session-created", { detail: { id: routeSessionId, uid: sessionMeta.uid, title: sessionMeta.title || content.slice(0, 60), chat_mode: mode } })); } catch {}
         }
       }
 

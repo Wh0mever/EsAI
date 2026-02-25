@@ -2,18 +2,14 @@ from django.db import transaction
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from rest_framework.pagination import LimitOffsetPagination
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from .handlers import OpenAIHandler, OpenAIImageHandler
 from .tasks import generate_image_task
 from celery.result import AsyncResult
 from core.celery import app as celery_app
-from .pagination import MessagesPaginator
-from django.shortcuts import get_object_or_404
 from .models import AiProvider, AiChatSession, AiChatMessage, AiPromptTemplate, AiPromptTemplateFavorite
 from .serializers import (
     AiChatSessionListSerializer,
-    AiChatSessionMetaSerializer,
     AiChatMessageSerializer,
     AiPromptTemplateSerializer,
     AiProviderSerializer,
@@ -29,6 +25,18 @@ from django.core.files.storage import default_storage
 from django.utils.text import get_valid_filename
 import uuid
 import os
+
+
+def _get_session_for_user(session_ref: str, user):
+    raw = (session_ref or "").strip()
+    if not raw:
+        return None
+    qs = AiChatSession.objects.filter(user=user)
+    if raw.isdigit():
+        by_id = qs.filter(id=int(raw)).first()
+        if by_id:
+            return by_id
+    return qs.filter(uid=raw).first()
 
 
 class ChatGptAPIView(APIView):
@@ -136,25 +144,20 @@ class ChatSessionListAPIView(APIView):
         return Response(data)
 
 
-class ChatSessionDetailAPIView(APIView, LimitOffsetPagination):
+class ChatSessionDetailAPIView(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
-    default_limit = 30
 
-    def get(self, request, session_id: int):
-        session = (
-            AiChatSession.objects
-            .filter(id=session_id, user=request.user)
-            .first()
-        )
+    def get(self, request, session_ref: str):
+        session = _get_session_for_user(session_ref, request.user)
         if not session:
             return Response({"error": "Session not found"}, status=404)
 
         messages_qs = session.messages.order_by("created_at")
-        page = self.paginate_queryset(messages_qs, request, view=self)
-        messages = AiChatMessageSerializer(page, many=True).data
+        messages = AiChatMessageSerializer(messages_qs, many=True).data
         payload = {
             "id": session.id,
+            "uid": session.uid,
             "title": session.title,
             "provider_id": session.provider_id,
             "created_at": session.created_at,
@@ -162,7 +165,7 @@ class ChatSessionDetailAPIView(APIView, LimitOffsetPagination):
             "is_active": session.is_active,
             "messages": messages,
         }
-        return self.get_paginated_response(payload)
+        return Response(payload, status=200)
 
 
 class AiTemplatesApiView(APIView):
@@ -261,31 +264,6 @@ class AiTemplatesFavoriteApiView(APIView):
 
     def get(self, request):
         return Response({"detail": "OK"})
-
-
-class ChatSessionDetailAPIView(APIView):
-    authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated]
-    paginator = MessagesPaginator()
-
-    def get(self, request, session_id: int):
-        session = get_object_or_404(
-            AiChatSession, id=session_id, user=request.user)
-
-        order = request.query_params.get("order", "asc")
-        qs = session.messages.all()
-        qs = qs.order_by("created_at") if order == "asc" else qs.order_by(
-            "-created_at")
-
-        page = self.paginator.paginate_queryset(qs, request, view=self)
-        # UI обычно хочет хронологию ↑, даже если пагинируем по desc
-        if order != "asc":
-            page = list(reversed(page))
-
-        messages_data = AiChatMessageSerializer(page, many=True).data
-        session_payload = AiChatSessionMetaSerializer(session).data
-
-        return self.paginator.get_paginated_response(messages_data, session_payload)
 
 
 class AiProvidersApiView(APIView):

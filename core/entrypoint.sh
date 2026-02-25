@@ -6,6 +6,8 @@ set -e
 : "${APP_USER:=appuser}"
 : "${APP_GROUP:=appuser}"
 : "${APP_LOG_DIR:=/app/logs}"
+: "${RUN_MIGRATIONS:=1}"
+: "${RUN_COLLECTSTATIC:=1}"
 export APP_LOG_DIR
 
 python - <<'PY'
@@ -30,7 +32,12 @@ else
     echo "Skipping chown; container not running as root." >&2
 fi
 
-python manage.py migrate --noinput || true
-python manage.py collectstatic --noinput || true
+if [ "$RUN_MIGRATIONS" = "1" ]; then
+    python manage.py migrate --noinput || true
+fi
+
+if [ "$RUN_COLLECTSTATIC" = "1" ]; then
+    python manage.py collectstatic --noinput || true
+fi
 
 exec "$@"
