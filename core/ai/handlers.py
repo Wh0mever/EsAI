@@ -13,6 +13,7 @@ from .models import (
     AiChatMessage,
     AiPromptTemplate,
     GPTModels,
+    TopMediaModels,
     AiGeneratedImage,
 )
 from plans.models import UserSubscription
@@ -327,16 +328,29 @@ def OpenAIHandler(request):
             .order_by("-start_date")
             .first()
         )
-        # Use plan's configured engine name if available
-        plan_engine = getattr(getattr(subscription, "plan", None), "llm_engine", None)
-        default_model_name = getattr(plan_engine, "name", None) or "gpt-4o-mini"
+        # Use plan's configured engine name based on chat mode
+        plan_obj = getattr(subscription, "plan", None)
+        if mode == "music-chat":
+            plan_engine = getattr(plan_obj, "topmedia_engine", None)
+            fallback_model = TopMediaModels.objects.filter(
+                is_active=True, kind=TopMediaModels.KIND_MUSIC
+            ).order_by("name").first()
+            default_model_name = getattr(plan_engine, "name", None) or getattr(fallback_model, "name", None) or "topmedia-default"
+            model_obj = TopMediaModels.objects.filter(
+                name=request.data.get("model", default_model_name),
+                is_active=True,
+                kind=TopMediaModels.KIND_MUSIC,
+            ).first()
+        else:
+            plan_engine = getattr(plan_obj, "llm_engine", None)
+            default_model_name = getattr(plan_engine, "name", None) or "gpt-4o-mini"
+            model_obj = GPTModels.objects.filter(name=request.data.get("model", default_model_name), is_active=True).first()
+
         model_name = request.data.get("model", default_model_name)
         provider_name = _provider_name_by_mode(mode)
         template_data = _parse_template(request, provider_name)
-
-        gpt_model = GPTModels.objects.filter(name=model_name, is_active=True).first()
-        selected_model_name = gpt_model.name if gpt_model else model_name
-        model_max_tokens = gpt_model.max_tokens if gpt_model else None
+        selected_model_name = model_obj.name if model_obj else model_name
+        model_max_tokens = model_obj.max_tokens if model_obj else None
 
         # 2) Provider
         provider, provider_error = _load_active_provider(mode)
@@ -404,8 +418,11 @@ def OpenAIHandler(request):
                 attachments=attachments if isinstance(attachments, list) else None,
             )
 
-        # 6) Limits pre-check (texts)
-        if subscription and not subscription.can_consume("text"):
+        # 6) Limits pre-check based on mode
+        consume_kind = "music" if mode == "music-chat" else "text"
+        if subscription and not subscription.can_consume(consume_kind):
+            if consume_kind == "music":
+                return {"error": "Лимиты на генерацию музыки исчерпаны. Пополните лимит или обновите тариф."}
             return {"error": "Лимиты на генерацию текста исчерпаны. Пополните лимит или обновите тариф."}
 
         # 7) Build messages and call OpenAI
@@ -474,10 +491,10 @@ def OpenAIHandler(request):
             meta=usage_meta,
         )
 
-        # 9) Consume one text unit (best-effort; race-safe inside consume)
+        # 9) Consume one unit (best-effort; race-safe inside consume)
         if subscription:
             try:
-                subscription.consume("text")
+                subscription.consume(consume_kind)
             except ValidationError:
                 # Very rare race; ignore here to not break user flow
                 pass

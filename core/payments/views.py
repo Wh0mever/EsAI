@@ -17,7 +17,15 @@ from django.conf import settings
 from django.http import HttpResponseRedirect
 
 from users.models import User, UserCardBind
-from plans.models import Plan, UserSubscription, GenerationUsage, SubscriptionStatus, PaymentStatus, GenerationUnitPrice, CurrencyRate
+from plans.models import (
+    Plan,
+    UserSubscription,
+    GenerationUsage,
+    SubscriptionStatus,
+    PaymentStatus,
+    CurrencyRate,
+    GenerationUnitPrice,
+)
 from .freedompay import (
     FreedomPayHPPClient,
     FreedomPayError,
@@ -29,6 +37,19 @@ from .models import Payment
 
 
 logger = logging.getLogger()
+
+Q2 = Decimal("0.01")
+
+
+def _topup_unit_prices_usd() -> dict[str, Decimal] | None:
+    cfg = GenerationUnitPrice.objects.order_by("id").first()
+    if not cfg:
+        return None
+    return {
+        "music": Decimal(str(cfg.music_price or 0)).quantize(Q2),
+        "images": Decimal(str(cfg.image_price or 0)).quantize(Q2),
+        "texts": Decimal(str(cfg.text_price or 0)).quantize(Q2),
+    }
 
 
 class StartBindCardAPIView(APIView):
@@ -196,6 +217,24 @@ def _convert_usd_to_user_currency(user: User, amount_usd: Decimal) -> tuple[Deci
         return amount_usd, "USD"
 
 
+def _convert_usd_to_currency(amount_usd: Decimal, currency: str) -> Decimal | None:
+    code = (currency or "").strip().upper()
+    if code == "USD":
+        return amount_usd.quantize(Q2)
+    if code not in {"RUB", "KGS"}:
+        return None
+    rate_to_usd = CurrencyRate.objects.filter(currency=code).values_list("rate_to_usd", flat=True).first()
+    if not rate_to_usd:
+        return None
+    try:
+        rate_dec = Decimal(str(rate_to_usd))
+        if rate_dec <= 0:
+            return None
+        return (amount_usd / rate_dec).quantize(Q2)
+    except Exception:
+        return None
+
+
 def _get_user_active_paid_subscription(user: User) -> UserSubscription | None:
     sub = (
         UserSubscription.objects
@@ -222,6 +261,11 @@ def _activate_paid_plan_for_user(user: User, plan: Plan) -> tuple[UserSubscripti
         now = timezone.now()
         if existing and existing.plan_id == plan.id:
             changed_fields = []
+            cycle_days = int(getattr(plan, "duration_days", 30) or 30)
+            # Ensure next charge date is always defined and aligned to current activation.
+            existing.start_date = now
+            existing.end_date = now + timedelta(days=cycle_days)
+            changed_fields.extend(["start_date", "end_date"])
             if existing.payment_status != PaymentStatus.PAID:
                 existing.payment_status = PaymentStatus.PAID
                 changed_fields.append("payment_status")
@@ -378,6 +422,37 @@ def _apply_generation_topup_to_user(user: User, payload: dict) -> None:
         user_locked.save(update_fields=["bonus_music", "bonus_images", "bonus_texts"])
 
 
+class GenerationTopupPricingAPIView(APIView):
+    """Unit prices for generation top-up (single source, no DB singleton model)."""
+
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        prices = _topup_unit_prices_usd()
+        if not prices:
+            return Response({"configured": False, "data": None}, status=status.HTTP_200_OK)
+        music_usd = prices["music"]
+        image_usd = prices["images"]
+        text_usd = prices["texts"]
+        return Response(
+            {
+                "configured": True,
+                "data": {
+                    "music_price": str(music_usd),
+                    "image_price": str(image_usd),
+                    "text_price": str(text_usd),
+                    "music_price_rub": str(_convert_usd_to_currency(music_usd, "RUB") or 0),
+                    "music_price_kgs": str(_convert_usd_to_currency(music_usd, "KGS") or 0),
+                    "image_price_rub": str(_convert_usd_to_currency(image_usd, "RUB") or 0),
+                    "image_price_kgs": str(_convert_usd_to_currency(image_usd, "KGS") or 0),
+                    "text_price_rub": str(_convert_usd_to_currency(text_usd, "RUB") or 0),
+                    "text_price_kgs": str(_convert_usd_to_currency(text_usd, "KGS") or 0),
+                },
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
 class StartGenerationTopupPaymentAPIView(APIView):
     """Initialize one-time payment for extra generations and return redirect URL."""
 
@@ -387,7 +462,7 @@ class StartGenerationTopupPaymentAPIView(APIView):
         if not _get_user_active_paid_subscription(request.user):
             return Response({"message": "paid_active_subscription_required"}, status=status.HTTP_400_BAD_REQUEST)
 
-        unit_prices = GenerationUnitPrice.objects.order_by("id").first()
+        unit_prices = _topup_unit_prices_usd()
         if not unit_prices:
             return Response({"message": "unit_prices_not_configured"}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -400,9 +475,9 @@ class StartGenerationTopupPaymentAPIView(APIView):
             return Response({"message": "empty_selection"}, status=status.HTTP_400_BAD_REQUEST)
 
         total_usd = (
-            Decimal(str(unit_prices.music_price or 0)) * music_count
-            + Decimal(str(unit_prices.image_price or 0)) * image_count
-            + Decimal(str(unit_prices.text_price or 0)) * text_count
+            unit_prices["music"] * music_count
+            + unit_prices["images"] * image_count
+            + unit_prices["texts"] * text_count
         ).quantize(Decimal("0.01"))
         if total_usd <= 0:
             return Response({"message": "topup_not_payable"}, status=status.HTTP_400_BAD_REQUEST)
@@ -442,9 +517,9 @@ class StartGenerationTopupPaymentAPIView(APIView):
                 "topup_init": {
                     "counts": {"music": music_count, "images": image_count, "texts": text_count},
                     "unit_prices_usd": {
-                        "music": str(unit_prices.music_price or 0),
-                        "images": str(unit_prices.image_price or 0),
-                        "texts": str(unit_prices.text_price or 0),
+                        "music": str(unit_prices["music"]),
+                        "images": str(unit_prices["images"]),
+                        "texts": str(unit_prices["texts"]),
                     },
                     "amount_usd": str(total_usd),
                     "amount": str(amount),

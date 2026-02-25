@@ -12,6 +12,7 @@ from .views import (
     ChatAttachmentUploadAPIView,
     DalleImageSubmitAPIView,
     DalleImageStatusAPIView,
+    TopMediaModelsApiView,
 )
 
 urlpatterns = [
@@ -27,4 +28,5 @@ urlpatterns = [
     path('sessions/', ChatSessionListAPIView.as_view(), name='chat_sessions'),
     path('sessions/<str:session_ref>/', ChatSessionDetailAPIView.as_view(), name='chat_sessions_detail'),
     path("providers/", AiProvidersApiView.as_view(), name="ai-providers"),
+    path("topmedia-models/", TopMediaModelsApiView.as_view(), name="topmedia-models"),
 ]

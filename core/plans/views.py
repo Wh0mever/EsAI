@@ -6,10 +6,10 @@ from rest_framework.response import Response
 from django.views.decorators.vary import vary_on_headers
 from rest_framework.exceptions import NotFound
 
-from .models import Plan, UserSubscription, AddonPurchase, SubscriptionStatus, PaymentStatus, GenerationUnitPrice
+from .models import Plan, UserSubscription, AddonPurchase, SubscriptionStatus, PaymentStatus
 from .serializers import (
     PlanSerializer, UserSubscriptionSerializer,
-    GenerationUsageSerializer, AddonPurchaseSerializer, GenerationUnitPriceSerializer
+    GenerationUsageSerializer, AddonPurchaseSerializer
 )
 from .services import get_currency_per_usd_map_cached
 from rest_framework.views import APIView
@@ -91,19 +91,13 @@ class MeUsageView(generics.GenericAPIView):
 
 
 class MeAddonsView(generics.ListAPIView):
-    """Add-on purchases of the current active subscription."""
+    """Add-on purchases of the current user profile."""
     permission_classes = [permissions.IsAuthenticated]
     serializer_class = AddonPurchaseSerializer
 
     def get_queryset(self):
-        sub = (UserSubscription.objects
-               .filter(user=self.request.user, status=SubscriptionStatus.ACTIVE)
-               .order_by("-start_date")
-               .first())
-        if not sub:
-            return AddonPurchase.objects.none()
         return (AddonPurchase.objects
-                .filter(subscription=sub)
+                .filter(user=self.request.user)
                 .order_by("-purchase_date"))
 
 
@@ -153,22 +147,6 @@ class ResumeSubscriptionView(APIView):
         return Response(UserSubscriptionSerializer(sub).data, status=200)
 
 
-class GenerationUnitPriceView(APIView):
-    """Singleton prices for one-off generation units (music/image/text)."""
-    permission_classes = [permissions.AllowAny]
-
-    def get(self, request, *args, **kwargs):
-        unit_prices = GenerationUnitPrice.objects.order_by("id").first()
-        if not unit_prices:
-            return Response({"configured": False, "data": None}, status=200)
-
-        serializer = GenerationUnitPriceSerializer(
-            unit_prices,
-            context={"currency_per_usd": get_currency_per_usd_map_cached(["RUB", "KGS"], timeout=300)},
-        )
-        return Response({"configured": True, "data": serializer.data}, status=200)
-
-
 class ActivatePlanView(APIView):
     """Activate a plan for the current user if prerequisites are met.
 
@@ -204,6 +182,10 @@ class ActivatePlanView(APIView):
         with transaction.atomic():
             # If already on this plan, keep behavior as 'already_active'
             if existing and existing.plan_id == plan.id:
+                if not existing.end_date:
+                    existing.start_date = now
+                    existing.end_date = now + timedelta(days=int(plan.duration_days or 30))
+                    existing.save(update_fields=["start_date", "end_date"])
                 return Response({"message": "already_active"}, status=400)
 
             # If switching from another active plan: rollover leftovers to bonus and deactivate old

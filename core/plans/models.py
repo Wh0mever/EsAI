@@ -1,6 +1,7 @@
 from django.conf import settings
 from django.db import models
 from django.core.exceptions import ValidationError
+from datetime import timedelta
 
 
 class Currency(models.TextChoices):
@@ -36,8 +37,8 @@ class GenerationUnitPrice(models.Model):
     text_price = models.DecimalField(max_digits=12, decimal_places=2, default=0, verbose_name="Цена за текст (USD)")
 
     class Meta:
-        verbose_name = "Цена докупки генерации"
-        verbose_name_plural = "Цены докупки генераций"
+        verbose_name = "Покупка дополнения"
+        verbose_name_plural = "Покупки дополнений"
 
     def __str__(self):
         return "Цены докупки генераций"
@@ -66,6 +67,9 @@ class Plan(models.Model):
     # Engine mapping (frontend resolves to a label)
     llm_engine = models.ForeignKey(
         'ai.GPTModels', on_delete=models.SET_NULL, null=True, blank=True, related_name='+'
+    )
+    topmedia_engine = models.ForeignKey(
+        'ai.TopMediaModels', on_delete=models.SET_NULL, null=True, blank=True, related_name='+'
     )
     
     # Template Names
@@ -162,6 +166,18 @@ class UserSubscription(models.Model):
     def __str__(self):
         return f"{self.user} — Plan #{self.plan_id}"
 
+    def save(self, *args, **kwargs):
+        # Admin/manual creation may leave end_date empty; ensure billing cycle end is always set.
+        if self.end_date is None and self.plan_id:
+            start = self.start_date
+            if start is None:
+                from django.utils import timezone
+                start = timezone.now()
+                self.start_date = start
+            days = int(getattr(self.plan, "duration_days", 30) or 30)
+            self.end_date = start + timedelta(days=days)
+        return super().save(*args, **kwargs)
+
     # Helpers
     def is_unlimited(self, value: int | None) -> bool:
         # Treat None/0 from plan limits as unlimited in usage logic
@@ -172,11 +188,10 @@ class UserSubscription(models.Model):
         usage = getattr(self, "usage", None)
         if not usage:
             return
-        usage.songs_left = (usage.songs_left or 0) + addon.songs_added
         usage.music_left = (usage.music_left or 0) + addon.music_added
         usage.texts_left = (usage.texts_left or 0) + addon.texts_added
         usage.images_left = (usage.images_left or 0) + addon.images_added
-        usage.save(update_fields=["songs_left", "music_left", "texts_left", "images_left"])
+        usage.save(update_fields=["music_left", "texts_left", "images_left"])
 
     # ---- Limits helpers ----
     def _get_usage_locked(self) -> "GenerationUsage":
@@ -347,29 +362,17 @@ class GenerationUsage(models.Model):
         self._dec("images_left", unlimited)
 
 
-class AddonType(models.TextChoices):
-    SONG_BOOST = "song_boost", "20 песен"
-    MUSIC_PACK = "music_pack", "20 музыки"
-    TEXT_EXPAND = "text_expand", "50 текстов"
-    IMAGE_PACK = "image_pack", "30 изображений"
-    ALL_IN_ONE = "all_in_one", "Смешанный пакет"
-    MAX_BOOST = "max_boost", "Максимальный пакет"
-
-
 class AddonPurchase(models.Model):
-    subscription = models.ForeignKey(UserSubscription, on_delete=models.CASCADE, related_name="addons")
-    addon_type = models.CharField(max_length=50, choices=AddonType.choices)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="addon_purchases")
     purchase_date = models.DateTimeField(auto_now_add=True)
-
-    songs_added = models.PositiveIntegerField(default=0)
     music_added = models.PositiveIntegerField(default=0)
     texts_added = models.PositiveIntegerField(default=0)
     images_added = models.PositiveIntegerField(default=0)
 
     class Meta:
-        indexes = [models.Index(fields=["subscription", "purchase_date"])]
+        indexes = [models.Index(fields=["user", "purchase_date"])]
         verbose_name = "Покупка дополнения"
         verbose_name_plural = "Покупки дополнений"
 
     def __str__(self):
-        return f"{self.subscription.user} — {self.get_addon_type_display()}"
+        return f"{self.user} — +M:{self.music_added} +T:{self.texts_added} +I:{self.images_added}"
