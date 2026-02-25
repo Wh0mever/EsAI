@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Start full local development stack:
+# - Django: manage.py runserver
+# - Next.js: npm run dev
+# - Postgres/Redis
+# - Celery worker/beat
+# - Nginx reverse proxy on :80
+#
+# Usage:
+#   ./scripts/up-dev
+#   ./scripts/up-dev --build
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR/.."
+
+FILES=(-f compose.dev.yaml)
+
+if [[ "${1:-}" == "--build" ]]; then
+  docker compose "${FILES[@]}" build
+fi
+
+docker compose "${FILES[@]}" up -d --remove-orphans
+
+echo "Waiting for app readiness on http://localhost ..."
+for i in $(seq 1 120); do
+  if curl -fsS http://localhost/ >/dev/null 2>&1; then
+    break
+  fi
+  sleep 1
+done
+
+if ! curl -fsS http://localhost/ >/dev/null 2>&1; then
+  echo "App is still not ready after timeout. Check logs:"
+  echo "  docker compose -f compose.dev.yaml logs -f next core nginx"
+  exit 1
+fi
+
+cat <<'EOF'
+Dev stack is up.
+- App via nginx: http://localhost
+- Next dev direct: http://localhost:3000
+- Django direct:   http://localhost:8000
+
+Useful:
+- logs: docker compose -f compose.dev.yaml logs -f
+- stop: docker compose -f compose.dev.yaml down
+EOF

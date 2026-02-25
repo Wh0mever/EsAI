@@ -1,0 +1,179 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [web]
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [web]
+
+  core:
+    user: "0:0"
+    build:
+      context: ./core
+      dockerfile: Dockerfile
+    env_file: .env
+    environment:
+      DJANGO_DEBUG: "1"
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
+    command: sh -lc "python manage.py runserver 0.0.0.0:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./core:/app
+      - ./static:/app/static
+      - ./media:/app/media
+      - ./logs:/app/logs
+    expose:
+      - "8000"
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/admin/login/', timeout=2)\""]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+    networks: [web]
+
+  celery:
+    user: "0:0"
+    build:
+      context: ./core
+      dockerfile: Dockerfile
+    env_file: .env
+    environment:
+      DJANGO_DEBUG: "1"
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
+      C_FORCE_ROOT: "1"
+    command: >
+      sh -lc "celery -A core worker
+      --loglevel=${CELERY_LOG_LEVEL:-INFO}
+      --logfile=/app/logs/celery.log
+      --concurrency=${CELERY_CONCURRENCY:-2}"
+    depends_on:
+      core:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./core:/app
+      - ./logs:/app/logs
+      - ./media:/app/media
+      - ./static:/app/static
+    restart: unless-stopped
+    networks: [web]
+
+  celery_beat:
+    user: "0:0"
+    build:
+      context: ./core
+      dockerfile: Dockerfile
+    env_file: .env
+    environment:
+      DJANGO_DEBUG: "1"
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
+    command: >
+      sh -lc "celery -A core beat
+      --loglevel=${CELERY_LOG_LEVEL:-INFO}
+      --logfile=/app/logs/celery_beat.log
+      --scheduler django_celery_beat.schedulers:DatabaseScheduler"
+    depends_on:
+      core:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./core:/app
+      - ./logs:/app/logs
+    restart: unless-stopped
+    networks: [web]
+
+  next:
+    image: node:20-alpine
+    working_dir: /app
+    env_file: .env
+    environment:
+      NODE_ENV: development
+      NEXT_TELEMETRY_DISABLED: "1"
+      CHOKIDAR_USEPOLLING: "true"
+      WATCHPACK_POLLING: "true"
+    command: >
+      sh -lc "if [ ! -d node_modules ] || [ ! -f node_modules/.package-lock.json ]; then npm ci; fi
+      && npm run dev -- --hostname 0.0.0.0 --port 3000"
+    depends_on:
+      - core
+    volumes:
+      - ./next:/app
+      - next_node_modules:/app/node_modules
+      - next_cache:/app/.next
+    expose:
+      - "3000"
+    ports:
+      - "3000:3000"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "node -e \"require('http').get('http://127.0.0.1:3000', r=>process.exit(r.statusCode<500?0:1)).on('error',()=>process.exit(1))\""
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 40
+    restart: unless-stopped
+    networks: [web]
+
+  nginx:
+    image: nginx:1.27-alpine
+    depends_on:
+      core:
+        condition: service_healthy
+      next:
+        condition: service_healthy
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./static:/var/www/static:ro
+      - ./media:/var/www/media:ro
+      - ./logs:/var/log/nginx
+    ports:
+      - "80:80"
+    restart: unless-stopped
+    networks: [web]
+
+volumes:
+  pgdata:
+  redisdata:
+  next_node_modules:
+  next_cache:
+
+networks:
+  web:
+    driver: bridge
