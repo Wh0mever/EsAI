@@ -18,7 +18,7 @@ def generate_image_task(
     prompt: str,
     size: str = "1024x1024",
     model: str = "gpt-image-1",
-    provider_slug: str = "gpt",
+    provider_slug: str = "dall-e",
     session_id: int | None = None,
     attachments: list | None = None,
 ) -> dict:
@@ -31,7 +31,7 @@ def generate_image_task(
     if size not in {"256x256", "512x512", "1024x1024"}:
         size = "1024x1024"
     model_name = (model or "gpt-image-1").strip()
-    provider_slug = (provider_slug or "gpt").strip()
+    provider_slug = (provider_slug or AiProvider.NAME_TO_SLUG[AiProvider.NAME_DALLE]).strip()
 
     try:
         user = User.objects.get(pk=user_id)
@@ -144,4 +144,3 @@ def generate_image_task(
         "image": {"url": url, "size": size, "id": gen.id, "uniqid": gen.uniqid},
         "message": {"id": getattr(assistant_msg, "id", None)} if assistant_msg else None,
     }
-

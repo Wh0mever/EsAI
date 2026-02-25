@@ -73,7 +73,7 @@ class DalleImageSubmitAPIView(APIView):
             "prompt": prompt,
             "size": (data.get("size") or "1024x1024").strip(),
             "model": (data.get("model") or "gpt-image-1").strip(),
-            "provider_slug": (data.get("provider_slug") or "gpt").strip(),
+            "provider_slug": (data.get("provider_slug") or AiProvider.NAME_TO_SLUG[AiProvider.NAME_DALLE]).strip(),
             "session_id": data.get("session_id") or data.get("chat_id"),
             "attachments": data.get("attachments") if isinstance(data.get("attachments"), list) else None,
         }

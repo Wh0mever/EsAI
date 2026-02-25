@@ -23,8 +23,24 @@ class GPTModels(models.Model):
 
 
 class AiProvider(models.Model):
-    name = models.CharField(max_length=100, unique=True)
-    slug = models.SlugField(unique=True)
+    NAME_GPT = "GPT"
+    NAME_TOPMEDIA = "Topmedia"
+    NAME_DALLE = "Dall-e"
+
+    NAME_CHOICES = [
+        (NAME_GPT, "GPT"),
+        (NAME_TOPMEDIA, "Topmedia"),
+        (NAME_DALLE, "Dall-e"),
+    ]
+
+    NAME_TO_SLUG = {
+        NAME_GPT: "gpt",
+        NAME_TOPMEDIA: "topmedia",
+        NAME_DALLE: "dall-e",
+    }
+
+    name = models.CharField(max_length=100, unique=True, choices=NAME_CHOICES)
+    slug = models.SlugField(unique=True, editable=False)
     base_url = models.URLField(help_text="API URL", blank=True, null=True)
     description = models.TextField(blank=True)
     is_active = models.BooleanField(default=True)
@@ -35,6 +51,14 @@ class AiProvider(models.Model):
 
     def __str__(self):
         return self.name
+
+    def save(self, *args, **kwargs):
+        canonical_slug = self.NAME_TO_SLUG.get(self.name)
+        if canonical_slug:
+            self.slug = canonical_slug
+        elif self.slug:
+            self.slug = self.slug.strip().lower()
+        super().save(*args, **kwargs)
 
     class Meta:
         verbose_name = "AI провайдер"

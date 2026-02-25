@@ -23,6 +23,28 @@ from .serializers import AiChatMessageSerializer
 HISTORY_LIMIT = None
 
 
+def _provider_name_by_mode(mode: str | None) -> str:
+    normalized = (mode or "text-chat").strip().lower()
+    if normalized == "image-chat":
+        return AiProvider.NAME_DALLE
+    if normalized == "music-chat":
+        return AiProvider.NAME_TOPMEDIA
+    return AiProvider.NAME_GPT
+
+
+def _load_active_provider(mode: str | None) -> tuple[Optional[AiProvider], Optional[str]]:
+    provider_name = _provider_name_by_mode(mode)
+    provider = AiProvider.objects.filter(name=provider_name, is_active=True).first()
+    if provider:
+        return provider, None
+    fallback_slug = AiProvider.NAME_TO_SLUG.get(provider_name)
+    if fallback_slug:
+        provider = AiProvider.objects.filter(slug=fallback_slug, is_active=True).first()
+        if provider:
+            return provider, None
+    return None, f"Provider '{provider_name}' not found or inactive"
+
+
 def _build_openai_messages(session: AiChatSession, new_user_text: str, system_prompt: str, origin_base: str | None = None) -> List[dict]:
     """Build messages for Chat Completions, supporting image attachments.
 
@@ -69,9 +91,21 @@ def _build_openai_messages(session: AiChatSession, new_user_text: str, system_pr
     return out
 
 
-def _parse_template(request):
-    templates = json.loads(request.data['templates'])
-    return templates.get('GPT', None)
+def _parse_template(request, provider_name: str):
+    raw = request.data.get("templates")
+    if not raw:
+        return None
+    try:
+        templates = json.loads(raw)
+    except Exception:
+        return None
+    if not isinstance(templates, dict):
+        return None
+    return (
+        templates.get(provider_name)
+        or templates.get(provider_name.lower())
+        or templates.get("GPT")
+    )
 
 
 def _render_messages_as_dialog(messages: List[dict]) -> str:
@@ -272,6 +306,7 @@ def _pick_lang(request) -> tuple[str, str]:
 
 def OpenAIHandler(request):
     try:
+        mode = request.data.get("mode") or "text-chat"
         # 1) Model + subscription/limits
         subscription = (
             UserSubscription.objects
@@ -284,18 +319,17 @@ def OpenAIHandler(request):
         plan_engine = getattr(getattr(subscription, "plan", None), "llm_engine", None)
         default_model_name = getattr(plan_engine, "name", None) or "gpt-4o-mini"
         model_name = request.data.get("model", default_model_name)
-        template_data = _parse_template(request)
+        provider_name = _provider_name_by_mode(mode)
+        template_data = _parse_template(request, provider_name)
 
         gpt_model = GPTModels.objects.filter(name=model_name, is_active=True).first()
         if not gpt_model:
             return {"error": f"Model '{model_name}' not found or inactive"}
 
         # 2) Provider
-        provider_slug = request.data.get("provider_slug", "gpt")
-        try:
-            provider = AiProvider.objects.get(slug=provider_slug, is_active=True)
-        except AiProvider.DoesNotExist:
-            return {"error": f"Provider '{provider_slug}' not found or inactive"}
+        provider, provider_error = _load_active_provider(mode)
+        if provider_error:
+            return {"error": provider_error}
 
         # 3) System prompt + locale policy
         lang_code, lang_name = _pick_lang(request)
@@ -351,7 +385,7 @@ def OpenAIHandler(request):
                     user=request.user,
                     provider=provider,
                     title=title,
-                    chat_mode=request.data['mode'] or 'text-chat'
+                    chat_mode=mode
                 )
 
             AiChatMessage.objects.create(
@@ -463,7 +497,7 @@ def OpenAIImageHandler(request):
       - session_id: optional existing session id
       - size: optional size like '1024x1024'
       - model: optional model name (default gpt-image-1)
-      - provider_slug: optional provider (default 'gpt')
+      - provider_slug: optional provider (default 'dall-e')
     """
     try:
         prompt = (request.data.get("message") or "").strip()
@@ -474,12 +508,9 @@ def OpenAIImageHandler(request):
         if size not in {"256x256", "512x512", "1024x1024"}:
             size = "1024x1024"
         model_name = (request.data.get("model") or "gpt-image-1").strip()
-        provider_slug = request.data.get("provider_slug", "gpt")
-
-        try:
-            provider = AiProvider.objects.get(slug=provider_slug, is_active=True)
-        except AiProvider.DoesNotExist:
-            return {"error": f"Provider '{provider_slug}' not found or inactive"}
+        provider, provider_error = _load_active_provider("image-chat")
+        if provider_error:
+            return {"error": provider_error}
 
         if not (provider.token or "").strip():
             return {"error": "Image provider is not configured."}
