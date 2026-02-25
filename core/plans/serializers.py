@@ -1,6 +1,6 @@
 from decimal import Decimal, ROUND_HALF_UP
 from rest_framework import serializers
-from .models import Plan, UserSubscription, GenerationUsage, AddonPurchase, GenerationUnitPrice
+from .models import Plan, UserSubscription, GenerationUsage, AddonPurchase
 from .services import get_currency_per_usd_map
 
 # price quantize helper
@@ -15,6 +15,7 @@ class PlanSerializer(serializers.ModelSerializer):
     has_discount = serializers.SerializerMethodField()
     discount_percent = serializers.SerializerMethodField()
     llm_engine_name = serializers.SerializerMethodField()
+    topmedia_engine_name = serializers.SerializerMethodField()
 
     ai_templates_limit = serializers.SerializerMethodField()
     operations_per_month_limit = serializers.SerializerMethodField()
@@ -34,6 +35,7 @@ class PlanSerializer(serializers.ModelSerializer):
             "price_amount", "price_base_amount",
             "has_discount", "discount_percent",
             "llm_engine_id", "llm_engine_name",
+            "topmedia_engine_id", "topmedia_engine_name",
             "chat_output_tokens_limit",
             "ai_templates_limit", "operations_per_month_limit", "covers_limit",
             "song_limit", "music_limit", "text_limit", "image_limit",
@@ -62,6 +64,10 @@ class PlanSerializer(serializers.ModelSerializer):
 
     def get_llm_engine_name(self, obj: Plan) -> str | None:
         engine = getattr(obj, "llm_engine", None)
+        return getattr(engine, "name", None) if engine else None
+
+    def get_topmedia_engine_name(self, obj: Plan) -> str | None:
+        engine = getattr(obj, "topmedia_engine", None)
         return getattr(engine, "name", None) if engine else None
 
     # ---- limits ----
@@ -189,62 +195,5 @@ class AddonPurchaseSerializer(serializers.ModelSerializer):
     class Meta:
         model = AddonPurchase
         fields = (
-            "id", "addon_type", "purchase_date",
-            "songs_added", "music_added", "texts_added", "images_added",
+            "id", "purchase_date", "music_added", "texts_added", "images_added",
         )
-
-
-class GenerationUnitPriceSerializer(serializers.ModelSerializer):
-    music_price_rub = serializers.SerializerMethodField()
-    music_price_kgs = serializers.SerializerMethodField()
-    image_price_rub = serializers.SerializerMethodField()
-    image_price_kgs = serializers.SerializerMethodField()
-    text_price_rub = serializers.SerializerMethodField()
-    text_price_kgs = serializers.SerializerMethodField()
-
-    class Meta:
-        model = GenerationUnitPrice
-        fields = (
-            "music_price", "image_price", "text_price",
-            "music_price_rub", "music_price_kgs",
-            "image_price_rub", "image_price_kgs",
-            "text_price_rub", "text_price_kgs",
-        )
-
-    def _per_usd(self) -> dict:
-        cache = getattr(self, "_currency_per_usd_cache", None)
-        if cache is not None:
-            return cache
-        ctx_map = self.context.get("currency_per_usd")
-        if isinstance(ctx_map, dict) and ctx_map:
-            self._currency_per_usd_cache = ctx_map
-            return ctx_map
-        m = get_currency_per_usd_map(["RUB", "KGS"])
-        self._currency_per_usd_cache = m
-        return m
-
-    def _usd_to(self, amount_usd: Decimal | None, code: str) -> Decimal | None:
-        if amount_usd is None:
-            return None
-        rate = self._per_usd().get(code)
-        if not rate:
-            return None
-        return q2(Decimal(amount_usd) * rate)
-
-    def get_music_price_rub(self, obj: GenerationUnitPrice):
-        return self._usd_to(obj.music_price, "RUB")
-
-    def get_music_price_kgs(self, obj: GenerationUnitPrice):
-        return self._usd_to(obj.music_price, "KGS")
-
-    def get_image_price_rub(self, obj: GenerationUnitPrice):
-        return self._usd_to(obj.image_price, "RUB")
-
-    def get_image_price_kgs(self, obj: GenerationUnitPrice):
-        return self._usd_to(obj.image_price, "KGS")
-
-    def get_text_price_rub(self, obj: GenerationUnitPrice):
-        return self._usd_to(obj.text_price, "RUB")
-
-    def get_text_price_kgs(self, obj: GenerationUnitPrice):
-        return self._usd_to(obj.text_price, "KGS")

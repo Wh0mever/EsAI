@@ -112,7 +112,7 @@ export default function UserPlan({ t, data, onUnsubscribe, onResume }: Props) {
 			setIsUnitPricesLoading(true);
 			try {
 				const res = await fetchData<{ configured?: boolean; data?: UnitPricesData | null }>(
-					"plans/unit-prices/",
+					"payments/topup/pricing/",
 					"GET",
 					undefined,
 					true

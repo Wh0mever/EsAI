@@ -1,4 +1,4 @@
-from .models import Plan, UserSubscription, GenerationUsage, AddonPurchase, CurrencyRate, GenerationUnitPrice
+from .models import Plan, UserSubscription, GenerationUsage, CurrencyRate, GenerationUnitPrice
 from django.contrib import admin, messages
 from django.core.management import call_command
 from django.urls import path, reverse
@@ -6,6 +6,7 @@ from django.shortcuts import redirect
 from django.utils.translation import gettext_lazy as _
 from django.utils.decorators import method_decorator
 from django.views.decorators.http import require_POST
+from ai.models import TopMediaModels
 
 @admin.register(CurrencyRate)
 class CurrencyRateAdmin(admin.ModelAdmin):
@@ -86,7 +87,7 @@ class PlanAdmin(admin.ModelAdmin):
             )
         }),
         ("Цены", {"fields": ( "price_amount", "price_base_amount")}),
-        ("Модель", {"fields": ("llm_engine",)}),
+        ("Модель", {"fields": ("llm_engine", "topmedia_engine")}),
         ("Лимиты (0 = безлимит)", {
             "fields": (
                 "ai_templates_limit", "operations_per_month_limit", "covers_limit",
@@ -106,6 +107,13 @@ class PlanAdmin(admin.ModelAdmin):
         }),
         ("Покупки", {"fields": ("can_purchase_addons",)}),
     )
+
+    def formfield_for_foreignkey(self, db_field, request, **kwargs):
+        if db_field.name == "topmedia_engine":
+            kwargs["queryset"] = TopMediaModels.objects.filter(
+                kind=TopMediaModels.KIND_MUSIC
+            ).order_by("name")
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
 
 @admin.register(GenerationUnitPrice)
@@ -137,10 +145,3 @@ class UserSubscriptionAdmin(admin.ModelAdmin):
     date_hierarchy = "start_date"
     inlines = [GenerationUsageInline]
 
-
-@admin.register(AddonPurchase)
-class AddonPurchaseAdmin(admin.ModelAdmin):
-    list_display = ("id", "subscription", "addon_type", "purchase_date",
-                    "songs_added", "music_added", "texts_added", "images_added")
-    list_filter = ("addon_type",)
-    search_fields = ("subscription__user__username", "subscription__user__email")

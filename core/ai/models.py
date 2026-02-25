@@ -26,6 +26,31 @@ class GPTModels(models.Model):
         verbose_name_plural = "GPT модели"
 
 
+class TopMediaModels(models.Model):
+    KIND_MUSIC = "music"
+    KIND_VOICE_CLONE = "voice_clone"
+    KIND_CHOICES = [
+        (KIND_MUSIC, "Music Generator"),
+        (KIND_VOICE_CLONE, "Voice Cloning"),
+    ]
+
+    name = models.CharField(max_length=100, unique=True)
+    kind = models.CharField(max_length=20, choices=KIND_CHOICES, default=KIND_MUSIC)
+    description = models.TextField(blank=True)
+    max_tokens = models.IntegerField(help_text="Maximum tokens allowed", default=0)
+    is_active = models.BooleanField(default=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return self.name
+
+    class Meta:
+        verbose_name = "TopMedia модель"
+        verbose_name_plural = "TopMedia модели"
+
+
 class AiProvider(models.Model):
     NAME_GPT = "GPT"
     NAME_TOPMEDIA = "Topmedia"

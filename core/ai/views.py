@@ -7,12 +7,13 @@ from .handlers import OpenAIHandler, OpenAIImageHandler
 from .tasks import generate_image_task
 from celery.result import AsyncResult
 from core.celery import app as celery_app
-from .models import AiProvider, AiChatSession, AiChatMessage, AiPromptTemplate, AiPromptTemplateFavorite
+from .models import AiProvider, AiChatSession, AiChatMessage, AiPromptTemplate, AiPromptTemplateFavorite, TopMediaModels
 from .serializers import (
     AiChatSessionListSerializer,
     AiChatMessageSerializer,
     AiPromptTemplateSerializer,
     AiProviderSerializer,
+    TopMediaModelSerializer,
     AiGeneratedImageSerializer,
 )
 from django.utils.decorators import method_decorator
@@ -273,6 +274,20 @@ class AiProvidersApiView(APIView):
     def get(self, request):
         qs = AiProvider.objects.all().order_by("id")
         data = AiProviderSerializer(qs, many=True).data
+        return Response(data, status=status.HTTP_200_OK)
+
+
+class TopMediaModelsApiView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        kind = (request.query_params.get("kind") or "").strip()
+        qs = TopMediaModels.objects.filter(is_active=True)
+        if kind:
+            qs = qs.filter(kind=kind)
+        qs = qs.order_by("kind", "name")
+        data = TopMediaModelSerializer(qs, many=True).data
         return Response(data, status=status.HTTP_200_OK)
 
 
