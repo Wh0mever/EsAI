@@ -45,6 +45,22 @@ def _load_active_provider(mode: str | None) -> tuple[Optional[AiProvider], Optio
     return None, f"Provider '{provider_name}' not found or inactive"
 
 
+def _resolve_session_for_user(user, session_ref: Any, for_update: bool = False) -> Optional[AiChatSession]:
+    raw = (str(session_ref).strip() if session_ref is not None else "")
+    if not raw:
+        return None
+
+    qs = AiChatSession.objects.filter(user=user, is_active=True)
+    if for_update:
+        qs = qs.select_for_update()
+
+    if raw.isdigit():
+        by_id = qs.filter(id=int(raw)).first()
+        if by_id:
+            return by_id
+    return qs.filter(uid=raw).first()
+
+
 def _build_openai_messages(session: AiChatSession, new_user_text: str, system_prompt: str, origin_base: str | None = None) -> List[dict]:
     """Build messages for Chat Completions, supporting image attachments.
 
@@ -83,10 +99,6 @@ def _build_openai_messages(session: AiChatSession, new_user_text: str, system_pr
         # Fallback to simple string if no parts
         content_obj = parts if parts else (txt or "")
         out.append({"role": m.role, "content": content_obj})
-
-    # Latest user message (already persisted above) is included via history; keep for safety
-    if new_user_text:
-        out.append({"role": "user", "content": new_user_text})
 
     return out
 
@@ -323,13 +335,15 @@ def OpenAIHandler(request):
         template_data = _parse_template(request, provider_name)
 
         gpt_model = GPTModels.objects.filter(name=model_name, is_active=True).first()
-        if not gpt_model:
-            return {"error": f"Model '{model_name}' not found or inactive"}
+        selected_model_name = gpt_model.name if gpt_model else model_name
+        model_max_tokens = gpt_model.max_tokens if gpt_model else None
 
         # 2) Provider
         provider, provider_error = _load_active_provider(mode)
         if provider_error:
             return {"error": provider_error}
+        if not (provider.token or "").strip():
+            return {"error": "Text provider is not configured."}
 
         # 3) System prompt + locale policy
         lang_code, lang_name = _pick_lang(request)
@@ -371,12 +385,7 @@ def OpenAIHandler(request):
         session_id = request.data.get("session_id") or request.data.get("chat_id")
         with transaction.atomic():
             if session_id:
-                session = (
-                    AiChatSession.objects
-                    .filter(id=session_id, user=request.user, is_active=True)
-                    .select_for_update()
-                    .first()
-                )
+                session = _resolve_session_for_user(request.user, session_id, for_update=True)
                 if not session:
                     return {"error": "Session not found"}
             else:
@@ -413,9 +422,9 @@ def OpenAIHandler(request):
 
         # Determine completion tokens limit: plan override > model default
         plan_limit = getattr(getattr(subscription, "plan", None), "chat_output_tokens_limit", None)
-        max_limit = plan_limit or (gpt_model.max_tokens or None)
-        is_reason = _is_reasoning(gpt_model.name)
-        is_newchat = _is_new_chat(gpt_model.name)
+        max_limit = plan_limit or (model_max_tokens or None)
+        is_reason = _is_reasoning(selected_model_name)
+        is_newchat = _is_new_chat(selected_model_name)
 
         # Heuristic: only add temperature if explicitly asked AND model is not reasoning
         allow_temperature = (not is_reason) and (req_temperature is not None)
@@ -426,7 +435,7 @@ def OpenAIHandler(request):
             try:
                 completion, endpoint = _call_chat_completions_with_fallback(
                     client=client,
-                    model_name=gpt_model.name,
+                    model_name=selected_model_name,
                     messages=messages_work,
                     max_tokens_limit=max_limit if is_newchat else max_limit,
                     allow_temperature=allow_temperature,
@@ -438,7 +447,7 @@ def OpenAIHandler(request):
                 try:
                     completion, endpoint = _call_responses_api(
                         client=client,
-                        model_name=gpt_model.name,
+                        model_name=selected_model_name,
                         messages=messages_work,
                         max_tokens_limit=max_limit,
                     )
@@ -454,7 +463,7 @@ def OpenAIHandler(request):
 
         answer = _extract_text_from_result(completion, endpoint)
 
-        usage_meta = _extract_usage_meta(completion, endpoint, gpt_model.name)
+        usage_meta = _extract_usage_meta(completion, endpoint, selected_model_name)
 
         # 8) Save assistant message
         assistant_msg = AiChatMessage.objects.create(
@@ -476,6 +485,7 @@ def OpenAIHandler(request):
         return {
             "session": {
                 "id": session.id,
+                "uid": session.uid,
                 "title": session.title,
                 "provider": provider.slug,
                 "updated_at": session.updated_at,
@@ -521,12 +531,7 @@ def OpenAIImageHandler(request):
         session_id = request.data.get("session_id") or request.data.get("chat_id")
         with transaction.atomic():
             if session_id:
-                session = (
-                    AiChatSession.objects
-                    .filter(id=session_id, user=request.user, is_active=True)
-                    .select_for_update()
-                    .first()
-                )
+                session = _resolve_session_for_user(request.user, session_id, for_update=True)
                 if not session:
                     return {"error": "Session not found"}
             else:
@@ -620,7 +625,7 @@ def OpenAIImageHandler(request):
                 pass
 
         return {
-            "session": {"id": session.id, "title": session.title, "provider": provider.slug, "updated_at": session.updated_at},
+            "session": {"id": session.id, "uid": session.uid, "title": session.title, "provider": provider.slug, "updated_at": session.updated_at},
             "image": {"url": url, "size": size, "id": gen.id, "uniqid": gen.uniqid},
             "message": AiChatMessageSerializer(assistant_msg).data if assistant_msg else None,
         }

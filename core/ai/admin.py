@@ -116,8 +116,8 @@ class AiChatMessageInline(admin.TabularInline):
 
 @admin.register(AiChatSession)
 class AiChatSessionAdmin(admin.ModelAdmin):
-    list_display = ('id', 'title', 'user', 'provider', 'messages_count', 'is_active', 'created_at', 'updated_at')
-    search_fields = ('title', 'user__email', 'user__username')
+    list_display = ('id', 'uid', 'title', 'user', 'provider', 'messages_count', 'is_active', 'created_at', 'updated_at')
+    search_fields = ('uid', 'title', 'user__email', 'user__username')
     list_filter = ('is_active', 'provider', 'created_at')
     ordering = ('-updated_at',)
     date_hierarchy = 'created_at'

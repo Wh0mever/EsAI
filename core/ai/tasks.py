@@ -19,7 +19,7 @@ def generate_image_task(
     size: str = "1024x1024",
     model: str = "gpt-image-1",
     provider_slug: str = "dall-e",
-    session_id: int | None = None,
+    session_id: str | int | None = None,
     attachments: list | None = None,
 ) -> dict:
     User = get_user_model()
@@ -50,12 +50,12 @@ def generate_image_task(
     # Ensure session and persist user message
     with transaction.atomic():
         if session_id:
-            session = (
-                AiChatSession.objects
-                .filter(id=session_id, user=user, is_active=True)
-                .select_for_update()
-                .first()
-            )
+            ref = str(session_id).strip()
+            qs = AiChatSession.objects.filter(user=user, is_active=True).select_for_update()
+            if ref.isdigit():
+                session = qs.filter(id=int(ref)).first() or qs.filter(uid=ref).first()
+            else:
+                session = qs.filter(uid=ref).first()
             if not session:
                 return {"error": "Session not found"}
         else:
@@ -140,7 +140,7 @@ def generate_image_task(
             pass
 
     return {
-        "session": {"id": session.id, "title": session.title, "provider": provider.slug, "updated_at": str(session.updated_at)},
+        "session": {"id": session.id, "uid": session.uid, "title": session.title, "provider": provider.slug, "updated_at": str(session.updated_at)},
         "image": {"url": url, "size": size, "id": gen.id, "uniqid": gen.uniqid},
         "message": {"id": getattr(assistant_msg, "id", None)} if assistant_msg else None,
     }

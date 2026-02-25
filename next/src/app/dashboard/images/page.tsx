@@ -8,7 +8,7 @@ import { fetchData, BACKEND } from "@/tools/fetchData";
 import NextLink from "@/components/ui/nextLink/NextLink";
 import { useTranslation } from "react-i18next";
 
-type Chat = { id: string; title: string; chat_mode: string };
+type Chat = { id: string; uid?: string; title: string; chat_mode: string };
 type UserImage = { id: number; image_url: string | null; created_at: string; size: string; model_name: string; prompt: string; session_id: number | null; uniqid: string };
 
 export default function ImagesLibraryPage() {

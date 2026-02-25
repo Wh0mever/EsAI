@@ -12,7 +12,7 @@ import { fetchData } from "@/tools/fetchData";
 import { Button } from "../ui/buttons/Buttons";
 import Cookies from "js-cookie";
 
-type Chat = { id: string; title: string; href?: string; chat_mode: string };
+type Chat = { id: string; uid?: string; title: string; href?: string; chat_mode: string };
 
 type SidebarProps = {
 	chats: Chat[];
@@ -195,6 +195,8 @@ export default function Sidebar({ chats, activeChatId, onNewChat, className }: S
 		if (onNewChat) onNewChat();
 	}, [onNewChat]);
 
+	const chatRef = (c: Chat) => String(c.uid || c.id);
+
 	const handleLogoutConfirmModalOpen = () => {
 		Cookies.remove("access");
 		Cookies.remove("refresh");
@@ -279,12 +281,12 @@ export default function Sidebar({ chats, activeChatId, onNewChat, className }: S
 								<ul className="mt-1 space-y-1 overflow-y-auto pr-1 flex-1">
 								{list.length > 0 &&
 									list.map((c) => (
-											<li key={c.id}>
+											<li key={chatRef(c)}>
 												<NextLink
-													href={`/dashboard/${c.chat_mode}/${c.id}`}
+													href={`/dashboard/${c.chat_mode}/${chatRef(c)}`}
 													className={[
 														"block rounded-md px-2 py-2 text-sm truncate",
-														c.id === activeChatId ? "bg-white/10" : "hover:bg-white/5",
+														chatRef(c) === String(activeChatId || "") ? "bg-white/10" : "hover:bg-white/5",
 													].join(" ")}
 													onClick={() => setShowMobileAside(false)}
 												>
@@ -362,12 +364,12 @@ export default function Sidebar({ chats, activeChatId, onNewChat, className }: S
 						<ul className="mt-1 space-y-1 overflow-y-auto pr-1 flex-1">
 							{list.length > 0 &&
 								list.map((c) => (
-									<li key={c.id}>
+									<li key={chatRef(c)}>
 										<NextLink
-											href={`/dashboard/${c.chat_mode}/${c.id}`}
+											href={`/dashboard/${c.chat_mode}/${chatRef(c)}`}
 											className={[
 												"block rounded-md px-2 py-2 text-sm truncate",
-												c.id === activeChatId ? "bg-white/10" : "hover:bg-white/5",
+												chatRef(c) === String(activeChatId || "") ? "bg-white/10" : "hover:bg-white/5",
 											].join(" ")}
 										>
 											{c.title}
