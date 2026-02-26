@@ -11,7 +11,15 @@ import base64
 import uuid
 import requests
 import time
+import logging
+import re
 from urllib.parse import urlparse
+from celery import current_task
+from billiard.exceptions import SoftTimeLimitExceeded
+
+
+logger = logging.getLogger(__name__)
+UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
 
 
 @app.task(name="ai.generate_image")
@@ -151,7 +159,8 @@ def generate_image_task(
 
 def _extract_task_id(payload: dict | list | str | None) -> str:
     if isinstance(payload, str):
-        return payload.strip() if payload.strip() else ""
+        v = payload.strip()
+        return v if UUID_RE.match(v) else ""
     if isinstance(payload, list):
         for item in payload:
             tid = _extract_task_id(item)
@@ -160,14 +169,15 @@ def _extract_task_id(payload: dict | list | str | None) -> str:
         return ""
     if not isinstance(payload, dict):
         return ""
-    for key in ("task_id", "taskId", "id", "job_id", "jobId"):
+    for key in ("task_id", "taskId", "id", "job_id", "jobId", "song_id", "songId"):
         value = payload.get(key)
         if value is not None and str(value).strip():
             return str(value).strip()
     for nested in payload.values():
-        tid = _extract_task_id(nested)
-        if tid:
-            return tid
+        if isinstance(nested, (dict, list)):
+            tid = _extract_task_id(nested)
+            if tid:
+                return tid
     return ""
 
 
@@ -175,12 +185,14 @@ def _collect_audio_urls(payload: dict | list | str | None) -> list[str]:
     out: list[str] = []
     seen: set[str] = set()
 
-    def push(url: str):
+    def push(url: str, hint_key: str | None = None):
         v = (url or "").strip()
         if not v:
             return
         low_path = (urlparse(v).path or "").lower()
-        if any(low_path.endswith(ext) for ext in (".mp3", ".wav", ".ogg", ".m4a", ".aac", ".flac")):
+        key = (hint_key or "").lower()
+        looks_like_audio_endpoint = "/api/audio/" in low_path or "audio" in key
+        if looks_like_audio_endpoint or any(low_path.endswith(ext) for ext in (".mp3", ".wav", ".ogg", ".m4a", ".aac", ".flac")):
             if v not in seen:
                 seen.add(v)
                 out.append(v)
@@ -194,11 +206,39 @@ def _collect_audio_urls(payload: dict | list | str | None) -> list[str]:
                 walk(it)
             return
         if isinstance(node, dict):
-            for v in node.values():
-                walk(v)
+            for k, v in node.items():
+                if isinstance(v, str):
+                    push(v, hint_key=str(k))
+                else:
+                    walk(v)
 
     walk(payload)
     return out
+
+
+def _download_audio_if_ready(audio_url: str, timeout: tuple[int, int] = (10, 45)) -> tuple[bytes | None, str | None]:
+    try:
+        resp = requests.get(audio_url, timeout=timeout)
+    except requests.RequestException as exc:
+        return None, f"download request failed: {exc}"
+
+    if resp.status_code in {202, 404, 425, 429}:
+        return None, None
+    if resp.status_code >= 400:
+        return None, f"download failed ({resp.status_code}): {(resp.text or '')[:200]}"
+
+    ctype = (resp.headers.get("Content-Type") or "").lower()
+    if "audio" not in ctype:
+        body = (resp.text or "")[:200].lower()
+        if "running" in body or "processing" in body or "pending" in body:
+            return None, None
+        if "application/json" in ctype and ("status" in body or "message" in body):
+            return None, None
+        if not resp.content:
+            return None, None
+    if not resp.content:
+        return None, None
+    return resp.content, None
 
 
 def _extract_status(payload: dict | list | str | None) -> str:
@@ -223,8 +263,25 @@ def _extract_status(payload: dict | list | str | None) -> str:
     return ""
 
 
+def _extract_music_fields(payload: dict | list | str | None) -> dict:
+    if isinstance(payload, dict):
+        src = payload
+        data = payload.get("data")
+        if isinstance(data, list) and data and isinstance(data[0], dict):
+            src = data[0]
+        return {
+            "audio_url": (src.get("audio_url") or src.get("audio") or "").strip() if isinstance(src.get("audio_url") or src.get("audio") or "", str) else "",
+            "format": (src.get("format") or "").strip() if isinstance(src.get("format"), str) else "",
+            "duration": src.get("duration") if isinstance(src.get("duration"), (int, float)) else None,
+            "song_id": (src.get("song_id") or src.get("songId") or "").strip() if isinstance(src.get("song_id") or src.get("songId") or "", str) else "",
+            "title": (src.get("title") or "").strip() if isinstance(src.get("title"), str) else "",
+            "model_version": (src.get("model_version") or "").strip() if isinstance(src.get("model_version"), str) else "",
+        }
+    return {"audio_url": "", "format": "", "duration": None, "song_id": "", "title": "", "model_version": ""}
+
+
 def _fetch_task_payload(base_url: str, task_id: str, api_key: str) -> dict | None:
-    base = (base_url or "https://api.topmediai.com").rstrip("/")
+    base = _normalize_topmedia_base_url(base_url)
     headers = {"x-api-key": api_key}
     candidates = [
         ("GET", f"{base}/v2/task/{task_id}", None),
@@ -251,7 +308,43 @@ def _fetch_task_payload(base_url: str, task_id: str, api_key: str) -> dict | Non
     return None
 
 
-@app.task(name="ai.generate_music")
+def _normalize_topmedia_base_url(raw_url: str | None) -> str:
+    base = (raw_url or "https://api.topmediai.com").strip().rstrip("/")
+    if base.lower().endswith("/v1") or base.lower().endswith("/v2"):
+        base = base[:-3].rstrip("/")
+    return base or "https://api.topmediai.com"
+
+
+def _submit_topmedia(base_url: str, headers: dict, payload: dict) -> tuple[dict | None, str, str | None]:
+    base = _normalize_topmedia_base_url(base_url)
+    attempts = [
+        ("v2_submit", f"{base}/v2/submit"),
+        ("v1_music", f"{base}/v1/music"),
+    ]
+    last_error: str | None = None
+    for label, url in attempts:
+        try:
+            resp = requests.post(url, headers=headers, json=payload, timeout=(10, 120))
+        except requests.RequestException as exc:
+            # Network/read timeout on primary endpoint should be surfaced directly.
+            # Falling back to another path in this case only doubles wait time.
+            return None, label, f"{label} request failed: {exc}"
+        if resp.status_code in {404, 405} and label == "v2_submit":
+            last_error = f"{label} returned {resp.status_code}"
+            continue
+        if resp.status_code in {404, 405}:
+            return None, label, f"{label} returned {resp.status_code}"
+        if resp.status_code >= 400:
+            return None, label, f"{label} failed ({resp.status_code}): {resp.text[:300]}"
+        try:
+            data = resp.json()
+            return data, label, None
+        except Exception:
+            return None, label, f"{label} returned non-JSON response"
+    return None, "", last_error or "all submit endpoints failed"
+
+
+@app.task(name="ai.generate_music", soft_time_limit=60 * 13, time_limit=60 * 14)
 def generate_music_task(
     *,
     user_id: int,
@@ -267,22 +360,35 @@ def generate_music_task(
     session_id: str | int | None = None,
 ) -> dict:
     User = get_user_model()
+    celery_task_id = getattr(getattr(current_task, "request", None), "id", None)
+
+    def _fail(message: str, **extra) -> dict:
+        payload = {"error": message}
+        payload.update(extra)
+        logger.error(
+            "generate_music failed task_id=%s user_id=%s provider=%s details=%s",
+            celery_task_id,
+            user_id,
+            provider_slug,
+            payload,
+        )
+        return payload
 
     prompt = (prompt or "").strip()
     if not prompt:
-        return {"error": "No prompt provided"}
+        return _fail("No prompt provided")
 
     try:
         user = User.objects.get(pk=user_id)
     except User.DoesNotExist:
-        return {"error": "User not found"}
+        return _fail("User not found")
 
     try:
         provider = AiProvider.objects.get(slug=(provider_slug or "topmedia").strip(), is_active=True)
     except AiProvider.DoesNotExist:
-        return {"error": "TopMedia provider not found or inactive"}
+        return _fail("TopMedia provider not found or inactive")
     if not (provider.token or "").strip():
-        return {"error": "TopMedia provider token is empty"}
+        return _fail("TopMedia provider token is empty")
 
     # Ensure session and persist user message
     with transaction.atomic():
@@ -294,7 +400,7 @@ def generate_music_task(
             else:
                 session = qs.filter(uid=ref).first()
             if not session:
-                return {"error": "Session not found"}
+                return _fail("Session not found")
         else:
             session = AiChatSession.objects.create(
                 user=user,
@@ -332,9 +438,9 @@ def generate_music_task(
         .first()
     )
     if subscription and not subscription.can_consume("music"):
-        return {"error": "Лимиты на генерацию музыки исчерпаны. Пополните лимит или обновите тариф."}
+        return _fail("Лимиты на генерацию музыки исчерпаны. Пополните лимит или обновите тариф.")
 
-    base_url = (provider.base_url or "https://api.topmediai.com").rstrip("/")
+    base_url = _normalize_topmedia_base_url(provider.base_url)
     headers = {"x-api-key": provider.token, "Content-Type": "application/json"}
     payload = {
         "is_auto": int(is_auto or 1),
@@ -348,53 +454,87 @@ def generate_music_task(
     }
 
     try:
-        submit = requests.post(f"{base_url}/v2/submit", headers=headers, json=payload, timeout=45)
-    except requests.RequestException as exc:
-        return {"error": f"TopMedia submit failed: {exc}"}
-    if submit.status_code >= 400:
-        return {"error": f"TopMedia submit failed ({submit.status_code}): {submit.text[:300]}"}
-    try:
-        submit_data = submit.json()
-    except Exception:
-        return {"error": "TopMedia submit returned non-JSON response"}
+        submit_data, submit_endpoint, submit_error = _submit_topmedia(base_url, headers, payload)
+    except SoftTimeLimitExceeded:
+        return _fail("TopMedia task exceeded celery soft time limit", stage="submit")
+    if submit_error:
+        return _fail(f"TopMedia submit failed: {submit_error}")
+    if not submit_data:
+        return _fail("TopMedia submit failed: empty response")
+
+    logger.info(
+        "generate_music submit_ok task_id=%s user_id=%s endpoint=%s",
+        celery_task_id,
+        user_id,
+        submit_endpoint,
+    )
+    submit_fields = _extract_music_fields(submit_data)
 
     task_id = _extract_task_id(submit_data)
+    candidate_audio_urls = _collect_audio_urls(submit_data)
     if not task_id:
-        immediate_urls = _collect_audio_urls(submit_data)
-        if not immediate_urls:
-            return {"error": "TopMedia submit did not return task_id"}
-        audio_source = immediate_urls[0]
+        if not candidate_audio_urls:
+            return _fail("TopMedia submit did not return task_id", submit_endpoint=submit_endpoint)
+        audio_source = candidate_audio_urls[0]
         task_payload = submit_data
     else:
         task_payload = None
         audio_source = ""
-        deadline = time.time() + 60 * 5
-        while time.time() < deadline:
-            polled = _fetch_task_payload(base_url, task_id, provider.token)
-            if polled is None:
-                time.sleep(2)
-                continue
-            task_payload = polled
-            urls = _collect_audio_urls(polled)
-            if urls:
-                audio_source = urls[0]
-                break
+        deadline = time.time() + 60 * 10
+        try:
+            while time.time() < deadline:
+                polled = _fetch_task_payload(base_url, task_id, provider.token)
+                if polled is None:
+                    # Even if task-status endpoint is unknown, TopMedia may expose final audio
+                    # at submit-time URLs; keep probing them until ready.
+                    for probe_url in candidate_audio_urls:
+                        audio_bytes, download_err = _download_audio_if_ready(probe_url)
+                        if audio_bytes:
+                            audio_source = probe_url
+                            break
+                    if audio_source:
+                        break
+                    time.sleep(2)
+                    continue
+                task_payload = polled
+                urls = _collect_audio_urls(polled)
+                if urls:
+                    for u in urls:
+                        if u not in candidate_audio_urls:
+                            candidate_audio_urls.append(u)
+                if urls:
+                    for probe_url in candidate_audio_urls:
+                        audio_bytes, download_err = _download_audio_if_ready(probe_url)
+                        if audio_bytes:
+                            audio_source = probe_url
+                            break
+                    if audio_source:
+                        break
 
-            state = _extract_status(polled)
-            if state in {"failed", "error", "cancelled"}:
-                return {"error": f"TopMedia task failed (task_id={task_id})", "task_id": task_id}
-            time.sleep(2)
+                state = _extract_status(polled)
+                if state in {"failed", "error", "cancelled"}:
+                    return _fail(f"TopMedia task failed (task_id={task_id})", task_id=task_id, task_payload=polled)
+                time.sleep(2)
+        except SoftTimeLimitExceeded:
+            return _fail("TopMedia task exceeded celery soft time limit", stage="poll", task_id=task_id)
 
         if not audio_source:
-            return {"error": f"TopMedia task timeout (task_id={task_id})", "task_id": task_id}
+            return _fail(f"TopMedia task timeout (task_id={task_id})", task_id=task_id, submit_endpoint=submit_endpoint)
 
     # Download generated audio and persist in media
     try:
-        audio_resp = requests.get(audio_source, timeout=90)
-        audio_resp.raise_for_status()
-        audio_bytes = audio_resp.content
-    except requests.RequestException as exc:
-        return {"error": f"Failed to download generated audio: {exc}", "task_id": task_id}
+        deadline = time.time() + 60 * 10
+        audio_bytes = None
+        download_error = None
+        while time.time() < deadline:
+            audio_bytes, download_error = _download_audio_if_ready(audio_source, timeout=(10, 60))
+            if audio_bytes:
+                break
+            time.sleep(2)
+        if not audio_bytes:
+            return _fail("Failed to download generated audio in time", task_id=task_id, audio_source=audio_source, details=download_error)
+    except SoftTimeLimitExceeded:
+        return _fail("TopMedia task exceeded celery soft time limit", stage="download", task_id=task_id)
 
     parsed_path = urlparse(audio_source).path or ""
     name = parsed_path.rsplit("/", 1)[-1] or f"{uuid.uuid4().hex}.mp3"
@@ -405,16 +545,31 @@ def generate_music_task(
         user=user,
         session=session,
         provider=provider,
-        model_name=(model_version or "v4.5").strip(),
+        model_name=(submit_fields.get("model_version") or model_version or "v4.5").strip(),
         prompt=prompt,
         lyrics=(lyrics or "").strip(),
-        title=(title or "").strip(),
+        title=(title or submit_fields.get("title") or "").strip(),
         instrumental=bool(int(instrumental or 0)),
-        topmedia_task_id=task_id or "",
+        topmedia_task_id=(task_id or submit_fields.get("song_id") or "").strip(),
         source_url=audio_source,
-        meta={"submit": submit_data, "task": task_payload},
+        meta={
+            "submit_endpoint": submit_endpoint,
+            "submit": submit_data,
+            "task": task_payload,
+            "topmedia": submit_fields,
+        },
     )
-    gen.audio.save(name, ContentFile(audio_bytes), save=True)
+    try:
+        gen.audio.save(name, ContentFile(audio_bytes), save=True)
+    except Exception as exc:
+        logger.exception(
+            "generate_music save_failed task_id=%s user_id=%s topmedia_task_id=%s name=%s",
+            celery_task_id,
+            user_id,
+            task_id,
+            name,
+        )
+        return _fail(f"Failed to save generated audio: {exc}", task_id=task_id)
 
     final_url = gen.audio.url if gen.audio else gen.source_url
     assistant_msg = AiChatMessage.objects.create(
@@ -428,6 +583,13 @@ def generate_music_task(
             "task_id": task_id,
             "instrumental": bool(int(instrumental or 0)),
         },
+    )
+    logger.info(
+        "generate_music completed task_id=%s user_id=%s topmedia_task_id=%s music_id=%s",
+        celery_task_id,
+        user_id,
+        task_id,
+        gen.id,
     )
 
     if subscription:
@@ -447,6 +609,9 @@ def generate_music_task(
             "model_version": gen.model_name,
             "title": gen.title,
             "instrumental": gen.instrumental,
+            "format": submit_fields.get("format") or "mp3",
+            "duration": submit_fields.get("duration"),
+            "song_id": submit_fields.get("song_id") or task_id,
         },
         "message": {"id": getattr(assistant_msg, "id", None), "content": assistant_msg.content},
     }

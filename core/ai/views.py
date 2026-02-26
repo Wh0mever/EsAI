@@ -182,7 +182,8 @@ class TopMediaMusicStatusAPIView(APIView):
         if state in ("PENDING", "RECEIVED", "STARTED", "RETRY"):
             return Response({"status": state}, status=200)
         if state == "FAILURE":
-            return Response({"status": state, "error": "Failed to generate music."}, status=200)
+            err = str(getattr(res, "result", "") or "Failed to generate music.")
+            return Response({"status": state, "error": err[:500]}, status=200)
 
         try:
             result = res.get(propagate=False)
