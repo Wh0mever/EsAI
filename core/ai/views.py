@@ -4,10 +4,18 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from .handlers import OpenAIHandler, OpenAIImageHandler
-from .tasks import generate_image_task
+from .tasks import generate_image_task, generate_music_task
 from celery.result import AsyncResult
 from core.celery import app as celery_app
-from .models import AiProvider, AiChatSession, AiChatMessage, AiPromptTemplate, AiPromptTemplateFavorite, TopMediaModels
+from .models import (
+    AiProvider,
+    AiChatSession,
+    AiChatMessage,
+    AiPromptTemplate,
+    AiPromptTemplateFavorite,
+    TopMediaModels,
+    AiGeneratedMusic,
+)
 from .serializers import (
     AiChatSessionListSerializer,
     AiChatMessageSerializer,
@@ -15,6 +23,7 @@ from .serializers import (
     AiProviderSerializer,
     TopMediaModelSerializer,
     AiGeneratedImageSerializer,
+    AiGeneratedMusicSerializer,
 )
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
@@ -26,6 +35,7 @@ from django.core.files.storage import default_storage
 from django.utils.text import get_valid_filename
 import uuid
 import os
+from plans.models import UserSubscription
 
 
 def _get_session_for_user(session_ref: str, user):
@@ -109,6 +119,71 @@ class DalleImageStatusAPIView(APIView):
             # Do not expose raw tracebacks to clients
             return Response({"status": state, "error": "Failed to generate image."}, status=200)
         # SUCCESS
+        try:
+            result = res.get(propagate=False)
+        except Exception:
+            result = None
+        ok = isinstance(result, dict) and ("error" not in result)
+        return Response({
+            "status": "SUCCESS" if ok else "FAILURE",
+            "result": result if ok else None,
+            "error": None if ok else (result.get("error") if isinstance(result, dict) else "Failed"),
+        }, status=200)
+
+
+class TopMediaMusicSubmitAPIView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        data = request.data or {}
+        prompt = (data.get("message") or data.get("prompt") or "").strip()
+        if not prompt:
+            return Response({"error": "No prompt provided"}, status=400)
+
+        sub = (
+            UserSubscription.objects
+            .filter(user=request.user, status="active")
+            .select_related("plan", "plan__topmedia_engine")
+            .order_by("-start_date")
+            .first()
+        )
+        plan_model = getattr(getattr(sub, "plan", None), "topmedia_engine", None)
+        default_model = getattr(plan_model, "name", None) or "v4.5"
+
+        payload = {
+            "user_id": request.user.id,
+            "prompt": prompt,
+            "lyrics": (data.get("lyrics") or "").strip(),
+            "title": (data.get("title") or "").strip(),
+            "is_auto": int(data.get("is_auto") or 1),
+            "model_version": (data.get("model_version") or default_model).strip(),
+            "instrumental": int(data.get("instrumental") if data.get("instrumental") is not None else 1),
+            "continue_at": int(data.get("continue_at") or 0),
+            "continue_song_id": (data.get("continue_song_id") or "").strip(),
+            "provider_slug": (data.get("provider_slug") or AiProvider.NAME_TO_SLUG[AiProvider.NAME_TOPMEDIA]).strip(),
+            "session_id": data.get("session_id") or data.get("chat_id"),
+        }
+
+        async_result = generate_music_task.delay(**payload)
+        return Response({"job_id": async_result.id, "status": "queued"}, status=202)
+
+
+class TopMediaMusicStatusAPIView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        job_id = request.query_params.get("job") or request.query_params.get("id")
+        if not job_id:
+            return Response({"error": "job is required"}, status=400)
+        res = AsyncResult(job_id, app=celery_app)
+        state = res.state
+        if state in ("PENDING", "RECEIVED", "STARTED", "RETRY"):
+            return Response({"status": state}, status=200)
+        if state == "FAILURE":
+            return Response({"status": state, "error": "Failed to generate music."}, status=200)
+
         try:
             result = res.get(propagate=False)
         except Exception:
@@ -299,6 +374,16 @@ class UserImagesListAPIView(APIView):
         from .models import AiGeneratedImage
         qs = AiGeneratedImage.objects.filter(user=request.user).order_by("-created_at")
         data = AiGeneratedImageSerializer(qs, many=True).data
+        return Response(data, status=200)
+
+
+class UserMusicListAPIView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        qs = AiGeneratedMusic.objects.filter(user=request.user).order_by("-created_at")
+        data = AiGeneratedMusicSerializer(qs, many=True).data
         return Response(data, status=200)
 
 

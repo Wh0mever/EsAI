@@ -320,6 +320,10 @@ def _pick_lang(request) -> tuple[str, str]:
 def OpenAIHandler(request):
     try:
         mode = request.data.get("mode") or "text-chat"
+        if mode == "music-chat":
+            return {
+                "error": "music-chat теперь работает через TopMedia async API. Используйте POST /api/ai/music/submit/ и GET /api/ai/music/status/?job=<id>."
+            }
         # 1) Model + subscription/limits
         subscription = (
             UserSubscription.objects
