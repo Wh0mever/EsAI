@@ -138,9 +138,9 @@ export default function Chat({ mode, chatId }: Props) {
         }
         const jobId = (submit.data as any).job_id as string;
 
-        // Poll until done (caps at ~5 minutes)
+        // Poll until done (music can take noticeably longer)
         const startedAt = Date.now();
-        const maxMs = 5 * 60 * 1000;
+        const maxMs = mode === "music-chat" ? 10 * 60 * 1000 : 5 * 60 * 1000;
         const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
         let finalUrl = "";
         let sessionMeta: { id?: string; uid?: string; title?: string } | null = null;
@@ -155,7 +155,8 @@ export default function Chat({ mode, chatId }: Props) {
             break;
           }
           if (status === "FAILURE") {
-            const msg = mode === "music-chat" ? t("chat.error_music_generation") : t("chat.error_image_generation");
+            const backendError = ((st.data as any)?.error || "").toString().trim();
+            const msg = backendError || (mode === "music-chat" ? t("chat.error_music_generation") : t("chat.error_image_generation"));
             setMessages((prev) => [...prev, { role: "assistant", content: msg, variant: "error" }]);
             return;
           }
@@ -163,7 +164,9 @@ export default function Chat({ mode, chatId }: Props) {
         }
 
         if (!finalUrl) {
-          const msg = mode === "music-chat" ? t("chat.error_music_generation") : t("chat.error_image_generation");
+          const msg = mode === "music-chat"
+            ? `${t("chat.error_music_generation")} (timeout 10m)`
+            : t("chat.error_image_generation");
           setMessages((prev) => [...prev, { role: "assistant", content: msg, variant: "error" }]);
           return;
         }
