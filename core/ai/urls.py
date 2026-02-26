@@ -13,6 +13,9 @@ from .views import (
     DalleImageSubmitAPIView,
     DalleImageStatusAPIView,
     TopMediaModelsApiView,
+    TopMediaMusicSubmitAPIView,
+    TopMediaMusicStatusAPIView,
+    UserMusicListAPIView,
 )
 
 urlpatterns = [
@@ -21,6 +24,9 @@ urlpatterns = [
     path('image/submit/', DalleImageSubmitAPIView.as_view(), name='image_submit'),
     path('image/status/', DalleImageStatusAPIView.as_view(), name='image_status'),
     path('images/', UserImagesListAPIView.as_view(), name='images_list'),
+    path('music/submit/', TopMediaMusicSubmitAPIView.as_view(), name='music_submit'),
+    path('music/status/', TopMediaMusicStatusAPIView.as_view(), name='music_status'),
+    path('music/', UserMusicListAPIView.as_view(), name='music_list'),
     path('attachments/upload/', ChatAttachmentUploadAPIView.as_view(), name='chat_attachments_upload'),
     path('chat/history/', ChatsHistory.as_view(), name='chat_history'),
     path('templates/', AiTemplatesApiView.as_view(), name='ai_template'),

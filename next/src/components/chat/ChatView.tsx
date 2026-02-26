@@ -15,6 +15,41 @@ function isImageUrl(s: string): boolean {
   return /\.(png|jpe?g|webp|gif)(\?.*)?$/.test(lower);
 }
 
+function isAudioUrl(s: string): boolean {
+  if (!s) return false;
+  const lower = s.toLowerCase();
+  return /\.(mp3|wav|ogg|m4a|aac|flac)(\?.*)?$/.test(lower);
+}
+
+function extractAudioUrl(raw: string): string {
+  const value = (raw || "").trim();
+  if (!value) return "";
+  if (isAudioUrl(value)) return value;
+
+  const urlMatch = value.match(/https?:\/\/[^\s"'<>]+/gi);
+  if (urlMatch) {
+    const firstAudio = urlMatch.find((u) => isAudioUrl(u));
+    if (firstAudio) return firstAudio;
+  }
+
+  try {
+    const parsed = JSON.parse(value);
+    const queue: any[] = [parsed];
+    while (queue.length) {
+      const current = queue.shift();
+      if (!current) continue;
+      if (typeof current === "string" && isAudioUrl(current)) return current;
+      if (Array.isArray(current)) {
+        queue.push(...current);
+      } else if (typeof current === "object") {
+        queue.push(...Object.values(current));
+      }
+    }
+  } catch {}
+
+  return "";
+}
+
 function toAbsUrl(raw?: string): string {
   if (!raw) return "";
   return raw.startsWith("/") ? `${BACKEND}${raw}` : raw;
@@ -102,17 +137,22 @@ function ThinkingDots({ text = "Думаю" }: { text?: string }) {
 function EmptyState({ mode }: { mode: ChatMode }) {
   const { t } = useTranslation("common");
   const isText = mode === "text-chat";
+  const isMusic = mode === "music-chat";
   return (
     <div className="flex-1 grid place-items-center min-h-[50vh]">
       <div className="text-center space-y-2">
         <h3 className="text-2xl text-white font-semibold">
           {isText
             ? t("chat.empty_text_title", { defaultValue: "Готов творить текст вместе с Vokalo?" })
+            : isMusic
+            ? t("chat.empty_music_title", { defaultValue: "Готов создавать музыку вместе с Vokalo?" })
             : t("chat.empty_image_title", { defaultValue: "Готов создавать изображения вместе с Vokalo?" })}
         </h3>
         <p className="text-neutral-300">
           {isText
             ? t("chat.empty_text_subtitle", { defaultValue: "Тогда начнём!" })
+            : isMusic
+            ? t("chat.empty_music_subtitle", { defaultValue: "Тогда начнём!" })
             : t("chat.empty_image_subtitle", { defaultValue: "Тогда начнём!" })}
         </p>
       </div>
@@ -127,6 +167,7 @@ function AttachmentsList({ atts }: { atts?: Attachment[] }) {
       <div className="flex flex-wrap gap-2">
         {atts.map((a, i) => {
           const isImg = (a?.type || "").toLowerCase() === "image";
+          const isAudio = ["audio", "music", "audio_file"].includes((a?.type || "").toLowerCase());
           const raw = a?.url || a?.preview || "";
           const url = toAbsUrl(raw);
           return (
@@ -139,6 +180,10 @@ function AttachmentsList({ atts }: { atts?: Attachment[] }) {
                     className="w-24 h-24 object-cover rounded-md border border-white/10"
                   />
                 </a>
+              ) : isAudio ? (
+                <div className="w-64 p-2 rounded-md border border-white/10 bg-neutral-900">
+                  <audio controls preload="none" src={url} className="w-full" />
+                </div>
               ) : (
                 <a
                   href={url}
@@ -171,10 +216,23 @@ function BubbleContent({
   onTypedDone: () => void;
 }) {
   const { t } = useTranslation("common");
+  const audioUrl = !isUser ? extractAudioUrl(msg.content || "") : "";
 
   if (!isUser && msg.content && isImageUrl(msg.content)) {
     const src = toAbsUrl(msg.content);
     return <img src={src} alt="generated" className="max-w-full rounded-lg" />;
+  }
+
+  if (!isUser && audioUrl) {
+    const src = toAbsUrl(audioUrl);
+    return (
+      <div className="flex flex-col gap-2 min-w-[16rem]">
+        <audio controls preload="none" src={src} className="w-full" />
+        <a href={src} target="_blank" rel="noreferrer" className="text-xs underline underline-offset-2">
+          {t("chat.download", { defaultValue: "Скачать" })}
+        </a>
+      </div>
+    );
   }
 
   if (!isUser && isThinking) {

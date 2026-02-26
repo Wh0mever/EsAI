@@ -1,5 +1,14 @@
 from rest_framework import serializers
-from .models import AiPromptTemplate, AiPromptTemplateFavorite, AiChatSession, AiChatMessage, AiProvider, AiGeneratedImage, TopMediaModels
+from .models import (
+    AiPromptTemplate,
+    AiPromptTemplateFavorite,
+    AiChatSession,
+    AiChatMessage,
+    AiProvider,
+    AiGeneratedImage,
+    AiGeneratedMusic,
+    TopMediaModels,
+)
 
 class AiPromptTemplateSerializer(serializers.ModelSerializer):
     provider_name = serializers.CharField(source='provider.name', read_only=True)
@@ -87,5 +96,50 @@ class AiGeneratedImageSerializer(serializers.ModelSerializer):
     def get_image_url(self, obj):
         try:
             return obj.image.url
+        except Exception:
+            return None
+
+
+class AiGeneratedMusicSerializer(serializers.ModelSerializer):
+    music_url = serializers.SerializerMethodField()
+    session_uid = serializers.SerializerMethodField()
+    session_title = serializers.SerializerMethodField()
+
+    class Meta:
+        model = AiGeneratedMusic
+        fields = (
+            "id",
+            "music_url",
+            "source_url",
+            "created_at",
+            "model_name",
+            "prompt",
+            "lyrics",
+            "title",
+            "instrumental",
+            "session_id",
+            "session_uid",
+            "session_title",
+            "uniqid",
+            "topmedia_task_id",
+        )
+
+    def get_music_url(self, obj):
+        try:
+            if obj.audio:
+                return obj.audio.url
+        except Exception:
+            pass
+        return obj.source_url
+
+    def get_session_uid(self, obj):
+        try:
+            return obj.session.uid if obj.session else None
+        except Exception:
+            return None
+
+    def get_session_title(self, obj):
+        try:
+            return obj.session.title if obj.session else None
         except Exception:
             return None

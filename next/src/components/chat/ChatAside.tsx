@@ -4,6 +4,7 @@ import React, { useEffect, useState, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { FiPlus, FiChevronLeft, FiChevronRight, FiSettings } from "react-icons/fi";
 import { IoImages, IoLibrary } from "react-icons/io5";
+import { RiMusic2Line } from "react-icons/ri";
 import { FaRegUser } from "react-icons/fa";
 import { CiMenuFries } from "react-icons/ci";
 import NextLink from "@/components/ui/nextLink/NextLink";
@@ -273,7 +274,9 @@ export default function Sidebar({ chats, activeChatId, onNewChat, className }: S
 									title={`${t("chat.new_chat")} (Ctrl/Cmd+B to toggle sidebar)`}
 								/>
 								<NavLink href="/dashboard/image-chat/" icon={<IoImages />} label={"DALL·E"} showText={true} />
+								<NavLink href="/dashboard/music-chat/" icon={<RiMusic2Line />} label={t("chat.models_tabs.music")} showText={true} />
 								<NavLink href="/dashboard/images/" icon={<IoLibrary />} label={t("chat.images_library")} showText={true} />
+								<NavLink href="/dashboard/music/" icon={<IoLibrary />} label={t("chat.music_library")} showText={true} />
 							</div>
 
 							<div className="px-2 pt-2 flex-1 min-h-0 flex flex-col">
@@ -355,7 +358,9 @@ export default function Sidebar({ chats, activeChatId, onNewChat, className }: S
 						title={`${t("chat.new_chat")} (Ctrl/Cmd+B to toggle sidebar)`}
 					/>
 					<NavLink href="/dashboard/image-chat/" icon={<IoImages />} label={"DALL·E"} showText={!collapsed} />
+					<NavLink href="/dashboard/music-chat/" icon={<RiMusic2Line />} label={t("chat.models_tabs.music")} showText={!collapsed} />
 					<NavLink href="/dashboard/images/" icon={<IoLibrary />} label={t("chat.images_library")} showText={!collapsed} />
+					<NavLink href="/dashboard/music/" icon={<IoLibrary />} label={t("chat.music_library")} showText={!collapsed} />
 				</div>
 
 				{!collapsed && (

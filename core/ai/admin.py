@@ -5,6 +5,7 @@ from django.http import HttpResponse
 from django.utils.timezone import now
 from django.urls import path, reverse
 from django.shortcuts import redirect
+from django.utils.html import format_html
 from .actions import get_gpt_models_action, get_topmedia_models_action, ProviderConfigError
 import json
 
@@ -16,6 +17,7 @@ from .models import (
     AiChatSession,
     AiChatMessage,
     AiGeneratedImage,
+    AiGeneratedMusic,
 )
 
 class JSONTextarea(forms.Textarea):
@@ -250,8 +252,25 @@ class AiGeneratedImageAdmin(admin.ModelAdmin):
             if not obj.image:
                 return "—"
             url = obj.image.url
-            return f"<img src='{url}' style='max-height:60px;border-radius:6px'/>"
+            return format_html("<img src='{}' style='max-height:60px;border-radius:6px'/>", url)
         except Exception:
             return "—"
-    preview.allow_tags = True
     preview.short_description = "Preview"
+
+
+@admin.register(AiGeneratedMusic)
+class AiGeneratedMusicAdmin(admin.ModelAdmin):
+    list_display = ("id", "user", "session", "model_name", "title", "instrumental", "created_at", "audio_link")
+    search_fields = ("prompt", "title", "lyrics", "user__email", "model_name", "uniqid", "topmedia_task_id")
+    list_filter = ("model_name", "instrumental", "created_at")
+    readonly_fields = ("created_at",)
+
+    def audio_link(self, obj):
+        try:
+            url = obj.audio.url if obj.audio else obj.source_url
+            if not url:
+                return "—"
+            return format_html("<a href='{}' target='_blank' rel='noreferrer'>Open audio</a>", url)
+        except Exception:
+            return "—"
+    audio_link.short_description = "Audio"

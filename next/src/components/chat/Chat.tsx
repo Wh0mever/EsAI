@@ -100,6 +100,7 @@ export default function Chat({ mode, chatId }: Props) {
       if (status === 403) return t("chat.error_forbidden");
       if (status === 404) return t("chat.error_notfound");
       if (mode === "image-chat") return t("chat.error_image_generation");
+      if (mode === "music-chat") return t("chat.error_music_generation");
       return t("chat.error_request_failed");
     };
 
@@ -114,9 +115,22 @@ export default function Chat({ mode, chatId }: Props) {
       // hide attachments preview immediately for snappy UX
       if (attachments && attachments.length) setAttachments([]);
 
-      if (mode === "image-chat") {
+      if (mode === "image-chat" || mode === "music-chat") {
         // Async pattern: submit job then poll status
-        const submit = await fetchData("ai/image/submit/", "POST", payload, true);
+        const submitEndpoint = mode === "image-chat" ? "ai/image/submit/" : "ai/music/submit/";
+        const statusEndpoint = mode === "image-chat" ? "ai/image/status/" : "ai/music/status/";
+        const submitPayload = mode === "music-chat"
+          ? {
+              ...payload,
+              prompt: content,
+              title: content.slice(0, 60),
+              lyrics: "",
+              is_auto: 1,
+              instrumental: 1,
+            }
+          : payload;
+
+        const submit = await fetchData(submitEndpoint, "POST", submitPayload, true);
         setInput("");
         if (!submit?.ok || !(submit?.data as any)?.job_id) {
           setMessages((prev) => [...prev, { role: "assistant", content: formatError(submit), variant: "error" }]);
@@ -131,17 +145,17 @@ export default function Chat({ mode, chatId }: Props) {
         let finalUrl = "";
         let sessionMeta: { id?: string; uid?: string; title?: string } | null = null;
         while (Date.now() - startedAt < maxMs) {
-          const st = await fetchData(`ai/image/status/?job=${encodeURIComponent(jobId)}`, "GET", null, true);
+          const st = await fetchData(`${statusEndpoint}?job=${encodeURIComponent(jobId)}`, "GET", null, true);
           if (!st?.ok) { await delay(1500); continue; }
           const status = (st.data as any)?.status;
           if (status === "SUCCESS") {
             const result = (st.data as any)?.result || {};
-            finalUrl = result?.image?.url || "";
+            finalUrl = mode === "music-chat" ? (result?.music?.url || "") : (result?.image?.url || "");
             sessionMeta = result?.session || null;
             break;
           }
           if (status === "FAILURE") {
-            const msg = t("chat.error_image_generation");
+            const msg = mode === "music-chat" ? t("chat.error_music_generation") : t("chat.error_image_generation");
             setMessages((prev) => [...prev, { role: "assistant", content: msg, variant: "error" }]);
             return;
           }
@@ -149,11 +163,15 @@ export default function Chat({ mode, chatId }: Props) {
         }
 
         if (!finalUrl) {
-          const msg = t("chat.error_image_generation");
+          const msg = mode === "music-chat" ? t("chat.error_music_generation") : t("chat.error_image_generation");
           setMessages((prev) => [...prev, { role: "assistant", content: msg, variant: "error" }]);
           return;
         }
-        setMessages((prev) => [...prev, { role: "assistant", content: finalUrl, attachments: [{ type: 'image', url: finalUrl }] }]);
+        setMessages((prev) => [...prev, {
+          role: "assistant",
+          content: finalUrl,
+          attachments: [{ type: mode === "music-chat" ? "audio" : "image", url: finalUrl }],
+        }]);
 
         // Update route if a new session created
         const routeSessionId = sessionMeta?.uid || sessionMeta?.id;

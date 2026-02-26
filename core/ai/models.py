@@ -2,6 +2,7 @@ from django.db import models
 from users.models import User
 from django.utils import timezone
 import uuid
+from urllib.parse import urlparse
 
 # Create your models here.
 
@@ -216,3 +217,41 @@ class AiGeneratedImage(models.Model):
     class Meta:
         verbose_name = "AI сгенерированное изображение"
         verbose_name_plural = "AI сгенерированные изображения"
+
+
+def _gen_music_upload_path(instance: "AiGeneratedMusic", filename: str) -> str:
+    uid = instance.uniqid or uuid.uuid4().hex
+    instance.uniqid = uid
+    path = urlparse(filename or "").path
+    ext = ""
+    if "." in path:
+        ext = path.rsplit(".", 1)[-1].strip().lower()
+    if not ext:
+        ext = "mp3"
+    name = f"track.{ext}"
+    return f"generated/music/{instance.user_id}/{uid}/{name}"
+
+
+class AiGeneratedMusic(models.Model):
+    """Сгенерированная музыка, связанная с пользователем и (опционально) сессией чата."""
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="generated_music")
+    session = models.ForeignKey('AiChatSession', on_delete=models.SET_NULL, null=True, blank=True, related_name="generated_music")
+    provider = models.ForeignKey('AiProvider', on_delete=models.SET_NULL, null=True, blank=True)
+    model_name = models.CharField(max_length=100, default="v4.5")
+    prompt = models.TextField()
+    lyrics = models.TextField(blank=True, default="")
+    title = models.CharField(max_length=255, blank=True, default="")
+    instrumental = models.BooleanField(default=True)
+    topmedia_task_id = models.CharField(max_length=128, blank=True, default="", db_index=True)
+    source_url = models.URLField(blank=True, null=True)
+    uniqid = models.CharField(max_length=64, editable=False, db_index=True)
+    audio = models.FileField(upload_to=_gen_music_upload_path, blank=True, null=True)
+    meta = models.JSONField(blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self) -> str:
+        return f"{self.user_id}:{self.model_name}:{self.uniqid}"
+
+    class Meta:
+        verbose_name = "AI сгенерированная музыка"
+        verbose_name_plural = "AI сгенерированная музыка"
