@@ -42,6 +42,11 @@ def activate_free_plan_for_user(user: User) -> Tuple[bool, str]:
     if getattr(user, "free_plan_activated", False):
         return False, "flag_set"
 
+    # Hard guard: if free plan has ever been activated earlier, never activate again.
+    had_free_before = UserSubscription.objects.filter(user_id=user_pk, plan__is_free=True).exists()
+    if had_free_before:
+        return False, "already_activated_before"
+
     if not UserCardBind.objects.filter(user_id=user_pk).exists():
         return False, "no_card"
 
@@ -58,6 +63,16 @@ def activate_free_plan_for_user(user: User) -> Tuple[bool, str]:
         locked_user = User.objects.select_for_update().get(pk=user_pk)
         if locked_user.free_plan_activated:
             return False, "flag_set"
+
+        had_free_before_locked = UserSubscription.objects.select_for_update().filter(
+            user=locked_user,
+            plan__is_free=True,
+        ).exists()
+        if had_free_before_locked:
+            if not locked_user.free_plan_activated:
+                locked_user.free_plan_activated = True
+                locked_user.save(update_fields=["free_plan_activated"])
+            return False, "already_activated_before"
 
         existing = (
             UserSubscription.objects.select_for_update()

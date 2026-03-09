@@ -11,13 +11,14 @@ from django.db import transaction
 from plans.services import update_currency_rates, plan_cycle_days
 from plans.services import BILLING_ISSUE_CARD_MISSING, BILLING_ISSUE_CHARGE_FAILED
 from .models import UserSubscription, SubscriptionStatus, GenerationUsage, Plan
-from users.models import User
+from users.models import User, UserCardBind
 from payments.freedompay import FreedomPay
 
 
 logger = logging.getLogger(__name__)
 _LOCK_KEY = "plans:currency_update:lock"
 _RENEW_GLOBAL_LOCK = "plans:renewal:lock"
+_SUNDAY_BONUS_LOCK = "plans:sunday_bonus:lock"
 _RENEW_GRACE_DAYS = 3
 
 @shared_task(
@@ -267,3 +268,82 @@ def process_due_subscriptions(self) -> dict:
         return {"processed": processed, "ts": int(now.timestamp())}
     finally:
         cache.delete(_RENEW_GLOBAL_LOCK)
+
+
+@shared_task(
+    name="plans.tasks.apply_sunday_bonuses",
+    bind=True,
+    autoretry_for=(RuntimeError,),
+    retry_backoff=30,
+    retry_jitter=True,
+    retry_kwargs={"max_retries": 3},
+)
+def apply_sunday_bonuses(self) -> dict:
+    """
+    Apply Sunday bonuses to active subscriptions.
+
+    - If today is Sunday, bonuses are added once per subscription.
+    - On non-Sunday days, sunday_bonus_used is reset to allow next Sunday accrual.
+    """
+    if not cache.add(_SUNDAY_BONUS_LOCK, "1", timeout=60):
+        return {"status": "busy"}
+    try:
+        today = timezone.localdate()
+        is_sunday = today.weekday() == 6  # Monday=0 ... Sunday=6
+
+        subs = (
+            UserSubscription.objects
+            .select_related("plan")
+            .filter(status=SubscriptionStatus.ACTIVE)
+        )
+
+        applied = 0
+        reset = 0
+        skipped = 0
+
+        for sub in subs.iterator():
+            plan: Plan = sub.plan
+            if not plan:
+                skipped += 1
+                continue
+
+            with transaction.atomic():
+                usage, _ = GenerationUsage.objects.select_for_update().get_or_create(subscription=sub)
+                has_bonus = any([
+                    int(plan.sunday_bonus_songs or 0) > 0,
+                    int(plan.sunday_bonus_music or 0) > 0,
+                    int(plan.sunday_bonus_texts or 0) > 0,
+                    int(plan.sunday_bonus_images or 0) > 0,
+                ])
+                if not has_bonus:
+                    skipped += 1
+                    continue
+
+                if is_sunday:
+                    if usage.sunday_bonus_used:
+                        skipped += 1
+                        continue
+                    usage.songs_left = int(usage.songs_left or 0) + int(plan.sunday_bonus_songs or 0)
+                    usage.music_left = int(usage.music_left or 0) + int(plan.sunday_bonus_music or 0)
+                    usage.texts_left = int(usage.texts_left or 0) + int(plan.sunday_bonus_texts or 0)
+                    usage.images_left = int(usage.images_left or 0) + int(plan.sunday_bonus_images or 0)
+                    usage.sunday_bonus_used = True
+                    usage.save(update_fields=["songs_left", "music_left", "texts_left", "images_left", "sunday_bonus_used"])
+                    applied += 1
+                else:
+                    if usage.sunday_bonus_used:
+                        usage.sunday_bonus_used = False
+                        usage.save(update_fields=["sunday_bonus_used"])
+                        reset += 1
+                    else:
+                        skipped += 1
+
+        return {
+            "is_sunday": is_sunday,
+            "applied": applied,
+            "reset": reset,
+            "skipped": skipped,
+            "ts": int(timezone.now().timestamp()),
+        }
+    finally:
+        cache.delete(_SUNDAY_BONUS_LOCK)

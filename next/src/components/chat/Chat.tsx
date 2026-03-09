@@ -38,6 +38,24 @@ export default function Chat({ mode, chatId }: Props) {
   const [musicGenre, setMusicGenre] = useState("pop");
   const [musicTrackType, setMusicTrackType] = useState<MusicTrackType>("instrumental");
   const [subscriptionNoticeShown, setSubscriptionNoticeShown] = useState(false);
+  const linksByCode = (code?: string) => {
+    const c = (code || "").trim();
+    if (c === "chat_blocked_limits_exhausted" || c === "chat_blocked_limits_exhausted_unpaid") {
+      return {
+        link: "/profile",
+        linkLabel: t("chat.go_to_profile_for_topup", { defaultValue: "Перейти в профиль (докупка)" }),
+        linkSecondary: "/pricing",
+        linkSecondaryLabel: t("chat.go_to_pricing", { defaultValue: "Перейти к тарифам" }),
+      };
+    }
+    if (c.startsWith("chat_blocked_")) {
+      return {
+        link: "/pricing",
+        linkLabel: t("chat.go_to_pricing", { defaultValue: "Перейти к тарифам" }),
+      };
+    }
+    return {};
+  };
 
   useEffect(() => {
     if (mode !== "music-chat") return;
@@ -67,9 +85,80 @@ export default function Chat({ mode, chatId }: Props) {
           : null;
         const inTrialWindow = Boolean(trialEnd && Date.now() < trialEnd.getTime());
 
+        const noSubscriptionAtAll = !sub;
+        const issue = (sub?.billing_issue_code || "").toString().trim().toLowerCase();
+        const graceUntilRaw = (sub?.grace_until || "").toString().trim();
+        const graceUntil = graceUntilRaw ? new Date(graceUntilRaw) : null;
+        const inGrace = Boolean(
+          sub &&
+            String(sub?.payment_status || "").toLowerCase() === "unpaid" &&
+            graceUntil &&
+            !Number.isNaN(graceUntil.getTime()) &&
+            Date.now() < graceUntil.getTime()
+        );
+        const isUnpaid = String(sub?.payment_status || "").toLowerCase() === "unpaid";
+        const isUnlimited =
+          mode === "image-chat"
+            ? Boolean(sub?.is_images_unlimited)
+            : mode === "music-chat"
+            ? Boolean(sub?.is_music_unlimited)
+            : Boolean(sub?.is_texts_unlimited);
+        const remainingValue =
+          mode === "image-chat"
+            ? Number(sub?.remaining_images ?? 0)
+            : mode === "music-chat"
+            ? Number(sub?.remaining_music ?? 0)
+            : Number(sub?.remaining_texts ?? 0);
+        const generationsExhausted = !isUnlimited && remainingValue <= 0;
         let text = "";
-        if (hasAnyBonus && inTrialWindow) text = t("profile.test_mode_notice");
-        else if (hasAnyBonus) text = t("profile.test_mode_expired_notice");
+        let variant: "warning" | "error" = "error";
+        let link = "";
+        let linkLabel = "";
+        let linkSecondary = "";
+        let linkSecondaryLabel = "";
+
+        if (noSubscriptionAtAll) {
+          text = t("profile.no_plan_attach_or_choose_notice", {
+            defaultValue:
+              "У вас пока нет активного тарифа. Чтобы включить тестовый режим, привяжите карту в профиле. Или выберите тариф в разделе тарифов.",
+          });
+          link = "/profile";
+          linkLabel = t("chat.go_to_profile_for_card", { defaultValue: "Перейти в профиль (привязать карту)" });
+          linkSecondary = "/pricing";
+          linkSecondaryLabel = t("chat.go_to_pricing", { defaultValue: "Перейти к тарифам" });
+        } else if (generationsExhausted && isUnpaid) {
+          text = t("profile.unpaid_and_generations_exhausted_notice", {
+            defaultValue:
+              "Оплата не завершена и генерации закончились. Оплатите подписку или подключите новый тариф.",
+          });
+          variant = "warning";
+          link = "/profile";
+          linkLabel = t("chat.go_to_profile_for_topup", { defaultValue: "Перейти в профиль (докупка)" });
+          linkSecondary = "/pricing";
+          linkSecondaryLabel = t("chat.go_to_pricing", { defaultValue: "Перейти к тарифам" });
+        } else if (generationsExhausted) {
+          text = t("profile.generations_exhausted_notice", {
+            defaultValue:
+              "Генерации закончились. Вы можете докупить генерации в профиле или выбрать новый тариф.",
+          });
+          link = "/profile";
+          linkLabel = t("chat.go_to_profile_for_topup", { defaultValue: "Перейти в профиль (докупка)" });
+          linkSecondary = "/pricing";
+          linkSecondaryLabel = t("chat.go_to_pricing", { defaultValue: "Перейти к тарифам" });
+        } else if (inGrace) {
+          const deadline = graceUntil ? graceUntil.toLocaleString() : "";
+          if (issue === "card_missing") text = t("profile.billing_grace_card_missing", { date: deadline });
+          else if (issue === "charge_failed") text = t("profile.billing_grace_charge_failed", { date: deadline });
+          else text = t("profile.billing_grace_generic", { date: deadline });
+          variant = "warning";
+          link = "/pricing";
+          linkLabel = t("chat.go_to_pricing", { defaultValue: "Перейти к тарифам" });
+        } else if (hasAnyBonus && inTrialWindow) text = t("profile.test_mode_notice");
+        else if (hasAnyBonus) {
+          text = t("profile.test_mode_expired_notice");
+          link = "/pricing";
+          linkLabel = t("chat.go_to_pricing", { defaultValue: "Перейти к тарифам" });
+        }
         else text = t("profile.chat_blocked_no_active");
 
         if (!text.trim()) return;
@@ -81,9 +170,11 @@ export default function Chat({ mode, chatId }: Props) {
             {
               role: "assistant",
               content: text,
-              variant: hasAnyBonus && inTrialWindow ? "warning" : "error",
-              link: "/pricing",
-              linkLabel: t("chat.go_to_pricing", { defaultValue: "Перейти к тарифам" }),
+              variant,
+              link: link || undefined,
+              linkLabel: linkLabel || undefined,
+              linkSecondary: linkSecondary || undefined,
+              linkSecondaryLabel: linkSecondaryLabel || undefined,
               meta: { system_notice: "subscription" },
             } as any,
           ];
@@ -221,9 +312,8 @@ export default function Chat({ mode, chatId }: Props) {
         if (!submit?.ok || !(submit?.data as any)?.job_id) {
           const msg = backendErrorMessage(submit) || formatError(submit);
           const code = backendCode(submit);
-          const link = code.startsWith("chat_blocked_") ? "/pricing" : undefined;
-          const linkLabel = link ? t("chat.go_to_pricing", { defaultValue: "Перейти к тарифам" }) : undefined;
-          setMessages((prev) => [...prev, { role: "assistant", content: msg, variant: "error", link, linkLabel } as any]);
+          const links = linksByCode(code);
+          setMessages((prev) => [...prev, { role: "assistant", content: msg, variant: "error", ...links } as any]);
           return;
         }
         const submitWarning = backendWarningMessage(submit);
@@ -288,9 +378,8 @@ export default function Chat({ mode, chatId }: Props) {
         if (!res?.ok) {
           const msg = backendErrorMessage(res) || formatError(res);
           const code = backendCode(res);
-          const link = code.startsWith("chat_blocked_") ? "/pricing" : undefined;
-          const linkLabel = link ? t("chat.go_to_pricing", { defaultValue: "Перейти к тарифам" }) : undefined;
-          setMessages((prev) => [...prev, { role: "assistant", content: msg, variant: "error", link, linkLabel } as any]);
+          const links = linksByCode(code);
+          setMessages((prev) => [...prev, { role: "assistant", content: msg, variant: "error", ...links } as any]);
           return;
         }
         const syncWarning = backendWarningMessage(res);
