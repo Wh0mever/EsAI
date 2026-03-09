@@ -118,7 +118,10 @@ def _parse_template(request, provider_name: str):
         templates.get(provider_name)
         or templates.get(provider_name.lower())
         or templates.get("GPT")
-    )
+)
+
+OPENAI_API_BASE = "https://api.openai.com/v1"
+TOPMEDIA_API_BASE = "https://api.topmediai.com"
 
 
 def _render_messages_as_dialog(messages: List[dict]) -> str:
@@ -144,8 +147,12 @@ def _is_new_chat(model_name: str) -> bool:
 
 def _make_openai_client(provider: AiProvider) -> OpenAI:
     kwargs = {"api_key": provider.token}
-    if provider.base_url:
-        kwargs["base_url"] = provider.base_url.rstrip("/")
+    slug = (provider.slug or "").strip().lower()
+    # Do not depend on DB base_url for runtime routing.
+    if slug in {"gpt", "dall-e"}:
+        kwargs["base_url"] = OPENAI_API_BASE
+    elif slug == "topmedia":
+        kwargs["base_url"] = TOPMEDIA_API_BASE
     # Respect global timeout to avoid gunicorn worker timeouts
     try:
         from django.conf import settings as dj_settings
