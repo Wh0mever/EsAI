@@ -655,26 +655,67 @@ class UserMusicDownloadMp4APIView(APIView):
         if not input_bytes:
             return Response({"error": "music_audio_missing"}, status=400)
 
+        cover_bytes = None
+        cover_mime = None
+        if track and isinstance(track.meta, dict):
+            raw_cover_url = (track.meta.get("cover_url") or "").strip() if isinstance(track.meta.get("cover_url"), str) else ""
+            if raw_cover_url:
+                c_bytes, c_mime, c_err = _cover_bytes_from_url(raw_cover_url, request)
+                if not c_err and c_bytes:
+                    cover_bytes = c_bytes
+                    cover_mime = c_mime or "image/jpeg"
+
         with tempfile.TemporaryDirectory(prefix="music-mp4-") as td:
             input_path = os.path.join(td, "input.audio")
             output_path = os.path.join(td, "output.mp4")
             with open(input_path, "wb") as f:
                 f.write(input_bytes)
 
-            cmd = [
-                "ffmpeg",
-                "-y",
-                "-i",
-                input_path,
-                "-vn",
-                "-c:a",
-                "aac",
-                "-b:a",
-                "192k",
-                "-movflags",
-                "+faststart",
-                output_path,
-            ]
+            if cover_bytes:
+                cover_ext = ".png" if cover_mime == "image/png" else ".jpg"
+                cover_path = os.path.join(td, f"cover{cover_ext}")
+                with open(cover_path, "wb") as f:
+                    f.write(cover_bytes)
+                # Build MP4 with static cover frame as video track.
+                cmd = [
+                    "ffmpeg",
+                    "-y",
+                    "-loop",
+                    "1",
+                    "-i",
+                    cover_path,
+                    "-i",
+                    input_path,
+                    "-c:v",
+                    "libx264",
+                    "-tune",
+                    "stillimage",
+                    "-pix_fmt",
+                    "yuv420p",
+                    "-c:a",
+                    "aac",
+                    "-b:a",
+                    "192k",
+                    "-shortest",
+                    "-movflags",
+                    "+faststart",
+                    output_path,
+                ]
+            else:
+                cmd = [
+                    "ffmpeg",
+                    "-y",
+                    "-i",
+                    input_path,
+                    "-vn",
+                    "-c:a",
+                    "aac",
+                    "-b:a",
+                    "192k",
+                    "-movflags",
+                    "+faststart",
+                    output_path,
+                ]
             proc = subprocess.run(cmd, capture_output=True, text=True)
             if proc.returncode != 0 or not os.path.exists(output_path):
                 return Response({"error": "music_mp4_convert_failed"}, status=400)
