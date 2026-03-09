@@ -143,8 +143,9 @@ def _embed_cover_into_audio(track: AiGeneratedMusic, cover_bytes: bytes, cover_m
             except ID3NoHeaderError:
                 tags = ID3()
             tags.delall("APIC")
-            tags.add(APIC(encoding=3, mime=cover_mime, type=3, desc="Cover", data=cover_bytes))
-            tags.save(audio_path)
+            # Save as ID3v2.3 for better compatibility with desktop/mobile players.
+            tags.add(APIC(encoding=1, mime=cover_mime, type=3, desc="Cover", data=cover_bytes))
+            tags.save(audio_path, v2_version=3)
             # Ensure file is still readable as MP3 after writing tags
             MP3(audio_path)
             return True, None
@@ -185,8 +186,9 @@ def _embed_title_into_audio(track: AiGeneratedMusic, title: str) -> tuple[bool, 
             except ID3NoHeaderError:
                 tags = ID3()
             tags.delall("TIT2")
-            tags.add(TIT2(encoding=3, text=safe_title))
-            tags.save(audio_path)
+            # Save as ID3v2.3 for compatibility.
+            tags.add(TIT2(encoding=1, text=safe_title))
+            tags.save(audio_path, v2_version=3)
             MP3(audio_path)
             return True, None
 
