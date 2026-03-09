@@ -102,6 +102,7 @@ class AiGeneratedImageSerializer(serializers.ModelSerializer):
 
 class AiGeneratedMusicSerializer(serializers.ModelSerializer):
     music_url = serializers.SerializerMethodField()
+    cover_url = serializers.SerializerMethodField()
     session_uid = serializers.SerializerMethodField()
     session_title = serializers.SerializerMethodField()
 
@@ -110,6 +111,7 @@ class AiGeneratedMusicSerializer(serializers.ModelSerializer):
         fields = (
             "id",
             "music_url",
+            "cover_url",
             "source_url",
             "created_at",
             "model_name",
@@ -131,6 +133,14 @@ class AiGeneratedMusicSerializer(serializers.ModelSerializer):
         except Exception:
             pass
         return obj.source_url
+
+    def get_cover_url(self, obj):
+        meta = obj.meta if isinstance(obj.meta, dict) else {}
+        raw = (meta.get("cover_url") or "").strip() if isinstance(meta.get("cover_url"), str) else ""
+        if raw:
+            return raw
+        # Fallback: if no embedded cover was set, reuse image from message attachments when possible
+        return None
 
     def get_session_uid(self, obj):
         try:

@@ -41,6 +41,7 @@ jiter==0.10.0
 kombu==5.5.4
 magic-filter==1.0.12
 multidict==6.4.3
+mutagen==1.47.0
 oauthlib==3.3.1
 openai==1.97.0
 packaging==25.0

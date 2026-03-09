@@ -160,7 +160,7 @@ def generate_image_task(
 def _extract_task_id(payload: dict | list | str | None) -> str:
     if isinstance(payload, str):
         v = payload.strip()
-        return v if UUID_RE.match(v) else ""
+        return v
     if isinstance(payload, list):
         for item in payload:
             tid = _extract_task_id(item)
@@ -191,11 +191,19 @@ def _collect_audio_urls(payload: dict | list | str | None) -> list[str]:
             return
         low_path = (urlparse(v).path or "").lower()
         key = (hint_key or "").lower()
-        looks_like_audio_endpoint = "/api/audio/" in low_path or "audio" in key
-        if looks_like_audio_endpoint or any(low_path.endswith(ext) for ext in (".mp3", ".wav", ".ogg", ".m4a", ".aac", ".flac")):
-            if v not in seen:
-                seen.add(v)
-                out.append(v)
+        looks_like_audio_endpoint = (
+            "/api/audio/" in low_path
+            or "audio" in key
+            or "music" in key
+            or "song" in key
+            or "download" in key
+            or "file" in key
+        )
+        looks_like_audio_file = any(low_path.endswith(ext) for ext in (".mp3", ".wav", ".ogg", ".m4a", ".aac", ".flac"))
+        is_http = v.startswith("http://") or v.startswith("https://")
+        if (looks_like_audio_endpoint or looks_like_audio_file or is_http) and v not in seen:
+            seen.add(v)
+            out.append(v)
 
     def walk(node):
         if isinstance(node, str):
@@ -269,8 +277,17 @@ def _extract_music_fields(payload: dict | list | str | None) -> dict:
         data = payload.get("data")
         if isinstance(data, list) and data and isinstance(data[0], dict):
             src = data[0]
+        audio_candidate = (
+            src.get("audio_url")
+            or src.get("audio")
+            or src.get("music_url")
+            or src.get("source_url")
+            or src.get("download_url")
+            or src.get("url")
+            or ""
+        )
         return {
-            "audio_url": (src.get("audio_url") or src.get("audio") or "").strip() if isinstance(src.get("audio_url") or src.get("audio") or "", str) else "",
+            "audio_url": audio_candidate.strip() if isinstance(audio_candidate, str) else "",
             "format": (src.get("format") or "").strip() if isinstance(src.get("format"), str) else "",
             "duration": src.get("duration") if isinstance(src.get("duration"), (int, float)) else None,
             "song_id": (src.get("song_id") or src.get("songId") or "").strip() if isinstance(src.get("song_id") or src.get("songId") or "", str) else "",
@@ -418,7 +435,7 @@ def generate_music_task(
 
         request_meta = {
             "topmedia": {
-                "mode": "submit-v2",
+                "mode": "submit-v3",
                 "is_auto": int(is_auto or 1),
                 "model_version": (model_version or "v4.5").strip(),
                 "prompt": prompt,
