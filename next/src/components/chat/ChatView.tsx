@@ -16,6 +16,12 @@ function isImageUrl(s: string): boolean {
   return /\.(png|jpe?g|webp|gif)(\?.*)?$/.test(lower);
 }
 
+function isGeneratedAssetUrl(s: string): boolean {
+  if (!s) return false;
+  const lower = s.toLowerCase();
+  return lower.startsWith("/media/generated/") || lower.includes("/generated/");
+}
+
 function isAudioUrl(s: string): boolean {
   if (!s) return false;
   const lower = s.toLowerCase();
@@ -218,12 +224,14 @@ function AttachmentsList({ atts }: { atts?: Attachment[] }) {
 function BubbleContent({
   isUser,
   msg,
+  mode,
   isThinking,
   shouldType,
   onTypedDone,
 }: {
   isUser: boolean;
   msg: Message;
+  mode: ChatMode;
   isThinking: boolean;
   shouldType: boolean;
   onTypedDone: () => void;
@@ -232,6 +240,18 @@ function BubbleContent({
   const audioUrl = !isUser ? extractAudioUrl(msg.content || "") : "";
 
   if (!isUser && msg.content && isImageUrl(msg.content)) {
+    if (mode === "music-chat" && isGeneratedAssetUrl(msg.content)) {
+      return (
+        <NextLink
+          href="/dashboard/music"
+          className="text-sm font-medium text-sky-300 hover:text-sky-200 cursor-pointer"
+        >
+          {t("chat.music_generated_details_link", {
+            defaultValue: "Посмотреть подробнее и настроить в вашей музыкальной библиотеке",
+          })}
+        </NextLink>
+      );
+    }
     const src = toAbsUrl(msg.content);
     return <img src={src} alt="generated" className="max-w-full rounded-lg" />;
   }
@@ -261,6 +281,7 @@ function BubbleContent({
 
 function ChatBubble({
   msg,
+  mode,
   index,
   isLast,
   isThinking,
@@ -268,6 +289,7 @@ function ChatBubble({
   onTypedDone,
 }: {
   msg: Message;
+  mode: ChatMode;
   index: number;
   isLast: boolean;
   isThinking: boolean;
@@ -289,6 +311,7 @@ function ChatBubble({
         <BubbleContent
           isUser={isUser}
           msg={msg}
+          mode={mode}
           isThinking={!isUser && isLast && isThinking}
           shouldType={shouldType}
           onTypedDone={onTypedDone}
@@ -303,6 +326,7 @@ function ChatBubble({
 
 function MessageList({
   messages,
+  mode,
   animateIndex,
   initialHydrated,
   onAfterType,
@@ -310,6 +334,7 @@ function MessageList({
   onScrollToBottom,
 }: {
   messages: Message[];
+  mode: ChatMode;
   animateIndex?: number | null;
   initialHydrated?: boolean;
   onAfterType: (idx: number) => void;
@@ -349,6 +374,7 @@ function MessageList({
           <ChatBubble
             key={(msg as any)?.id != null ? `id-${(msg as any).id}` : `idx-${index}`}
             msg={msg}
+            mode={mode}
             index={index}
             isLast={index === messages.length - 1}
             isThinking={isThinking}
@@ -410,6 +436,7 @@ export function ChatView({
       ) : (
         <MessageList
           messages={messages}
+          mode={mode}
           animateIndex={animateIndex}
           initialHydrated={initialHydrated}
           isThinking={isThinking}
