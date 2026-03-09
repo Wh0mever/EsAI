@@ -14,6 +14,7 @@ from .models import (
     AiPromptTemplate,
     AiPromptTemplateFavorite,
     TopMediaModels,
+    AiGeneratedImage,
     AiGeneratedMusic,
 )
 from .serializers import (
@@ -33,8 +34,13 @@ from django.utils.translation import gettext as _
 from rest_framework import status, permissions, authentication
 from django.core.files.storage import default_storage
 from django.utils.text import get_valid_filename
+from django.conf import settings
 import uuid
 import os
+import imghdr
+import mimetypes
+from urllib.parse import urlparse
+import requests
 from plans.models import UserSubscription
 
 
@@ -48,6 +54,113 @@ def _get_session_for_user(session_ref: str, user):
         if by_id:
             return by_id
     return qs.filter(uid=raw).first()
+
+
+def _guess_image_mime(raw_name: str, data: bytes) -> str | None:
+    guessed, _ = mimetypes.guess_type(raw_name or "")
+    if guessed in {"image/jpeg", "image/jpg"}:
+        return "image/jpeg"
+    if guessed == "image/png":
+        return "image/png"
+    kind = imghdr.what(None, h=data)
+    if kind in ("jpeg", "jpg"):
+        return "image/jpeg"
+    if kind == "png":
+        return "image/png"
+    return None
+
+
+def _cover_bytes_from_url(raw_url: str, request) -> tuple[bytes | None, str | None, str | None]:
+    src = (raw_url or "").strip()
+    if not src:
+        return None, None, "cover_url_required"
+
+    # Prefer local storage read for media URLs to avoid network/auth issues
+    media_url = (getattr(settings, "MEDIA_URL", "/media/") or "/media/").rstrip("/") + "/"
+    if src.startswith(media_url):
+        rel_path = src[len(media_url):].lstrip("/")
+        if not rel_path:
+            return None, None, "cover_media_path_invalid"
+        try:
+            with default_storage.open(rel_path, "rb") as f:
+                data = f.read()
+        except Exception:
+            return None, None, "cover_open_failed"
+        if not data:
+            return None, None, "cover_empty_payload"
+        mime = _guess_image_mime(rel_path, data)
+        if not mime:
+            return None, None, "cover_format_unsupported"
+        return data, mime, None
+
+    # support relative media URLs
+    if src.startswith("/"):
+        src = request.build_absolute_uri(src)
+
+    try:
+        resp = requests.get(src, timeout=(10, 45))
+    except requests.RequestException:
+        return None, None, "cover_download_failed"
+
+    if resp.status_code >= 400:
+        return None, None, "cover_download_failed"
+
+    data = resp.content or b""
+    if not data:
+        return None, None, "cover_empty_payload"
+
+    ctype = (resp.headers.get("Content-Type") or "").lower()
+    if "image/jpeg" in ctype or "image/jpg" in ctype:
+        return data, "image/jpeg", None
+    if "image/png" in ctype:
+        return data, "image/png", None
+
+    # fallback sniff by bytes
+    kind = imghdr.what(None, h=data)
+    if kind in ("jpeg", "jpg"):
+        return data, "image/jpeg", None
+    if kind == "png":
+        return data, "image/png", None
+    return None, None, "cover_format_unsupported"
+
+
+def _embed_cover_into_audio(track: AiGeneratedMusic, cover_bytes: bytes, cover_mime: str) -> tuple[bool, str | None]:
+    if not track.audio:
+        return False, "music_audio_missing"
+    if not getattr(track.audio, "path", None):
+        return False, "music_audio_path_unavailable"
+
+    audio_path = track.audio.path
+    ext = (os.path.splitext(audio_path)[1] or "").lower()
+
+    try:
+        if ext == ".mp3":
+            from mutagen.id3 import ID3, APIC, ID3NoHeaderError
+            from mutagen.mp3 import MP3
+
+            try:
+                tags = ID3(audio_path)
+            except ID3NoHeaderError:
+                tags = ID3()
+            tags.delall("APIC")
+            tags.add(APIC(encoding=3, mime=cover_mime, type=3, desc="Cover", data=cover_bytes))
+            tags.save(audio_path)
+            # Ensure file is still readable as MP3 after writing tags
+            MP3(audio_path)
+            return True, None
+
+        if ext in (".m4a", ".mp4"):
+            from mutagen.mp4 import MP4, MP4Cover
+
+            audio = MP4(audio_path)
+            fmt = MP4Cover.FORMAT_JPEG if cover_mime == "image/jpeg" else MP4Cover.FORMAT_PNG
+            audio["covr"] = [MP4Cover(cover_bytes, imageformat=fmt)]
+            audio.save()
+            return True, None
+
+        return False, "music_audio_format_unsupported"
+    except Exception:
+        return False, "cover_embed_failed"
 
 
 class ChatGptAPIView(APIView):
@@ -388,6 +501,62 @@ class UserMusicListAPIView(APIView):
         qs = AiGeneratedMusic.objects.filter(user=request.user).order_by("-created_at")
         data = AiGeneratedMusicSerializer(qs, many=True).data
         return Response(data, status=200)
+
+
+class UserMusicCoverAPIView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, music_id: int):
+        track = AiGeneratedMusic.objects.filter(id=music_id, user=request.user).first()
+        if not track:
+            return Response({"error": "music_not_found"}, status=404)
+
+        data = request.data or {}
+        image_id = data.get("image_id")
+        cover_url = (data.get("cover_url") or "").strip()
+
+        if image_id:
+            img = AiGeneratedImage.objects.filter(id=image_id, user=request.user).first()
+            if not img:
+                return Response({"error": "image_not_found"}, status=404)
+            try:
+                with img.image.open("rb") as f:
+                    cover_bytes = f.read()
+                cover_mime = _guess_image_mime(getattr(img.image, "name", "") or "", cover_bytes)
+                if not cover_mime:
+                    return Response({"error": "cover_format_unsupported"}, status=400)
+                cover_url = img.image.url
+                cover_err = None
+            except Exception:
+                cover_bytes, cover_mime, cover_err = None, None, "image_open_failed"
+        else:
+            cover_bytes, cover_mime, cover_err = None, None, None
+
+        if not cover_url:
+            return Response({"error": "cover_source_required"}, status=400)
+
+        if cover_bytes is None:
+            cover_bytes, cover_mime, cover_err = _cover_bytes_from_url(cover_url, request)
+        if cover_err:
+            return Response({"error": cover_err}, status=400)
+
+        embedded, embed_err = _embed_cover_into_audio(track, cover_bytes, cover_mime or "image/jpeg")
+
+        meta = track.meta if isinstance(track.meta, dict) else {}
+        meta["cover_url"] = cover_url
+        meta["cover_embedded"] = bool(embedded)
+        if embed_err:
+            meta["cover_embed_error"] = str(embed_err)
+        else:
+            meta.pop("cover_embed_error", None)
+        track.meta = meta
+        track.save(update_fields=["meta"])
+
+        payload = AiGeneratedMusicSerializer(track).data
+        payload["cover_embedded"] = bool(embedded)
+        payload["cover_embed_error"] = embed_err
+        return Response(payload, status=200)
 
 
 class ChatAttachmentUploadAPIView(APIView):
