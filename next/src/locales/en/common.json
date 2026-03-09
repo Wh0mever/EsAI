@@ -367,6 +367,7 @@
     "music_ask_something": "Describe your composition or song lyrics...",
     "music_empty_hint": "Describe your composition or song lyrics below. No lyrics yet? No worries, just create them in our",
     "text_chat_link": "text chat",
+    "music_generated_details_link": "View details and configure it in your music library",
     "set_title": "Track title",
     "track_title_placeholder": "Enter track title",
     "title_saved": "Title saved",
