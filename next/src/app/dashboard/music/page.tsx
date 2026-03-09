@@ -180,7 +180,7 @@ export default function MusicLibraryPage() {
   const [titleError, setTitleError] = useState("");
   const [titleOk, setTitleOk] = useState("");
   const [loading, setLoading] = useState(true);
-  const [downloadingId, setDownloadingId] = useState<number | null>(null);
+  const [downloadingInfo, setDownloadingInfo] = useState<{ id: number; format: "mp3" | "mp4" } | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -348,10 +348,10 @@ export default function MusicLibraryPage() {
                       <div className="flex items-center gap-2">
                         <button
                           type="button"
-                          disabled={downloadingId === track.id}
+                          disabled={downloadingInfo?.id === track.id}
                           onClick={async () => {
                             try {
-                              setDownloadingId(track.id);
+                              setDownloadingInfo({ id: track.id, format: "mp3" });
                               try {
                                 await downloadMusicFile(track.id, "mp3", sanitizeFilePart(currentTitle), src, currentTitle);
                               } catch {
@@ -360,33 +360,42 @@ export default function MusicLibraryPage() {
                             } catch (e) {
                               console.error("Failed to download mp3", e);
                             } finally {
-                              setDownloadingId(null);
+                              setDownloadingInfo(null);
                             }
                           }}
                           className="px-3 py-1 rounded-md bg-white/10 hover:bg-white/20 text-white text-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                          {t("chat.download", { defaultValue: "Скачать" })} MP3
+                          {downloadingInfo?.id === track.id && downloadingInfo?.format === "mp3"
+                            ? t("chat.downloading", { defaultValue: "Скачивание..." })
+                            : `${t("chat.download", { defaultValue: "Скачать" })} MP3`}
                         </button>
                         <button
                           type="button"
-                          disabled={downloadingId === track.id}
+                          disabled={downloadingInfo?.id === track.id}
                           onClick={async () => {
                             try {
-                              setDownloadingId(track.id);
+                              setDownloadingInfo({ id: track.id, format: "mp4" });
                               await downloadMusicFile(track.id, "mp4", sanitizeFilePart(currentTitle), src, currentTitle);
                             } catch (e) {
                               console.error("Failed to download mp4", e);
                               alert(t("chat.mp4_download_not_available", { defaultValue: "MP4 пока недоступен для этого трека" }));
                             } finally {
-                              setDownloadingId(null);
+                              setDownloadingInfo(null);
                             }
                           }}
                           className="px-3 py-1 rounded-md bg-white/10 hover:bg-white/20 text-white text-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                          {t("chat.download", { defaultValue: "Скачать" })} MP4
+                          {downloadingInfo?.id === track.id && downloadingInfo?.format === "mp4"
+                            ? t("chat.mp4_preparing", { defaultValue: "Собираем MP4..." })
+                            : `${t("chat.download", { defaultValue: "Скачать" })} MP4`}
                         </button>
                       </div>
                     </div>
+                    {downloadingInfo?.id === track.id && downloadingInfo?.format === "mp4" && (
+                      <div className="text-xs text-amber-300">
+                        {t("chat.mp4_preparing_hint", { defaultValue: "MP4 собирается, сейчас начнется скачивание. Пожалуйста, подождите." })}
+                      </div>
+                    )}
                     <div className="flex items-center gap-3">
                       <div className="w-16 h-16 rounded-md overflow-hidden border border-white/10 bg-neutral-800 shrink-0">
                         {cover ? (
