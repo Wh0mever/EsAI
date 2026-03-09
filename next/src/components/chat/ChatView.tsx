@@ -5,6 +5,7 @@ import { BACKEND } from "@/tools/fetchData";
 import { useTranslation } from "react-i18next";
 import type { ChatMode } from "@/types/chat";
 import type { Message } from "./ChatForm";
+import NextLink from "@/components/ui/nextLink/NextLink";
 
 /* ---------- utils ---------- */
 
@@ -155,6 +156,20 @@ function EmptyState({ mode }: { mode: ChatMode }) {
             ? t("chat.empty_music_subtitle", { defaultValue: "Тогда начнём!" })
             : t("chat.empty_image_subtitle", { defaultValue: "Тогда начнём!" })}
         </p>
+        {isMusic && (
+          <p className="text-neutral-300 text-base max-w-2xl mx-auto">
+            {t("chat.music_empty_hint", {
+              defaultValue: "Опишите свое произведение или текст песни ниже. Нет текста для песни? Не беда, просто создайте его в нашем",
+            })}{" "}
+            <NextLink
+              href="/dashboard/text-chat"
+              className="inline-flex text-base font-semibold text-indigo-400 hover:text-indigo-300 whitespace-nowrap"
+            >
+              {t("chat.text_chat_link", { defaultValue: "текстовом чате" })}
+            </NextLink>
+            .
+          </p>
+        )}
       </div>
     </div>
   );
