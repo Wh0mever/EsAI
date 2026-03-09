@@ -77,7 +77,16 @@
       "tts": "Тексттен үндөө",
       "my_templates": "Менин шаблондорум",
       "manager": "Менеджер",
-      "support": "Акысыз колдоо"
+      "support": "Колдоо",
+      "songs_count": "Ырлардын саны",
+      "images_count": "Сүрөттөрдүн саны",
+      "music_count": "Музыка генерацияларынын саны",
+      "sunday_bonus_title": "Жекшемби бонустары",
+      "sunday_bonus_songs": "ыр",
+      "sunday_bonus_music": "музыка генерациясы",
+      "sunday_bonus_texts": "текст",
+      "sunday_bonus_images": "сүрөт",
+      "mp4": "MP4"
     },
     "questions": "Суроолор калдыбы?",
     "questionsText": "Бул жерден таппадыңызбы? Бизге жазыңыз:",

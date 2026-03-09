@@ -9,6 +9,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import Breadcrumb from "@/components/global/AnimatedCircleBg";
 import { IoIosCheckmark, IoIosClose } from "react-icons/io";
+import { IoVideocamOutline } from "react-icons/io5";
 import { fetchData } from "@/tools/fetchData";
 import Cookies from "js-cookie";
 import { getInitialCurrency } from "@/lib/currency";
@@ -30,10 +31,8 @@ type PlanDTO = {
 
 	llm_engine_id: string | null;
 	llm_engine_name?: string | null;
-
-	ai_templates_limit: number | null;
-	operations_per_month_limit: number | null;
-	covers_limit: number | null;
+	topmedia_engine_id?: string | null;
+	topmedia_engine_name?: string | null;
 
 	song_limit: number;
 	music_limit: number;
@@ -47,15 +46,9 @@ type PlanDTO = {
 
 	ai_chat_enabled: boolean;
 	realtime_chat_enabled: boolean;
-	rewriter_enabled: boolean;
-	antiplag_enabled: boolean;
 	images_enabled: boolean;
-	diffusion_images_enabled: boolean;
-	blog_master_enabled: boolean;
 	music_enabled: boolean;
-	tts_enabled: boolean;
-	my_templates_enabled: boolean;
-	manager_enabled: boolean;
+	mp4_enabled: boolean;
 	support_enabled: boolean;
 
 	can_purchase_addons: boolean;
@@ -117,16 +110,8 @@ function pickPrices(plan: PlanDTO, currency: Currency) {
 }
 
 function limitLabel(value: number | null | undefined, unlimited: string) {
-	if (value === null || value === 0) return unlimited;
+	if (value === null || value === undefined) return unlimited;
 	return String(value);
-}
-
-function aiToolsCount(plan: PlanDTO): number {
-	let count = 0;
-	if (plan.ai_chat_enabled) count += 1;
-	if (plan.music_enabled) count += 1;
-	if (plan.images_enabled || plan.diffusion_images_enabled) count += 1;
-	return count;
 }
 
 function selectPlanTitle(plan: PlanDTO, lang: "ru" | "en" | "kg") {
@@ -198,6 +183,15 @@ export default function SubscribePlanPage() {
 		() => (i18n.language ?? "ru").split("-")[0] as "ru" | "en" | "kg",
 		[i18n.language]
 	);
+	const sundayBonusSummary = useMemo(() => {
+		if (!plan) return t("common.no");
+		const parts: string[] = [];
+		if ((plan.sunday_bonus_songs || 0) > 0) parts.push(`+${plan.sunday_bonus_songs} ${t("pricing.features.sunday_bonus_songs")}`);
+		if ((plan.sunday_bonus_music || 0) > 0) parts.push(`+${plan.sunday_bonus_music} ${t("pricing.features.sunday_bonus_music")}`);
+		if ((plan.sunday_bonus_texts || 0) > 0) parts.push(`+${plan.sunday_bonus_texts} ${t("pricing.features.sunday_bonus_texts")}`);
+		if ((plan.sunday_bonus_images || 0) > 0) parts.push(`+${plan.sunday_bonus_images} ${t("pricing.features.sunday_bonus_images")}`);
+		return parts.length ? parts.join(", ") : t("common.no");
+	}, [plan, t]);
 
 	useEffect(() => {
 		setCurrency(getPreferredCurrency());
@@ -520,73 +514,25 @@ export default function SubscribePlanPage() {
 							<div className="lg:col-span-2">
 								<h2 className="text-xl font-semibold pb-5">{t("pricing.included")}</h2>
 								<ul className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-									{plan.llm_engine_id ? (
-										<li className="flex items-start gap-3 p-4 rounded-xl bg-neutral-900/60 border border-white/10">
-											<Check />
-											<p>
-												<span className="text-yellow-400 font-bold">{plan.llm_engine_name || plan.llm_engine_id} </span>
-												{t("pricing.features.open_ai_model")}
-											</p>
-										</li>
-									) : (
-										<li className="flex items-start gap-3 p-4 rounded-xl bg-neutral-900/60 border border-white/10">
-											<Cross />
-											<p>{t("pricing.features.open_ai_model")}</p>
-										</li>
-									)}
-
-									<li className="flex items-start gap-3 p-4 rounded-xl bg-neutral-900/60 border border-white/10">
-										<Check />
-										<p>
-											<span className="text-yellow-400 font-bold">
-												{aiToolsCount(plan)}{" "}
-											</span>
-											{t("pricing.features.ai_templates")}
-										</p>
-									</li>
-
-									<li className="flex items-start gap-3 p-4 rounded-xl bg-neutral-900/60 border border-white/10">
-										<Check />
-										<p>
-											<span className="text-yellow-400 font-bold">
-												{limitLabel(plan.operations_per_month_limit, t("pricing.unlimited"))}{" "}
-											</span>
-											{t("pricing.features.ops_per_month")}
-										</p>
-									</li>
-
-									<li className="flex items-start gap-3 p-4 rounded-xl bg-neutral-900/60 border border-white/10">
-										<Check />
-										<p>
-											<span className="text-yellow-400 font-bold">
-												{limitLabel(plan.covers_limit, t("pricing.unlimited"))}{" "}
-											</span>
-											{t("pricing.features.covers")}
-										</p>
-									</li>
-
 									{(
 										[
-											[plan.ai_chat_enabled, t("pricing.features.ai_chat")],
-											[plan.realtime_chat_enabled, t("pricing.features.realtime_chat")],
-											[plan.rewriter_enabled, t("pricing.features.rewriter")],
-											[plan.antiplag_enabled, t("pricing.features.antiplag")],
-											[plan.images_enabled, t("pricing.features.ai_images")],
-											[plan.diffusion_images_enabled, t("pricing.features.diffusion_images")],
-											[plan.blog_master_enabled, t("pricing.features.blog_master")],
-											[plan.music_enabled, t("pricing.features.music")],
-											[plan.tts_enabled, t("pricing.features.tts")],
-											[plan.my_templates_enabled, t("pricing.features.my_templates")],
-											[plan.manager_enabled, t("pricing.features.manager")],
-											[plan.support_enabled, t("pricing.features.support")],
-										] as Array<[boolean, string]>
-									).map(([ok, label], i) => (
+											{ ok: plan.ai_chat_enabled, label: t("pricing.features.ai_chat"), key: "ai_chat" },
+											{ ok: plan.realtime_chat_enabled, label: t("pricing.features.realtime_chat"), key: "realtime" },
+											{ ok: plan.images_enabled, label: t("pricing.features.ai_images"), key: "images" },
+											{ ok: plan.music_enabled, label: t("pricing.features.music"), key: "music" },
+											{ ok: plan.mp4_enabled, label: t("pricing.features.mp4"), key: "mp4" },
+											{ ok: plan.support_enabled, label: t("pricing.features.support"), key: "support" },
+										] as Array<{ ok: boolean; label: string; key: string }>
+									).map((row, i) => (
 										<li
 											key={i}
 											className="flex items-start gap-3 p-4 rounded-xl bg-neutral-900/60 border border-white/10"
 										>
-											{ok ? <Check /> : <Cross />}
-											<p>{label}</p>
+											{row.ok ? <Check /> : <Cross />}
+											<p className="inline-flex items-center gap-2">
+												{row.key === "mp4" && <IoVideocamOutline className="text-red-300" />}
+												{row.label}
+											</p>
 										</li>
 									))}
 								</ul>
@@ -600,9 +546,33 @@ export default function SubscribePlanPage() {
 											<dt className="text-white/60">{t("pricing.period")}</dt>
 											<dd>{t(`pricing.${plan.period}`)}</dd>
 										</div>
-										<div className="flex justify-between">
+										<div className="flex justify-between border-b border-white/10 pb-2">
+											<dt className="text-white/60">{t("pricing.features.songs_count")}</dt>
+											<dd>{limitLabel(plan.song_limit, t("pricing.unlimited"))}</dd>
+										</div>
+										<div className="flex justify-between border-b border-white/10 pb-2">
+											<dt className="text-white/60">{t("pricing.features.music_count")}</dt>
+											<dd>{limitLabel(plan.music_limit, t("pricing.unlimited"))}</dd>
+										</div>
+										<div className="flex justify-between border-b border-white/10 pb-2">
+											<dt className="text-white/60">{t("pricing.features.images_count")}</dt>
+											<dd>{limitLabel(plan.image_limit, t("pricing.unlimited"))}</dd>
+										</div>
+										<div className="flex justify-between border-b border-white/10 pb-2 gap-3">
+											<dt className="text-white/60">{t("pricing.features.sunday_bonus_title")}</dt>
+											<dd className="text-right">{sundayBonusSummary}</dd>
+										</div>
+										<div className="flex justify-between border-b border-white/10 pb-2">
 											<dt className="text-white/60">{t("pricing.addons")}</dt>
 											<dd>{plan.can_purchase_addons ? t("common.yes") : t("common.no")}</dd>
+										</div>
+										<div className="flex justify-between border-b border-white/10 pb-2">
+											<dt className="text-white/60">{t("pricing.features.open_ai_model")}</dt>
+											<dd>{plan.llm_engine_name || plan.llm_engine_id || t("common.no")}</dd>
+										</div>
+										<div className="flex justify-between gap-3">
+											<dt className="text-white/60">TopMedia</dt>
+											<dd className="text-right">{plan.topmedia_engine_name || t("common.no")}</dd>
 										</div>
 									</dl>
 								</div>

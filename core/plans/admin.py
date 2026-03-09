@@ -64,18 +64,45 @@ class CurrencyRateAdmin(admin.ModelAdmin):
 
 @admin.register(Plan)
 class PlanAdmin(admin.ModelAdmin):
+    FIELD_LABELS = {
+        "is_active": "Активен",
+        "is_free": "Бесплатный",
+        "period": "Период",
+        "sort_order": "Порядок сортировки",
+        "price_amount": "Цена",
+        "price_base_amount": "Базовая цена (до скидки)",
+        "llm_engine": "LLM модель",
+        "topmedia_engine": "TopMedia модель",
+        "template_name_ru": "Название шаблона (RU)",
+        "template_name_en": "Название шаблона (EN)",
+        "template_name_kg": "Название шаблона (KG)",
+        "song_limit": "Лимит песен",
+        "music_limit": "Лимит музыки",
+        "text_limit": "Лимит текстов",
+        "image_limit": "Лимит изображений",
+        "sunday_bonus_songs": "Воскресный бонус: песни",
+        "sunday_bonus_music": "Воскресный бонус: музыка",
+        "sunday_bonus_texts": "Воскресный бонус: тексты",
+        "sunday_bonus_images": "Воскресный бонус: изображения",
+        "can_purchase_addons": "Разрешить докупку генераций",
+        "ai_chat_enabled": "AI-чат",
+        "realtime_chat_enabled": "Чат в реальном времени",
+        "images_enabled": "Изображения",
+        "music_enabled": "Музыка",
+        "mp4_enabled": "MP4",
+        "support_enabled": "Поддержка",
+    }
+
     list_display = (
         "id", "period", "is_free", "is_active",
         "price_amount", "price_base_amount",
         "song_limit", "music_limit", "text_limit", "image_limit",
-        "chat_output_tokens_limit",
-        "ai_templates_limit", "operations_per_month_limit", "covers_limit",
         "can_purchase_addons",
     )
     list_filter = (
         "period", "is_active", "is_free",
         "ai_chat_enabled", "realtime_chat_enabled", "images_enabled",
-        "diffusion_images_enabled", "tts_enabled", "music_enabled", "support_enabled",
+        "music_enabled", "mp4_enabled", "support_enabled",
     )
     search_fields = ("id",)
     ordering = ("sort_order", "id")
@@ -90,22 +117,22 @@ class PlanAdmin(admin.ModelAdmin):
         ("Модель", {"fields": ("llm_engine", "topmedia_engine")}),
         ("Лимиты (0 = без включённых генераций)", {
             "fields": (
-                "ai_templates_limit", "operations_per_month_limit", "covers_limit",
                 "song_limit", "music_limit", "text_limit", "image_limit",
             )
         }),
-        ("Чат", {"fields": ("chat_output_tokens_limit",)}),
         ("Воскресные бонусы", {
             "fields": ("sunday_bonus_songs", "sunday_bonus_music", "sunday_bonus_texts", "sunday_bonus_images")
         }),
         ("Функции", {
             "fields": (
-                "ai_chat_enabled", "realtime_chat_enabled", "rewriter_enabled", "antiplag_enabled",
-                "images_enabled", "diffusion_images_enabled", "blog_master_enabled",
-                "music_enabled", "tts_enabled", "my_templates_enabled", "manager_enabled", "support_enabled",
+                "ai_chat_enabled", "realtime_chat_enabled",
+                "images_enabled", "music_enabled", "mp4_enabled", "support_enabled",
             )
         }),
-        ("Покупки", {"fields": ("can_purchase_addons",)}),
+        ("Покупки", {
+            "description": "Только для платных тарифов. Нельзя включать вместе с «is free».",
+            "fields": ("can_purchase_addons",),
+        }),
     )
 
     def formfield_for_foreignkey(self, db_field, request, **kwargs):
@@ -114,6 +141,12 @@ class PlanAdmin(admin.ModelAdmin):
                 kind=TopMediaModels.KIND_MUSIC
             ).order_by("name")
         return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
+    def formfield_for_dbfield(self, db_field, request, **kwargs):
+        formfield = super().formfield_for_dbfield(db_field, request, **kwargs)
+        if db_field.name in self.FIELD_LABELS and formfield is not None:
+            formfield.label = self.FIELD_LABELS[db_field.name]
+        return formfield
 
 
 @admin.register(GenerationUnitPrice)

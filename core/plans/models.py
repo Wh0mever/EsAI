@@ -86,14 +86,6 @@ class Plan(models.Model):
     template_name_en = models.CharField(max_length=100, null=True, blank=True)
     template_name_kg = models.CharField(max_length=100, null=True, blank=True)
 
-    # Limits (0 => no included generations)
-    ai_templates_limit = models.PositiveIntegerField(null=True, blank=True)
-    operations_per_month_limit = models.PositiveIntegerField(null=True, blank=True)
-    covers_limit = models.PositiveIntegerField(null=True, blank=True)
-
-    # Chat response tokens limit (per reply). If null -> fallback to model default.
-    chat_output_tokens_limit = models.PositiveIntegerField(null=True, blank=True)
-
     # Legacy-style content limits to keep your current counters
     song_limit = models.PositiveIntegerField(default=0)   # 0 => no included generations
     music_limit = models.PositiveIntegerField(default=0)  # 0 => no included generations
@@ -109,15 +101,9 @@ class Plan(models.Model):
     # Feature toggles
     ai_chat_enabled = models.BooleanField(default=False)
     realtime_chat_enabled = models.BooleanField(default=False)
-    rewriter_enabled = models.BooleanField(default=False)
-    antiplag_enabled = models.BooleanField(default=False)
     images_enabled = models.BooleanField(default=False)
-    diffusion_images_enabled = models.BooleanField(default=False)
-    blog_master_enabled = models.BooleanField(default=False)
     music_enabled = models.BooleanField(default=False)
-    tts_enabled = models.BooleanField(default=False)
-    my_templates_enabled = models.BooleanField(default=False)
-    manager_enabled = models.BooleanField(default=False)
+    mp4_enabled = models.BooleanField(default=False)
     support_enabled = models.BooleanField(default=False)
 
     # Purchases
@@ -137,6 +123,10 @@ class Plan(models.Model):
         if self.is_free:
             if self.price_amount != 0 or (self.price_base_amount and self.price_base_amount != 0):
                 raise ValidationError("Free plan must have zero price and no base price.")
+            if self.can_purchase_addons:
+                raise ValidationError({
+                    "can_purchase_addons": "Опция докупки доступна только для платных тарифов."
+                })
         if self.price_base_amount is not None and self.price_base_amount <= self.price_amount:
             raise ValidationError("Base price should be greater than current price.")
 
