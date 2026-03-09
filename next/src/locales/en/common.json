@@ -77,7 +77,16 @@
       "tts": "Text-to-Speech",
       "my_templates": "My Templates",
       "manager": "Manager",
-      "support": "Free Support"
+      "support": "Support",
+      "songs_count": "Number of songs",
+      "images_count": "Number of images",
+      "music_count": "Number of music generations",
+      "sunday_bonus_title": "Sunday bonuses",
+      "sunday_bonus_songs": "songs",
+      "sunday_bonus_music": "music generations",
+      "sunday_bonus_texts": "texts",
+      "sunday_bonus_images": "images",
+      "mp4": "MP4"
     },
     "questions": "Still have questions?",
     "questionsText": "Didn't find the answer here? You can contact us at",

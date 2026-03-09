@@ -17,10 +17,6 @@ class PlanSerializer(serializers.ModelSerializer):
     llm_engine_name = serializers.SerializerMethodField()
     topmedia_engine_name = serializers.SerializerMethodField()
 
-    ai_templates_limit = serializers.SerializerMethodField()
-    operations_per_month_limit = serializers.SerializerMethodField()
-    covers_limit = serializers.SerializerMethodField()
-
     # new: prices in RUB/KGS
     price_amount_rub = serializers.SerializerMethodField()
     price_amount_kgs = serializers.SerializerMethodField()
@@ -31,20 +27,15 @@ class PlanSerializer(serializers.ModelSerializer):
         model = Plan
         fields = (
             "id", "period", "is_free", "is_active", "sort_order",
-            # USD (как было)
             "price_amount", "price_base_amount",
             "has_discount", "discount_percent",
             "llm_engine_id", "llm_engine_name",
             "topmedia_engine_id", "topmedia_engine_name",
-            "chat_output_tokens_limit",
-            "ai_templates_limit", "operations_per_month_limit", "covers_limit",
             "song_limit", "music_limit", "text_limit", "image_limit",
             "sunday_bonus_songs", "sunday_bonus_music", "sunday_bonus_texts", "sunday_bonus_images",
-            "ai_chat_enabled", "realtime_chat_enabled", "rewriter_enabled", "antiplag_enabled",
-            "images_enabled", "diffusion_images_enabled", "blog_master_enabled",
-            "music_enabled", "tts_enabled", "my_templates_enabled", "manager_enabled", "support_enabled",
+            "ai_chat_enabled", "realtime_chat_enabled",
+            "images_enabled", "music_enabled", "mp4_enabled", "support_enabled",
             "can_purchase_addons",
-            # new fields
             "price_amount_rub", "price_amount_kgs",
             "price_base_amount_rub", "price_base_amount_kgs",
             "template_name_ru", "template_name_en", "template_name_kg",
@@ -69,14 +60,6 @@ class PlanSerializer(serializers.ModelSerializer):
     def get_topmedia_engine_name(self, obj: Plan) -> str | None:
         engine = getattr(obj, "topmedia_engine", None)
         return getattr(engine, "name", None) if engine else None
-
-    # ---- limits ----
-    def _norm(self, v):  # None -> 0
-        return 0 if v is None else v
-
-    def get_ai_templates_limit(self, obj): return self._norm(obj.ai_templates_limit)
-    def get_operations_per_month_limit(self, obj): return self._norm(obj.operations_per_month_limit)
-    def get_covers_limit(self, obj): return self._norm(obj.covers_limit)
 
     # ---- currency conversion helpers ----
     def _per_usd(self) -> dict:

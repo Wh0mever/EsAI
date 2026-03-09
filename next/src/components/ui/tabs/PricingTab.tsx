@@ -5,6 +5,7 @@ import clsx from "clsx";
 import { Button } from "@/components/ui/buttons/Buttons";
 import NextLink from "../nextLink/NextLink";
 import { IoIosCheckmark, IoIosClose } from "react-icons/io";
+import { IoVideocamOutline } from "react-icons/io5";
 import { useTranslation } from "react-i18next";
 import { fetchData } from "@/tools/fetchData";
 import { getInitialCurrency } from "@/lib/currency";
@@ -26,10 +27,6 @@ type PlanDTO = {
 	llm_engine_id: string | null;
 	llm_engine_name?: string | null;
 
-	ai_templates_limit: number | null;
-	operations_per_month_limit: number | null;
-	covers_limit: number | null;
-
 	song_limit: number;
 	music_limit: number;
 	text_limit: number;
@@ -42,16 +39,10 @@ type PlanDTO = {
 
 	ai_chat_enabled: boolean;
 	realtime_chat_enabled: boolean;
-	rewriter_enabled: boolean;
-	antiplag_enabled: boolean;
 	images_enabled: boolean;
-	diffusion_images_enabled: boolean;
-	blog_master_enabled: boolean;
 	music_enabled: boolean;
-	tts_enabled: boolean;
-	my_templates_enabled: boolean;
-	manager_enabled: boolean;
 	support_enabled: boolean;
+	mp4_enabled: boolean;
 
 	can_purchase_addons: boolean;
 
@@ -106,16 +97,8 @@ function formatMoney(amount: number | string | null | undefined, currency: Curre
 
 // unlimited label
 function limitLabel(value: number | null | undefined, unlimited: string) {
-	if (value === null || value === 0) return unlimited;
+	if (value === null || value === undefined) return unlimited;
 	return String(value);
-}
-
-function aiToolsCount(plan: PlanDTO): number {
-	let count = 0;
-	if (plan.ai_chat_enabled) count += 1;
-	if (plan.music_enabled) count += 1;
-	if (plan.images_enabled || plan.diffusion_images_enabled) count += 1;
-	return count;
 }
 
 // derived prices
@@ -168,75 +151,90 @@ function Cross() {
 
 function PlanFeatures({ plan, t }: { plan: PlanDTO; t: (k: string) => string }) {
 	const unlimited = t("pricing.unlimited");
-	const rows: Array<{ ok: boolean; content: React.ReactNode }> = [];
+	const counters: Array<React.ReactNode> = [];
+	const bonusRows: Array<React.ReactNode> = [];
 
-	if (plan.llm_engine_id) {
-		rows.push({
-			ok: true,
-			content: (
-				<p>
-					<span className="text-yellow-400 font-bold">{plan.llm_engine_name || plan.llm_engine_id} </span>
-					{t("pricing.features.open_ai_model")}
-				</p>
-			),
-		});
+	counters.push(
+		<li key="songs" className="flex items-center gap-3">
+			<Check />
+			<p>
+				<span className="text-yellow-400 font-bold">{limitLabel(plan.song_limit, unlimited)} </span>
+				{t("pricing.features.songs_count")}
+			</p>
+		</li>
+	);
+	counters.push(
+		<li key="images" className="flex items-center gap-3">
+			<Check />
+			<p>
+				<span className="text-yellow-400 font-bold">{limitLabel(plan.image_limit, unlimited)} </span>
+				{t("pricing.features.images_count")}
+			</p>
+		</li>
+	);
+	counters.push(
+		<li key="music" className="flex items-center gap-3">
+			<Check />
+			<p>
+				<span className="text-yellow-400 font-bold">{limitLabel(plan.music_limit, unlimited)} </span>
+				{t("pricing.features.music_count")}
+			</p>
+		</li>
+	);
+
+	if ((plan.sunday_bonus_songs || 0) > 0) {
+		bonusRows.push(
+			<li key="bonus-songs" className="pl-8 text-yellow-300">
+				+{plan.sunday_bonus_songs} {t("pricing.features.sunday_bonus_songs")}
+			</li>
+		);
+	}
+	if ((plan.sunday_bonus_music || 0) > 0) {
+		bonusRows.push(
+			<li key="bonus-music" className="pl-8 text-yellow-300">
+				+{plan.sunday_bonus_music} {t("pricing.features.sunday_bonus_music")}
+			</li>
+		);
+	}
+	if ((plan.sunday_bonus_texts || 0) > 0) {
+		bonusRows.push(
+			<li key="bonus-texts" className="pl-8 text-yellow-300">
+				+{plan.sunday_bonus_texts} {t("pricing.features.sunday_bonus_texts")}
+			</li>
+		);
+	}
+	if ((plan.sunday_bonus_images || 0) > 0) {
+		bonusRows.push(
+			<li key="bonus-images" className="pl-8 text-yellow-300">
+				+{plan.sunday_bonus_images} {t("pricing.features.sunday_bonus_images")}
+			</li>
+		);
 	}
 
-	rows.push({
-		ok: true,
-		content: (
-			<p>
-				<span className="text-yellow-400 font-bold">{aiToolsCount(plan)} </span>
-				{t("pricing.features.ai_templates")}
-			</p>
-		),
-	});
-
-	rows.push({
-		ok: true,
-		content: (
-			<p>
-				<span className="text-yellow-400 font-bold">
-					{limitLabel(plan.operations_per_month_limit, unlimited)}{" "}
-				</span>
-				{t("pricing.features.ops_per_month")}
-			</p>
-		),
-	});
-
-	rows.push({
-		ok: true,
-		content: (
-			<p>
-				<span className="text-yellow-400 font-bold">{limitLabel(plan.covers_limit, unlimited)} </span>
-				{t("pricing.features.covers")}
-			</p>
-		),
-	});
-
-	const toggles: Array<[boolean, string]> = [
-		[plan.ai_chat_enabled, t("pricing.features.ai_chat")],
-		[plan.realtime_chat_enabled, t("pricing.features.realtime_chat")],
-		[plan.rewriter_enabled, t("pricing.features.rewriter")],
-		[plan.antiplag_enabled, t("pricing.features.antiplag")],
-		[plan.images_enabled, t("pricing.features.ai_images")],
-		[plan.diffusion_images_enabled, t("pricing.features.diffusion_images")],
-		[plan.blog_master_enabled, t("pricing.features.blog_master")],
-		[plan.music_enabled, t("pricing.features.music")],
-		[plan.tts_enabled, t("pricing.features.tts")],
-		[plan.my_templates_enabled, t("pricing.features.my_templates")],
-		[plan.manager_enabled, t("pricing.features.manager")],
-		[plan.support_enabled, t("pricing.features.support")],
+	const toggles: Array<{ ok: boolean; label: string; key: "mp4" | "support" }> = [
+		{ ok: plan.mp4_enabled, label: t("pricing.features.mp4"), key: "mp4" },
+		{ ok: plan.support_enabled, label: t("pricing.features.support"), key: "support" },
 	];
 
-	toggles.forEach(([ok, label]) => rows.push({ ok, content: <p>{label}</p> }));
-
 	return (
-		<ul className="flex flex-col gap-4 text-sm">
-			{rows.map((r, i) => (
-				<li key={i} className="flex items-center gap-3">
-					{r.ok ? <Check /> : <Cross />}
-					{r.content}
+		<ul className="flex flex-col gap-3 text-sm">
+			{counters}
+			{bonusRows.length > 0 && (
+				<li className="flex items-start gap-3">
+					<Check />
+					<div>
+						<p>{t("pricing.features.sunday_bonus_title")}</p>
+						<ul className="mt-1 flex flex-col gap-1">{bonusRows}</ul>
+					</div>
+				</li>
+			)}
+			{toggles.map((row, i) => (
+				<li key={`toggle-${i}`} className="flex items-center gap-3">
+					{row.ok ? <Check /> : <Cross />}
+					<p className="inline-flex items-center gap-2">
+						{row.key === "mp4" && <IoVideocamOutline className="text-red-300" />}
+						{row.label}
+					</p>
 				</li>
 			))}
 		</ul>

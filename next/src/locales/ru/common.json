@@ -77,7 +77,16 @@
       "tts": "Текст в речь",
       "my_templates": "Мои шаблоны",
       "manager": "Менеджер",
-      "support": "Бесплатная поддержка"
+      "support": "Поддержка",
+      "songs_count": "Количество песен",
+      "images_count": "Количество изображений",
+      "music_count": "Количество музыки",
+      "sunday_bonus_title": "Бонусы по воскресеньям",
+      "sunday_bonus_songs": "песни",
+      "sunday_bonus_music": "музыки",
+      "sunday_bonus_texts": "текста",
+      "sunday_bonus_images": "изображений",
+      "mp4": "MP4"
     },
     "questions": "Остались вопросы?",
     "questionsText": "Не нашли ответ здесь? Напишите нам на",

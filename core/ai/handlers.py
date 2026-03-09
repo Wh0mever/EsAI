@@ -453,9 +453,8 @@ def OpenAIHandler(request):
         messages = _build_openai_messages(session, message, system_prompt, origin_base)
         client = _make_openai_client(provider)
 
-        # Determine completion tokens limit: plan override > model default
-        plan_limit = getattr(getattr(subscription, "plan", None), "chat_output_tokens_limit", None)
-        max_limit = plan_limit or (model_max_tokens or None)
+        # Determine completion tokens limit from selected model settings
+        max_limit = model_max_tokens or None
         is_reason = _is_reasoning(selected_model_name)
         is_newchat = _is_new_chat(selected_model_name)
 
