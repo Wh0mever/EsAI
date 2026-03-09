@@ -65,7 +65,7 @@ class CurrencyRateAdmin(admin.ModelAdmin):
 @admin.register(Plan)
 class PlanAdmin(admin.ModelAdmin):
     list_display = (
-        "id", "period", "duration_days", "is_free", "is_active",
+        "id", "period", "is_free", "is_active",
         "price_amount", "price_base_amount",
         "song_limit", "music_limit", "text_limit", "image_limit",
         "chat_output_tokens_limit",
@@ -80,7 +80,7 @@ class PlanAdmin(admin.ModelAdmin):
     search_fields = ("id",)
     ordering = ("sort_order", "id")
     fieldsets = (
-        ("Основное", {"fields": ("is_active", "is_free", "period", "duration_days", "sort_order")}),
+        ("Основное", {"fields": ("is_active", "is_free", "period", "sort_order")}),
         ("Названия", {
             "fields": (
                 "template_name_ru", "template_name_en", "template_name_kg",
@@ -88,7 +88,7 @@ class PlanAdmin(admin.ModelAdmin):
         }),
         ("Цены", {"fields": ( "price_amount", "price_base_amount")}),
         ("Модель", {"fields": ("llm_engine", "topmedia_engine")}),
-        ("Лимиты (0 = безлимит)", {
+        ("Лимиты (0 = без включённых генераций)", {
             "fields": (
                 "ai_templates_limit", "operations_per_month_limit", "covers_limit",
                 "song_limit", "music_limit", "text_limit", "image_limit",
@@ -144,4 +144,3 @@ class UserSubscriptionAdmin(admin.ModelAdmin):
     search_fields = ("id", "user__username", "user__email")
     date_hierarchy = "start_date"
     inlines = [GenerationUsageInline]
-

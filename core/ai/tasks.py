@@ -6,6 +6,7 @@ from django.contrib.auth import get_user_model
 from .models import AiProvider, AiChatSession, AiChatMessage, AiGeneratedImage, AiGeneratedMusic
 from .handlers import _make_openai_client
 from plans.models import UserSubscription
+from plans.services import get_chat_access_state, consume_bonus_without_subscription
 from django.core.files.base import ContentFile
 import base64
 import uuid
@@ -49,6 +50,9 @@ def generate_image_task(
         user = User.objects.get(pk=user_id)
     except User.DoesNotExist:
         return {"error": "User not found"}
+    access = get_chat_access_state(user, "ru", kind="image")
+    if access.get("blocked"):
+        return {"error": access.get("error"), "error_code": access.get("error_code"), "grace_until": access.get("grace_until")}
 
     try:
         provider = AiProvider.objects.get(slug=provider_slug, is_active=True)
@@ -150,6 +154,8 @@ def generate_image_task(
             subscription.consume("image")
         except Exception:
             pass
+    else:
+        consume_bonus_without_subscription(user, "image")
 
     return {
         "session": {"id": session.id, "uid": session.uid, "title": session.title, "provider": provider.slug, "updated_at": str(session.updated_at)},
@@ -487,6 +493,9 @@ def generate_music_task(
         user = User.objects.get(pk=user_id)
     except User.DoesNotExist:
         return _fail("User not found")
+    access = get_chat_access_state(user, language or "ru", kind="music")
+    if access.get("blocked"):
+        return _fail(access.get("error") or "Chat is unavailable", error_code=access.get("error_code"), grace_until=access.get("grace_until"))
 
     try:
         provider = AiProvider.objects.get(slug=(provider_slug or "topmedia").strip(), is_active=True)
@@ -713,6 +722,8 @@ def generate_music_task(
             subscription.consume("music")
         except Exception:
             pass
+    else:
+        consume_bonus_without_subscription(user, "music")
 
     return {
         "session": {"id": session.id, "uid": session.uid, "title": session.title, "provider": provider.slug, "updated_at": str(session.updated_at)},

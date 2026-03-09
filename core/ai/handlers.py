@@ -17,6 +17,7 @@ from .models import (
     AiGeneratedImage,
 )
 from plans.models import UserSubscription
+from plans.services import get_chat_access_state, consume_bonus_without_subscription
 from django.core.exceptions import ValidationError
 from .serializers import AiChatMessageSerializer
 
@@ -331,6 +332,10 @@ def OpenAIHandler(request):
             return {
                 "error": "music-chat теперь работает через TopMedia async API. Используйте POST /api/ai/music/submit/ и GET /api/ai/music/status/?job=<id>."
             }
+        lang_code, _ = _pick_lang(request)
+        access = get_chat_access_state(request.user, "kg" if lang_code == "ky" else lang_code, kind="text")
+        if access.get("blocked"):
+            return {"error": access.get("error"), "error_code": access.get("error_code"), "grace_until": access.get("grace_until")}
         # 1) Model + subscription/limits
         subscription = (
             UserSubscription.objects
@@ -509,6 +514,8 @@ def OpenAIHandler(request):
             except ValidationError:
                 # Very rare race; ignore here to not break user flow
                 pass
+        else:
+            consume_bonus_without_subscription(request.user, consume_kind)
 
         return {
             "session": {
@@ -520,6 +527,9 @@ def OpenAIHandler(request):
             },
             "response": answer,
             "message": AiChatMessageSerializer(assistant_msg).data,
+            "warning": access.get("warning"),
+            "warning_code": access.get("warning_code"),
+            "grace_until": access.get("grace_until"),
         }
 
     except Exception as e:
@@ -538,6 +548,11 @@ def OpenAIImageHandler(request):
       - provider_slug: optional provider (default 'dall-e')
     """
     try:
+        lang_code, _ = _pick_lang(request)
+        access = get_chat_access_state(request.user, "kg" if lang_code == "ky" else lang_code, kind="image")
+        if access.get("blocked"):
+            return {"error": access.get("error"), "error_code": access.get("error_code"), "grace_until": access.get("grace_until")}
+
         prompt = (request.data.get("message") or "").strip()
         if not prompt:
             return {"error": "No prompt provided"}
@@ -651,11 +666,16 @@ def OpenAIImageHandler(request):
                 subscription.consume("image")
             except ValidationError:
                 pass
+        else:
+            consume_bonus_without_subscription(request.user, "image")
 
         return {
             "session": {"id": session.id, "uid": session.uid, "title": session.title, "provider": provider.slug, "updated_at": session.updated_at},
             "image": {"url": url, "size": size, "id": gen.id, "uniqid": gen.uniqid},
             "message": AiChatMessageSerializer(assistant_msg).data if assistant_msg else None,
+            "warning": access.get("warning"),
+            "warning_code": access.get("warning_code"),
+            "grace_until": access.get("grace_until"),
         }
 
     except Exception as e:

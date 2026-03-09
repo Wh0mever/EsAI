@@ -14,6 +14,7 @@ from plans.models import (
     PaymentStatus,
     GenerationUsage,
 )
+from plans.services import plan_cycle_days
 from .models import User, UserCardBind, Notification, NotificationDelivery
 
 
@@ -72,7 +73,7 @@ def activate_free_plan_for_user(user: User) -> Tuple[bool, str]:
             user=locked_user,
             plan=plan,
             start_date=now,
-            end_date=now + timedelta(days=int(plan.duration_days or 30)),
+            end_date=now + timedelta(days=plan_cycle_days(plan.period)),
             status=SubscriptionStatus.ACTIVE,
             payment_status=PaymentStatus.UNPAID,
             payment_date=None,

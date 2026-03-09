@@ -269,6 +269,23 @@ export default function UserPlan({ t, data, onUnsubscribe, onResume }: Props) {
 
 	const CurrentPlan = () => {
 		const plan = sub!.plan!;
+		const issue = String(sub?.billing_issue_code || "");
+		const graceUntil = sub?.grace_until ? formatDate(sub.grace_until, localeTag) : "";
+		const isGraceActive = sub?.status === "active" && sub?.payment_status === "unpaid" && Boolean(sub?.grace_until);
+		const isBlocked = sub?.status !== "active";
+		const accessNotice = (() => {
+			if (isGraceActive) {
+				if (issue === "card_missing") return { kind: "warning", text: t("profile.billing_grace_card_missing", { date: graceUntil }) };
+				if (issue === "charge_failed") return { kind: "warning", text: t("profile.billing_grace_charge_failed", { date: graceUntil }) };
+				return { kind: "warning", text: t("profile.billing_grace_generic", { date: graceUntil }) };
+			}
+			if (isBlocked) {
+				if (issue === "card_missing") return { kind: "error", text: t("profile.chat_blocked_card_missing") };
+				if (issue === "charge_failed") return { kind: "error", text: t("profile.chat_blocked_charge_failed") };
+				return { kind: "error", text: t("profile.chat_blocked_no_active") };
+			}
+			return null;
+		})();
 		return (
 			<div className="flex flex-col gap-3 w-full">
 				<div className="flex justify-between items-center">
@@ -308,6 +325,11 @@ export default function UserPlan({ t, data, onUnsubscribe, onResume }: Props) {
 					})()}
 				</p>
 
+				{accessNotice && (
+					<p className={accessNotice.kind === "warning" ? "text-sm text-amber-400" : "text-sm text-rose-400"}>
+						{accessNotice.text}
+					</p>
+				)}
 				{actionNotice && <p className="text-sm text-green-400">{actionNotice}</p>}
 				{actionError && <p className="text-sm text-rose-400">{actionError}</p>}
 
@@ -342,20 +364,42 @@ export default function UserPlan({ t, data, onUnsubscribe, onResume }: Props) {
 	};
 
 	const EmptyPlan = () => (
-		<div className="flex flex-col gap-3 w-full">
-			<div className="flex justify-between items-center">
-				<h2 className="text-xl font-bold">{t("profile.subscription")}</h2>
-				<img src="/images/logo/head.svg" alt="" className="w-15" />
-			</div>
-			<div className="flex flex-col gap-3">
-				<h3 className="text-3xl">{t("profile.plan_info.empty_title")}</h3>
-				<p className="text-lg">{t("profile.plan_info.empty_text")}</p>
-				<p className="text-md text-gray-400">{t("profile.plan_info.empty_text2")}</p>
-				<Link href="/pricing" className="text-lg text-yellow-400 hover:text-yellow-500 duration-300">
-					{t("profile.pricing")}
-				</Link>
-			</div>
-		</div>
+		(() => {
+			const user = data?.user || {};
+			const hasAnyBonus =
+				Number(user?.bonus_texts || 0) > 0 ||
+				Number(user?.bonus_images || 0) > 0 ||
+				Number(user?.bonus_songs || 0) > 0 ||
+				Number(user?.bonus_music || 0) > 0;
+			const joinedRaw = user?.date_joined ? new Date(user.date_joined) : null;
+			const trialEnd = joinedRaw && !isNaN(joinedRaw.getTime())
+				? new Date(joinedRaw.getTime() + 7 * 24 * 60 * 60 * 1000)
+				: null;
+			const inTrialWindow = Boolean(trialEnd && Date.now() < trialEnd.getTime());
+			return (
+				<div className="flex flex-col gap-3 w-full">
+					<div className="flex justify-between items-center">
+						<h2 className="text-xl font-bold">{t("profile.subscription")}</h2>
+						<img src="/images/logo/head.svg" alt="" className="w-15" />
+					</div>
+					<div className="flex flex-col gap-3">
+						<h3 className="text-3xl">{t("profile.plan_info.empty_title")}</h3>
+						<p className="text-lg">{t("profile.plan_info.empty_text")}</p>
+						<p className="text-md text-gray-400">{t("profile.plan_info.empty_text2")}</p>
+						{hasAnyBonus && inTrialWindow ? (
+							<p className="text-sm text-amber-400">{t("profile.test_mode_notice")}</p>
+						) : hasAnyBonus ? (
+							<p className="text-sm text-rose-400">{t("profile.test_mode_expired_notice")}</p>
+						) : (
+							<p className="text-sm text-rose-400">{t("profile.chat_blocked_no_active")}</p>
+						)}
+						<Link href="/pricing" className="text-lg text-yellow-400 hover:text-yellow-500 duration-300">
+							{t("profile.pricing")}
+						</Link>
+					</div>
+				</div>
+			);
+		})()
 	);
 
     const UsageCard = () => {

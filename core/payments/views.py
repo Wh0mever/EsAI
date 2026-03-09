@@ -26,6 +26,7 @@ from plans.models import (
     CurrencyRate,
     GenerationUnitPrice,
 )
+from plans.services import plan_cycle_days
 from .freedompay import (
     FreedomPayHPPClient,
     FreedomPayError,
@@ -261,7 +262,7 @@ def _activate_paid_plan_for_user(user: User, plan: Plan) -> tuple[UserSubscripti
         now = timezone.now()
         if existing and existing.plan_id == plan.id:
             changed_fields = []
-            cycle_days = int(getattr(plan, "duration_days", 30) or 30)
+            cycle_days = plan_cycle_days(plan.period)
             # Ensure next charge date is always defined and aligned to current activation.
             existing.start_date = now
             existing.end_date = now + timedelta(days=cycle_days)
@@ -302,7 +303,7 @@ def _activate_paid_plan_for_user(user: User, plan: Plan) -> tuple[UserSubscripti
             user=user,
             plan=plan,
             start_date=now,
-            end_date=now + timedelta(days=int(plan.duration_days or 30)),
+            end_date=now + timedelta(days=plan_cycle_days(plan.period)),
             status=SubscriptionStatus.ACTIVE,
             payment_status=PaymentStatus.PAID,
             payment_date=now,

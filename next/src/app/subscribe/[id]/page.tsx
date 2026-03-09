@@ -17,8 +17,7 @@ import { Alert } from "@/components/ui/alert/Alert";
 // ==== Types ====
 type PlanDTO = {
 	id: number;
-	period: "monthly" | "yearly";
-	duration_days: number;
+	period: "weekly" | "monthly" | "yearly";
 	is_free: boolean;
 	is_active: boolean;
 	sort_order: number;
@@ -600,10 +599,6 @@ export default function SubscribePlanPage() {
 										<div className="flex justify-between border-b border-white/10 pb-2">
 											<dt className="text-white/60">{t("pricing.period")}</dt>
 											<dd>{t(`pricing.${plan.period}`)}</dd>
-										</div>
-										<div className="flex justify-between border-b border-white/10 pb-2">
-											<dt className="text-white/60">{t("pricing.duration_days")}</dt>
-											<dd>{plan.duration_days}</dd>
 										</div>
 										<div className="flex justify-between">
 											<dt className="text-white/60">{t("pricing.addons")}</dt>

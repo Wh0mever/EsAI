@@ -10,8 +10,18 @@ class Currency(models.TextChoices):
 
 
 class BillingPeriod(models.TextChoices):
+    WEEKLY = "weekly", "Неделя"
     MONTHLY = "monthly", "Месяц"
     YEARLY  = "yearly", "Год"
+
+
+def _plan_cycle_days(period: str | None) -> int:
+    p = (period or "").strip().lower()
+    if p == BillingPeriod.WEEKLY:
+        return 7
+    if p == BillingPeriod.YEARLY:
+        return 365
+    return 30
     
 
 class CurrencyRate(models.Model):
@@ -58,7 +68,6 @@ class Plan(models.Model):
     is_active = models.BooleanField(default=True)
     is_free = models.BooleanField(default=False)
     period = models.CharField(max_length=10, choices=BillingPeriod.choices)
-    duration_days = models.PositiveIntegerField(default=30)
     sort_order = models.PositiveIntegerField(default=100)
 
     price_amount = models.DecimalField(max_digits=12, decimal_places=2, default=0)
@@ -77,7 +86,7 @@ class Plan(models.Model):
     template_name_en = models.CharField(max_length=100, null=True, blank=True)
     template_name_kg = models.CharField(max_length=100, null=True, blank=True)
 
-    # Limits (0 => unlimited)
+    # Limits (0 => no included generations)
     ai_templates_limit = models.PositiveIntegerField(null=True, blank=True)
     operations_per_month_limit = models.PositiveIntegerField(null=True, blank=True)
     covers_limit = models.PositiveIntegerField(null=True, blank=True)
@@ -86,10 +95,10 @@ class Plan(models.Model):
     chat_output_tokens_limit = models.PositiveIntegerField(null=True, blank=True)
 
     # Legacy-style content limits to keep your current counters
-    song_limit = models.PositiveIntegerField(default=0)   # 0 => unlimited
-    music_limit = models.PositiveIntegerField(default=0)  # 0 => unlimited
-    text_limit = models.PositiveIntegerField(default=0)   # 0 => unlimited
-    image_limit = models.PositiveIntegerField(default=0)  # 0 => unlimited
+    song_limit = models.PositiveIntegerField(default=0)   # 0 => no included generations
+    music_limit = models.PositiveIntegerField(default=0)  # 0 => no included generations
+    text_limit = models.PositiveIntegerField(default=0)   # 0 => no included generations
+    image_limit = models.PositiveIntegerField(default=0)  # 0 => no included generations
 
     # Sunday bonuses (legacy behavior)
     sunday_bonus_songs = models.PositiveIntegerField(default=0)
@@ -154,6 +163,8 @@ class UserSubscription(models.Model):
     payment_status = models.CharField(max_length=20, choices=PaymentStatus.choices, default=PaymentStatus.UNPAID)
     payment_date = models.DateTimeField(null=True, blank=True)
     auto_renew = models.BooleanField(default=True)
+    grace_until = models.DateTimeField(null=True, blank=True)
+    billing_issue_code = models.CharField(max_length=32, blank=True, default="")
 
     class Meta:
         indexes = [
@@ -174,14 +185,14 @@ class UserSubscription(models.Model):
                 from django.utils import timezone
                 start = timezone.now()
                 self.start_date = start
-            days = int(getattr(self.plan, "duration_days", 30) or 30)
+            days = _plan_cycle_days(getattr(self.plan, "period", None))
             self.end_date = start + timedelta(days=days)
         return super().save(*args, **kwargs)
 
     # Helpers
     def is_unlimited(self, value: int | None) -> bool:
-        # Treat None/0 from plan limits as unlimited in usage logic
-        return value is None or value == 0
+        # Only NULL can represent unlimited; 0 means no included generations.
+        return value is None
 
     def apply_addon_to_usage(self, addon: "AddonPurchase") -> None:
         """Increment usage counters by addon amounts."""
@@ -322,7 +333,7 @@ class UserSubscription(models.Model):
 class GenerationUsage(models.Model):
     subscription = models.OneToOneField(UserSubscription, on_delete=models.CASCADE, related_name="usage")
 
-    # 0 here means "no remaining limit required" only if the plan is unlimited.
+    # 0 means no remaining included generations.
     songs_left = models.IntegerField(default=0)
     music_left = models.IntegerField(default=0)
     texts_left = models.IntegerField(default=0)

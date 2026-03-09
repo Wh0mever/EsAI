@@ -238,6 +238,9 @@ function BubbleContent({
 }) {
   const { t } = useTranslation("common");
   const audioUrl = !isUser ? extractAudioUrl(msg.content || "") : "";
+  const extraLink = ((msg as any)?.link || "").toString().trim();
+  const extraLinkLabel = ((msg as any)?.linkLabel || "").toString().trim();
+  const isSystemNotice = !isUser && (msg as any)?.meta?.system_notice === "subscription";
 
   if (!isUser && msg.content && isImageUrl(msg.content)) {
     if (mode === "music-chat" && isGeneratedAssetUrl(msg.content)) {
@@ -276,6 +279,30 @@ function BubbleContent({
     return <TypingText text={msg.content} speed={18} onDone={onTypedDone} />;
   }
 
+  if (!isUser && extraLink) {
+    if (isSystemNotice) {
+      return (
+        <span className="flex flex-col items-center gap-2 text-center">
+          <span>{msg?.content ?? t("chat.thinking_ellipsis", { defaultValue: "Думаю…" })}</span>
+          <NextLink
+            href={extraLink}
+            className="inline-flex items-center justify-center rounded-md border border-rose-500 px-3 py-1 text-center text-rose-200 hover:bg-rose-500/10 hover:text-rose-100 cursor-pointer no-underline hover:no-underline"
+          >
+            {extraLinkLabel || t("chat.go_to_pricing", { defaultValue: "Перейти к тарифам" })}
+          </NextLink>
+        </span>
+      );
+    }
+    return (
+      <span>
+        {msg?.content ?? t("chat.thinking_ellipsis", { defaultValue: "Думаю…" })}{" "}
+        <NextLink href={extraLink} className="underline underline-offset-2 text-sky-300 hover:text-sky-200 cursor-pointer">
+          {extraLinkLabel || t("chat.go_to_pricing", { defaultValue: "Перейти к тарифам" })}
+        </NextLink>
+      </span>
+    );
+  }
+
   return <span>{msg?.content ?? t("chat.thinking_ellipsis", { defaultValue: "Думаю…" })}</span>;
 }
 
@@ -298,15 +325,21 @@ function ChatBubble({
 }) {
   const isUser = msg.role === "user";
   const isError = !isUser && (msg as any)?.variant === "error";
+  const isWarning = !isUser && (msg as any)?.variant === "warning";
+  const isSystemNotice = !isUser && (msg as any)?.meta?.system_notice === "subscription";
 
-  const bubbleClass = isUser
+  const bubbleClass = isSystemNotice
+    ? "self-center bg-neutral-800/70 border border-rose-500 text-neutral-100"
+    : isUser
     ? "self-end bg-indigo-700 text-white"
+    : isWarning
+    ? "self-start bg-amber-700/90 border border-amber-400 text-white"
     : isError
     ? "self-start bg-rose-700/90 border border-rose-400 text-white"
     : "self-start bg-neutral-900 text-white";
 
   return (
-    <div className="flex flex-col items-start gap-2 max-w-[80%]">
+    <div className={`flex flex-col gap-2 max-w-[80%] ${isSystemNotice ? "items-center self-center text-center" : "items-start"}`}>
       <div className={`p-4 rounded-xl whitespace-pre-wrap ${bubbleClass}`}>
         <BubbleContent
           isUser={isUser}

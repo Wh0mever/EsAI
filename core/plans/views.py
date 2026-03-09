@@ -12,6 +12,7 @@ from .serializers import (
     GenerationUsageSerializer, AddonPurchaseSerializer
 )
 from .services import get_currency_per_usd_map_cached
+from .services import plan_cycle_days
 from rest_framework.views import APIView
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from django.utils import timezone
@@ -31,7 +32,7 @@ class PlanListView(generics.ListAPIView):
     permission_classes = [permissions.AllowAny]
     serializer_class = PlanSerializer
 
-    ALLOWED_PERIODS = {"monthly", "yearly"}
+    ALLOWED_PERIODS = {"weekly", "monthly", "yearly"}
 
     def get_queryset(self):
         qs = (
@@ -184,7 +185,7 @@ class ActivatePlanView(APIView):
             if existing and existing.plan_id == plan.id:
                 if not existing.end_date:
                     existing.start_date = now
-                    existing.end_date = now + timedelta(days=int(plan.duration_days or 30))
+                    existing.end_date = now + timedelta(days=plan_cycle_days(plan.period))
                     existing.save(update_fields=["start_date", "end_date"])
                 return Response({"message": "already_active"}, status=400)
 
@@ -215,7 +216,7 @@ class ActivatePlanView(APIView):
                 user=u,
                 plan=plan,
                 start_date=now,
-                end_date=now + timedelta(days=int(plan.duration_days or 30)),
+                end_date=now + timedelta(days=plan_cycle_days(plan.period)),
                 status=SubscriptionStatus.ACTIVE,
                 payment_status=PaymentStatus.UNPAID,
                 payment_date=None,
