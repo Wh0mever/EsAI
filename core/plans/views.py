@@ -18,11 +18,10 @@ from rest_framework_simplejwt.authentication import JWTAuthentication
 from django.utils import timezone
 import uuid
 from datetime import timedelta
-from users.models import User
+from users.models import User, UserCardBind
 from django.db import transaction
 from payments.freedompay import FreedomPay
 from decimal import Decimal
-from users.actions import _charge_one_user
 
 
 @method_decorator(cache_page(60), name="dispatch")               # page cache
@@ -177,6 +176,38 @@ class ActivatePlanView(APIView):
             return Response({"message": "plan_not_found"}, status=404)
 
         u: User = request.user
+        now = timezone.now()
+
+        # Paid plan + linked card => charge first, then switch/activate.
+        # This prevents granting new limits without successful payment.
+        charged_now = False
+        price_amount = Decimal(str(getattr(plan, "price_amount", 0) or 0))
+        is_paid_plan = (not plan.is_free) and price_amount > 0
+        card = UserCardBind.objects.filter(user=u).order_by("-created_at").first()
+        if is_paid_plan and card:
+            card_token = (card.card_token or "").strip()
+            if not card_token:
+                return Response({"message": "no_pay_token"}, status=400)
+            try:
+                fp = FreedomPay(u)
+                order_id = f"plan-switch-{u.id}-{uuid.uuid4().hex[:10]}"
+                charge_resp = fp.charge(
+                    amount=price_amount,
+                    currency="USD",
+                    order_id=order_id,
+                    description=f"Plan switch to #{plan.id} for user #{u.id}",
+                    card_token=card_token,
+                    test=False,
+                )
+                status_text = str((charge_resp or {}).get("pg_status") or "").lower()
+                if status_text != "ok":
+                    return Response({"message": "provider_declined"}, status=400)
+                charged_now = True
+            except Exception:
+                logging.getLogger("plans").exception(
+                    "plan_switch_charge_failed user=%s plan=%s", u.id, plan.id
+                )
+                return Response({"message": "provider_error"}, status=502)
 
         # Switch and activate new plan in a transaction
         from .models import GenerationUsage
@@ -218,8 +249,8 @@ class ActivatePlanView(APIView):
                 start_date=now,
                 end_date=now + timedelta(days=plan_cycle_days(plan.period)),
                 status=SubscriptionStatus.ACTIVE,
-                payment_status=PaymentStatus.UNPAID,
-                payment_date=None,
+                payment_status=PaymentStatus.PAID if charged_now else PaymentStatus.UNPAID,
+                payment_date=now if charged_now else None,
             )
             GenerationUsage.objects.get_or_create(
                 subscription=sub,
@@ -235,7 +266,5 @@ class ActivatePlanView(APIView):
         logging.getLogger("plans").info(
             "subscription_created user=%s sub_id=%s plan_id=%s end_date=%s",
             request.user.id, sub.id, plan.id, sub.end_date)
-        
-        _charge_one_user(request.user)  # attempt immediate charge (async would be better)
-        
+
         return Response(resp, status=200)

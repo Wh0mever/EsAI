@@ -103,6 +103,15 @@ export default function UserPlan({ t, data, onUnsubscribe, onResume }: Props) {
 	const autoRenewEnabled = sub?.auto_renew !== false && data?.user?.auto_renew !== false;
 	const canUnsubscribe = Boolean(sub?.status === "active" && autoRenewEnabled && onUnsubscribe);
 	const canResume = Boolean(sub?.status === "active" && !autoRenewEnabled && onResume);
+	const canPurchaseAddons = Boolean(sub?.plan?.can_purchase_addons);
+	const hasBoundCard = React.useMemo(() => {
+		const userCard = data?.user?.card || data?.card || {};
+		return Boolean(
+			String(userCard?.card_token || "").trim() ||
+			String(userCard?.card_hash || "").trim() ||
+			String(userCard?.card_id || "").trim()
+		);
+	}, [data]);
 
 	React.useEffect(() => {
 		if (!hasSub) return;
@@ -260,6 +269,14 @@ export default function UserPlan({ t, data, onUnsubscribe, onResume }: Props) {
 		} finally {
 			setIsPurchaseProcessing(false);
 		}
+	};
+
+	const onCardPaymentClick = async () => {
+		if (hasBoundCard) {
+			await onTopupPaymentStart();
+			return;
+		}
+		await onCardBindStart();
 	};
 
 	const onCryptoPaymentOpen = () => {
@@ -453,12 +470,14 @@ export default function UserPlan({ t, data, onUnsubscribe, onResume }: Props) {
 			<div className="flex flex-col gap-4 w-full">
 				<div className="flex items-center justify-between gap-3">
 					<h2 className="text-xl font-bold">{t("profile.left_counters.title")}</h2>
-					<Button
-						className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-sm"
-						onClick={() => setPurchaseModalOpen(true)}
-					>
-						{t("profile.buy_generations.open_button")}
-					</Button>
+					{canPurchaseAddons && (
+						<Button
+							className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-sm"
+							onClick={() => setPurchaseModalOpen(true)}
+						>
+							{t("profile.buy_generations.open_button")}
+						</Button>
+					)}
 				</div>
 	                <div className="grid grid-cols-1 lg:grid-cols-2 md:grid-cols-2 gap-3">
 	                    {items.map((k) => (
@@ -586,11 +605,15 @@ export default function UserPlan({ t, data, onUnsubscribe, onResume }: Props) {
 								</p>
 								<button
 									type="button"
-									onClick={onCardBindStart}
+									onClick={onCardPaymentClick}
 									disabled={isPurchaseProcessing}
 									className="mt-4 w-full inline-flex items-center justify-center px-4 py-3 rounded-xl bg-indigo-500 hover:bg-indigo-600 transition-colors disabled:opacity-70"
 								>
-									{isPurchaseProcessing ? t("common.processing") : t("subscribe.card_button")}
+									{isPurchaseProcessing
+										? t("common.processing")
+										: hasBoundCard
+										? t("subscribe.wallets_button")
+										: t("subscribe.card_button")}
 								</button>
 							</div>
 

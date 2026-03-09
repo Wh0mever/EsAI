@@ -123,6 +123,7 @@ def save_freedompay_callback(callback_data: Dict[str, Any]) -> None:
         user = User.objects.get(id=int(data.get("pg_user_id")))
         UserCardBind.objects.create(
             user=user,
+            card_id=data.get("pg_card_id", ""),
             card_token=data.get("pg_card_token", ""),
             card_hash=data.get("pg_card_hash", ""),
             card_month=data.get("pg_card_month", ""),

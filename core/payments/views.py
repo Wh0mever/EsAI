@@ -460,8 +460,11 @@ class StartGenerationTopupPaymentAPIView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
-        if not _get_user_active_paid_subscription(request.user):
+        subscription = _get_user_active_paid_subscription(request.user)
+        if not subscription:
             return Response({"message": "paid_active_subscription_required"}, status=status.HTTP_400_BAD_REQUEST)
+        if not bool(getattr(getattr(subscription, "plan", None), "can_purchase_addons", False)):
+            return Response({"message": "addons_not_allowed_for_plan"}, status=status.HTTP_400_BAD_REQUEST)
 
         unit_prices = _topup_unit_prices_usd()
         if not unit_prices:
