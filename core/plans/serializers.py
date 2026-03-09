@@ -30,7 +30,7 @@ class PlanSerializer(serializers.ModelSerializer):
     class Meta:
         model = Plan
         fields = (
-            "id", "period", "duration_days", "is_free", "is_active", "sort_order",
+            "id", "period", "is_free", "is_active", "sort_order",
             # USD (как было)
             "price_amount", "price_base_amount",
             "has_discount", "discount_percent",
@@ -142,7 +142,7 @@ class UserSubscriptionSerializer(serializers.ModelSerializer):
         model = UserSubscription
         fields = (
             "id", "plan", "status", "payment_status",
-            "start_date", "end_date", "payment_date", "usage", "auto_renew",
+            "start_date", "end_date", "payment_date", "usage", "auto_renew", "grace_until", "billing_issue_code",
             # computed remaining
             "remaining_texts", "remaining_images", "remaining_songs", "remaining_music",
             # unlimited flags
@@ -150,7 +150,7 @@ class UserSubscriptionSerializer(serializers.ModelSerializer):
         )
 
     def _is_unlimited(self, limit_value) -> bool:
-        return limit_value in (None, 0)
+        return limit_value is None
 
     def _remaining(self, limit_value, left: int | None, bonus: int | None) -> int | None:
         # If unlimited plan for this resource, return None to indicate infinity

@@ -42,6 +42,7 @@ import mimetypes
 from urllib.parse import urlparse
 import requests
 from plans.models import UserSubscription
+from plans.services import get_chat_access_state
 
 
 def _get_session_for_user(session_ref: str, user):
@@ -54,6 +55,20 @@ def _get_session_for_user(session_ref: str, user):
         if by_id:
             return by_id
     return qs.filter(uid=raw).first()
+
+
+def _request_locale(request) -> str:
+    raw = (request.data or {}).get("lang")
+    if isinstance(raw, str) and raw.strip():
+        code = raw.strip().lower().split("-")[0]
+    else:
+        header = (request.META.get("HTTP_ACCEPT_LANGUAGE") or "").split(",")[0].strip().lower()
+        code = (header or "ru").split("-")[0]
+    if code in {"kg", "ky"}:
+        return "kg"
+    if code == "en":
+        return "en"
+    return "ru"
 
 
 def _guess_image_mime(raw_name: str, data: bytes) -> str | None:
@@ -237,6 +252,13 @@ class DalleImageSubmitAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
+        access = get_chat_access_state(request.user, _request_locale(request), kind="image")
+        if access.get("blocked"):
+            return Response(
+                {"error": access.get("error"), "error_code": access.get("error_code"), "grace_until": access.get("grace_until")},
+                status=400,
+            )
+
         data = request.data or {}
         prompt = (data.get("message") or "").strip()
         if not prompt:
@@ -255,6 +277,9 @@ class DalleImageSubmitAPIView(APIView):
         return Response({
             "job_id": async_result.id,
             "status": "queued",
+            "warning": access.get("warning"),
+            "warning_code": access.get("warning_code"),
+            "grace_until": access.get("grace_until"),
         }, status=202)
 
 
@@ -291,6 +316,13 @@ class TopMediaMusicSubmitAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
+        access = get_chat_access_state(request.user, _request_locale(request), kind="music")
+        if access.get("blocked"):
+            return Response(
+                {"error": access.get("error"), "error_code": access.get("error_code"), "grace_until": access.get("grace_until")},
+                status=400,
+            )
+
         data = request.data or {}
         prompt = (data.get("message") or data.get("prompt") or "").strip()
         if not prompt:
@@ -324,7 +356,13 @@ class TopMediaMusicSubmitAPIView(APIView):
         }
 
         async_result = generate_music_task.delay(**payload)
-        return Response({"job_id": async_result.id, "status": "queued"}, status=202)
+        return Response({
+            "job_id": async_result.id,
+            "status": "queued",
+            "warning": access.get("warning"),
+            "warning_code": access.get("warning_code"),
+            "grace_until": access.get("grace_until"),
+        }, status=202)
 
 
 class TopMediaMusicStatusAPIView(APIView):

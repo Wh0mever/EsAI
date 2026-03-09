@@ -12,8 +12,7 @@ import { getInitialCurrency } from "@/lib/currency";
 // ==== Types ====
 type PlanDTO = {
 	id: number;
-	period: "monthly" | "yearly";
-	duration_days: number;
+	period: "weekly" | "monthly" | "yearly";
 	is_free: boolean;
 	is_active: boolean;
 	sort_order: number;
@@ -309,13 +308,11 @@ function PlansCarousel({
 	plans,
 	t,
 	currency,
-	titleKind,
 	lang,
 }: {
 	plans: PlanDTO[];
 	t: (k: string) => string;
 	currency: Currency;
-	titleKind: "monthly" | "yearly";
 	lang: "ru" | "en" | "kg";
 }) {
 	const listRef = React.useRef<HTMLDivElement | null>(null);
@@ -384,11 +381,11 @@ function PlansCarousel({
 				className="flex gap-4 overflow-x-auto scroll-smooth snap-x snap-mandatory px-1 pb-2"
 				style={{ scrollPaddingLeft: 16, scrollPaddingRight: 16 }}
 			>
-				{plans.map((p, i) => {
+				{plans.map((p) => {
 					const localized = selectPlanTitle(p, lang);
-					const fallback = p.is_free ? t("pricing.vokalo_test") : t(`pricing.${titleKind}`);
+					const fallback = p.is_free ? t("pricing.vokalo_test") : t(`pricing.${p.period}`);
 					const title = localized && localized.trim().length > 0 ? localized : fallback;
-					const subtitle = p.is_free ? t("pricing.test_subtitle") : t(`pricing.${titleKind}_subtitle`);
+					const subtitle = p.is_free ? t("pricing.test_subtitle") : t(`pricing.${p.period}_subtitle`);
 					return (
 						<div key={p.id} className="snap-start shrink-0 w-full min-w-[88%]">
 							<PlanCard plan={p} t={t} currency={currency} title={title} subtitle={subtitle} />
@@ -405,14 +402,12 @@ function PlansGrid({
 	plans,
 	t,
 	currency,
-	titleKind,
 	lang,
 }: {
 	active: boolean;
 	plans: PlanDTO[];
 	t: (k: string) => string;
 	currency: Currency;
-	titleKind: "monthly" | "yearly";
 	lang: "ru" | "en" | "kg";
 }) {
 	if (!active) return null;
@@ -420,7 +415,7 @@ function PlansGrid({
 	return (
 		<>
 			{/* Mobile: slider */}
-			<PlansCarousel plans={plans} t={t} currency={currency} titleKind={titleKind} lang={lang} />
+			<PlansCarousel plans={plans} t={t} currency={currency} lang={lang} />
 			{/* Desktop: grid */}
 			<div
 				className={clsx(
@@ -430,10 +425,10 @@ function PlansGrid({
 			>
 				{plans.map((p) => {
 					const localized = selectPlanTitle(p, lang);
-					const fallback = p.is_free ? t("pricing.vokalo_test") : t(`pricing.${titleKind}`);
+					const fallback = p.is_free ? t("pricing.vokalo_test") : t(`pricing.${p.period}`);
 					const title = localized && localized.trim().length > 0 ? localized : fallback;
 
-					const subtitle = p.is_free ? t("pricing.test_subtitle") : t(`pricing.${titleKind}_subtitle`);
+					const subtitle = p.is_free ? t("pricing.test_subtitle") : t(`pricing.${p.period}_subtitle`);
 
 					return <PlanCard key={p.id} plan={p} t={t} currency={currency} title={title} subtitle={subtitle} />;
 				})}
@@ -445,8 +440,9 @@ function PlansGrid({
 // ==== Root ====
 export default function PricingTab() {
 	const { t, i18n } = useTranslation("common");
-	const [activeTab, setActiveTab] = useState<0 | 1>(0);
+	const [activeTab, setActiveTab] = useState<0 | 1 | 2 | 3>(0);
 	const [currency, setCurrency] = useState<Currency>(() => (typeof window !== "undefined" ? getInitialCurrency() : "USD"));
+	const [weeklyPlans, setWeeklyPlans] = useState<PlanDTO[]>([]);
 	const [monthlyPlans, setMonthlyPlans] = useState<PlanDTO[]>([]);
 	const [yearlyPlans, setYearlyPlans] = useState<PlanDTO[]>([]);
 	const [loading, setLoading] = useState(true);
@@ -477,15 +473,18 @@ export default function PricingTab() {
 		let mounted = true;
 		(async () => {
 			try {
-				const [mResp, yResp] = await Promise.all([
+				const [wResp, mResp, yResp] = await Promise.all([
+					fetchData("plans/list/?period=weekly", "GET", undefined, false),
 					fetchData("plans/list/?period=monthly", "GET", undefined, false),
 					fetchData("plans/list/?period=yearly", "GET", undefined, false),
 				]);
 				if (!mounted) return;
+				setWeeklyPlans(Array.isArray(wResp?.data) ? wResp.data : []);
 				setMonthlyPlans(Array.isArray(mResp?.data) ? mResp.data : []);
 				setYearlyPlans(Array.isArray(yResp?.data) ? yResp.data : []);
 			} catch (e) {
 				console.error("Failed to load plans", e);
+				setWeeklyPlans([]);
 				setMonthlyPlans([]);
 				setYearlyPlans([]);
 			} finally {
@@ -497,7 +496,8 @@ export default function PricingTab() {
 		};
 	}, []);
 
-	const hasData = monthlyPlans.length > 0 || yearlyPlans.length > 0;
+	const hasData = weeklyPlans.length > 0 || monthlyPlans.length > 0 || yearlyPlans.length > 0;
+	const allPlans = [...weeklyPlans, ...monthlyPlans, ...yearlyPlans];
 
 	return (
 		<div className="w-full overflow-x-hidden select-none">
@@ -511,7 +511,7 @@ export default function PricingTab() {
 						)}
 						onClick={() => setActiveTab(0)}
 					>
-						{t("pricing.monthly")}
+						{t("pricing.all")}
 					</Button>
 					<Button
 						className={clsx(
@@ -519,6 +519,24 @@ export default function PricingTab() {
 							activeTab === 1 && "text-indigo-500 underline underline-offset-4"
 						)}
 						onClick={() => setActiveTab(1)}
+					>
+						{t("pricing.weekly")}
+					</Button>
+					<Button
+						className={clsx(
+							"text-sm hover:text-indigo-500 duration-300",
+							activeTab === 2 && "text-indigo-500 underline underline-offset-4"
+						)}
+						onClick={() => setActiveTab(2)}
+					>
+						{t("pricing.monthly")}
+					</Button>
+					<Button
+						className={clsx(
+							"text-sm hover:text-indigo-500 duration-300",
+							activeTab === 3 && "text-indigo-500 underline underline-offset-4"
+						)}
+						onClick={() => setActiveTab(3)}
 					>
 						{t("pricing.yearly")}
 					</Button>
@@ -535,18 +553,30 @@ export default function PricingTab() {
 					<>
 						<PlansGrid
 							active={activeTab === 0}
-							plans={monthlyPlans}
+							plans={allPlans}
 							t={t}
 							currency={currency}
-							titleKind="monthly"
 							lang={lang}
 						/>
 						<PlansGrid
 							active={activeTab === 1}
+							plans={weeklyPlans}
+							t={t}
+							currency={currency}
+							lang={lang}
+						/>
+						<PlansGrid
+							active={activeTab === 2}
+							plans={monthlyPlans}
+							t={t}
+							currency={currency}
+							lang={lang}
+						/>
+						<PlansGrid
+							active={activeTab === 3}
 							plans={yearlyPlans}
 							t={t}
 							currency={currency}
-							titleKind="yearly"
 							lang={lang}
 						/>
 					</>

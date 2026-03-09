@@ -8,7 +8,8 @@ from django.core.cache import cache
 from django.utils import timezone
 from django.db import transaction
 
-from plans.services import update_currency_rates
+from plans.services import update_currency_rates, plan_cycle_days
+from plans.services import BILLING_ISSUE_CARD_MISSING, BILLING_ISSUE_CHARGE_FAILED
 from .models import UserSubscription, SubscriptionStatus, GenerationUsage, Plan
 from users.models import User
 from payments.freedompay import FreedomPay
@@ -17,6 +18,7 @@ from payments.freedompay import FreedomPay
 logger = logging.getLogger(__name__)
 _LOCK_KEY = "plans:currency_update:lock"
 _RENEW_GLOBAL_LOCK = "plans:renewal:lock"
+_RENEW_GRACE_DAYS = 3
 
 @shared_task(
     name="plans.tasks.refresh_currency_rates",
@@ -55,7 +57,7 @@ def _get_cycle_end(sub: UserSubscription) -> timezone.datetime:
     # Use existing end_date or compute from start_date
     if sub.end_date:
         return sub.end_date
-    return sub.start_date + _days(getattr(sub.plan, "duration_days", 30))
+    return sub.start_date + _days(plan_cycle_days(getattr(sub.plan, "period", None)))
 
 
 def _price_to_int(amount: Decimal | int | float | None) -> int:
@@ -76,7 +78,7 @@ def _rollover_leftovers_to_bonus(sub: UserSubscription):
     user = sub.user
     with transaction.atomic():
         usage, _ = GenerationUsage.objects.select_for_update().get_or_create(subscription=sub)
-        # Rollover only for limited caps (0/None => unlimited)
+        # Rollover only for limited caps (0 means no included generations).
         if plan.text_limit and usage.texts_left and usage.texts_left > 0:
             user.bonus_texts = (user.bonus_texts or 0) + int(usage.texts_left)
         if plan.image_limit and usage.images_left and usage.images_left > 0:
@@ -110,10 +112,10 @@ def _rollover_leftovers_to_bonus(sub: UserSubscription):
 
 def _advance_cycle_dates(sub: UserSubscription):
     end = _get_cycle_end(sub)
-    dur = _days(getattr(sub.plan, "duration_days", 30))
+    dur = _days(plan_cycle_days(getattr(sub.plan, "period", None)))
     sub.start_date = end
     sub.end_date = end + dur
-    sub.save(update_fields=["start_date", "end_date", "payment_status", "payment_date", "status"])
+    sub.save(update_fields=["start_date", "end_date", "payment_status", "payment_date", "status", "grace_until", "billing_issue_code"])
 
 
 def _renew_one_subscription(sub: UserSubscription) -> bool:
@@ -131,6 +133,19 @@ def _renew_one_subscription(sub: UserSubscription) -> bool:
         if now < due_at:
             return False
 
+        # Grace period ended: disable chat access until user pays manually/reactivates.
+        if (
+            str(getattr(sub, "payment_status", "") or "").lower() == "unpaid"
+            and (sub.billing_issue_code or "").strip().lower() in {BILLING_ISSUE_CARD_MISSING, BILLING_ISSUE_CHARGE_FAILED}
+            and sub.grace_until
+            and now >= sub.grace_until
+        ):
+            if sub.status != SubscriptionStatus.INACTIVE:
+                sub.status = SubscriptionStatus.INACTIVE
+                sub.save(update_fields=["status"])
+                logger.warning("Grace period ended; set INACTIVE for sub=%s", sub.id)
+            return False
+
         if not getattr(sub, "auto_renew", True) or not getattr(user, "auto_renew", True):
             sub.status = SubscriptionStatus.INACTIVE
             sub.save(update_fields=["status"])
@@ -142,6 +157,8 @@ def _renew_one_subscription(sub: UserSubscription) -> bool:
             _rollover_leftovers_to_bonus(sub)
             sub.payment_status = "paid"
             sub.payment_date = now
+            sub.grace_until = None
+            sub.billing_issue_code = ""
             _advance_cycle_dates(sub)
             logger.info("Renewed free plan for sub=%s", sub.id)
             return True
@@ -149,11 +166,14 @@ def _renew_one_subscription(sub: UserSubscription) -> bool:
         # Paid plan: require token
         card = UserCardBind.objects.filter(user=user).order_by("-created_at").first()
         if not (card.card_token or "").strip():
-            # No token — deactivate
-            sub.status = SubscriptionStatus.INACTIVE
+            # No token — start/keep grace window, then disable when grace expires.
             sub.payment_status = "unpaid"
-            sub.save(update_fields=["status", "payment_status"])
-            logger.warning("No token for sub=%s, set INACTIVE", sub.id)
+            sub.status = SubscriptionStatus.ACTIVE
+            if not sub.grace_until:
+                sub.grace_until = due_at + timedelta(days=_RENEW_GRACE_DAYS)
+            sub.billing_issue_code = BILLING_ISSUE_CARD_MISSING
+            sub.save(update_fields=["status", "payment_status", "grace_until", "billing_issue_code"])
+            logger.warning("No token for sub=%s, grace_until=%s", sub.id, sub.grace_until)
             return False
 
         # Charge via FreedomPay
@@ -172,8 +192,11 @@ def _renew_one_subscription(sub: UserSubscription) -> bool:
         status = resp.get("pg_status") if isinstance(resp, dict) else None
         if not isinstance(resp, dict) or (status or "").lower() != "ok":
             sub.payment_status = "unpaid"
-            sub.status = SubscriptionStatus.INACTIVE
-            sub.save(update_fields=["payment_status", "status"])
+            sub.status = SubscriptionStatus.ACTIVE
+            if not sub.grace_until:
+                sub.grace_until = due_at + timedelta(days=_RENEW_GRACE_DAYS)
+            sub.billing_issue_code = BILLING_ISSUE_CHARGE_FAILED
+            sub.save(update_fields=["payment_status", "status", "grace_until", "billing_issue_code"])
             logger.error("Charge failed for sub=%s: %s", sub.id, resp)
             logging.getLogger("payments").error(
                 "charge_failed sub=%s user=%s amount=%s %s data=%s",
@@ -188,6 +211,9 @@ def _renew_one_subscription(sub: UserSubscription) -> bool:
         # On success, mark as paid
         sub.payment_status = "paid"
         sub.payment_date = now
+        sub.status = SubscriptionStatus.ACTIVE
+        sub.grace_until = None
+        sub.billing_issue_code = ""
 
         # On success: rollover leftovers and advance cycle
         _rollover_leftovers_to_bonus(sub)

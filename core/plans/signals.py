@@ -8,7 +8,7 @@ from django.utils import timezone
 def create_or_reset_usage(sender, instance: UserSubscription, created, **kwargs):
     """
     Initialize usage on subscription creation.
-    If limits are 0 (unlimited), we leave usage at 0 and check unlimited on consume.
+    If limits are 0, user has no included generations until bonuses/add-ons are added.
     """
     if created:
         plan = instance.plan

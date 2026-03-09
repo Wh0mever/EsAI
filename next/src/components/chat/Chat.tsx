@@ -37,11 +37,64 @@ export default function Chat({ mode, chatId }: Props) {
   const [musicLanguage, setMusicLanguage] = useState<MusicLanguage>(() => normalizeMusicLanguage(i18n?.language));
   const [musicGenre, setMusicGenre] = useState("pop");
   const [musicTrackType, setMusicTrackType] = useState<MusicTrackType>("instrumental");
+  const [subscriptionNoticeShown, setSubscriptionNoticeShown] = useState(false);
 
   useEffect(() => {
     if (mode !== "music-chat") return;
     setMusicLanguage(normalizeMusicLanguage(i18n?.language));
   }, [i18n?.language, mode]);
+
+  // Show subscription/trial notice right after opening chat, even before first prompt.
+  useEffect(() => {
+    let ignore = false;
+    if (subscriptionNoticeShown) return;
+    (async () => {
+      try {
+        const res = await fetchData("users/profile/", "GET", null, true);
+        if (ignore || !res?.ok) return;
+        const sub = (res?.data as any)?.subscription;
+        const user = (res?.data as any)?.user || {};
+        if (sub?.status === "active") return;
+
+        const hasAnyBonus =
+          Number(user?.bonus_texts || 0) > 0 ||
+          Number(user?.bonus_images || 0) > 0 ||
+          Number(user?.bonus_songs || 0) > 0 ||
+          Number(user?.bonus_music || 0) > 0;
+        const joinedRaw = user?.date_joined ? new Date(user.date_joined) : null;
+        const trialEnd = joinedRaw && !isNaN(joinedRaw.getTime())
+          ? new Date(joinedRaw.getTime() + 7 * 24 * 60 * 60 * 1000)
+          : null;
+        const inTrialWindow = Boolean(trialEnd && Date.now() < trialEnd.getTime());
+
+        let text = "";
+        if (hasAnyBonus && inTrialWindow) text = t("profile.test_mode_notice");
+        else if (hasAnyBonus) text = t("profile.test_mode_expired_notice");
+        else text = t("profile.chat_blocked_no_active");
+
+        if (!text.trim()) return;
+        setMessages((prev) => {
+          const already = prev.some((m: any) => m?.meta?.system_notice === "subscription");
+          if (already) return prev;
+          return [
+            ...prev,
+            {
+              role: "assistant",
+              content: text,
+              variant: hasAnyBonus && inTrialWindow ? "warning" : "error",
+              link: "/pricing",
+              linkLabel: t("chat.go_to_pricing", { defaultValue: "Перейти к тарифам" }),
+              meta: { system_notice: "subscription" },
+            } as any,
+          ];
+        });
+        setSubscriptionNoticeShown(true);
+      } catch {}
+    })();
+    return () => {
+      ignore = true;
+    };
+  }, [subscriptionNoticeShown, t]);
 
   // load history when chatId provided
   useEffect(() => {
@@ -121,6 +174,18 @@ export default function Chat({ mode, chatId }: Props) {
       if (mode === "music-chat") return t("chat.error_music_generation");
       return t("chat.error_request_failed");
     };
+    const backendErrorMessage = (res?: any): string => {
+      const msg = (res?.error || res?.data?.error || "").toString().trim();
+      return msg;
+    };
+    const backendCode = (res?: any): string => {
+      const code = (res?.error_code || res?.data?.error_code || res?.data?.warning_code || "").toString().trim();
+      return code;
+    };
+    const backendWarningMessage = (res?: any): string => {
+      const msg = (res?.data?.warning || "").toString().trim();
+      return msg;
+    };
 
     try {
       setLoading(true);
@@ -154,8 +219,19 @@ export default function Chat({ mode, chatId }: Props) {
         const submit = await fetchData(submitEndpoint, "POST", submitPayload, true);
         setInput("");
         if (!submit?.ok || !(submit?.data as any)?.job_id) {
-          setMessages((prev) => [...prev, { role: "assistant", content: formatError(submit), variant: "error" }]);
+          const msg = backendErrorMessage(submit) || formatError(submit);
+          const code = backendCode(submit);
+          const link = code.startsWith("chat_blocked_") ? "/pricing" : undefined;
+          const linkLabel = link ? t("chat.go_to_pricing", { defaultValue: "Перейти к тарифам" }) : undefined;
+          setMessages((prev) => [...prev, { role: "assistant", content: msg, variant: "error", link, linkLabel } as any]);
           return;
+        }
+        const submitWarning = backendWarningMessage(submit);
+        if (submitWarning) {
+          const code = backendCode(submit);
+          const link = code === "chat_warning_test_mode_bonus_only" ? "/pricing" : undefined;
+          const linkLabel = link ? t("chat.go_to_pricing", { defaultValue: "Перейти к тарифам" }) : undefined;
+          setMessages((prev) => [...prev, { role: "assistant", content: submitWarning, variant: "warning", link, linkLabel } as any]);
         }
         const jobId = (submit.data as any).job_id as string;
 
@@ -210,8 +286,19 @@ export default function Chat({ mode, chatId }: Props) {
         const res = await fetchData("ai/chat/", "POST", payload, true);
         setInput("");
         if (!res?.ok) {
-          setMessages((prev) => [...prev, { role: "assistant", content: formatError(res), variant: "error" }]);
+          const msg = backendErrorMessage(res) || formatError(res);
+          const code = backendCode(res);
+          const link = code.startsWith("chat_blocked_") ? "/pricing" : undefined;
+          const linkLabel = link ? t("chat.go_to_pricing", { defaultValue: "Перейти к тарифам" }) : undefined;
+          setMessages((prev) => [...prev, { role: "assistant", content: msg, variant: "error", link, linkLabel } as any]);
           return;
+        }
+        const syncWarning = backendWarningMessage(res);
+        if (syncWarning) {
+          const code = backendCode(res);
+          const link = code === "chat_warning_test_mode_bonus_only" ? "/pricing" : undefined;
+          const linkLabel = link ? t("chat.go_to_pricing", { defaultValue: "Перейти к тарифам" }) : undefined;
+          setMessages((prev) => [...prev, { role: "assistant", content: syncWarning, variant: "warning", link, linkLabel } as any]);
         }
         const sessionMeta = (res?.data?.session ?? null) as { id?: string; uid?: string; title?: string } | null;
         const assistantContent = (res?.data as any)?.response || "";

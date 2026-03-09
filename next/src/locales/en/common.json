@@ -23,6 +23,7 @@
     "title": "Subscription Plans",
     "subtitle": "VOKALO | Creativity Without Limits",
     "monthly": "Monthly",
+    "weekly": "Weekly",
     "yearly": "Yearly",
     "day": "Day",
     "month": "Month",
@@ -41,6 +42,7 @@
     "vokalo_test": "VokaloTest",
     "test_subtitle": "Trial",
     "monthly_subtitle": "30 days",
+    "weekly_subtitle": "7 days",
     "yearly_subtitle": "12 months",
     "view_all_plans": "View all plans",
     "back_to_all": "Back to all plans",
@@ -49,10 +51,10 @@
     "next_charge_on": "Next charge date: {{date}}",
     "plan": "Plan",
     "monthly_short": "mo",
+    "weekly_short": "wk",
     "yearly_short": "yr",
     "meta": "Details",
     "period": "Period",
-    "duration_days": "Duration (days)",
     "addons": "Add-ons",
     "included": "What’s included",
     "confirm_title": "Confirm plan activation",
@@ -79,7 +81,8 @@
     },
     "questions": "Still have questions?",
     "questionsText": "Didn't find the answer here? You can contact us at",
-    "questionsLink": "Go to FAQ"
+    "questionsLink": "Go to FAQ",
+    "all": "All"
   },
   "pricing_referral": {
     "referral_title": "Vokalo Referral Program",
@@ -408,6 +411,7 @@
     "error_image_generation": "Failed to generate image.",
     "error_music_generation": "Failed to generate music.",
     "error_request_failed": "Request failed.",
+    "go_to_pricing": "Go to pricing",
     "chats_list_empty": "Chats list is empty",
     "empty_text_title": "Ready to create text with Vokalo?",
     "empty_text_subtitle": "Let’s get started!",
@@ -451,7 +455,7 @@
       "music": "Music generation"
     }
   },
-    "profile": {
+  "profile": {
     "profile": "Profile",
     "fullname": "Full name",
     "email": "Email",
@@ -514,6 +518,14 @@
       "empty_data": "All fields are required"
     },
     "status": "Status",
+    "billing_grace_card_missing": "Chat will be disabled soon: no linked card. Pay your plan or link a card before {{date}}.",
+    "billing_grace_charge_failed": "Chat will be disabled soon: automatic payment failed. Pay your plan before {{date}}.",
+    "billing_grace_generic": "Chat will be disabled soon: payment issue detected. Pay your plan before {{date}}.",
+    "chat_blocked_card_missing": "Chat is unavailable because there is no active subscription: card is not linked and the payment grace period has ended.",
+    "chat_blocked_charge_failed": "Chat is unavailable because there is no active subscription: charge failed and the payment grace period has ended.",
+    "chat_blocked_no_active": "Chat is unavailable because there is no active subscription. Please pay your plan.",
+    "test_mode_notice": "You are in test mode: bonus generations are being used. To continue without limits, connect a plan.",
+    "test_mode_expired_notice": "Test period has ended: without a plan, bonus generations are available only during the first 7 days after registration. Connect a plan.",
     "payment_status": {
       "paid": "paid",
       "unpaid": "unpaid",
@@ -525,10 +537,12 @@
     "change_plan": "Change plan",
     "unsubscribe_disabled": "Unsubscribe unavailable: subscription is not active",
     "period_unit": {
+      "weekly": "week",
       "monthly": "month",
       "yearly": "year"
     },
     "plan_period": {
+      "weekly": "weekly period",
       "monthly": "monthly period",
       "yearly": "yearly period"
     },
