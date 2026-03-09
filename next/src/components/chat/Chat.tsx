@@ -15,6 +15,16 @@ type Props = {
   chatId?: string; // optional
 };
 
+type MusicLanguage = "ru" | "en" | "kg";
+type MusicTrackType = "instrumental" | "song";
+
+function normalizeMusicLanguage(raw?: string): MusicLanguage {
+  const base = (raw || "ru").toLowerCase().split("-")[0];
+  if (base === "en") return "en";
+  if (base === "kg" || base === "ky") return "kg";
+  return "ru";
+}
+
 export default function Chat({ mode, chatId }: Props) {
   const router = useRouter();
   const [input, setInput] = useState("");
@@ -24,6 +34,14 @@ export default function Chat({ mode, chatId }: Props) {
   const [loading, setLoading] = useState(false);
   const [historyHydrated, setHistoryHydrated] = useState(false);
   const [animateIndex, setAnimateIndex] = useState<number | null>(null);
+  const [musicLanguage, setMusicLanguage] = useState<MusicLanguage>(() => normalizeMusicLanguage(i18n?.language));
+  const [musicGenre, setMusicGenre] = useState("pop");
+  const [musicTrackType, setMusicTrackType] = useState<MusicTrackType>("instrumental");
+
+  useEffect(() => {
+    if (mode !== "music-chat") return;
+    setMusicLanguage(normalizeMusicLanguage(i18n?.language));
+  }, [i18n?.language, mode]);
 
   // load history when chatId provided
   useEffect(() => {
@@ -110,7 +128,8 @@ export default function Chat({ mode, chatId }: Props) {
       if (chatId) payload.chat_id = chatId; // bind to existing session when provided
       if (readyAttachments.length) payload.attachments = readyAttachments;
       // pass current UI language to backend so it can respond in user's locale
-      if (i18n?.language) payload.lang = i18n.language;
+      if (mode === "music-chat") payload.lang = musicLanguage;
+      else if (i18n?.language) payload.lang = i18n.language;
 
       // hide attachments preview immediately for snappy UX
       if (attachments && attachments.length) setAttachments([]);
@@ -126,7 +145,9 @@ export default function Chat({ mode, chatId }: Props) {
               title: content.slice(0, 60),
               lyrics: "",
               is_auto: 1,
-              instrumental: 1,
+              instrumental: musicTrackType === "instrumental" ? 1 : 0,
+              language: musicLanguage,
+              genre: musicGenre,
             }
           : payload;
 
@@ -222,6 +243,7 @@ export default function Chat({ mode, chatId }: Props) {
     <div className="h-full py-2 lg:py-5 px-5 flex flex-col justify-between gap-3 w-full">
       <ChatView mode={mode as Mode} messages={messages} loading={loading} initialHydrated={historyHydrated} animateIndex={animateIndex ?? undefined} />
       <ChatForm
+        mode={mode}
         input={input}
         setInput={setInput}
         handleSubmit={handleSubmit}
@@ -229,6 +251,12 @@ export default function Chat({ mode, chatId }: Props) {
         setMessages={setMessages}
         attachments={attachments}
         setAttachments={setAttachments}
+        musicLanguage={musicLanguage}
+        setMusicLanguage={setMusicLanguage}
+        musicGenre={musicGenre}
+        setMusicGenre={setMusicGenre}
+        musicTrackType={musicTrackType}
+        setMusicTrackType={setMusicTrackType}
       />
     </div>
   );

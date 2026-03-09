@@ -156,6 +156,8 @@ class TopMediaMusicSubmitAPIView(APIView):
             "prompt": prompt,
             "lyrics": (data.get("lyrics") or "").strip(),
             "title": (data.get("title") or "").strip(),
+            "language": (data.get("language") or data.get("lang") or "").strip(),
+            "genre": (data.get("genre") or "").strip(),
             "is_auto": int(data.get("is_auto") or 1),
             "model_version": (data.get("model_version") or default_model).strip(),
             "instrumental": int(data.get("instrumental") if data.get("instrumental") is not None else 1),
