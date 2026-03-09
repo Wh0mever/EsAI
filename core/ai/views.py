@@ -163,6 +163,46 @@ def _embed_cover_into_audio(track: AiGeneratedMusic, cover_bytes: bytes, cover_m
         return False, "cover_embed_failed"
 
 
+def _embed_title_into_audio(track: AiGeneratedMusic, title: str) -> tuple[bool, str | None]:
+    if not track.audio:
+        return False, "music_audio_missing"
+    if not getattr(track.audio, "path", None):
+        return False, "music_audio_path_unavailable"
+
+    audio_path = track.audio.path
+    ext = (os.path.splitext(audio_path)[1] or "").lower()
+    safe_title = (title or "").strip()
+    if not safe_title:
+        return False, "music_title_required"
+
+    try:
+        if ext == ".mp3":
+            from mutagen.id3 import ID3, TIT2, ID3NoHeaderError
+            from mutagen.mp3 import MP3
+
+            try:
+                tags = ID3(audio_path)
+            except ID3NoHeaderError:
+                tags = ID3()
+            tags.delall("TIT2")
+            tags.add(TIT2(encoding=3, text=safe_title))
+            tags.save(audio_path)
+            MP3(audio_path)
+            return True, None
+
+        if ext in (".m4a", ".mp4"):
+            from mutagen.mp4 import MP4
+
+            audio = MP4(audio_path)
+            audio["\xa9nam"] = [safe_title]
+            audio.save()
+            return True, None
+
+        return False, "music_audio_format_unsupported"
+    except Exception:
+        return False, "music_title_embed_failed"
+
+
 class ChatGptAPIView(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
@@ -268,7 +308,7 @@ class TopMediaMusicSubmitAPIView(APIView):
             "user_id": request.user.id,
             "prompt": prompt,
             "lyrics": (data.get("lyrics") or "").strip(),
-            "title": (data.get("title") or "").strip(),
+            "title": ((data.get("title") or "").strip() or "Track"),
             "language": (data.get("language") or data.get("lang") or "").strip(),
             "genre": (data.get("genre") or "").strip(),
             "is_auto": int(data.get("is_auto") or 1),
@@ -556,6 +596,37 @@ class UserMusicCoverAPIView(APIView):
         payload = AiGeneratedMusicSerializer(track).data
         payload["cover_embedded"] = bool(embedded)
         payload["cover_embed_error"] = embed_err
+        return Response(payload, status=200)
+
+
+class UserMusicTitleAPIView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, music_id: int):
+        track = AiGeneratedMusic.objects.filter(id=music_id, user=request.user).first()
+        if not track:
+            return Response({"error": "music_not_found"}, status=404)
+
+        new_title = (request.data.get("title") or "").strip() or "Track"
+        if len(new_title) > 255:
+            return Response({"error": "music_title_too_long"}, status=400)
+
+        track.title = new_title
+        embedded, embed_err = _embed_title_into_audio(track, new_title)
+
+        meta = track.meta if isinstance(track.meta, dict) else {}
+        meta["title_embedded"] = bool(embedded)
+        if embed_err:
+            meta["title_embed_error"] = str(embed_err)
+        else:
+            meta.pop("title_embed_error", None)
+        track.meta = meta
+        track.save(update_fields=["title", "meta"])
+
+        payload = AiGeneratedMusicSerializer(track).data
+        payload["title_embedded"] = bool(embedded)
+        payload["title_embed_error"] = embed_err
         return Response(payload, status=200)
 
 

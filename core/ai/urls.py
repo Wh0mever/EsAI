@@ -17,6 +17,7 @@ from .views import (
     TopMediaMusicStatusAPIView,
     UserMusicListAPIView,
     UserMusicCoverAPIView,
+    UserMusicTitleAPIView,
 )
 
 urlpatterns = [
@@ -29,6 +30,7 @@ urlpatterns = [
     path('music/status/', TopMediaMusicStatusAPIView.as_view(), name='music_status'),
     path('music/', UserMusicListAPIView.as_view(), name='music_list'),
     path('music/<int:music_id>/cover/', UserMusicCoverAPIView.as_view(), name='music_cover'),
+    path('music/<int:music_id>/title/', UserMusicTitleAPIView.as_view(), name='music_title'),
     path('attachments/upload/', ChatAttachmentUploadAPIView.as_view(), name='chat_attachments_upload'),
     path('chat/history/', ChatsHistory.as_view(), name='chat_history'),
     path('templates/', AiTemplatesApiView.as_view(), name='ai_template'),
