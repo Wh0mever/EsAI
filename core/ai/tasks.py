@@ -284,6 +284,11 @@ def _fetch_task_payload(base_url: str, task_id: str, api_key: str) -> dict | Non
     base = _normalize_topmedia_base_url(base_url)
     headers = {"x-api-key": api_key}
     candidates = [
+        ("GET", f"{base}/v3/task/{task_id}", None),
+        ("GET", f"{base}/v3/task", {"task_id": task_id}),
+        ("GET", f"{base}/v3/task", {"id": task_id}),
+        ("GET", f"{base}/v3/tasks/{task_id}", None),
+        ("GET", f"{base}/v3/music/{task_id}", None),
         ("GET", f"{base}/v2/task/{task_id}", None),
         ("GET", f"{base}/v2/task", {"task_id": task_id}),
         ("GET", f"{base}/v2/task", {"id": task_id}),
@@ -310,7 +315,7 @@ def _fetch_task_payload(base_url: str, task_id: str, api_key: str) -> dict | Non
 
 def _normalize_topmedia_base_url(raw_url: str | None) -> str:
     base = (raw_url or "https://api.topmediai.com").strip().rstrip("/")
-    if base.lower().endswith("/v1") or base.lower().endswith("/v2"):
+    if base.lower().endswith("/v1") or base.lower().endswith("/v2") or base.lower().endswith("/v3"):
         base = base[:-3].rstrip("/")
     return base or "https://api.topmediai.com"
 
@@ -318,6 +323,8 @@ def _normalize_topmedia_base_url(raw_url: str | None) -> str:
 def _submit_topmedia(base_url: str, headers: dict, payload: dict) -> tuple[dict | None, str, str | None]:
     base = _normalize_topmedia_base_url(base_url)
     attempts = [
+        ("v3_submit", f"{base}/v3/submit"),
+        ("v3_music", f"{base}/v3/music"),
         ("v2_submit", f"{base}/v2/submit"),
         ("v1_music", f"{base}/v1/music"),
     ]
@@ -329,11 +336,9 @@ def _submit_topmedia(base_url: str, headers: dict, payload: dict) -> tuple[dict 
             # Network/read timeout on primary endpoint should be surfaced directly.
             # Falling back to another path in this case only doubles wait time.
             return None, label, f"{label} request failed: {exc}"
-        if resp.status_code in {404, 405} and label == "v2_submit":
+        if resp.status_code in {404, 405}:
             last_error = f"{label} returned {resp.status_code}"
             continue
-        if resp.status_code in {404, 405}:
-            return None, label, f"{label} returned {resp.status_code}"
         if resp.status_code >= 400:
             return None, label, f"{label} failed ({resp.status_code}): {resp.text[:300]}"
         try:

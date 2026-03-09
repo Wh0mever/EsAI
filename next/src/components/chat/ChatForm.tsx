@@ -277,7 +277,7 @@ export function ChatForm({
 						onChange={(e) => setInput(e.target.value)}
 						className="w-full chat-textarea resize-none overflow-hidden"
 						rows={1}
-						placeholder={t("chat.ask_something")}
+						placeholder={mode === "music-chat" ? t("chat.music_ask_something") : t("chat.ask_something")}
 					/>
 				</div>
 					<div className="flex justify-between items-center">

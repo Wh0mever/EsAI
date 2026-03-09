@@ -158,14 +158,12 @@ function EmptyState({ mode }: { mode: ChatMode }) {
         </p>
         {isMusic && (
           <p className="text-neutral-300 text-base max-w-2xl mx-auto">
-            {t("chat.music_empty_hint", {
-              defaultValue: "Опишите свое произведение или текст песни ниже. Нет текста для песни? Не беда, просто создайте его в нашем",
-            })}{" "}
+            {t("chat.music_empty_hint")}{" "}
             <NextLink
               href="/dashboard/text-chat"
               className="inline-flex text-base font-semibold text-indigo-400 hover:text-indigo-300 whitespace-nowrap"
             >
-              {t("chat.text_chat_link", { defaultValue: "текстовом чате" })}
+              {t("chat.text_chat_link")}
             </NextLink>
             .
           </p>
