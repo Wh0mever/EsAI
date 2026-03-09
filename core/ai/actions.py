@@ -8,6 +8,9 @@ from django.utils import timezone
 from openai import OpenAI
 from .models import AiProvider, GPTModels, TopMediaModels
 
+OPENAI_API_BASE = "https://api.openai.com/v1"
+TOPMEDIA_API_BASE = "https://api.topmediai.com"
+
 class ProviderConfigError(Exception):
     pass
 
@@ -41,7 +44,7 @@ def _build_client(provider_slug: str) -> OpenAI:
             )
             raise ProviderConfigError(
                 "TopMedia provider was missing and has been auto-created. "
-                "Open AI providers in admin, set token/base_url and enable it."
+                "Open AI providers in admin, set token and enable it."
             )
         if provider_slug == "gpt":
             AiProvider.objects.get_or_create(
@@ -50,7 +53,7 @@ def _build_client(provider_slug: str) -> OpenAI:
             )
             raise ProviderConfigError(
                 "GPT provider was missing and has been auto-created. "
-                "Open AI providers in admin, set token/base_url and enable it."
+                "Open AI providers in admin, set token and enable it."
             )
         raise ProviderConfigError(f"Provider '{provider_slug}' does not exist.")
     if not provider.is_active:
@@ -59,8 +62,11 @@ def _build_client(provider_slug: str) -> OpenAI:
         raise ProviderConfigError(f"Provider '{provider.name}' has empty token.")
     # openai>=1.0: use api_key, not token
     kwargs = {"api_key": provider.token}
-    if provider.base_url:
-        kwargs["base_url"] = provider.base_url.rstrip("/")
+    slug = (provider.slug or "").strip().lower()
+    if slug in {"gpt", "dall-e"}:
+        kwargs["base_url"] = OPENAI_API_BASE
+    elif slug == "topmedia":
+        kwargs["base_url"] = TOPMEDIA_API_BASE
     return OpenAI(**kwargs)
 
 def _fetch_remote_models(client: OpenAI) -> list[RemoteModel]:

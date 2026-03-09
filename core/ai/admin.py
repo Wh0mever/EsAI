@@ -116,7 +116,7 @@ class TopMediaModelsAdmin(admin.ModelAdmin):
 
 @admin.register(AiProvider)
 class AiProviderAdmin(admin.ModelAdmin):
-    list_display = ('name', 'slug', 'base_url', 'is_active', 'created_at', 'updated_at')
+    list_display = ('name', 'slug', 'is_active', 'created_at', 'updated_at')
     search_fields = ('name', 'slug')
     list_filter = ('is_active',)
     ordering = ('-created_at',)

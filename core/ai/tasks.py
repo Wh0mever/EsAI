@@ -20,6 +20,7 @@ from billiard.exceptions import SoftTimeLimitExceeded
 
 logger = logging.getLogger(__name__)
 UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
+TOPMEDIA_API_BASE = "https://api.topmediai.com"
 
 
 @app.task(name="ai.generate_image")
@@ -181,6 +182,43 @@ def _extract_task_id(payload: dict | list | str | None) -> str:
     return ""
 
 
+def _extract_task_ids(payload: dict | list | str | None) -> list[str]:
+    out: list[str] = []
+    seen: set[str] = set()
+
+    def push(v: str):
+        s = (v or "").strip()
+        if s and s not in seen:
+            seen.add(s)
+            out.append(s)
+
+    def walk(node):
+        if isinstance(node, str):
+            if node.strip():
+                push(node.strip())
+            return
+        if isinstance(node, list):
+            for it in node:
+                walk(it)
+            return
+        if isinstance(node, dict):
+            ids = node.get("ids")
+            if isinstance(ids, list):
+                for x in ids:
+                    if isinstance(x, (str, int)):
+                        push(str(x))
+            for key in ("task_id", "taskId", "id", "job_id", "jobId", "song_id", "songId"):
+                value = node.get(key)
+                if value is not None and str(value).strip():
+                    push(str(value).strip())
+            for nested in node.values():
+                if isinstance(nested, (dict, list)):
+                    walk(nested)
+
+    walk(payload)
+    return out
+
+
 def _collect_audio_urls(payload: dict | list | str | None) -> list[str]:
     out: list[str] = []
     seen: set[str] = set()
@@ -194,14 +232,13 @@ def _collect_audio_urls(payload: dict | list | str | None) -> list[str]:
         looks_like_audio_endpoint = (
             "/api/audio/" in low_path
             or "audio" in key
-            or "music" in key
-            or "song" in key
-            or "download" in key
-            or "file" in key
+            or "music_url" in key
+            or "source_url" in key
+            or "download_url" in key
+            or "song_url" in key
         )
         looks_like_audio_file = any(low_path.endswith(ext) for ext in (".mp3", ".wav", ".ogg", ".m4a", ".aac", ".flac"))
-        is_http = v.startswith("http://") or v.startswith("https://")
-        if (looks_like_audio_endpoint or looks_like_audio_file or is_http) and v not in seen:
+        if (looks_like_audio_endpoint or looks_like_audio_file) and v not in seen:
             seen.add(v)
             out.append(v)
 
@@ -260,10 +297,30 @@ def _extract_status(payload: dict | list | str | None) -> str:
         return ""
     if not isinstance(payload, dict):
         return ""
+    # Prefer nested payload status over envelope status=200.
+    nested_data = payload.get("data")
+    if isinstance(nested_data, (dict, list)):
+        s = _extract_status(nested_data)
+        if s:
+            return s
+    if payload.get("fail_code") or payload.get("fail_reason"):
+        return "failed"
     for key in ("status", "state", "task_status"):
         value = payload.get(key)
-        if value is not None and str(value).strip():
-            return str(value).strip().lower()
+        if value is None:
+            continue
+        raw = str(value).strip().lower()
+        if not raw:
+            continue
+        # Ignore envelope HTTP-like status.
+        if key == "status" and raw in {"200"}:
+            continue
+        # Normalize common numeric task states.
+        if raw == "1":
+            return "success"
+        if raw in {"0", "2", "3", "4"}:
+            return "processing"
+        return raw
     for nested in payload.values():
         s = _extract_status(nested)
         if s:
@@ -272,6 +329,10 @@ def _extract_status(payload: dict | list | str | None) -> str:
 
 
 def _extract_music_fields(payload: dict | list | str | None) -> dict:
+    if isinstance(payload, list):
+        if payload and isinstance(payload[0], dict):
+            return _extract_music_fields(payload[0])
+        return {"audio_url": "", "cover_url": "", "format": "", "duration": None, "song_id": "", "title": "", "model_version": ""}
     if isinstance(payload, dict):
         src = payload
         data = payload.get("data")
@@ -288,29 +349,48 @@ def _extract_music_fields(payload: dict | list | str | None) -> dict:
         )
         return {
             "audio_url": audio_candidate.strip() if isinstance(audio_candidate, str) else "",
+            "cover_url": (
+                src.get("cover_url")
+                or src.get("image")
+                or src.get("cover")
+                or ""
+            ).strip() if isinstance(
+                src.get("cover_url")
+                or src.get("image")
+                or src.get("cover")
+                or "",
+                str
+            ) else "",
             "format": (src.get("format") or "").strip() if isinstance(src.get("format"), str) else "",
             "duration": src.get("duration") if isinstance(src.get("duration"), (int, float)) else None,
             "song_id": (src.get("song_id") or src.get("songId") or "").strip() if isinstance(src.get("song_id") or src.get("songId") or "", str) else "",
             "title": (src.get("title") or "").strip() if isinstance(src.get("title"), str) else "",
-            "model_version": (src.get("model_version") or "").strip() if isinstance(src.get("model_version"), str) else "",
+            "model_version": (src.get("model_version") or src.get("mv") or "").strip() if isinstance(src.get("model_version") or src.get("mv") or "", str) else "",
         }
-    return {"audio_url": "", "format": "", "duration": None, "song_id": "", "title": "", "model_version": ""}
+    return {"audio_url": "", "cover_url": "", "format": "", "duration": None, "song_id": "", "title": "", "model_version": ""}
 
 
-def _fetch_task_payload(base_url: str, task_id: str, api_key: str) -> dict | None:
+def _fetch_task_payload(base_url: str, task_id: str | list[str], api_key: str) -> dict | list | None:
     base = _normalize_topmedia_base_url(base_url)
     headers = {"x-api-key": api_key}
+    ids_list = task_id if isinstance(task_id, list) else [task_id]
+    ids_list = [str(x).strip() for x in ids_list if str(x).strip()]
     candidates = [
-        ("GET", f"{base}/v3/task/{task_id}", None),
-        ("GET", f"{base}/v3/task", {"task_id": task_id}),
-        ("GET", f"{base}/v3/task", {"id": task_id}),
-        ("GET", f"{base}/v3/tasks/{task_id}", None),
-        ("GET", f"{base}/v3/music/{task_id}", None),
-        ("GET", f"{base}/v2/task/{task_id}", None),
-        ("GET", f"{base}/v2/task", {"task_id": task_id}),
-        ("GET", f"{base}/v2/task", {"id": task_id}),
-        ("GET", f"{base}/v2/tasks/{task_id}", None),
-        ("GET", f"{base}/v2/music/{task_id}", None),
+        ("GET", f"{base}/v3/music/tasks", {"ids": ids_list}),
+        ("GET", f"{base}/v3/music/tasks", {"ids": ",".join(ids_list)}),
+        ("GET", f"{base}/v3/music/tasks", {"task_id": ids_list[0] if ids_list else ""}),
+        ("GET", f"{base}/v3/music/tasks", {"id": ids_list[0] if ids_list else ""}),
+        ("GET", f"{base}/v3/music/tasks", {"song_id": ids_list[0] if ids_list else ""}),
+        ("GET", f"{base}/v3/task/{ids_list[0] if ids_list else ''}", None),
+        ("GET", f"{base}/v3/task", {"task_id": ids_list[0] if ids_list else ""}),
+        ("GET", f"{base}/v3/task", {"id": ids_list[0] if ids_list else ""}),
+        ("GET", f"{base}/v3/tasks/{ids_list[0] if ids_list else ''}", None),
+        ("GET", f"{base}/v3/music/{ids_list[0] if ids_list else ''}", None),
+        ("GET", f"{base}/v2/task/{ids_list[0] if ids_list else ''}", None),
+        ("GET", f"{base}/v2/task", {"task_id": ids_list[0] if ids_list else ""}),
+        ("GET", f"{base}/v2/task", {"id": ids_list[0] if ids_list else ""}),
+        ("GET", f"{base}/v2/tasks/{ids_list[0] if ids_list else ''}", None),
+        ("GET", f"{base}/v2/music/{ids_list[0] if ids_list else ''}", None),
     ]
     for method, url, params in candidates:
         try:
@@ -325,23 +405,23 @@ def _fetch_task_payload(base_url: str, task_id: str, api_key: str) -> dict | Non
             data = resp.json()
         except Exception:
             continue
-        if isinstance(data, dict):
+        if isinstance(data, (dict, list)):
             return data
     return None
 
 
-def _normalize_topmedia_base_url(raw_url: str | None) -> str:
-    base = (raw_url or "https://api.topmediai.com").strip().rstrip("/")
+def _normalize_topmedia_base_url(raw_url: str | None = None) -> str:
+    # Runtime base URL is fixed in code; DB base_url is ignored by design.
+    base = TOPMEDIA_API_BASE.strip().rstrip("/")
     if base.lower().endswith("/v1") or base.lower().endswith("/v2") or base.lower().endswith("/v3"):
         base = base[:-3].rstrip("/")
-    return base or "https://api.topmediai.com"
+    return base or TOPMEDIA_API_BASE
 
 
 def _submit_topmedia(base_url: str, headers: dict, payload: dict) -> tuple[dict | None, str, str | None]:
     base = _normalize_topmedia_base_url(base_url)
     attempts = [
-        ("v3_submit", f"{base}/v3/submit"),
-        ("v3_music", f"{base}/v3/music"),
+        ("v3_music_generate", f"{base}/v3/music/generate"),
         ("v2_submit", f"{base}/v2/submit"),
         ("v1_music", f"{base}/v1/music"),
     ]
@@ -375,6 +455,7 @@ def generate_music_task(
     title: str = "",
     language: str = "",
     genre: str = "",
+    gender: str = "",
     is_auto: int = 1,
     model_version: str = "v4.5",
     instrumental: int = 1,
@@ -435,7 +516,7 @@ def generate_music_task(
 
         request_meta = {
             "topmedia": {
-                "mode": "submit-v3",
+                "mode": "submit-v3-generate",
                 "is_auto": int(is_auto or 1),
                 "model_version": (model_version or "v4.5").strip(),
                 "prompt": prompt,
@@ -443,6 +524,7 @@ def generate_music_task(
                 "title": (title or "").strip(),
                 "language": (language or "").strip(),
                 "genre": (genre or "").strip(),
+                "gender": (gender or "").strip(),
                 "instrumental": int(instrumental or 0),
                 "continue_at": int(continue_at or 0),
                 "continue_song_id": (continue_song_id or "").strip(),
@@ -466,20 +548,24 @@ def generate_music_task(
     if subscription and not subscription.can_consume("music"):
         return _fail("Лимиты на генерацию музыки исчерпаны. Пополните лимит или обновите тариф.")
 
-    base_url = _normalize_topmedia_base_url(provider.base_url)
+    base_url = _normalize_topmedia_base_url()
     headers = {"x-api-key": provider.token, "Content-Type": "application/json"}
+    lang_map = {"ru": "Russian", "en": "English", "kg": "Kyrgyz", "ky": "Kyrgyz"}
+    lang_name = lang_map.get((language or "").strip().lower(), "")
+    style_parts = [prompt.strip()]
+    if (genre or "").strip():
+        style_parts.append(f"Genre: {(genre or '').strip()}")
+    if lang_name and not bool(int(instrumental or 0)):
+        style_parts.append(f"Lyrics language: {lang_name}")
+    style = ". ".join([p for p in style_parts if p]).strip()
     payload = {
-        "is_auto": int(is_auto or 1),
-        "model_version": (model_version or "v4.5").strip(),
-        "prompt": prompt,
-        "lyrics": (lyrics or "").strip(),
-        "title": (title or "").strip(),
-        "language": (language or "").strip(),
-        "genre": (genre or "").strip(),
+        "action": "auto",
+        "style": style or prompt,
+        "mv": (model_version or "v4.5").strip(),
         "instrumental": int(instrumental or 0),
-        "continue_at": int(continue_at or 0),
-        "continue_song_id": (continue_song_id or "").strip(),
     }
+    if (gender or "").strip() in {"male", "female"} and not bool(int(instrumental or 0)):
+        payload["gender"] = (gender or "").strip()
 
     try:
         submit_data, submit_endpoint, submit_error = _submit_topmedia(base_url, headers, payload)
@@ -498,7 +584,8 @@ def generate_music_task(
     )
     submit_fields = _extract_music_fields(submit_data)
 
-    task_id = _extract_task_id(submit_data)
+    task_ids = _extract_task_ids(submit_data)
+    task_id = task_ids[0] if task_ids else _extract_task_id(submit_data)
     candidate_audio_urls = _collect_audio_urls(submit_data)
     if not task_id:
         if not candidate_audio_urls:
@@ -511,7 +598,7 @@ def generate_music_task(
         deadline = time.time() + 60 * 10
         try:
             while time.time() < deadline:
-                polled = _fetch_task_payload(base_url, task_id, provider.token)
+                polled = _fetch_task_payload(base_url, task_ids or task_id, provider.token)
                 if polled is None:
                     # Even if task-status endpoint is unknown, TopMedia may expose final audio
                     # at submit-time URLs; keep probing them until ready.
@@ -540,7 +627,7 @@ def generate_music_task(
                         break
 
                 state = _extract_status(polled)
-                if state in {"failed", "error", "cancelled"}:
+                if state in {"failed", "error", "cancelled", "failure"}:
                     return _fail(f"TopMedia task failed (task_id={task_id})", task_id=task_id, task_payload=polled)
                 time.sleep(2)
         except SoftTimeLimitExceeded:

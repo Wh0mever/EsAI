@@ -71,7 +71,6 @@ class AiProvider(models.Model):
 
     name = models.CharField(max_length=100, unique=True, choices=NAME_CHOICES)
     slug = models.SlugField(unique=True, editable=False)
-    base_url = models.URLField(help_text="API URL", blank=True, null=True)
     description = models.TextField(blank=True)
     is_active = models.BooleanField(default=True)
     token = models.CharField(max_length=255)
