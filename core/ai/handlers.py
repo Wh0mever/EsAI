@@ -437,9 +437,17 @@ def OpenAIHandler(request):
         # 6) Limits pre-check based on mode
         consume_kind = "music" if mode == "music-chat" else "text"
         if subscription and not subscription.can_consume(consume_kind):
+            is_unpaid = str(getattr(subscription, "payment_status", "")).lower() == "unpaid"
+            code = "chat_blocked_limits_exhausted_unpaid" if is_unpaid else "chat_blocked_limits_exhausted"
             if consume_kind == "music":
-                return {"error": "Лимиты на генерацию музыки исчерпаны. Пополните лимит или обновите тариф."}
-            return {"error": "Лимиты на генерацию текста исчерпаны. Пополните лимит или обновите тариф."}
+                return {
+                    "error": "Лимиты на генерацию музыки исчерпаны. Пополните лимит или обновите тариф.",
+                    "error_code": code,
+                }
+            return {
+                "error": "Лимиты на генерацию текста исчерпаны. Пополните лимит или обновите тариф.",
+                "error_code": code,
+            }
 
         # 7) Build messages and call OpenAI
         # Build origin base for absolute URLs (multi-domain support)
@@ -494,6 +502,8 @@ def OpenAIHandler(request):
                     raise chat_err
 
         answer = _extract_text_from_result(completion, endpoint)
+        if not (answer or "").strip():
+            return {"error": "Failed to generate response."}
 
         usage_meta = _extract_usage_meta(completion, endpoint, selected_model_name)
 
@@ -606,7 +616,12 @@ def OpenAIImageHandler(request):
             .first()
         )
         if subscription and not subscription.can_consume("image"):
-            return {"error": "Лимиты на генерацию изображений исчерпаны. Пополните лимит или обновите тариф."}
+            is_unpaid = str(getattr(subscription, "payment_status", "")).lower() == "unpaid"
+            code = "chat_blocked_limits_exhausted_unpaid" if is_unpaid else "chat_blocked_limits_exhausted"
+            return {
+                "error": "Лимиты на генерацию изображений исчерпаны. Пополните лимит или обновите тариф.",
+                "error_code": code,
+            }
 
         # Call Images API (with timeout safety)
         try:

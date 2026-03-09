@@ -240,6 +240,8 @@ function BubbleContent({
   const audioUrl = !isUser ? extractAudioUrl(msg.content || "") : "";
   const extraLink = ((msg as any)?.link || "").toString().trim();
   const extraLinkLabel = ((msg as any)?.linkLabel || "").toString().trim();
+  const extraLinkSecondary = ((msg as any)?.linkSecondary || "").toString().trim();
+  const extraLinkSecondaryLabel = ((msg as any)?.linkSecondaryLabel || "").toString().trim();
   const isSystemNotice = !isUser && (msg as any)?.meta?.system_notice === "subscription";
 
   if (!isUser && msg.content && isImageUrl(msg.content)) {
@@ -290,6 +292,14 @@ function BubbleContent({
           >
             {extraLinkLabel || t("chat.go_to_pricing", { defaultValue: "Перейти к тарифам" })}
           </NextLink>
+          {extraLinkSecondary && (
+            <NextLink
+              href={extraLinkSecondary}
+              className="inline-flex items-center justify-center rounded-md border border-rose-500/70 px-3 py-1 text-center text-rose-200 hover:bg-rose-500/10 hover:text-rose-100 cursor-pointer no-underline hover:no-underline"
+            >
+              {extraLinkSecondaryLabel || t("chat.go_to_pricing", { defaultValue: "Перейти к тарифам" })}
+            </NextLink>
+          )}
         </span>
       );
     }

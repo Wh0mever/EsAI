@@ -13,7 +13,7 @@ class PlansConfig(AppConfig):
         # Avoid hitting the DB directly during app initialization.
         # Instead, create / update Celery Beat periodic tasks after migrations.
         from django.db.models.signals import post_migrate
-        from django_celery_beat.models import IntervalSchedule, PeriodicTask
+        from django_celery_beat.models import IntervalSchedule, CrontabSchedule, PeriodicTask
 
         def ensure_periodic_tasks(sender, **kwargs):
             try:
@@ -41,6 +41,25 @@ class PlansConfig(AppConfig):
                     defaults={
                         "task": "plans.tasks.refresh_currency_rates",
                         "interval": interval_1h,
+                        "enabled": True,
+                    },
+                )
+
+                # Sunday bonuses at 01:00 Asia/Bishkek
+                sunday_cron, _ = CrontabSchedule.objects.get_or_create(
+                    minute="0",
+                    hour="1",
+                    day_of_week="sun",
+                    day_of_month="*",
+                    month_of_year="*",
+                    timezone="Asia/Bishkek",
+                )
+                PeriodicTask.objects.update_or_create(
+                    name="plans:apply_sunday_bonuses",
+                    defaults={
+                        "task": "plans.tasks.apply_sunday_bonuses",
+                        "crontab": sunday_cron,
+                        "interval": None,
                         "enabled": True,
                     },
                 )

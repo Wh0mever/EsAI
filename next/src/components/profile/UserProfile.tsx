@@ -21,6 +21,13 @@ async function changeUserInfo(data: any): Promise<Number> {
 	return status;
 }
 
+function formatNotificationDate(raw?: string | null): string {
+	if (!raw) return "";
+	const d = new Date(raw);
+	if (Number.isNaN(d.getTime())) return "";
+	return d.toLocaleString();
+}
+
 export default function UserProfile({ t, data }: { t: any; data: any }) {
 	const [userData, setUserData] = useState({});
 	const [userChange, setUserChange] = useState<any>({
@@ -227,7 +234,12 @@ export default function UserProfile({ t, data }: { t: any; data: any }) {
 												{!n.is_read && (
 													<span className="inline-block w-2 h-2 rounded-full bg-rose-500" />
 												)}
-												<span className="truncate">{n.title}</span>
+												<span className="min-w-0">
+													<span className="block truncate">{n.title}</span>
+													<span className="block text-[11px] text-neutral-400 mt-0.5">
+														{formatNotificationDate(n.created_at)}
+													</span>
+												</span>
 											</button>
 										</li>
 									))}
@@ -346,7 +358,12 @@ export default function UserProfile({ t, data }: { t: any; data: any }) {
 				onClose={() => setSelectedNotif(null)}
 				size="md"
 			>
-				<div className="text-neutral-100 whitespace-pre-wrap leading-relaxed">{selectedNotif?.body || ""}</div>
+				<div className="space-y-2">
+					<div className="text-xs text-neutral-400">
+						{formatNotificationDate(selectedNotif?.created_at)}
+					</div>
+					<div className="text-neutral-100 whitespace-pre-wrap leading-relaxed">{selectedNotif?.body || ""}</div>
+				</div>
 			</Modal>
 
 			{/* Feedback modal */}

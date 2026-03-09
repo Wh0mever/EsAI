@@ -462,7 +462,9 @@
       "text": "Text generation",
       "image": "Image generation",
       "music": "Music generation"
-    }
+    },
+    "go_to_profile_for_card": "Go to profile (link card)",
+    "go_to_profile_for_topup": "Go to profile (top-up)"
   },
   "profile": {
     "profile": "Profile",
@@ -590,7 +592,10 @@
       "uid": "UID",
       "copy": "Copy code",
       "copied": "Copied"
-    }
+    },
+    "no_plan_attach_or_choose_notice": "You do not have an active plan yet. To enable test mode, link a card in your profile. Or choose a plan in pricing.",
+    "unpaid_and_generations_exhausted_notice": "Payment is not completed and generations are exhausted. Pay your subscription or activate a new plan.",
+    "generations_exhausted_notice": "Generations are exhausted. You can top up in profile or choose a new plan."
   },
   "nav": {
     "dashboard": "Dashboard",

@@ -322,7 +322,7 @@ export default function UserPlan({ t, data, onUnsubscribe, onResume }: Props) {
 				</p>
 
 				<p>
-					<strong>{t("profile.status")}:</strong> {sub!.status} •{" "}
+					<strong>{t("profile.status")}:</strong> {t(`status.${sub!.status}`) || sub!.status} •{" "}
 					{t(`profile.payment_status.${sub!.payment_status}`) || sub!.payment_status}
 				</p>
 
