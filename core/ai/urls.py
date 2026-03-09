@@ -16,6 +16,8 @@ from .views import (
     TopMediaMusicSubmitAPIView,
     TopMediaMusicStatusAPIView,
     UserMusicListAPIView,
+    UserMusicDownloadAPIView,
+    UserMusicDownloadMp4APIView,
     UserMusicCoverAPIView,
     UserMusicTitleAPIView,
 )
@@ -29,6 +31,8 @@ urlpatterns = [
     path('music/submit/', TopMediaMusicSubmitAPIView.as_view(), name='music_submit'),
     path('music/status/', TopMediaMusicStatusAPIView.as_view(), name='music_status'),
     path('music/', UserMusicListAPIView.as_view(), name='music_list'),
+    path('music/<int:music_id>/download/', UserMusicDownloadAPIView.as_view(), name='music_download'),
+    path('music/<int:music_id>/download-mp4/', UserMusicDownloadMp4APIView.as_view(), name='music_download_mp4'),
     path('music/<int:music_id>/cover/', UserMusicCoverAPIView.as_view(), name='music_cover'),
     path('music/<int:music_id>/title/', UserMusicTitleAPIView.as_view(), name='music_title'),
     path('attachments/upload/', ChatAttachmentUploadAPIView.as_view(), name='chat_attachments_upload'),

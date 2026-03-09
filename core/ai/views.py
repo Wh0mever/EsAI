@@ -35,10 +35,14 @@ from rest_framework import status, permissions, authentication
 from django.core.files.storage import default_storage
 from django.utils.text import get_valid_filename
 from django.conf import settings
+from django.http import HttpResponse
 import uuid
 import os
 import imghdr
 import mimetypes
+import tempfile
+import subprocess
+import shutil
 from urllib.parse import urlparse
 import requests
 from plans.models import UserSubscription
@@ -582,6 +586,108 @@ class UserMusicListAPIView(APIView):
         qs = AiGeneratedMusic.objects.filter(user=request.user).order_by("-created_at")
         data = AiGeneratedMusicSerializer(qs, many=True).data
         return Response(data, status=200)
+
+
+class UserMusicDownloadAPIView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, music_id: int):
+        track = AiGeneratedMusic.objects.filter(id=music_id, user=request.user).first()
+        source_url_q = (request.query_params.get("source_url") or "").strip()
+        title_q = (request.query_params.get("title") or "").strip()
+        if not track and not source_url_q:
+            return Response({"error": "music_not_found"}, status=404)
+
+        safe_title = get_valid_filename(((getattr(track, "title", "") or title_q or "Track").strip() or "Track"))
+        if track and track.audio:
+            try:
+                with track.audio.open("rb") as fp:
+                    payload = fp.read()
+            except Exception:
+                return Response({"error": "music_audio_missing"}, status=400)
+            resp = HttpResponse(payload, content_type="audio/mpeg")
+            resp["Content-Disposition"] = f'attachment; filename="{safe_title}.mp3"'
+            return resp
+
+        effective_source_url = (getattr(track, "source_url", "") or source_url_q).strip()
+        if effective_source_url:
+            try:
+                upstream = requests.get(effective_source_url, timeout=(10, 60))
+            except requests.RequestException:
+                return Response({"error": "music_download_failed"}, status=400)
+            if upstream.status_code >= 400 or not upstream.content:
+                return Response({"error": "music_download_failed"}, status=400)
+            resp = HttpResponse(upstream.content, content_type=(upstream.headers.get("Content-Type") or "audio/mpeg"))
+            resp["Content-Disposition"] = f'attachment; filename="{safe_title}.mp3"'
+            return resp
+        return Response({"error": "music_audio_missing"}, status=400)
+
+
+class UserMusicDownloadMp4APIView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, music_id: int):
+        track = AiGeneratedMusic.objects.filter(id=music_id, user=request.user).first()
+        source_url_q = (request.query_params.get("source_url") or "").strip()
+        title_q = (request.query_params.get("title") or "").strip()
+        safe_title = get_valid_filename(((getattr(track, "title", "") or title_q or "Track").strip() or "Track"))
+
+        if shutil.which("ffmpeg") is None:
+            return Response({"error": "music_mp4_unavailable"}, status=400)
+
+        input_bytes = None
+        if track and track.audio:
+            try:
+                with track.audio.open("rb") as fp:
+                    input_bytes = fp.read()
+            except Exception:
+                input_bytes = None
+        effective_source_url = (getattr(track, "source_url", "") or source_url_q).strip()
+        if not input_bytes and effective_source_url:
+            try:
+                upstream = requests.get(effective_source_url, timeout=(10, 60))
+                if upstream.status_code < 400 and upstream.content:
+                    input_bytes = upstream.content
+            except requests.RequestException:
+                input_bytes = None
+        if not input_bytes:
+            return Response({"error": "music_audio_missing"}, status=400)
+
+        with tempfile.TemporaryDirectory(prefix="music-mp4-") as td:
+            input_path = os.path.join(td, "input.audio")
+            output_path = os.path.join(td, "output.mp4")
+            with open(input_path, "wb") as f:
+                f.write(input_bytes)
+
+            cmd = [
+                "ffmpeg",
+                "-y",
+                "-i",
+                input_path,
+                "-vn",
+                "-c:a",
+                "aac",
+                "-b:a",
+                "192k",
+                "-movflags",
+                "+faststart",
+                output_path,
+            ]
+            proc = subprocess.run(cmd, capture_output=True, text=True)
+            if proc.returncode != 0 or not os.path.exists(output_path):
+                return Response({"error": "music_mp4_convert_failed"}, status=400)
+
+            try:
+                with open(output_path, "rb") as f:
+                    payload = f.read()
+            except Exception:
+                return Response({"error": "music_mp4_convert_failed"}, status=400)
+
+        resp = HttpResponse(payload, content_type="video/mp4")
+        resp["Content-Disposition"] = f'attachment; filename="{safe_title}.mp4"'
+        return resp
 
 
 class UserMusicCoverAPIView(APIView):
