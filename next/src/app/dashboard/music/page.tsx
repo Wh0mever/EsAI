@@ -4,10 +4,11 @@ import "@/assets/style.scss";
 import "../dashboard.scss";
 import { useEffect, useState } from "react";
 import Sidebar from "@/components/chat/ChatAside";
-import { fetchData, BACKEND } from "@/tools/fetchData";
+import { fetchData, BACKEND, API } from "@/tools/fetchData";
 import NextLink from "@/components/ui/nextLink/NextLink";
 import { useTranslation } from "react-i18next";
 import { Modal } from "@/components/dialog/Dialog";
+import Cookies from "js-cookie";
 
 type Chat = { id: string; uid?: string; title: string; chat_mode: string };
 type MusicItem = {
@@ -53,17 +54,55 @@ function sanitizeFilePart(raw?: string): string {
   return compact || "track";
 }
 
-function extFromUrl(raw?: string): string {
-  try {
-    const u = raw?.startsWith("http://") || raw?.startsWith("https://")
-      ? new URL(raw)
-      : new URL(raw || "", "http://local");
-    const path = (u.pathname || "").toLowerCase();
-    const hit = path.match(/\.(mp3|wav|ogg|m4a|aac|flac)$/);
-    return hit ? hit[1] : "mp3";
-  } catch {
-    return "mp3";
+async function downloadMusicFile(
+  trackId: number,
+  format: "mp3" | "mp4",
+  fallbackName: string,
+  sourceUrl?: string,
+  trackTitle?: string
+): Promise<void> {
+  const token = Cookies.get("access");
+  const endpoint = format === "mp4"
+    ? `ai/music/${trackId}/download-mp4/`
+    : `ai/music/${trackId}/download/`;
+  const params = new URLSearchParams();
+  if (sourceUrl) params.set("source_url", sourceUrl);
+  if (trackTitle) params.set("title", trackTitle);
+  const suffix = params.toString();
+  const res = await fetch(`${API}${endpoint}${suffix ? `?${suffix}` : ""}`, {
+    method: "GET",
+    headers: {
+      Accept: "*/*",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  });
+  if (!res.ok) {
+    let backendCode = "";
+    try {
+      const payload = await res.clone().json();
+      backendCode = ((payload as any)?.error || "").toString();
+    } catch {}
+    throw new Error(`download_failed_${res.status}${backendCode ? `_${backendCode}` : ""}`);
   }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${fallbackName}.${format}`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function downloadByDirectUrl(url: string, filename: string): void {
+  if (!url) throw new Error("download_url_missing");
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
 }
 
 function mapCoverErrorToI18nKey(code?: string): string {
@@ -141,6 +180,7 @@ export default function MusicLibraryPage() {
   const [titleError, setTitleError] = useState("");
   const [titleOk, setTitleOk] = useState("");
   const [loading, setLoading] = useState(true);
+  const [downloadingId, setDownloadingId] = useState<number | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -295,7 +335,6 @@ export default function MusicLibraryPage() {
                 const src = toAbsUrl(track.music_url || track.source_url || "");
                 const cover = toAbsUrl(track.cover_url || "");
                 const currentTitle = (track.title || "Track").trim() || "Track";
-                const downloadName = `${sanitizeFilePart(currentTitle)}.${extFromUrl(src)}`;
                 return (
                   <div key={track.id} className="bg-neutral-900 border border-neutral-800 rounded-lg p-4 flex flex-col gap-3">
                     <div className="flex items-center justify-between gap-3">
@@ -306,9 +345,47 @@ export default function MusicLibraryPage() {
                       ) : (
                         <div className="text-white font-medium">{track.session_title || track.title || "Music Chat"}</div>
                       )}
-                      <a href={src} download={downloadName} className="px-3 py-1 rounded-md bg-white/10 hover:bg-white/20 text-white text-sm">
-                        {t("chat.download", { defaultValue: "Скачать" })}
-                      </a>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          disabled={downloadingId === track.id}
+                          onClick={async () => {
+                            try {
+                              setDownloadingId(track.id);
+                              try {
+                                await downloadMusicFile(track.id, "mp3", sanitizeFilePart(currentTitle), src, currentTitle);
+                              } catch {
+                                downloadByDirectUrl(src, `${sanitizeFilePart(currentTitle)}.mp3`);
+                              }
+                            } catch (e) {
+                              console.error("Failed to download mp3", e);
+                            } finally {
+                              setDownloadingId(null);
+                            }
+                          }}
+                          className="px-3 py-1 rounded-md bg-white/10 hover:bg-white/20 text-white text-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {t("chat.download", { defaultValue: "Скачать" })} MP3
+                        </button>
+                        <button
+                          type="button"
+                          disabled={downloadingId === track.id}
+                          onClick={async () => {
+                            try {
+                              setDownloadingId(track.id);
+                              await downloadMusicFile(track.id, "mp4", sanitizeFilePart(currentTitle), src, currentTitle);
+                            } catch (e) {
+                              console.error("Failed to download mp4", e);
+                              alert(t("chat.mp4_download_not_available", { defaultValue: "MP4 пока недоступен для этого трека" }));
+                            } finally {
+                              setDownloadingId(null);
+                            }
+                          }}
+                          className="px-3 py-1 rounded-md bg-white/10 hover:bg-white/20 text-white text-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                          {t("chat.download", { defaultValue: "Скачать" })} MP4
+                        </button>
+                      </div>
                     </div>
                     <div className="flex items-center gap-3">
                       <div className="w-16 h-16 rounded-md overflow-hidden border border-white/10 bg-neutral-800 shrink-0">
