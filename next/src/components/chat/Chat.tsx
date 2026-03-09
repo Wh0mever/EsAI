@@ -142,7 +142,7 @@ export default function Chat({ mode, chatId }: Props) {
           ? {
               ...payload,
               prompt: content,
-              title: content.slice(0, 60),
+              title: "Track",
               lyrics: "",
               is_auto: 1,
               instrumental: musicTrackType === "instrumental" ? 1 : 0,

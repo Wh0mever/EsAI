@@ -47,6 +47,25 @@ function toAbsUrl(raw?: string): string {
   return raw.startsWith("/") ? `${BACKEND}${raw}` : raw;
 }
 
+function sanitizeFilePart(raw?: string): string {
+  const v = (raw || "").trim().replace(/[\\/:*?"<>|]+/g, " ");
+  const compact = v.replace(/\s+/g, " ").trim();
+  return compact || "track";
+}
+
+function extFromUrl(raw?: string): string {
+  try {
+    const u = raw?.startsWith("http://") || raw?.startsWith("https://")
+      ? new URL(raw)
+      : new URL(raw || "", "http://local");
+    const path = (u.pathname || "").toLowerCase();
+    const hit = path.match(/\.(mp3|wav|ogg|m4a|aac|flac)$/);
+    return hit ? hit[1] : "mp3";
+  } catch {
+    return "mp3";
+  }
+}
+
 function mapCoverErrorToI18nKey(code?: string): string {
   const v = (code || "").trim();
   switch (v) {
@@ -81,12 +100,35 @@ function mapCoverErrorToI18nKey(code?: string): string {
   }
 }
 
+function mapTitleErrorToI18nKey(code?: string): string {
+  const v = (code || "").trim();
+  switch (v) {
+    case "music_not_found":
+      return "chat.title_error_music_not_found";
+    case "music_title_required":
+      return "chat.title_error_required";
+    case "music_title_too_long":
+      return "chat.title_error_too_long";
+    case "music_audio_missing":
+      return "chat.title_error_audio_missing";
+    case "music_audio_path_unavailable":
+      return "chat.title_error_audio_path";
+    case "music_audio_format_unsupported":
+      return "chat.title_error_audio_format";
+    case "music_title_embed_failed":
+      return "chat.title_error_embed_failed";
+    default:
+      return "chat.title_error_unknown";
+  }
+}
+
 export default function MusicLibraryPage() {
   const { t } = useTranslation("common");
   const [chatsList, setChatsList] = useState<Chat[]>([]);
   const [tracks, setTracks] = useState<MusicItem[]>([]);
   const [images, setImages] = useState<ImageItem[]>([]);
   const [coverModalOpen, setCoverModalOpen] = useState(false);
+  const [titleModalOpen, setTitleModalOpen] = useState(false);
   const [activeTrack, setActiveTrack] = useState<MusicItem | null>(null);
   const [imagesLoading, setImagesLoading] = useState(false);
   const [coverSaving, setCoverSaving] = useState(false);
@@ -94,6 +136,10 @@ export default function MusicLibraryPage() {
   const [coverOk, setCoverOk] = useState("");
   const [selectedImageId, setSelectedImageId] = useState<number | null>(null);
   const [selectedCoverUrl, setSelectedCoverUrl] = useState<string>("");
+  const [draftTitle, setDraftTitle] = useState("");
+  const [titleSaving, setTitleSaving] = useState(false);
+  const [titleError, setTitleError] = useState("");
+  const [titleOk, setTitleOk] = useState("");
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -147,6 +193,14 @@ export default function MusicLibraryPage() {
     } finally {
       setImagesLoading(false);
     }
+  };
+
+  const openTitleModal = (track: MusicItem) => {
+    setActiveTrack(track);
+    setDraftTitle((track.title || "Track").trim());
+    setTitleError("");
+    setTitleOk("");
+    setTitleModalOpen(true);
   };
 
   const applyCover = async (payload: { image_id?: number; cover_url?: string }) => {
@@ -240,6 +294,8 @@ export default function MusicLibraryPage() {
               {tracks.map((track) => {
                 const src = toAbsUrl(track.music_url || track.source_url || "");
                 const cover = toAbsUrl(track.cover_url || "");
+                const currentTitle = (track.title || "Track").trim() || "Track";
+                const downloadName = `${sanitizeFilePart(currentTitle)}.${extFromUrl(src)}`;
                 return (
                   <div key={track.id} className="bg-neutral-900 border border-neutral-800 rounded-lg p-4 flex flex-col gap-3">
                     <div className="flex items-center justify-between gap-3">
@@ -250,7 +306,7 @@ export default function MusicLibraryPage() {
                       ) : (
                         <div className="text-white font-medium">{track.session_title || track.title || "Music Chat"}</div>
                       )}
-                      <a href={src} download className="px-3 py-1 rounded-md bg-white/10 hover:bg-white/20 text-white text-sm">
+                      <a href={src} download={downloadName} className="px-3 py-1 rounded-md bg-white/10 hover:bg-white/20 text-white text-sm">
                         {t("chat.download", { defaultValue: "Скачать" })}
                       </a>
                     </div>
@@ -269,6 +325,16 @@ export default function MusicLibraryPage() {
                       >
                         {t("chat.set_cover", { defaultValue: "Установить обложку" })}
                       </button>
+                      <button
+                        type="button"
+                        onClick={() => openTitleModal(track)}
+                        className="px-3 py-2 text-sm rounded-md bg-white/10 hover:bg-white/20 text-white cursor-pointer"
+                      >
+                        {t("chat.set_title", { defaultValue: "Название трека" })}
+                      </button>
+                      <div className="text-sm text-neutral-300">
+                        {currentTitle}
+                      </div>
                     </div>
                     {!!track.prompt && <div className="text-sm text-neutral-300 line-clamp-2">{track.prompt}</div>}
                     <audio controls preload="none" src={src} className="w-full" />
@@ -367,6 +433,80 @@ export default function MusicLibraryPage() {
               disabled={coverSaving || (!selectedImageId && !selectedCoverUrl)}
             >
               {coverSaving ? t("common.loading", { defaultValue: "Сохранение..." }) : t("common.save", { defaultValue: "Сохранить" })}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      <Modal
+        title={t("chat.set_title", { defaultValue: "Название трека" })}
+        open={titleModalOpen}
+        onClose={() => {
+          setTitleModalOpen(false);
+          setActiveTrack(null);
+          setDraftTitle("");
+          setTitleError("");
+          setTitleOk("");
+        }}
+        size="md"
+      >
+        <div className="space-y-4">
+          <input
+            value={draftTitle}
+            onChange={(e) => setDraftTitle(e.target.value)}
+            className="w-full rounded-md bg-neutral-800 border border-white/10 px-3 py-2 text-white"
+            placeholder={t("chat.track_title_placeholder", { defaultValue: "Введите название трека" })}
+            maxLength={255}
+          />
+          {!!titleError && <div className="text-xs text-rose-300">{titleError}</div>}
+          {!!titleOk && <div className="text-xs text-emerald-300">{titleOk}</div>}
+          <div className="flex items-center justify-end gap-2 pt-2">
+            <button
+              type="button"
+              className="px-3 py-2 rounded-md bg-white/10 hover:bg-white/20 text-white text-sm cursor-pointer"
+              onClick={() => {
+                setTitleModalOpen(false);
+                setActiveTrack(null);
+                setDraftTitle("");
+                setTitleError("");
+                setTitleOk("");
+              }}
+              disabled={titleSaving}
+            >
+              {t("common.cancel", { defaultValue: "Отмена" })}
+            </button>
+            <button
+              type="button"
+              className="px-3 py-2 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white text-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+              onClick={async () => {
+                if (!activeTrack?.id || titleSaving) return;
+                setTitleSaving(true);
+                setTitleError("");
+                setTitleOk("");
+                try {
+                  const res = await fetchData(`ai/music/${activeTrack.id}/title/`, "POST", { title: draftTitle }, true);
+                  if (!res?.ok || !res?.data) {
+                    const errCode = ((res?.data as any)?.error || (res as any)?.error || "").toString();
+                    setTitleError(t(mapTitleErrorToI18nKey(errCode), { defaultValue: t("chat.title_error_unknown", { defaultValue: "Не удалось сохранить название" }) }));
+                    return;
+                  }
+                  const updated = res.data as MusicItem;
+                  setTracks((prev) => prev.map((x) => (x.id === updated.id ? { ...x, ...updated } : x)));
+                  setTitleOk(t("chat.title_saved", { defaultValue: "Название сохранено" }));
+                  setTimeout(() => {
+                    setTitleModalOpen(false);
+                    setActiveTrack(null);
+                    setDraftTitle("");
+                    setTitleError("");
+                    setTitleOk("");
+                  }, 250);
+                } finally {
+                  setTitleSaving(false);
+                }
+              }}
+              disabled={titleSaving}
+            >
+              {titleSaving ? t("common.loading", { defaultValue: "Сохранение..." }) : t("common.save", { defaultValue: "Сохранить" })}
             </button>
           </div>
         </div>

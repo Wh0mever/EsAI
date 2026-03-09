@@ -576,7 +576,7 @@ def generate_music_task(
         model_name=(submit_fields.get("model_version") or model_version or "v4.5").strip(),
         prompt=prompt,
         lyrics=(lyrics or "").strip(),
-        title=(title or submit_fields.get("title") or "").strip(),
+        title=(title or submit_fields.get("title") or "Track").strip(),
         instrumental=bool(int(instrumental or 0)),
         topmedia_task_id=(task_id or submit_fields.get("song_id") or "").strip(),
         source_url=audio_source,
