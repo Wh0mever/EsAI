@@ -510,7 +510,8 @@ def generate_music_task(
             session = AiChatSession.objects.create(
                 user=user,
                 provider=provider,
-                title=(title or prompt[:60] or "Music Chat").strip() or "Music Chat",
+                # Chat title should reflect user's request text, while track title is stored separately.
+                title=(prompt[:60] or "Music Chat").strip() or "Music Chat",
                 chat_mode="music-chat",
             )
 
