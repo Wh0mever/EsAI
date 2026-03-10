@@ -165,6 +165,7 @@ export default function MusicLibraryPage() {
   const { t } = useTranslation("common");
   const [chatsList, setChatsList] = useState<Chat[]>([]);
   const [tracks, setTracks] = useState<MusicItem[]>([]);
+  const [canDownloadMp4, setCanDownloadMp4] = useState(false);
   const [images, setImages] = useState<ImageItem[]>([]);
   const [coverModalOpen, setCoverModalOpen] = useState(false);
   const [titleModalOpen, setTitleModalOpen] = useState(false);
@@ -181,6 +182,22 @@ export default function MusicLibraryPage() {
   const [titleOk, setTitleOk] = useState("");
   const [loading, setLoading] = useState(true);
   const [downloadingInfo, setDownloadingInfo] = useState<{ id: number; format: "mp3" | "mp4" } | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const profile = await fetchData("users/profile/", "GET", null, true);
+        const enabled = Boolean((profile?.data as any)?.subscription?.plan?.mp4_enabled);
+        if (mounted) setCanDownloadMp4(enabled);
+      } catch {
+        if (mounted) setCanDownloadMp4(false);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -369,29 +386,31 @@ export default function MusicLibraryPage() {
                             ? t("chat.downloading", { defaultValue: "Скачивание..." })
                             : `${t("chat.download", { defaultValue: "Скачать" })} MP3`}
                         </button>
-                        <button
-                          type="button"
-                          disabled={downloadingInfo?.id === track.id}
-                          onClick={async () => {
-                            try {
-                              setDownloadingInfo({ id: track.id, format: "mp4" });
-                              await downloadMusicFile(track.id, "mp4", sanitizeFilePart(currentTitle), src, currentTitle);
-                            } catch (e) {
-                              console.error("Failed to download mp4", e);
-                              alert(t("chat.mp4_download_not_available", { defaultValue: "MP4 пока недоступен для этого трека" }));
-                            } finally {
-                              setDownloadingInfo(null);
-                            }
-                          }}
-                          className="px-3 py-1 rounded-md bg-white/10 hover:bg-white/20 text-white text-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          {downloadingInfo?.id === track.id && downloadingInfo?.format === "mp4"
-                            ? t("chat.mp4_preparing", { defaultValue: "Собираем MP4..." })
-                            : `${t("chat.download", { defaultValue: "Скачать" })} MP4`}
-                        </button>
+                        {canDownloadMp4 && (
+                          <button
+                            type="button"
+                            disabled={downloadingInfo?.id === track.id}
+                            onClick={async () => {
+                              try {
+                                setDownloadingInfo({ id: track.id, format: "mp4" });
+                                await downloadMusicFile(track.id, "mp4", sanitizeFilePart(currentTitle), src, currentTitle);
+                              } catch (e) {
+                                console.error("Failed to download mp4", e);
+                                alert(t("chat.mp4_download_not_available", { defaultValue: "MP4 пока недоступен для этого трека" }));
+                              } finally {
+                                setDownloadingInfo(null);
+                              }
+                            }}
+                            className="px-3 py-1 rounded-md bg-white/10 hover:bg-white/20 text-white text-sm cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            {downloadingInfo?.id === track.id && downloadingInfo?.format === "mp4"
+                              ? t("chat.mp4_preparing", { defaultValue: "Собираем MP4..." })
+                              : `${t("chat.download", { defaultValue: "Скачать" })} MP4`}
+                          </button>
+                        )}
                       </div>
                     </div>
-                    {downloadingInfo?.id === track.id && downloadingInfo?.format === "mp4" && (
+                    {canDownloadMp4 && downloadingInfo?.id === track.id && downloadingInfo?.format === "mp4" && (
                       <div className="text-xs text-amber-300">
                         {t("chat.mp4_preparing_hint", { defaultValue: "MP4 собирается, сейчас начнется скачивание. Пожалуйста, подождите." })}
                       </div>
