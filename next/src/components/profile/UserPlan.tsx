@@ -11,7 +11,7 @@ import { ConfirmationModal, Modal } from "@/components/dialog/Dialog";
 import { fetchData } from "@/tools/fetchData";
 
 type Props = {
-	t: (k: string) => string;
+	t: (k: string, options?: Record<string, unknown>) => string;
 	data: any;
 	onUnsubscribe?: () => Promise<{ ok: boolean; error?: string }>;
 	onResume?: () => Promise<{ ok: boolean; error?: string }>;
@@ -67,7 +67,7 @@ function localeTitle(locale: string | undefined, data: any) {
 	return data.template_name_en || data.template_name_ru || data.template_name_kg;
 }
 
-function formatPlanPeriod(plan: any, t: (k: string) => string) {
+function formatPlanPeriod(plan: any, t: (k: string, options?: Record<string, unknown>) => string) {
 	return plan.is_free ? t("profile.plan_info.empty_title") : t(`profile.plan_period.${plan.period}`) || plan.period;
 }
 
