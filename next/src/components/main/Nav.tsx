@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/buttons/Buttons";
 import { usePathname } from "next/navigation";
 import { fetchData } from "@/tools/fetchData";
 import { getInitialCurrency, persistCurrency } from "@/lib/currency";
-import { redirectToLanguageDomain } from "@/lib/locale";
+import { setLanguagePreference } from "@/lib/locale";
 
 type Variant = "desktop" | "mobile";
 type Props = { variant?: Variant; className?: string; onNavigate?: () => void };
@@ -39,7 +39,7 @@ function useLocale() {
   const current = Cookies.get("NEXT_LOCALE") || "ru";
   const change = (lang: string) => {
     if (typeof window !== "undefined") {
-      redirectToLanguageDomain(lang as "ru" | "en" | "kg");
+      setLanguagePreference(lang as "ru" | "en" | "kg");
     } else {
       Cookies.set("NEXT_LOCALE", lang);
       Cookies.set("NEXT_LOCALE_MANUAL", "1");

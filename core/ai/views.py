@@ -629,6 +629,17 @@ class UserMusicDownloadMp4APIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, music_id: int):
+        active_sub = (
+            UserSubscription.objects
+            .select_related("plan")
+            .filter(user=request.user, status="active")
+            .order_by("-start_date")
+            .first()
+        )
+        plan = getattr(active_sub, "plan", None)
+        if not plan or not bool(getattr(plan, "mp4_enabled", False)):
+            return Response({"error": "mp4_not_in_plan"}, status=403)
+
         track = AiGeneratedMusic.objects.filter(id=music_id, user=request.user).first()
         source_url_q = (request.query_params.get("source_url") or "").strip()
         title_q = (request.query_params.get("title") or "").strip()

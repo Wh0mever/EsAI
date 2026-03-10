@@ -584,8 +584,7 @@ function LangBtn({ code }: { code: "ru" | "en" | "kg" }) {
     return (
         <button
             onClick={() => {
-                // Navigate to domain of selected language and persist choice
-                import("@/lib/locale").then(m => m.redirectToLanguageDomain(code));
+                import("@/lib/locale").then(m => m.setLanguagePreference(code));
             }}
             className={[
                 "px-3 py-1 rounded-md text-sm transition",
