@@ -538,8 +538,11 @@ class FreedomPay:
         try:
             init_response = self._request("init", dict(base_payload))
             payment_id = init_response.get("pg_payment_id") or base_payload["pg_payment_id"]
-            base_payload["pg_payment_id"] = payment_id
-            direct_response = self._request("direct", dict(base_payload))
+            direct_payload = {
+                "pg_merchant_id": self.merchant_id,
+                "pg_payment_id": payment_id,
+            }
+            direct_response = self._request("direct", direct_payload)
             result = {
                 "pg_status": direct_response.get("pg_status"),
                 "pg_transaction_status": direct_response.get("pg_transaction_status"),
