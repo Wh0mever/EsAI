@@ -144,6 +144,29 @@ def save_freedompay_callback(callback_data: Dict[str, Any]) -> None:
 class FreedomPayError(Exception):
     """FreedomPay request failed."""
 
+    def __init__(
+        self,
+        message: str,
+        *,
+        kind: str = "unknown",
+        script: str = "",
+        status: str = "",
+        code: str = "",
+        description: str = "",
+        response: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        super().__init__(message)
+        self.kind = kind
+        self.script = script
+        self.status = status
+        self.code = code
+        self.description = description
+        self.response = response or {}
+
+    @property
+    def is_provider_decline(self) -> bool:
+        return self.kind in {"provider_decline", "transaction_decline"}
+
 class FreedomPayHPPClient:
     """FreedomPay Hosted Payment Page client."""
 
@@ -381,7 +404,11 @@ class FreedomPay:
         try:
             response = requests.post(url, data=payload, timeout=30)
         except requests.RequestException as exc:
-            raise FreedomPayError(f"{script}_request_failed:{exc}") from exc
+            raise FreedomPayError(
+                f"{script}_request_failed:{exc}",
+                kind="request_failed",
+                script=script,
+            ) from exc
         try:
             body = response.json()
         except ValueError:
@@ -401,16 +428,43 @@ class FreedomPay:
         self._requests[script] = masked_payload
         self._responses[script] = body
 
+        error_code = str(body.get("pg_error_code") or "")
+        error_desc = str(body.get("pg_error_description") or body.get("pg_error_message") or "")
+
         if response.status_code >= 400:
-            raise FreedomPayError(f"{script}_http_error:{response.status_code}")
+            raise FreedomPayError(
+                f"{script}_http_error:{response.status_code}",
+                kind="http_error",
+                script=script,
+                status=str(response.status_code),
+                code=error_code,
+                description=error_desc,
+                response=body,
+            )
 
         status = (body.get("pg_status") or "").lower()
         if status != "ok":
-            raise FreedomPayError(f"{script}_status_error:{status or 'unknown'}")
+            raise FreedomPayError(
+                f"{script}_status_error:{status or 'unknown'}",
+                kind="provider_decline",
+                script=script,
+                status=status,
+                code=error_code,
+                description=error_desc,
+                response=body,
+            )
         if script == "direct":
             trx_status = (body.get("pg_transaction_status") or "").lower()
-            if trx_status != "ok":
-                raise FreedomPayError(f"transaction_status_error:{trx_status or 'unknown'}")
+            if trx_status and trx_status not in {"ok", "success"}:
+                raise FreedomPayError(
+                    f"transaction_status_error:{trx_status}",
+                    kind="transaction_decline",
+                    script=script,
+                    status=trx_status,
+                    code=error_code,
+                    description=error_desc,
+                    response=body,
+                )
 
         if body.get("pg_payment_id"):
             payload["pg_payment_id"] = body["pg_payment_id"]
@@ -489,6 +543,8 @@ class FreedomPay:
             result = {
                 "pg_status": direct_response.get("pg_status"),
                 "pg_transaction_status": direct_response.get("pg_transaction_status"),
+                "pg_error_code": direct_response.get("pg_error_code"),
+                "pg_error_description": direct_response.get("pg_error_description"),
                 "init": init_response,
                 "direct": direct_response,
             }

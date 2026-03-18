@@ -20,7 +20,7 @@ import uuid
 from datetime import timedelta
 from users.models import User, UserCardBind
 from django.db import transaction
-from payments.freedompay import FreedomPay
+from payments.freedompay import FreedomPay, FreedomPayError
 from decimal import Decimal
 
 
@@ -203,6 +203,27 @@ class ActivatePlanView(APIView):
                 if status_text != "ok":
                     return Response({"message": "provider_declined"}, status=400)
                 charged_now = True
+            except FreedomPayError as exc:
+                log = logging.getLogger("plans")
+                if exc.is_provider_decline:
+                    log.warning(
+                        "plan_switch_charge_declined user=%s plan=%s order=%s code=%s status=%s desc=%s response=%s",
+                        u.id,
+                        plan.id,
+                        order_id,
+                        exc.code,
+                        exc.status,
+                        exc.description,
+                        exc.response,
+                    )
+                    return Response({"message": "provider_declined"}, status=400)
+                log.exception(
+                    "plan_switch_charge_failed user=%s plan=%s order=%s",
+                    u.id,
+                    plan.id,
+                    order_id,
+                )
+                return Response({"message": "provider_error"}, status=502)
             except Exception:
                 logging.getLogger("plans").exception(
                     "plan_switch_charge_failed user=%s plan=%s", u.id, plan.id

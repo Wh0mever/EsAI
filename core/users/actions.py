@@ -8,7 +8,7 @@ from django.contrib import messages
 from django.db import DatabaseError, connection, transaction
 
 from plans.models import UserSubscription, SubscriptionStatus
-from payments.freedompay import FreedomPay
+from payments.freedompay import FreedomPay, FreedomPayError
 from .models import UserCardBind
 
 
@@ -111,6 +111,20 @@ def _charge_one_user(user) -> tuple[bool, str]:
         except Exception:
             pass
         return False, "db_error"
+    except FreedomPayError as e:
+        logger.warning(
+            "admin_charge_exception user=%s plan=%s order=%s kind=%s code=%s status=%s error=%s",
+            user.id,
+            plan.id,
+            order_id,
+            e.kind,
+            e.code,
+            e.status,
+            str(e),
+        )
+        if e.is_provider_decline:
+            return False, "provider_declined"
+        return False, f"provider_error:{e}"
     except Exception as e:
         logger.warning(
             "admin_charge_exception user=%s plan=%s order=%s error=%s",
