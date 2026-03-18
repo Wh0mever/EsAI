@@ -12,7 +12,7 @@ from plans.services import update_currency_rates, plan_cycle_days
 from plans.services import BILLING_ISSUE_CARD_MISSING, BILLING_ISSUE_CHARGE_FAILED
 from .models import UserSubscription, SubscriptionStatus, GenerationUsage, Plan
 from users.models import User, UserCardBind
-from payments.freedompay import FreedomPay
+from payments.freedompay import FreedomPay, FreedomPayError
 
 
 logger = logging.getLogger(__name__)
@@ -182,12 +182,44 @@ def _renew_one_subscription(sub: UserSubscription) -> bool:
         currency = os.environ.get("FREEDOM_PAY_DEFAULT_CURRENCY", "KGS").upper()
         description = f"Subscription plan #{plan.id} renewal"
         fp_client = FreedomPay(user=user)
-        resp = fp_client.charge(
-            amount=amount,
-            currency=currency,
-            order_id=f"sub-{sub.id}-{int(now.timestamp())}",
-            description=description,
-        )
+        try:
+            resp = fp_client.charge(
+                amount=amount,
+                currency=currency,
+                order_id=f"sub-{sub.id}-{int(now.timestamp())}",
+                description=description,
+            )
+        except FreedomPayError as exc:
+            sub.payment_status = "unpaid"
+            sub.status = SubscriptionStatus.ACTIVE
+            if not sub.grace_until:
+                sub.grace_until = due_at + timedelta(days=_RENEW_GRACE_DAYS)
+            sub.billing_issue_code = BILLING_ISSUE_CHARGE_FAILED
+            sub.save(update_fields=["payment_status", "status", "grace_until", "billing_issue_code"])
+            logger.warning(
+                "Charge declined for sub=%s user=%s amount=%s %s kind=%s code=%s status=%s desc=%s",
+                sub.id,
+                user.id,
+                amount,
+                currency,
+                exc.kind,
+                exc.code,
+                exc.status,
+                exc.description,
+            )
+            logging.getLogger("payments").warning(
+                "charge_failed sub=%s user=%s amount=%s %s kind=%s code=%s status=%s desc=%s response=%s",
+                sub.id,
+                user.id,
+                amount,
+                currency,
+                exc.kind,
+                exc.code,
+                exc.status,
+                exc.description,
+                exc.response,
+            )
+            return False
 
         # FreedomPay client returns JSON dict; check success flag
         status = resp.get("pg_status") if isinstance(resp, dict) else None
