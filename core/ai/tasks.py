@@ -560,12 +560,17 @@ def generate_music_task(
 
     base_url = _normalize_topmedia_base_url()
     headers = {"x-api-key": provider.token, "Content-Type": "application/json"}
+    lang_code = (language or "").strip().lower()
     lang_map = {"ru": "Russian", "en": "English", "kg": "Kyrgyz", "ky": "Kyrgyz"}
-    lang_name = lang_map.get((language or "").strip().lower(), "")
+    lang_name = lang_map.get(lang_code, "")
     style_parts = [prompt.strip()]
     if (genre or "").strip():
         style_parts.append(f"Genre: {(genre or '').strip()}")
     if lang_name and not bool(int(instrumental or 0)):
+        style_parts.append(
+            f"CRITICAL: Write the lyrics only in {lang_name}. "
+            f"Do not use any other language, do not mix languages, and do not transliterate."
+        )
         style_parts.append(f"Lyrics language: {lang_name}")
     style = ". ".join([p for p in style_parts if p]).strip()
     payload = {
@@ -678,6 +683,9 @@ def generate_music_task(
         topmedia_task_id=(task_id or submit_fields.get("song_id") or "").strip(),
         source_url=audio_source,
         meta={
+            "language": lang_code,
+            "language_name": lang_name,
+            "style_prompt": style,
             "submit_endpoint": submit_endpoint,
             "submit": submit_data,
             "task": task_payload,
@@ -715,6 +723,7 @@ def generate_music_task(
                 "model_version": gen.model_name,
                 "title": gen.title,
                 "instrumental": gen.instrumental,
+                "language": lang_code,
             },
             "instrumental": bool(int(instrumental or 0)),
         },
