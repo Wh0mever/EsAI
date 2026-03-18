@@ -2,8 +2,8 @@ services:
   nginx:
     volumes:
       - ./nginx/nginx-ssl.conf:/etc/nginx/nginx.conf:ro
-      - static:/var/www/static:ro
-      - media:/var/www/media:ro
+      - ./static:/var/www/static:ro
+      - ./media:/var/www/media:ro
       - certbot-var:/var/www/certbot
       - certbot-etc:/etc/letsencrypt
       # Expose nginx logs to host in HTTPS mode as well
