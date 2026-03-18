@@ -9,6 +9,7 @@ import { IoVideocamOutline } from "react-icons/io5";
 import { useTranslation } from "react-i18next";
 import { fetchData } from "@/tools/fetchData";
 import { getInitialCurrency } from "@/lib/currency";
+import Cookies from "js-cookie";
 
 // ==== Types ====
 type PlanDTO = {
@@ -265,12 +266,14 @@ function PlanCard({
 	subtitle,
 	t,
 	currency,
+	authed,
 }: {
 	plan: PlanDTO;
 	title: string;
 	subtitle?: string;
 	t: (k: string) => string;
 	currency: Currency;
+	authed: boolean;
 }) {
 	return (
 		<div className="w-full bg-black rounded-3xl border border-gray-800 p-8 flex flex-col gap-6 justify-between relative max-w-full sm:max-w-[400px]">
@@ -288,7 +291,14 @@ function PlanCard({
 			</div>
 
 			<div className="flex justify-center relative">
-				{plan.is_free ? null : (
+				{!authed ? (
+					<NextLink
+						href="/auth/signup"
+						className="select-text mt-3 py-2 px-4 rounded-lg bg-indigo-500 hover:bg-indigo-600 duration-300"
+					>
+						{t("pricing.try_now")}
+					</NextLink>
+				) : plan.is_free ? null : (
 					<NextLink
 						href={`subscribe/${plan.id}/`}
 						className="select-text mt-3 py-2 px-4 rounded-lg bg-indigo-500 hover:bg-indigo-600 duration-300"
@@ -307,11 +317,13 @@ function PlansCarousel({
 	t,
 	currency,
 	lang,
+	authed,
 }: {
 	plans: PlanDTO[];
 	t: (k: string) => string;
 	currency: Currency;
 	lang: "ru" | "en" | "kg";
+	authed: boolean;
 }) {
 	const listRef = React.useRef<HTMLDivElement | null>(null);
 	const [idx, setIdx] = React.useState(0);
@@ -386,7 +398,7 @@ function PlansCarousel({
 					const subtitle = p.is_free ? t("pricing.test_subtitle") : t(`pricing.${p.period}_subtitle`);
 					return (
 						<div key={p.id} className="snap-start shrink-0 w-full min-w-[88%]">
-							<PlanCard plan={p} t={t} currency={currency} title={title} subtitle={subtitle} />
+							<PlanCard plan={p} t={t} currency={currency} title={title} subtitle={subtitle} authed={authed} />
 						</div>
 					);
 				})}
@@ -401,19 +413,21 @@ function PlansGrid({
 	t,
 	currency,
 	lang,
+	authed,
 }: {
 	active: boolean;
 	plans: PlanDTO[];
 	t: (k: string) => string;
 	currency: Currency;
 	lang: "ru" | "en" | "kg";
+	authed: boolean;
 }) {
 	if (!active) return null;
 
 	return (
 		<>
 			{/* Mobile: slider */}
-			<PlansCarousel plans={plans} t={t} currency={currency} lang={lang} />
+			<PlansCarousel plans={plans} t={t} currency={currency} lang={lang} authed={authed} />
 			{/* Desktop: grid */}
 			<div
 				className={clsx(
@@ -428,7 +442,7 @@ function PlansGrid({
 
 					const subtitle = p.is_free ? t("pricing.test_subtitle") : t(`pricing.${p.period}_subtitle`);
 
-					return <PlanCard key={p.id} plan={p} t={t} currency={currency} title={title} subtitle={subtitle} />;
+					return <PlanCard key={p.id} plan={p} t={t} currency={currency} title={title} subtitle={subtitle} authed={authed} />;
 				})}
 			</div>
 		</>
@@ -438,9 +452,10 @@ function PlansGrid({
 // ==== Root ====
 export default function PricingTab() {
 	const { t, i18n } = useTranslation("common");
-	const [activeTab, setActiveTab] = useState<0 | 1 | 2 | 3>(0);
+	const [activeTab, setActiveTab] = useState<0 | 1 | 2>(0);
 	const [currency, setCurrency] = useState<Currency>(() => (typeof window !== "undefined" ? getInitialCurrency() : "USD"));
-	const [weeklyPlans, setWeeklyPlans] = useState<PlanDTO[]>([]);
+	const [authed, setAuthed] = useState(false);
+	const [allPlans, setAllPlans] = useState<PlanDTO[]>([]);
 	const [monthlyPlans, setMonthlyPlans] = useState<PlanDTO[]>([]);
 	const [yearlyPlans, setYearlyPlans] = useState<PlanDTO[]>([]);
 	const [loading, setLoading] = useState(true);
@@ -452,6 +467,7 @@ export default function PricingTab() {
 
 	useEffect(() => {
 		setCurrency(getPreferredCurrency());
+		setAuthed(Boolean(Cookies.get("access")));
 		const handle = (e: Event) => {
 			try {
 				// @ts-ignore
@@ -471,18 +487,18 @@ export default function PricingTab() {
 		let mounted = true;
 		(async () => {
 			try {
-				const [wResp, mResp, yResp] = await Promise.all([
-					fetchData("plans/list/?period=weekly", "GET", undefined, false),
+				const [allResp, mResp, yResp] = await Promise.all([
+					fetchData("plans/list/", "GET", undefined, false),
 					fetchData("plans/list/?period=monthly", "GET", undefined, false),
 					fetchData("plans/list/?period=yearly", "GET", undefined, false),
 				]);
 				if (!mounted) return;
-				setWeeklyPlans(Array.isArray(wResp?.data) ? wResp.data : []);
+				setAllPlans(Array.isArray(allResp?.data) ? allResp.data : []);
 				setMonthlyPlans(Array.isArray(mResp?.data) ? mResp.data : []);
 				setYearlyPlans(Array.isArray(yResp?.data) ? yResp.data : []);
 			} catch (e) {
 				console.error("Failed to load plans", e);
-				setWeeklyPlans([]);
+				setAllPlans([]);
 				setMonthlyPlans([]);
 				setYearlyPlans([]);
 			} finally {
@@ -494,8 +510,7 @@ export default function PricingTab() {
 		};
 	}, []);
 
-	const hasData = weeklyPlans.length > 0 || monthlyPlans.length > 0 || yearlyPlans.length > 0;
-	const allPlans = [...weeklyPlans, ...monthlyPlans, ...yearlyPlans];
+	const hasData = allPlans.length > 0 || monthlyPlans.length > 0 || yearlyPlans.length > 0;
 
 	return (
 		<div className="w-full overflow-x-hidden select-none">
@@ -518,7 +533,7 @@ export default function PricingTab() {
 						)}
 						onClick={() => setActiveTab(1)}
 					>
-						{t("pricing.weekly")}
+						{t("pricing.monthly")}
 					</Button>
 					<Button
 						className={clsx(
@@ -526,15 +541,6 @@ export default function PricingTab() {
 							activeTab === 2 && "text-indigo-500 underline underline-offset-4"
 						)}
 						onClick={() => setActiveTab(2)}
-					>
-						{t("pricing.monthly")}
-					</Button>
-					<Button
-						className={clsx(
-							"text-sm hover:text-indigo-500 duration-300",
-							activeTab === 3 && "text-indigo-500 underline underline-offset-4"
-						)}
-						onClick={() => setActiveTab(3)}
 					>
 						{t("pricing.yearly")}
 					</Button>
@@ -555,27 +561,23 @@ export default function PricingTab() {
 							t={t}
 							currency={currency}
 							lang={lang}
+							authed={authed}
 						/>
 						<PlansGrid
 							active={activeTab === 1}
-							plans={weeklyPlans}
-							t={t}
-							currency={currency}
-							lang={lang}
-						/>
-						<PlansGrid
-							active={activeTab === 2}
 							plans={monthlyPlans}
 							t={t}
 							currency={currency}
 							lang={lang}
+							authed={authed}
 						/>
 						<PlansGrid
-							active={activeTab === 3}
+							active={activeTab === 2}
 							plans={yearlyPlans}
 							t={t}
 							currency={currency}
 							lang={lang}
+							authed={authed}
 						/>
 					</>
 				)}
