@@ -43,7 +43,17 @@ function asArray<T>(value: unknown): T[] {
 
 export function toAbsUrl(raw?: string): string {
   if (!raw) return "";
-  return raw.startsWith("/") ? `${BACKEND}${raw}` : raw;
+  if (raw.startsWith("/")) return `${BACKEND}${raw}`;
+  try {
+    const parsed = new URL(raw, BACKEND || undefined);
+    const mediaLikePath = parsed.pathname.startsWith("/media/") || parsed.pathname.startsWith("/uploads/") || parsed.pathname.includes("/generated/");
+    if (mediaLikePath && BACKEND) {
+      return `${BACKEND}${parsed.pathname}${parsed.search}${parsed.hash}`;
+    }
+    return parsed.toString();
+  } catch {
+    return raw;
+  }
 }
 
 function normalizeUrlIdentity(raw?: string): string {
