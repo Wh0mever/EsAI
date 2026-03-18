@@ -15,6 +15,12 @@ export type Message = {
   content: string;
   variant?: "normal" | "error";
   attachments?: any[];
+  meta?: Record<string, any>;
+  link?: string;
+  linkLabel?: string;
+  linkSecondary?: string;
+  linkSecondaryLabel?: string;
+  id?: number | string;
 };
 
 export function ChatForm({

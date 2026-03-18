@@ -330,6 +330,7 @@ export default function Chat({ mode, chatId }: Props) {
         const maxMs = mode === "music-chat" ? 10 * 60 * 1000 : 5 * 60 * 1000;
         const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
         let finalUrl = "";
+        let finalMusicMeta: any = null;
         let sessionMeta: { id?: string; uid?: string; title?: string } | null = null;
         while (Date.now() - startedAt < maxMs) {
           const st = await fetchData(`${statusEndpoint}?job=${encodeURIComponent(jobId)}`, "GET", null, true);
@@ -338,6 +339,7 @@ export default function Chat({ mode, chatId }: Props) {
           if (status === "SUCCESS") {
             const result = (st.data as any)?.result || {};
             finalUrl = mode === "music-chat" ? (result?.music?.url || "") : (result?.image?.url || "");
+            finalMusicMeta = mode === "music-chat" ? (result?.music || null) : null;
             sessionMeta = result?.session || null;
             break;
           }
@@ -361,6 +363,7 @@ export default function Chat({ mode, chatId }: Props) {
           role: "assistant",
           content: finalUrl,
           attachments: [{ type: mode === "music-chat" ? "audio" : "image", url: finalUrl }],
+          meta: mode === "music-chat" ? { music: finalMusicMeta } : undefined,
         }]);
 
         // Update route if a new session created
