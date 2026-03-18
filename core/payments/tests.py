@@ -60,6 +60,43 @@ class FreedomPayTests(TestCase):
         self.assertEqual(exc.code, "99999")
         self.assertEqual(exc.description, "Неизвестная ошибка платежной системы")
 
+    @patch("payments.freedompay.requests.post")
+    def test_charge_sends_minimal_direct_payload(self, post_mock):
+        init_response = Mock()
+        init_response.status_code = 200
+        init_response.json.return_value = {
+            "pg_status": "ok",
+            "pg_payment_id": "1467039992",
+        }
+
+        direct_response = Mock()
+        direct_response.status_code = 200
+        direct_response.json.return_value = {
+            "pg_status": "ok",
+            "pg_payment_id": "1467039992",
+            "pg_payment_status": "ok",
+        }
+
+        post_mock.side_effect = [init_response, direct_response]
+
+        client = FreedomPay(self.user)
+        client.charge(
+            amount=Decimal("1.00"),
+            currency="USD",
+            order_id="plan-switch-test",
+            description="Plan switch",
+            card_token="token-123",
+            test=False,
+        )
+
+        _, direct_call = post_mock.call_args_list
+        direct_payload = direct_call.kwargs["data"]
+        self.assertEqual(direct_payload["pg_merchant_id"], "000000")
+        self.assertEqual(direct_payload["pg_payment_id"], "1467039992")
+        self.assertNotIn("pg_amount", direct_payload)
+        self.assertNotIn("pg_card_token", direct_payload)
+        self.assertNotIn("pg_order_id", direct_payload)
+
     @patch("plans.views.FreedomPay.charge")
     def test_activate_plan_returns_400_on_provider_decline(self, charge_mock):
         plan = Plan.objects.create(
@@ -95,4 +132,3 @@ class FreedomPayTests(TestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.data, {"message": "provider_declined"})
-
