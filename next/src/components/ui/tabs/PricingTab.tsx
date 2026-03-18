@@ -431,7 +431,7 @@ function PlansGrid({
 			{/* Desktop: grid */}
 			<div
 				className={clsx(
-					"hidden sm:grid gap-5 w-full",
+					"hidden sm:grid gap-5 w-full justify-center",
 					"[grid-template-columns:repeat(auto-fit,minmax(280px,360px))]"
 				)}
 			>
