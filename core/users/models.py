@@ -119,10 +119,10 @@ class User(AbstractBaseUser, PermissionsMixin):
         default=generate_referral_uid,
         verbose_name='Реферальный UID'
     )
-    bonus_texts = models.PositiveIntegerField(default=5, verbose_name='Бонусные тексты')
-    bonus_images = models.PositiveIntegerField(default=5, verbose_name='Бонусные изображения')
-    bonus_songs = models.PositiveIntegerField(default=5, verbose_name='Бонусные песни')
-    bonus_music = models.PositiveIntegerField(default=5, verbose_name='Бонусная музыка')
+    bonus_texts = models.PositiveIntegerField(default=0, verbose_name='Бонусные тексты')
+    bonus_images = models.PositiveIntegerField(default=0, verbose_name='Бонусные изображения')
+    bonus_songs = models.PositiveIntegerField(default=0, verbose_name='Бонусные песни')
+    bonus_music = models.PositiveIntegerField(default=0, verbose_name='Бонусная музыка')
     
     USERNAME_FIELD = 'email'
     REQUIRED_FIELDS = []
