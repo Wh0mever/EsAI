@@ -73,8 +73,8 @@ services:
       redis:
         condition: service_healthy
     volumes:
-      - static:/app/static
-      - media:/app/media
+      - ./static:/app/static
+      - ./media:/app/media
       # Share the same logs directory so Celery writes to host-mounted logs
       - ./logs:/app/logs
     restart: always
@@ -163,8 +163,8 @@ services:
       - core
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - static:/var/www/static:ro
-      - media:/var/www/media:ro
+      - ./static:/var/www/static:ro
+      - ./media:/var/www/media:ro
       - certbot-var:/var/www/certbot
       # Expose nginx logs to host
       - ./logs:/var/log/nginx
@@ -185,8 +185,6 @@ services:
 
 volumes:
   pgdata:
-  static:
-  media:
   certbot-etc:
   certbot-var:
 
