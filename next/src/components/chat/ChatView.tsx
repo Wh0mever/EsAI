@@ -1,18 +1,22 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import { BACKEND } from "@/tools/fetchData";
+import React, { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { ChatMode } from "@/types/chat";
 import type { Message } from "./ChatForm";
 import NextLink from "@/components/ui/nextLink/NextLink";
+import { fetchData } from "@/tools/fetchData";
+import { MusicTrackCard, resolveMusicTrack, toAbsUrl, type MusicItem } from "@/components/music/MusicTrackCard";
 
 /* ---------- utils ---------- */
 
 function isImageUrl(s: string): boolean {
   if (!s) return false;
   const lower = s.toLowerCase();
-  if (lower.startsWith("/media/generated/") || lower.includes("/generated/")) return true;
+  if (isAudioUrl(lower)) return false;
+  if (lower.startsWith("/media/generated/") || lower.includes("/generated/")) {
+    return /\.(png|jpe?g|webp|gif)(\?.*)?$/.test(lower);
+  }
   return /\.(png|jpe?g|webp|gif)(\?.*)?$/.test(lower);
 }
 
@@ -57,9 +61,14 @@ function extractAudioUrl(raw: string): string {
   return "";
 }
 
-function toAbsUrl(raw?: string): string {
-  if (!raw) return "";
-  return raw.startsWith("/") ? `${BACKEND}${raw}` : raw;
+function getMessageAudioUrl(msg: Message): string {
+  const fromContent = extractAudioUrl(msg.content || "");
+  if (fromContent) return fromContent;
+  const attachmentAudioUrl = (((msg as any)?.attachments || []).find((att: any) => {
+    const type = (att?.type || "").toString().toLowerCase();
+    return ["audio", "music", "audio_file"].includes(type) && typeof att?.url === "string" && !!att.url;
+  })?.url || "") as string;
+  return attachmentAudioUrl;
 }
 
 /* ---------- types ---------- */
@@ -228,6 +237,9 @@ function BubbleContent({
   isThinking,
   shouldType,
   onTypedDone,
+  canDownloadMp4,
+  resolvedTrack,
+  onTrackChange,
 }: {
   isUser: boolean;
   msg: Message;
@@ -235,9 +247,12 @@ function BubbleContent({
   isThinking: boolean;
   shouldType: boolean;
   onTypedDone: () => void;
+  canDownloadMp4: boolean;
+  resolvedTrack: MusicItem | null;
+  onTrackChange: (track: MusicItem) => void;
 }) {
   const { t } = useTranslation("common");
-  const audioUrl = !isUser ? extractAudioUrl(msg.content || "") : "";
+  const audioUrl = !isUser ? getMessageAudioUrl(msg) : "";
   const extraLink = ((msg as any)?.link || "").toString().trim();
   const extraLinkLabel = ((msg as any)?.linkLabel || "").toString().trim();
   const extraLinkSecondary = ((msg as any)?.linkSecondary || "").toString().trim();
@@ -262,15 +277,22 @@ function BubbleContent({
   }
 
   if (!isUser && audioUrl) {
+    if (resolvedTrack) {
+      return (
+        <div className="min-w-[18rem] w-full">
+          <MusicTrackCard
+            track={resolvedTrack}
+            canDownloadMp4={canDownloadMp4}
+            onTrackChange={onTrackChange}
+            compact={true}
+            showSessionHeader={false}
+            className="min-w-0"
+          />
+        </div>
+      );
+    }
     const src = toAbsUrl(audioUrl);
-    return (
-      <div className="flex flex-col gap-2 min-w-[16rem]">
-        <audio controls preload="none" src={src} className="w-full" />
-        <a href={src} target="_blank" rel="noreferrer" className="text-xs underline underline-offset-2">
-          {t("chat.download", { defaultValue: "Скачать" })}
-        </a>
-      </div>
-    );
+    return <audio controls preload="none" src={src} className="w-full min-w-[16rem]" />;
   }
 
   if (!isUser && isThinking) {
@@ -324,6 +346,9 @@ function ChatBubble({
   isThinking,
   shouldType,
   onTypedDone,
+  canDownloadMp4,
+  resolvedTrack,
+  onTrackChange,
 }: {
   msg: Message;
   mode: ChatMode;
@@ -332,13 +357,25 @@ function ChatBubble({
   isThinking: boolean;
   shouldType: boolean;
   onTypedDone: () => void;
+  canDownloadMp4: boolean;
+  resolvedTrack: MusicItem | null;
+  onTrackChange: (track: MusicItem) => void;
 }) {
   const isUser = msg.role === "user";
   const isError = !isUser && (msg as any)?.variant === "error";
   const isWarning = !isUser && (msg as any)?.variant === "warning";
   const isSystemNotice = !isUser && (msg as any)?.meta?.system_notice === "subscription";
+  const hasRichMusicCard = !isUser && mode === "music-chat" && !!resolvedTrack;
+  const visibleAttachments = hasRichMusicCard
+    ? ((msg as any)?.attachments || []).filter((att: any) => {
+        const type = (att?.type || "").toString().toLowerCase();
+        return !["audio", "music", "audio_file"].includes(type);
+      })
+    : (msg as any)?.attachments;
 
-  const bubbleClass = isSystemNotice
+  const bubbleClass = hasRichMusicCard
+    ? "self-start bg-transparent text-white"
+    : isSystemNotice
     ? "self-center bg-neutral-800/70 border border-rose-500 text-neutral-100"
     : isUser
     ? "self-end bg-indigo-700 text-white"
@@ -350,7 +387,7 @@ function ChatBubble({
 
   return (
     <div className={`flex flex-col gap-2 max-w-[80%] ${isSystemNotice ? "items-center self-center text-center" : "items-start"}`}>
-      <div className={`p-4 rounded-xl whitespace-pre-wrap ${bubbleClass}`}>
+      <div className={`${hasRichMusicCard ? "" : "p-4 rounded-xl whitespace-pre-wrap"} ${bubbleClass}`}>
         <BubbleContent
           isUser={isUser}
           msg={msg}
@@ -358,9 +395,12 @@ function ChatBubble({
           isThinking={!isUser && isLast && isThinking}
           shouldType={shouldType}
           onTypedDone={onTypedDone}
+          canDownloadMp4={canDownloadMp4}
+          resolvedTrack={resolvedTrack}
+          onTrackChange={onTrackChange}
         />
       </div>
-      <AttachmentsList atts={(msg as any)?.attachments} />
+      <AttachmentsList atts={visibleAttachments} />
     </div>
   );
 }
@@ -375,6 +415,9 @@ function MessageList({
   onAfterType,
   isThinking,
   onScrollToBottom,
+  tracks,
+  canDownloadMp4,
+  onTrackChange,
 }: {
   messages: Message[];
   mode: ChatMode;
@@ -383,6 +426,9 @@ function MessageList({
   onAfterType: (idx: number) => void;
   isThinking: boolean;
   onScrollToBottom: () => void;
+  tracks: MusicItem[];
+  canDownloadMp4: boolean;
+  onTrackChange: (track: MusicItem) => void;
 }) {
   const animatedRef = useRef<Set<number>>(new Set());
   const hydrationDoneRef = useRef<boolean>(false);
@@ -406,6 +452,11 @@ function MessageList({
       {messages.map((msg, index) => {
         const isUser = msg.role === "user";
         const isError = !isUser && (msg as any)?.variant === "error";
+        const audioUrl = !isUser ? getMessageAudioUrl(msg) : "";
+        const musicMeta = ((msg as any)?.meta?.music || {}) as { id?: number };
+        const resolvedTrack = mode === "music-chat"
+          ? resolveMusicTrack(tracks, audioUrl, musicMeta?.id ?? null)
+          : null;
 
         const shouldType =
           !isUser &&
@@ -427,6 +478,9 @@ function MessageList({
               onAfterType(index);
               onScrollToBottom();
             }}
+            canDownloadMp4={canDownloadMp4}
+            resolvedTrack={resolvedTrack}
+            onTrackChange={onTrackChange}
           />
         );
       })}
@@ -445,6 +499,8 @@ export function ChatView({
 }: ChatViewProps) {
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const { t } = useTranslation("common");
+  const [tracks, setTracks] = useState<MusicItem[]>([]);
+  const [canDownloadMp4, setCanDownloadMp4] = useState(false);
   const isEmpty = !messages || messages.length === 0;
 
   const last = messages[messages.length - 1];
@@ -463,6 +519,34 @@ export function ChatView({
   useEffect(() => {
     if (stickToBottomRef.current) scrollToBottom();
   }, [messages.length]);
+
+  useEffect(() => {
+    if (mode !== "music-chat") return;
+    let mounted = true;
+    (async () => {
+      try {
+        const [musicRes, profileRes] = await Promise.all([
+          fetchData("ai/music/", "GET", null, true),
+          fetchData("users/profile/", "GET", null, true),
+        ]);
+        if (!mounted) return;
+        const musicItems = Array.isArray(musicRes?.data)
+          ? (musicRes.data as MusicItem[])
+          : Array.isArray((musicRes?.data as any)?.results)
+          ? ((musicRes?.data as any).results as MusicItem[])
+          : [];
+        setTracks(musicItems);
+        setCanDownloadMp4(Boolean((profileRes?.data as any)?.subscription?.plan?.mp4_enabled));
+      } catch {
+        if (!mounted) return;
+        setTracks([]);
+        setCanDownloadMp4(false);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, [mode, messages.length]);
 
   const handleScroll = () => {
     const el = wrapRef.current;
@@ -486,6 +570,15 @@ export function ChatView({
           onAfterType={() => {}}
           onScrollToBottom={() => {
             if (stickToBottomRef.current) scrollToBottom();
+          }}
+          tracks={tracks}
+          canDownloadMp4={canDownloadMp4}
+          onTrackChange={(updated) => {
+            setTracks((prev) => {
+              const hasExisting = prev.some((track) => track.id === updated.id);
+              if (hasExisting) return prev.map((track) => (track.id === updated.id ? { ...track, ...updated } : track));
+              return [updated, ...prev];
+            });
           }}
         />
       )}

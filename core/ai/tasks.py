@@ -706,6 +706,16 @@ def generate_music_task(
             "provider": "topmedia",
             "model": model_version,
             "task_id": task_id,
+            "music": {
+                "id": gen.id,
+                "uniqid": gen.uniqid,
+                "url": final_url,
+                "source_url": gen.source_url,
+                "task_id": task_id,
+                "model_version": gen.model_name,
+                "title": gen.title,
+                "instrumental": gen.instrumental,
+            },
             "instrumental": bool(int(instrumental or 0)),
         },
     )
