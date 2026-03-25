@@ -573,7 +573,7 @@ class UserImagesListAPIView(APIView):
 
     def get(self, request):
         from .models import AiGeneratedImage
-        qs = AiGeneratedImage.objects.filter(user=request.user).order_by("-created_at")
+        qs = AiGeneratedImage.objects.filter(user=request.user).order_by("-created_at", "-id")
         data = AiGeneratedImageSerializer(qs, many=True).data
         return Response(data, status=200)
 
@@ -583,7 +583,7 @@ class UserMusicListAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        qs = AiGeneratedMusic.objects.filter(user=request.user).order_by("-created_at")
+        qs = AiGeneratedMusic.objects.filter(user=request.user).order_by("-created_at", "-id")
         data = AiGeneratedMusicSerializer(qs, many=True).data
         return Response(data, status=200)
 

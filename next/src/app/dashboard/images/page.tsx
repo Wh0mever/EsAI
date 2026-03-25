@@ -11,6 +11,14 @@ import { useTranslation } from "react-i18next";
 type Chat = { id: string; uid?: string; title: string; chat_mode: string };
 type UserImage = { id: number; image_url: string | null; created_at: string; size: string; model_name: string; prompt: string; session_id: number | null; uniqid: string };
 
+function sortNewestFirst<T extends { id: number; created_at: string }>(items: T[]): T[] {
+  return [...items].sort((a, b) => {
+    const timeDiff = new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    if (timeDiff !== 0) return timeDiff;
+    return b.id - a.id;
+  });
+}
+
 export default function ImagesLibraryPage() {
   const { t } = useTranslation("common");
   const [chatsList, setChatsList] = useState<Chat[]>([]);
@@ -35,7 +43,7 @@ export default function ImagesLibraryPage() {
     (async () => {
       try {
         const r = await fetchData("ai/images/", "GET", null, true);
-        if (mounted) setImages((r?.data as UserImage[]) || []);
+        if (mounted) setImages(sortNewestFirst((r?.data as UserImage[]) || []));
       } catch {
         if (mounted) setImages([]);
       } finally {
