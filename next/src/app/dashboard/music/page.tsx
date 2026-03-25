@@ -21,6 +21,14 @@ function asArray<T>(value: unknown): T[] {
   return [];
 }
 
+function sortNewestFirst<T extends { id: number; created_at: string }>(items: T[]): T[] {
+  return [...items].sort((a, b) => {
+    const timeDiff = new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    if (timeDiff !== 0) return timeDiff;
+    return b.id - a.id;
+  });
+}
+
 export default function MusicLibraryPage() {
   const { t } = useTranslation("common");
   const [chatsList, setChatsList] = useState<Chat[]>([]);
@@ -67,7 +75,7 @@ export default function MusicLibraryPage() {
     (async () => {
       try {
         const r = await fetchData("ai/music/", "GET", null, true);
-        if (mounted) setTracks(asArray<MusicItem>(r?.data));
+        if (mounted) setTracks(sortNewestFirst(asArray<MusicItem>(r?.data)));
       } catch {
         if (mounted) setTracks([]);
       } finally {
