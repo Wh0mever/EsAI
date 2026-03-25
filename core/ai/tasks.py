@@ -424,6 +424,16 @@ def _normalize_topmedia_base_url(raw_url: str | None = None) -> str:
     return base or TOPMEDIA_API_BASE
 
 
+def _topmedia_language_label(lang_code: str) -> str:
+    labels = {
+        "ru": "русский",
+        "en": "английский",
+        "kg": "кыргызский",
+        "ky": "кыргызский",
+    }
+    return labels.get((lang_code or "").strip().lower(), (lang_code or "").strip())
+
+
 def _submit_topmedia(base_url: str, headers: dict, payload: dict) -> tuple[dict | None, str, str | None]:
     base = _normalize_topmedia_base_url(base_url)
     attempts = [
@@ -563,10 +573,17 @@ def generate_music_task(
     lang_code = (language or "").strip().lower()
     lang_map = {"ru": "Russian", "en": "English", "kg": "Kyrgyz", "ky": "Kyrgyz"}
     lang_name = lang_map.get(lang_code, "")
+    lang_label = _topmedia_language_label(lang_code)
     style_parts = [prompt.strip()]
     if (genre or "").strip():
         style_parts.append(f"Genre: {(genre or '').strip()}")
     if lang_name and not bool(int(instrumental or 0)):
+        style_parts.append(
+            "STRICT LANGUAGE RULE: "
+            f"сделай песню на выбранном языке - {lang_label} используя смысл текста. "
+            f"Use the meaning of the user's text, but write and sing strictly in {lang_name}. "
+            "Ignore the original text language if it differs from the selected generation language."
+        )
         style_parts.append(
             f"CRITICAL: Write the lyrics only in {lang_name}. "
             f"Do not use any other language, do not mix languages, and do not transliterate."

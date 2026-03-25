@@ -9,6 +9,7 @@ import { Field } from "@/components/ui/inputs/Inputs";
 import NextLink from "@/components/ui/nextLink/NextLink";
 import { fetchData } from "@/tools/fetchData";
 import SmartForm from "@/components/forms/SmartForm";
+import SocialAuthButtons from "@/components/auth/SocialAuthButtons";
 
 function signin(response: any, setResponseData: any, t: any) {
 	const { access, refresh, user } = response.data.data;
@@ -123,13 +124,7 @@ export default function SignIn() {
 				<p className="text-md text-yellow-400">{t("auth.subtitle")}</p>
 			</div>
 
-			<a
-				href="/api/users/accounts/google/login/?process=login"
-				className="flex gap-3 items-center justify-center bg-white text-black py-2 px-6 w-full rounded-md font-light text-sm"
-			>
-				<img src="/images/icons/google-icon.svg" alt="Google" />
-				<span>{t("auth.google")}</span>
-			</a>
+			<SocialAuthButtons />
 
 			<div className="py-5 w-full">
 				<div className="relative flex items-center justify-center border-b border-gray-500">

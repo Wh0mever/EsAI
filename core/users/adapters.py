@@ -22,18 +22,36 @@ def _frontend_base_from_request(request) -> str:
 
 
 class SocialAccountAdapter(DefaultSocialAccountAdapter):
-    """Map Google profile data into our custom User model.
+    """Map social profile data into our custom User model."""
 
-    Ensures email is set and tries to populate first/last name
-    from common Google fields.
-    """
+    @staticmethod
+    def _provider_id(sociallogin) -> str:
+        try:
+            return (sociallogin.account.provider or "").strip().lower()
+        except Exception:
+            return ""
+
+    @staticmethod
+    def _account_uid(sociallogin) -> str:
+        try:
+            return str(sociallogin.account.uid or "").strip()
+        except Exception:
+            return ""
+
+    def _build_fallback_email(self, sociallogin) -> str:
+        provider = self._provider_id(sociallogin) or "social"
+        uid = self._account_uid(sociallogin) or "user"
+        return f"{provider}_{uid}@social.vokalo.local"
 
     def populate_user(self, request, sociallogin, data):
         user = super().populate_user(request, sociallogin, data)
 
         extra = getattr(sociallogin.account, "extra_data", {}) or {}
+        provider = self._provider_id(sociallogin)
 
         email = data.get("email") or extra.get("email")
+        if not email:
+            email = self._build_fallback_email(sociallogin)
         if email and not getattr(user, "email", None):
             user.email = email
 
@@ -53,12 +71,23 @@ class SocialAccountAdapter(DefaultSocialAccountAdapter):
         if family and not getattr(user, "last_name", None):
             user.last_name = family
 
+        telegram_username = (
+            extra.get("username")
+            or data.get("username")
+            or extra.get("telegram_username")
+            or ""
+        )
+        if provider == "telegram" and telegram_username and not getattr(user, "telegram", None):
+            user.telegram = str(telegram_username).strip().lstrip("@")[:30]
+
+        user.is_confirmed = True
+
         return user
 
     def pre_social_login(self, request, sociallogin):
         """Auto-link social account to existing user by email.
 
-        Prevents IntegrityError(UNIQUE email) when Google returns an email
+        Prevents IntegrityError(UNIQUE email) when provider returns an email
         that already exists in our DB from classic (password/code) signup.
         """
         # If account already linked or no email — nothing to do
@@ -71,9 +100,9 @@ class SocialAccountAdapter(DefaultSocialAccountAdapter):
             or getattr(sociallogin.user, "email", None)
         )
         if not email:
-            # Abort gracefully if provider did not return email
-            site_base = _frontend_base_from_request(request)
-            raise ImmediateHttpResponse(HttpResponseRedirect(f"{site_base}/auth/signin?error=no_email"))
+            # Providers like Telegram/Instagram may not expose email. In that
+            # case we keep the generated fallback email and continue signup.
+            return
 
         User = get_user_model()
         try:
@@ -115,3 +144,13 @@ class SocialAccountAdapter(DefaultSocialAccountAdapter):
         site_base = _frontend_base_from_request(request)
         response = HttpResponseRedirect(f"{site_base}/auth/signin?error=social_login_failed")
         raise ImmediateHttpResponse(response)
+
+    def save_user(self, request, sociallogin, form=None):
+        user = super().save_user(request, sociallogin, form=form)
+        if user and not getattr(user, "free_plan_activated", False):
+            try:
+                from users.services import activate_free_plan_for_user
+                activate_free_plan_for_user(user)
+            except Exception:
+                pass
+        return user
