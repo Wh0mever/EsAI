@@ -52,12 +52,15 @@ INSTALLED_APPS = [
     "rest_framework_simplejwt",
     "rest_framework_simplejwt.token_blacklist",
 
-    # Auth (Google)
+    # Auth (Social)
     "corsheaders",
     "allauth",
     "allauth.account",
     "allauth.socialaccount",
     "allauth.socialaccount.providers.google",
+    "allauth.socialaccount.providers.facebook",
+    "allauth.socialaccount.providers.telegram",
+    "allauth.socialaccount.providers.instagram",
 
     # Project apps
     "mails.apps.MailsConfig",
@@ -238,8 +241,8 @@ SECURE_HSTS_SECONDS = 31536000 if not DEBUG else 0
 SECURE_HSTS_INCLUDE_SUBDOMAINS = not DEBUG
 SECURE_HSTS_PRELOAD = not DEBUG
 
-# --- Allauth (Google) ---
-# After successful Google auth, allauth redirects here (Django path)
+# --- Allauth (Social) ---
+# After successful social auth, allauth redirects here (Django path)
 # We expose users.urls under "/api/users/", so include that prefix
 LOGIN_REDIRECT_URL = "/api/users/auth/complete/"
 ACCOUNT_EMAIL_VERIFICATION = "none"
@@ -253,7 +256,34 @@ SOCIALACCOUNT_PROVIDERS = {
             "key": "",
         },
         "SCOPE": ["openid", "email", "profile"],
-    }
+    },
+    "facebook": {
+        "METHOD": "oauth2",
+        "SCOPE": ["email", "public_profile"],
+        "FIELDS": ["id", "email", "name", "first_name", "last_name"],
+        "APP": {
+            "client_id": env("FACEBOOK_CLIENT_ID", default=""),
+            "secret": env("FACEBOOK_CLIENT_SECRET", default=""),
+            "key": "",
+        },
+    },
+    "telegram": {
+        "APP": {
+            "client_id": env("TELEGRAM_BOT_ID", default=""),
+            "secret": env("TELEGRAM_BOT_TOKEN", default=""),
+            "key": "",
+        },
+        "AUTH_PARAMS": {
+            "auth_date_validity": env.int("TELEGRAM_AUTH_DATE_VALIDITY", default=30),
+        },
+    },
+    "instagram": {
+        "APP": {
+            "client_id": env("INSTAGRAM_CLIENT_ID", default=""),
+            "secret": env("INSTAGRAM_CLIENT_SECRET", default=""),
+            "key": "",
+        },
+    },
 }
 SOCIALACCOUNT_ADAPTER = "users.adapters.SocialAccountAdapter"
 SOCIALACCOUNT_LOGIN_ON_GET = True
