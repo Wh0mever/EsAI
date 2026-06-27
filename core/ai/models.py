@@ -2,7 +2,6 @@ from django.db import models
 from users.models import User
 from django.utils import timezone
 import uuid
-from urllib.parse import urlparse
 
 # Create your models here.
 
@@ -27,46 +26,15 @@ class GPTModels(models.Model):
         verbose_name_plural = "GPT модели"
 
 
-class TopMediaModels(models.Model):
-    KIND_MUSIC = "music"
-    KIND_VOICE_CLONE = "voice_clone"
-    KIND_CHOICES = [
-        (KIND_MUSIC, "Music Generator"),
-        (KIND_VOICE_CLONE, "Voice Cloning"),
-    ]
-
-    name = models.CharField(max_length=100, unique=True)
-    kind = models.CharField(max_length=20, choices=KIND_CHOICES, default=KIND_MUSIC)
-    description = models.TextField(blank=True)
-    max_tokens = models.IntegerField(help_text="Maximum tokens allowed", default=0)
-    is_active = models.BooleanField(default=True)
-
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    def __str__(self):
-        return self.name
-
-    class Meta:
-        verbose_name = "TopMedia модель"
-        verbose_name_plural = "TopMedia модели"
-
-
 class AiProvider(models.Model):
     NAME_GPT = "GPT"
-    NAME_TOPMEDIA = "Topmedia"
-    NAME_DALLE = "Dall-e"
 
     NAME_CHOICES = [
         (NAME_GPT, "GPT"),
-        (NAME_TOPMEDIA, "Topmedia"),
-        (NAME_DALLE, "Dall-e"),
     ]
 
     NAME_TO_SLUG = {
         NAME_GPT: "gpt",
-        NAME_TOPMEDIA: "topmedia",
-        NAME_DALLE: "dall-e",
     }
 
     name = models.CharField(max_length=100, unique=True, choices=NAME_CHOICES)
@@ -186,71 +154,3 @@ class AiChatMessage(models.Model):
         ordering = ["created_at"]
         verbose_name = "AI сообщение чата"
         verbose_name_plural = "AI сообщения чата"
-
-
-def _gen_image_upload_path(instance: "AiGeneratedImage", filename: str) -> str:
-    uid = instance.uniqid or uuid.uuid4().hex
-    instance.uniqid = uid
-    # keep original extension if provided
-    ext = "" if "." not in filename else filename.split(".")[-1]
-    name = f"image.{ext or 'png'}"
-    return f"generated/{instance.user_id}/{uid}/{name}"
-
-
-class AiGeneratedImage(models.Model):
-    """Сгенерированное изображение, связанное с пользователем и (опционально) сессией чата."""
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="generated_images")
-    session = models.ForeignKey('AiChatSession', on_delete=models.SET_NULL, null=True, blank=True, related_name="generated_images")
-    provider = models.ForeignKey('AiProvider', on_delete=models.SET_NULL, null=True, blank=True)
-    model_name = models.CharField(max_length=100, default="gpt-image-1")
-    prompt = models.TextField()
-    uniqid = models.CharField(max_length=64, editable=False, db_index=True)
-    image = models.ImageField(upload_to=_gen_image_upload_path)
-    size = models.CharField(max_length=20, default="1024x1024")
-    meta = models.JSONField(blank=True, null=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    def __str__(self) -> str:
-        return f"{self.user_id}:{self.model_name}:{self.uniqid}"
-
-    class Meta:
-        verbose_name = "AI сгенерированное изображение"
-        verbose_name_plural = "AI сгенерированные изображения"
-
-
-def _gen_music_upload_path(instance: "AiGeneratedMusic", filename: str) -> str:
-    uid = instance.uniqid or uuid.uuid4().hex
-    instance.uniqid = uid
-    path = urlparse(filename or "").path
-    ext = ""
-    if "." in path:
-        ext = path.rsplit(".", 1)[-1].strip().lower()
-    if not ext:
-        ext = "mp3"
-    name = f"track.{ext}"
-    return f"generated/music/{instance.user_id}/{uid}/{name}"
-
-
-class AiGeneratedMusic(models.Model):
-    """Сгенерированная музыка, связанная с пользователем и (опционально) сессией чата."""
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="generated_music")
-    session = models.ForeignKey('AiChatSession', on_delete=models.SET_NULL, null=True, blank=True, related_name="generated_music")
-    provider = models.ForeignKey('AiProvider', on_delete=models.SET_NULL, null=True, blank=True)
-    model_name = models.CharField(max_length=100, default="v4.5")
-    prompt = models.TextField()
-    lyrics = models.TextField(blank=True, default="")
-    title = models.CharField(max_length=255, blank=True, default="")
-    instrumental = models.BooleanField(default=True)
-    topmedia_task_id = models.CharField(max_length=128, blank=True, default="", db_index=True)
-    source_url = models.URLField(blank=True, null=True)
-    uniqid = models.CharField(max_length=64, editable=False, db_index=True)
-    audio = models.FileField(upload_to=_gen_music_upload_path, blank=True, null=True)
-    meta = models.JSONField(blank=True, null=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    def __str__(self) -> str:
-        return f"{self.user_id}:{self.model_name}:{self.uniqid}"
-
-    class Meta:
-        verbose_name = "AI сгенерированная музыка"
-        verbose_name_plural = "AI сгенерированная музыка"
