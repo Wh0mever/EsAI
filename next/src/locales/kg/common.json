@@ -416,6 +416,8 @@
     "cover_error_unknown": "Обложканы сактоо мүмкүн болгон жок",
     "thinking": "Ойлонууда",
     "thinking_ellipsis": "Ойлонууда…",
+    "sources": "Булактар",
+    "web_search_short": "Издөө",
     "voice_enter": "Үн менен киргизүү",
     "attachments": "Тиркемелер",
     "attachment_upload_error": "Жүктөө катасы",
@@ -815,6 +817,13 @@
   "brand": {
     "name": "EsAI",
     "slogan": "Бардык AI бир жерде."
+  },
+  "pwa": {
+    "install_title": "EsAI колдонмосун орнотуу",
+    "install_desc": "Телефондун экранынан чатка тез кирүү, кадимки колдонмо сыяктуу.",
+    "install_cta": "Орнотуу",
+    "ios_hint": "«Бөлүшүү» баскычын басып, анан «Башкы экранга кошуу» тандаңыз.",
+    "dismiss": "Азыр эмес"
   },
   "guest": {
     "limit_title": "Акысыз лимит түгөндү",

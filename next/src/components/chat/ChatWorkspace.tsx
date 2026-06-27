@@ -6,9 +6,10 @@ import { useTranslation } from "react-i18next";
 import Cookies from "js-cookie";
 import { FiMenu, FiPlus, FiZap } from "react-icons/fi";
 import { fetchData } from "@/tools/fetchData";
+import { streamChat } from "@/tools/streamChat";
 import { getGuestId } from "@/lib/guest";
 import { isJwtValid } from "@/tools/jwt";
-import type { Message } from "@/types/chat";
+import type { Message, ChatSource } from "@/types/chat";
 import type { AiModel } from "./ModelSelector";
 import ChatMessages from "./ChatMessages";
 import ChatComposer from "./ChatComposer";
@@ -42,6 +43,7 @@ export default function ChatWorkspace({ chatId, mode = MODE }: Props) {
   const [loading, setLoading] = useState(false);
   const [model, setModel] = useState("");
   const [animateIndex, setAnimateIndex] = useState<number | null>(null);
+  const [webSearch, setWebSearch] = useState(false);
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [topUpOpen, setTopUpOpen] = useState(false);
@@ -155,72 +157,164 @@ export default function ChatWorkspace({ chatId, mode = MODE }: Props) {
       try {
         setLoading(true);
         const templates = (() => { try { return localStorage.getItem("ai-templates"); } catch { return null; } })();
-        const payload: any = { message: content, templates, mode, model };
+        const payload: any = { message: content, templates, mode, model, stream: true };
+        if (webSearch) payload.web_search = true;
         if (chatId) payload.chat_id = chatId;
         if (readyAttachments.length) payload.attachments = readyAttachments;
         if (i18n?.language) payload.lang = i18n.language;
 
-        // Authenticated users go through the Bearer path (auth=true).
-        // Guests send X-Guest-Id and must NOT trigger the auth redirect, so we
-        // call with auth=false and handle the guest-limit response ourselves.
+        // Authenticated users go through the Bearer path. Guests send X-Guest-Id
+        // and must NOT trigger the auth redirect, so guest errors are handled here.
         const authed = isJwtValid(Cookies.get("access"));
         const extraHeaders = authed ? undefined : { "X-Guest-Id": getGuestId() };
-        const res = await fetchData<any>("ai/chat/", "POST", payload, authed, extraHeaders);
 
-        // Guest free-quota exhausted -> invite sign-in (no redirect).
-        if (!authed && res?.status === 401 && (res?.data as any)?.error === "guest_limit_reached") {
-          // remove the optimistic user message so they can retry after login
-          setGuestLimitOpen(true);
+        // Append a live (empty) assistant bubble we'll fill from the stream.
+        // No typing-effect animation: real deltas drive the text now.
+        setAnimateIndex(null);
+        let assistantIndex = -1;
+        setMessages((prev) => {
+          assistantIndex = prev.length;
+          return [...prev, { role: "assistant", content: "", streaming: true } as Message];
+        });
+
+        // Helper: patch the live assistant message by index.
+        const patchAssistant = (patch: Partial<Message>, appendDelta?: string) => {
+          setMessages((prev) => {
+            const out = [...prev];
+            const i = assistantIndex >= 0 && assistantIndex < out.length ? assistantIndex : out.length - 1;
+            const cur = out[i];
+            if (!cur || cur.role !== "assistant") return prev;
+            out[i] = {
+              ...cur,
+              ...patch,
+              content: appendDelta != null ? (cur.content || "") + appendDelta : (patch.content ?? cur.content),
+            };
+            return out;
+          });
+        };
+
+        // Drop the empty live bubble (used on stream/JSON errors so we can append an error bubble).
+        const dropLiveBubble = () => {
+          setMessages((prev) => {
+            const out = [...prev];
+            const i = assistantIndex >= 0 && assistantIndex < out.length ? assistantIndex : out.length - 1;
+            if (out[i]?.role === "assistant" && out[i]?.streaming && !(out[i]?.content || "").trim()) {
+              out.splice(i, 1);
+            }
+            return out;
+          });
+        };
+
+        let streamErrored = false;
+        let sawDelta = false;
+
+        const result = await streamChat(payload, {
+          authed,
+          extraHeaders,
+          onEvent: (ev) => {
+            if (ev.type === "delta") {
+              sawDelta = true;
+              patchAssistant({ streaming: true }, ev.delta);
+            } else if (ev.type === "sources") {
+              const clean = (ev.sources || []).filter((s) => s && s.url) as ChatSource[];
+              if (clean.length) patchAssistant({ sources: clean });
+            } else if (ev.type === "error") {
+              streamErrored = true;
+              dropLiveBubble();
+              setMessages((prev) => [...prev, { role: "assistant", content: ev.error, variant: "error" } as any]);
+            } else if (ev.type === "done") {
+              const p = ev.payload || {};
+              // Finalize message metadata (id from server, etc.)
+              const finalContent = typeof p?.message?.content === "string" ? p.message.content : undefined;
+              const finalId = p?.message?.id;
+              patchAssistant({
+                streaming: false,
+                ...(finalContent != null ? { content: finalContent } : {}),
+                ...(finalId != null ? { id: finalId } : {}),
+              });
+              if (typeof p.balance_tokens === "number") setBalance(p.balance_tokens);
+              else if (authed) refreshBalance();
+              if (typeof p.free_limit === "number") {
+                setGuestFree({ used: Number(p.free_used) || 0, limit: Number(p.free_limit) || 0 });
+              }
+              const sessionMeta = (p.session ?? p?.message?.session ?? null) as { id?: string; uid?: string; title?: string } | null;
+              const routeId = sessionMeta?.uid || sessionMeta?.id;
+              if (!chatId && sessionMeta && routeId) {
+                try { window.dispatchEvent(new CustomEvent("chat:session-created", { detail: { id: routeId, uid: sessionMeta.uid, title: sessionMeta.title || content.slice(0, 60), chat_mode: mode } })); } catch {}
+              }
+            }
+          },
+        });
+
+        /* ---------- non-stream fallback (402/401-before-stream or plain JSON) ---------- */
+        if (!result.isStream) {
+          dropLiveBubble();
+          const data = (result.json as any) || {};
+
+          if (!authed && result.status === 401 && data?.error === "guest_limit_reached") {
+            setGuestLimitOpen(true);
+            return;
+          }
+          if (result.status === 402 || data?.error === "insufficient_tokens") {
+            setInsufficientOpen(true);
+            return;
+          }
+          if (!result.ok) {
+            const msg = (data?.detail || data?.error || t("chat.error_request_failed", { defaultValue: "Запрос не выполнен." })).toString();
+            setMessages((prev) => [...prev, { role: "assistant", content: msg, variant: "error" } as any]);
+            return;
+          }
+
+          const assistantContent = data.response || "";
+          if (typeof data.balance_tokens === "number") setBalance(data.balance_tokens);
+          else if (authed) refreshBalance();
+          if (data.guest && typeof data.free_limit === "number") {
+            setGuestFree({ used: Number(data.free_used) || 0, limit: Number(data.free_limit) || 0 });
+          }
+
+          if (!assistantContent) {
+            setMessages((prev) => [...prev, { role: "assistant", content: t("chat.error_generic", { defaultValue: "Произошла ошибка." }), variant: "error" } as any]);
+          } else {
+            const srcs = Array.isArray(data.sources) ? (data.sources.filter((s: any) => s && s.url) as ChatSource[]) : undefined;
+            setMessages((prev) => {
+              const next = [...prev, { role: "assistant", content: assistantContent, sources: srcs } as Message];
+              setAnimateIndex(next.length - 1); // keep the typing-effect for the non-stream path
+              return next;
+            });
+          }
+
+          const sessionMeta = (data.session ?? null) as { id?: string; uid?: string; title?: string } | null;
+          const routeId = sessionMeta?.uid || sessionMeta?.id;
+          if (!chatId && sessionMeta && routeId) {
+            try { window.dispatchEvent(new CustomEvent("chat:session-created", { detail: { id: routeId, uid: sessionMeta.uid, title: sessionMeta.title || content.slice(0, 60), chat_mode: mode } })); } catch {}
+          }
           return;
         }
 
-        // Insufficient tokens
-        if (res?.status === 402 || (res?.data as any)?.error === "insufficient_tokens") {
-          setInsufficientOpen(true);
-          return;
-        }
-        if (!res?.ok) {
-          const msg = (res?.error || (res?.data as any)?.error || t("chat.error_request_failed", { defaultValue: "Запрос не выполнен." })).toString();
-          setMessages((prev) => [...prev, { role: "assistant", content: msg, variant: "error" } as any]);
-          return;
-        }
-
-        const data = res.data || {};
-        const assistantContent = data.response || "";
-        // update balance from response if present
-        if (typeof data.balance_tokens === "number") setBalance(data.balance_tokens);
-        else if (authed) refreshBalance();
-
-        // Guest response carries free-usage counters: { guest, free_used, free_limit }
-        if (data.guest && typeof data.free_limit === "number") {
-          setGuestFree({ used: Number(data.free_used) || 0, limit: Number(data.free_limit) || 0 });
-        }
-
-        if (!assistantContent) {
+        /* ---------- post-stream cleanup ---------- */
+        if (streamErrored) {
+          // Error already surfaced and the live bubble dropped; nothing to finalize.
+        } else if (!sawDelta) {
+          dropLiveBubble();
           setMessages((prev) => [...prev, { role: "assistant", content: t("chat.error_generic", { defaultValue: "Произошла ошибка." }), variant: "error" } as any]);
         } else {
-          setMessages((prev) => {
-            const next = [...prev, { role: "assistant", content: assistantContent } as Message];
-            // type out the freshly appended answer
-            setAnimateIndex(next.length - 1);
-            return next;
-          });
-        }
-
-        // route to the dashboard session when a new one was created (parity with old flow)
-        const sessionMeta = (data.session ?? null) as { id?: string; uid?: string; title?: string } | null;
-        const routeId = sessionMeta?.uid || sessionMeta?.id;
-        if (!chatId && sessionMeta && routeId) {
-          try { window.dispatchEvent(new CustomEvent("chat:session-created", { detail: { id: routeId, uid: sessionMeta.uid, title: sessionMeta.title || content.slice(0, 60), chat_mode: mode } })); } catch {}
+          // Ensure the bubble isn't left in a streaming state if `done` never arrived.
+          patchAssistant({ streaming: false });
         }
       } catch (e) {
         console.error("chat request failed", e);
-        setMessages((prev) => [...prev, { role: "assistant", content: t("chat.error_network", { defaultValue: "Сетевая ошибка." }), variant: "error" } as any]);
+        // Remove any leftover empty live bubble before showing the network error.
+        setMessages((prev) => {
+          const out = [...prev];
+          const last = out[out.length - 1];
+          if (last?.role === "assistant" && last?.streaming && !(last.content || "").trim()) out.pop();
+          return [...out, { role: "assistant", content: t("chat.error_network", { defaultValue: "Сетевая ошибка." }), variant: "error" } as any];
+        });
       } finally {
         setLoading(false);
       }
     },
-    [attachments, chatId, i18n.language, mode, model, refreshBalance, setBalance, t]
+    [attachments, chatId, i18n.language, mode, model, webSearch, refreshBalance, setBalance, t]
   );
 
   const handleSubmit = (e: FormEvent) => {
@@ -325,6 +419,8 @@ export default function ChatWorkspace({ chatId, mode = MODE }: Props) {
             model={model}
             onModelChange={(id) => setModel(id)}
             autoFocus={!started}
+            webSearch={webSearch}
+            onToggleWebSearch={setWebSearch}
           />
           {guestFree && guestFree.limit > 0 ? (
             <p className="text-center text-xs text-muted-2 mt-2">

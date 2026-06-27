@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#141414" />
+  <title>EsAI — нет соединения</title>
+  <link rel="icon" href="/esai-mark.svg" />
+  <style>
+    :root { --ink:#141414; --bg:#0d0d0d; --surface:#161616; --fg:#ededed; --muted:#a3a3a3; --gold:#F5C518; --border:rgba(255,255,255,.08); }
+    * { box-sizing:border-box; }
+    html,body { margin:0; height:100%; }
+    body {
+      background:var(--bg); color:var(--fg);
+      font-family:'Inter','Helvetica Neue',Arial,sans-serif;
+      display:flex; align-items:center; justify-content:center;
+      padding:24px; text-align:center;
+    }
+    .card { max-width:420px; width:100%; }
+    .mark { width:72px; height:72px; margin:0 auto 20px; display:block; }
+    h1 { font-size:22px; font-weight:800; margin:0 0 10px; letter-spacing:-.02em; }
+    p { color:var(--muted); font-size:15px; line-height:1.6; margin:0 0 24px; }
+    button {
+      appearance:none; border:0; cursor:pointer;
+      background:var(--gold); color:var(--ink);
+      font-weight:700; font-size:15px;
+      padding:12px 22px; border-radius:999px;
+      transition:filter .15s ease;
+    }
+    button:hover { filter:brightness(.94); }
+    .hint { margin-top:18px; font-size:13px; color:#737373; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <svg class="mark" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <rect width="64" height="64" rx="14" fill="#141414"/>
+      <path d="M32 10 Q32 32 54 32 Q32 32 32 54 Q32 32 10 32 Q32 32 32 10 Z" fill="#F5C518"/>
+    </svg>
+    <h1>Нет подключения к интернету</h1>
+    <p>EsAI не может загрузить ответ без сети. Проверьте соединение и попробуйте снова.</p>
+    <button type="button" onclick="location.reload()">Повторить</button>
+    <div class="hint">Все AI в одном месте</div>
+  </div>
+</body>
+</html>

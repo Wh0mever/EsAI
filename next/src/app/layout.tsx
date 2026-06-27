@@ -1,7 +1,8 @@
 import { cookies, headers } from "next/headers";
 import { I18nProvider } from "@/i18n/i18n-provider";
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import BackToTopButton from "@/components/ui/toTop/BackToTop";
+import PwaManager from "@/components/pwa/PwaManager";
 import "./globals.css";
 import "highlight.js/styles/github-dark.css";
 import "@/assets/style.scss";
@@ -10,8 +11,25 @@ import { THEME_BOOTSTRAP } from "@/lib/theme";
 import { SITE_URL, SITE_NAME, OG_IMAGE } from "@/lib/seo/site";
 import { homeJsonLd } from "@/lib/seo/jsonLd";
 
+export const viewport: Viewport = {
+	width: "device-width",
+	initialScale: 1,
+	viewportFit: "cover",
+	themeColor: [
+		{ media: "(prefers-color-scheme: dark)", color: "#141414" },
+		{ media: "(prefers-color-scheme: light)", color: "#F5C518" },
+	],
+};
+
 export const metadata: Metadata = {
 	metadataBase: new URL(SITE_URL),
+	manifest: "/manifest.webmanifest",
+	applicationName: "EsAI",
+	appleWebApp: {
+		capable: true,
+		statusBarStyle: "black-translucent",
+		title: "EsAI",
+	},
 	title: "EsAI — Все AI в одном месте",
 	description:
 		"EsAI — нейросети в одном месте. ChatGPT, DeepSeek, Claude, Gemini онлайн на русском, кыргызском и английском. Пишите тексты, код, переводите и анализируйте документы.",
@@ -35,9 +53,13 @@ export const metadata: Metadata = {
 		"оплата в сомах",
 	],
 	icons: {
-		icon: "/esai-mark.svg",
+		icon: [
+			{ url: "/esai-mark.svg", type: "image/svg+xml" },
+			{ url: "/icon-192.png", sizes: "192x192", type: "image/png" },
+			{ url: "/icon-512.png", sizes: "512x512", type: "image/png" },
+		],
 		shortcut: "/esai-mark.svg",
-		apple: "/esai-mark.svg",
+		apple: "/apple-touch-icon.png",
 	},
 	alternates: {
 		canonical: "/",
@@ -106,6 +128,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
 					}}
 				/>
 				<I18nProvider lang={lang}>{children}</I18nProvider>
+				<PwaManager />
 			</body>
 		</html>
 	);
