@@ -3,16 +3,44 @@ import { I18nProvider } from "@/i18n/i18n-provider";
 import type { Metadata } from "next";
 import BackToTopButton from "@/components/ui/toTop/BackToTop";
 import "./globals.css";
+import "highlight.js/styles/github-dark.css";
 import "@/assets/style.scss";
 import DomainDefaults from "@/components/bootstrap/DomainDefaults";
+import { THEME_BOOTSTRAP } from "@/lib/theme";
 
 export const metadata: Metadata = {
-	title: "Vokalo",
-	keywords: ["nextjs", "tailwind", "dark mode"],
+	title: "EsAI — Все AI в одном месте",
+	description:
+		"EsAI — нейросети в одном месте. ChatGPT, DeepSeek, Claude, Gemini онлайн на русском, кыргызском и английском. Пишите тексты, код, переводите и анализируйте документы.",
+	keywords: [
+		"EsAI",
+		"нейросети",
+		"ChatGPT",
+		"DeepSeek",
+		"Claude",
+		"Gemini",
+		"AI онлайн",
+		"искусственный интеллект",
+		"чат с нейросетью",
+	],
 	icons: {
-		icon: "/images/logo/head.ico",
-		shortcut: "/images/logo/head.ico",
-		apple: "/images/logo/head.svg",
+		icon: "/esai-mark.svg",
+		shortcut: "/esai-mark.svg",
+		apple: "/esai-mark.svg",
+	},
+	openGraph: {
+		title: "EsAI — Все AI в одном месте",
+		description:
+			"Все AI в одном месте. ChatGPT, DeepSeek, Claude, Gemini онлайн на русском и кыргызском.",
+		siteName: "EsAI",
+		type: "website",
+		images: [{ url: "/esai-logo.svg" }],
+	},
+	twitter: {
+		card: "summary_large_image",
+		title: "EsAI — Все AI в одном месте",
+		description: "Все AI в одном месте. ChatGPT, DeepSeek, Claude, Gemini онлайн.",
+		images: ["/esai-logo.svg"],
 	},
 };
 
@@ -23,9 +51,9 @@ function normalizeHost(input: string) {
 
 function localeByHost(host: string) {
   const h = normalizeHost(host);
-  if (h.endsWith("vokalo.ru")) return "ru";
-  if (h.endsWith("vokalo.kg")) return "kg";
-  if (h.endsWith("vokalo.online")) return "en";
+  if (h.endsWith(".ru")) return "ru";
+  if (h.endsWith(".kg")) return "kg";
+  if (h.endsWith(".online") || h.endsWith(".com")) return "en";
   return "ru"; // fallback
 }
 
@@ -44,7 +72,10 @@ export default async function RootLayout({ children }: { children: React.ReactNo
 	const fpMerchantId = process.env.NEXT_PUBLIC_FREEDOM_PAY_MERCHANT_ID || process.env.FREEDOM_PAY_MERCHANT_ID || "";
 
 	return (
-		<html lang={lang} className="dark">
+		<html lang={lang} className="dark" data-theme="dark" suppressHydrationWarning>
+			<head>
+				<script dangerouslySetInnerHTML={{ __html: THEME_BOOTSTRAP }} />
+			</head>
 			<body>
 				<DomainDefaults />
 				<BackToTopButton />

@@ -10,7 +10,8 @@
     "language": "Language",
     "notifications": "Notifications",
     "prev": "Prev",
-    "next": "Next"
+    "next": "Next",
+    "close": "Close"
   },
   "compass": {
     "1": "Songs",
@@ -21,7 +22,7 @@
   },
   "pricing": {
     "title": "Subscription Plans",
-    "subtitle": "VOKALO | Creativity Without Limits",
+    "subtitle": "EsAI | All AI in one place",
     "monthly": "Monthly",
     "weekly": "Weekly",
     "yearly": "Yearly",
@@ -40,7 +41,7 @@
     "try_now": "Try",
     "getstarted": "Get started with our new package",
     "loading": "Loading...",
-    "vokalo_test": "VokaloTest",
+    "vokalo_test": "EsAITest",
     "test_subtitle": "Trial",
     "monthly_subtitle": "30 days",
     "weekly_subtitle": "7 days",
@@ -95,7 +96,7 @@
     "all": "All"
   },
   "pricing_referral": {
-    "referral_title": "Vokalo Referral Program",
+    "referral_title": "EsAI Referral Program",
     "referral_subtitle": "Expand your limits with our referral program.",
     "referral_line": "A friend of my friend is my friend 🙂",
     "referral_desc": "Increase your limits for each new user registered with your unique referral code.",
@@ -153,7 +154,7 @@
     "wallets_title": "E-wallets (Freedom Pay, YooMoney, etc.)",
     "wallets_description": "One-time payment without auto charges. Access remains until period end.",
     "wallets_button": "Pay one-time",
-    "payment_optional_note": "Card linking is optional. You can use Vokalo with one-time payment.",
+    "payment_optional_note": "Card linking is optional. You can use EsAI with one-time payment.",
     "one_time_title": "One-time payment",
     "one_time_description": "Use a one-time payment to activate the plan now. Press the button below to continue.",
     "one_time_button": "Activate with one-time payment",
@@ -173,7 +174,7 @@
     "go_now": "Go now"
   },
   "auth": {
-    "title": "Vokalo awaits your genre, lyrics, and instruments.",
+    "title": "EsAI awaits your genre, lyrics, and instruments.",
     "subtitle": "No credit card required!",
     "google": "Sign in with Google",
     "social_soon": "Coming soon",
@@ -311,7 +312,7 @@
   },
   "blog": {
     "title": "🟡 Blog",
-    "subtitle": "Welcome to the Vokalo Blog — a space where we share ideas, tips, and stories from the world of music, AI, and creativity.",
+    "subtitle": "Welcome to the EsAI Blog — a space where we share ideas, tips, and stories from the world of music, AI, and creativity.",
     "points": [
       "🎵 Tips for writing songs and lyrics",
       "🤖 Reviews of new AI tools",
@@ -323,14 +324,14 @@
   },
   "about": {
     "title": "🟡 About Us",
-    "subtitle": "Vokalo is an innovative online service where artificial intelligence helps you create music, lyrics, and images. We combine technology and creativity so that anyone — from beginners to professionals — can bring their ideas to life quickly.",
+    "subtitle": "EsAI is an innovative online service where artificial intelligence helps you create music, lyrics, and images. We combine technology and creativity so that anyone — from beginners to professionals — can bring their ideas to life quickly.",
     "points": [
       "🔹 Generate songs based on your lyrics",
       "🔹 Get music that fits the mood and style",
       "🔹 Create covers, visuals, and illustrations using neural networks",
       "🔹 Share, rate, get inspired"
     ],
-    "footer": "We believe that AI is not a replacement but a partner in creativity. Vokalo is built for those who want to create in a new way."
+    "footer": "We believe that AI is not a replacement but a partner in creativity. EsAI is built for those who want to create in a new way."
   },
   "referral": {
     "title": "🟡 Referral Program",
@@ -371,9 +372,9 @@
     "music_library": "Music Library",
     "images_library_empty": "No images yet",
     "images_library_empty_title": "Your image library is empty!",
-    "images_library_empty_subtitle": "Create your first image with Vokalo right now",
+    "images_library_empty_subtitle": "Create your first image with EsAI right now",
     "music_library_empty_title": "Your music library is empty!",
-    "music_library_empty_subtitle": "Create your first track with Vokalo right now",
+    "music_library_empty_subtitle": "Create your first track with EsAI right now",
     "download": "Download",
     "downloading": "Downloading...",
     "mp4_preparing": "Preparing MP4...",
@@ -429,11 +430,11 @@
     "error_request_failed": "Request failed.",
     "go_to_pricing": "Go to pricing",
     "chats_list_empty": "Chats list is empty",
-    "empty_text_title": "Ready to create text with Vokalo?",
+    "empty_text_title": "Ready to create text with EsAI?",
     "empty_text_subtitle": "Let’s get started!",
-    "empty_image_title": "Ready to create images with Vokalo?",
+    "empty_image_title": "Ready to create images with EsAI?",
     "empty_image_subtitle": "Let’s get started!",
-    "empty_music_title": "Ready to create music with Vokalo?",
+    "empty_music_title": "Ready to create music with EsAI?",
     "empty_music_subtitle": "Let’s get started!",
     "templates": {
       "templates": "Templates",
@@ -459,7 +460,7 @@
       "favoriteTemplateError": "Error adding template to favorites"
     },
     "tabs": {
-      "global": "Global Templates",
+      "global": "EsAI Templates",
       "favorites": "Favorites templates",
       "create": "Create new template",
       "selected": "Selected template",
@@ -471,7 +472,68 @@
       "music": "Music generation"
     },
     "go_to_profile_for_card": "Go to profile (link card)",
-    "go_to_profile_for_topup": "Go to profile (top-up)"
+    "go_to_profile_for_topup": "Go to profile (top-up)",
+    "menu": "Menu",
+    "profile": "Profile",
+    "model": {
+      "select": "Select model"
+    },
+    "start": {
+      "greeting": "How can I help?"
+    },
+    "actions": {
+      "copy": "Copy",
+      "copied": "Copied",
+      "retry": "Retry",
+      "continue": "Continue",
+      "continue_prompt": "Continue.",
+      "like": "Good answer",
+      "dislike": "Bad answer"
+    },
+    "quick": {
+      "upload_doc": "Upload document",
+      "upload_doc_prompt": "Analyze the attached document and summarize it: ",
+      "web_search": "Search the web",
+      "web_search_prompt": "Find up-to-date information on the web about: ",
+      "translate": "Translate text",
+      "translate_prompt": "Translate the following text into English:\n\n",
+      "write_text": "Write text",
+      "write_text_prompt": "Write a text about: ",
+      "write_code": "Write code",
+      "write_code_prompt": "Write code that does the following: "
+    },
+    "scenario": {
+      "article": "Write an article",
+      "article_desc": "A structured article on any topic",
+      "article_prompt": "Write a detailed article about: ",
+      "summary": "Summarize",
+      "summary_desc": "Shorten a long text to the essentials",
+      "summary_prompt": "Summarize the following text:\n\n",
+      "contract": "Analyze a contract",
+      "contract_desc": "Find risks and key clauses",
+      "contract_prompt": "Analyze this contract: find risks, key terms and pitfalls:\n\n",
+      "translate_doc": "Translate document",
+      "translate_doc_desc": "Translation that keeps the meaning",
+      "translate_doc_prompt": "Translate the document, keeping meaning and formatting:\n\n",
+      "excel": "Excel analysis",
+      "excel_desc": "Break down tables and data",
+      "excel_prompt": "Analyze the table data and draw conclusions:\n\n",
+      "improve": "Improve text",
+      "improve_desc": "Make the text clearer and cleaner",
+      "improve_prompt": "Improve the following text — make it clearer, cleaner and more convincing:\n\n",
+      "resume": "Resume",
+      "resume_desc": "Build a professional resume",
+      "resume_prompt": "Help me build a professional resume. Here is my info:\n\n",
+      "ideas": "Ideas",
+      "ideas_desc": "Brainstorm and suggestions",
+      "ideas_prompt": "Suggest 10 creative ideas about: ",
+      "code_help": "Code help",
+      "code_help_desc": "Explain, fix or write code",
+      "code_help_prompt": "Help with code — explain and fix the error:\n\n",
+      "learning": "Learning help",
+      "learning_desc": "Explain a topic in simple words",
+      "learning_prompt": "Explain in simple words the topic: "
+    }
   },
   "profile": {
     "profile": "Profile",
@@ -520,7 +582,7 @@
     "card_hash_unknown": "Card info unavailable",
     "card_expiry_label": "Valid thru",
     "card_expiry_unknown": "Not specified",
-    "no_card_payment_notice": "Pay one-time or link a card for auto-renewal and Sunday bonuses to always stay with Vokalo.",
+    "no_card_payment_notice": "Pay one-time or link a card for auto-renewal and Sunday bonuses to always stay with EsAI.",
     "_2fa": "Two-factor authentication",
     "plan_info": {
       "empty_title": "7 days free",
@@ -630,7 +692,7 @@
       "mode": "Mode"
     },
     "placeholders": {
-      "name": "E.g.: System prompt for Vokalo",
+      "name": "E.g.: System prompt for EsAI",
       "purpose": "Briefly: what is this template for",
       "description": "Optional: how to use, limitations...",
       "template": "Use {{variables}} or {{language}} if you have your own renderer",
@@ -650,17 +712,17 @@
     "sections": [
       {
         "id": "welcome",
-        "title": "Welcome to VOKALO!",
+        "title": "Welcome to EsAI!",
         "paras": [
-          "Welcome to VOKALO. Through this website you can access our company’s products. By accessing our site and using our tools, you agree to these Terms.",
-          "We may modify these Terms as well as products, prices, and services at any time. VOKALO will use all available legal remedies to correct and stop violations of these Terms."
+          "Welcome to EsAI. Through this website you can access our company’s products. By accessing our site and using our tools, you agree to these Terms.",
+          "We may modify these Terms as well as products, prices, and services at any time. EsAI will use all available legal remedies to correct and stop violations of these Terms."
         ]
       },
       {
         "id": "copyright",
         "title": "Copyright",
         "paras": [
-          "All content on this website is the copyright of VOKALO. All rights reserved. Copyright includes, without limitation, graphics, tool usage, logos, sounds, and text. In general, you may not reproduce any part of this website without prior written permission from VOKALO.",
+          "All content on this website is the copyright of EsAI. All rights reserved. Copyright includes, without limitation, graphics, tool usage, logos, sounds, and text. In general, you may not reproduce any part of this website without prior written permission from EsAI.",
           "Two exceptions apply: (1) you may save a copy of this website and its content to your hard drive for personal, non-commercial use; (2) you may copy content for third parties for their own non-commercial use, provided you cite this website as the source."
         ]
       },
@@ -668,7 +730,7 @@
         "id": "service",
         "title": "Service Description",
         "paras": [
-          "VOKALO uses AI to provide services including text-to-speech, audio generation, AI drawing, AI covers, and AI music. Users submit text, audio, and other inputs; VOKALO generates creative works based on them.",
+          "EsAI uses AI to provide services including text-to-speech, audio generation, AI drawing, AI covers, and AI music. Users submit text, audio, and other inputs; EsAI generates creative works based on them.",
           "AI functions include: text-to-speech, voice-to-speech, AI drawing, AI covers, AI music. The service evolves as technology and user feedback progress."
         ]
       },
@@ -677,9 +739,9 @@
         "title": "Usage Specifications & Rules",
         "paras": [
           "Users must comply with applicable laws and policies and must not use the service for illegal activity or to create illegal content. Prohibited content/actions include: violating international or local laws; infringing others’ rights (privacy, IP, etc.); spreading hate, violence, pornography, terrorism; harming lawful rights or public interests.",
-          "Users warrant their inputs are lawful and that they hold the right to use such data or have obtained necessary permissions, and grant VOKALO a non-exclusive right to use them for service provision.",
-          "VOKALO may review user inputs and outputs and remove or block content that violates rules.",
-          "Where required by law, VOKALO will label AI-generated content; users may not remove or alter such labels without permission.",
+          "Users warrant their inputs are lawful and that they hold the right to use such data or have obtained necessary permissions, and grant EsAI a non-exclusive right to use them for service provision.",
+          "EsAI may review user inputs and outputs and remove or block content that violates rules.",
+          "Where required by law, EsAI will label AI-generated content; users may not remove or alter such labels without permission.",
           "Users must: obey laws, respect third-party rights, not use the service to build competing products, not obtain content or data in improper ways, and not reverse-engineer or attempt to hack the service."
         ]
       },
@@ -687,17 +749,17 @@
         "id": "liability_limit",
         "title": "Limitation of Liability",
         "paras": [
-          "While VOKALO strives to deliver quality, it cannot guarantee the service fully meets all needs, nor the accuracy, reliability, or legality of generated content.",
-          "Generated content is for reference only and is not legal, medical, or other professional advice. VOKALO is not liable for outcomes of using generated content.",
-          "VOKALO may change or discontinue parts of the service per laws, regulations, or third-party requirements without prior notice or liability."
+          "While EsAI strives to deliver quality, it cannot guarantee the service fully meets all needs, nor the accuracy, reliability, or legality of generated content.",
+          "Generated content is for reference only and is not legal, medical, or other professional advice. EsAI is not liable for outcomes of using generated content.",
+          "EsAI may change or discontinue parts of the service per laws, regulations, or third-party requirements without prior notice or liability."
         ]
       },
       {
         "id": "complaints",
         "title": "Complaints & Appeals",
         "paras": [
-          "If you believe your rights are infringed or you detect illegal information, you may report it to VOKALO at info@vokalo.online.",
-          "You may submit materials for an appeal; VOKALO will respond within 5 business days after receipt."
+          "If you believe your rights are infringed or you detect illegal information, you may report it to EsAI at info@vokalo.online.",
+          "You may submit materials for an appeal; EsAI will respond within 5 business days after receipt."
         ]
       },
       {
@@ -715,21 +777,21 @@
         "id": "hold_harmless",
         "title": "Hold Harmless",
         "paras": [
-          "By accessing this site or using our online tools, you release VOKALO from any liabilities, claims, costs, losses, expenses, or other causes of action arising from your use of our products, access to our website, or any communication between you and VOKALO."
+          "By accessing this site or using our online tools, you release EsAI from any liabilities, claims, costs, losses, expenses, or other causes of action arising from your use of our products, access to our website, or any communication between you and EsAI."
         ]
       },
       {
         "id": "trademarks",
         "title": "Trademarks",
         "paras": [
-          "\"VOKALO\" is a registered trademark of VOKALO. You may not use this mark for content, software, or other products or services not produced by VOKALO. We will enforce trademark and copyright laws."
+          "\"EsAI\" is a registered trademark of EsAI. You may not use this mark for content, software, or other products or services not produced by EsAI. We will enforce trademark and copyright laws."
         ]
       },
       {
         "id": "links",
         "title": "Links to Other Websites",
         "paras": [
-          "Our site may contain links to third-party sites beyond VOKALO’s control. We do not endorse their content, privacy policies, or practices. Visiting such sites is solely your responsibility. These Terms do not apply there; review their legal texts."
+          "Our site may contain links to third-party sites beyond EsAI’s control. We do not endorse their content, privacy policies, or practices. Visiting such sites is solely your responsibility. These Terms do not apply there; review their legal texts."
         ]
       },
       {
@@ -737,18 +799,43 @@
         "title": "Feedback",
         "paras": [
           "We welcome feedback and suggestions on improving our products and website.",
-          "By providing feedback, you grant VOKALO the unrestricted right to use it without obligation to compensate you."
+          "By providing feedback, you grant EsAI the unrestricted right to use it without obligation to compensate you."
         ]
       },
       {
         "id": "legal_disclaimer",
         "title": "Legal Disclaimer",
         "paras": [
-          "VOKALO tools are provided for lawful purposes only. Do not copy or install our tools on a device you do not own or without explicit permission. Such installation may violate laws and lead to penalties.",
-          "Consult legal counsel to ensure your use case is lawful. You bear full responsibility for your use of VOKALO tools. VOKALO is not responsible for unlawful use, including unauthorized installation or access.",
-          "VOKALO does not and cannot provide legal advice. All rights not expressly granted are reserved by VOKALO."
+          "EsAI tools are provided for lawful purposes only. Do not copy or install our tools on a device you do not own or without explicit permission. Such installation may violate laws and lead to penalties.",
+          "Consult legal counsel to ensure your use case is lawful. You bear full responsibility for your use of EsAI tools. EsAI is not responsible for unlawful use, including unauthorized installation or access.",
+          "EsAI does not and cannot provide legal advice. All rights not expressly granted are reserved by EsAI."
         ]
       }
     ]
+  },
+  "brand": {
+    "name": "EsAI",
+    "slogan": "All AI in one place."
+  },
+  "theme": {
+    "title": "Theme",
+    "light": "Light",
+    "dark": "Dark",
+    "system": "System"
+  },
+  "balance": {
+    "label": "Token balance",
+    "topup": "Top up"
+  },
+  "topup": {
+    "title": "Top up balance",
+    "tokens": "tokens",
+    "bonus": "bonus",
+    "buy": "Buy",
+    "load_error": "Failed to load packages",
+    "purchase_error": "Failed to start payment",
+    "empty": "No packages available yet",
+    "insufficient_title": "Not enough tokens",
+    "insufficient_desc": "You have run out of tokens. Top up your balance to continue."
   }
 }

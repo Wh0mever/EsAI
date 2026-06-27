@@ -1,27 +1,9 @@
-'use client';
-
-import Header from "@/components/main/Header";
-import Footer from "@/components/main/Footer";
-import { useTranslation } from "next-i18next";
-import { useEffect } from "react";
-
-
-export default function RootLayout({
+// The root route `/` is the EsAI chat workspace (full-screen, no marketing
+// header/footer). It renders its own top bar and sidebar.
+export default function HomeLayout({
 	children,
 }: Readonly<{
 	children: React.ReactNode;
 }>) {
-
-	const { t } = useTranslation('common');
-	useEffect(() => {
-		document.title = t('pages_titles.home');
-	}, [t]);
-
-	return (
-		<>
-			<Header />
-			{children}
-			<Footer />
-		</>
-	);
+	return <>{children}</>;
 }

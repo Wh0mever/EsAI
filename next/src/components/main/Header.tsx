@@ -110,7 +110,7 @@ export default function Header() {
 					</button>
 
 					<NextLink href="/">
-						<img src="/images/logo/base.svg" alt="" className="max-w-[150px]" />
+						<img src="/esai-logo.svg" alt="EsAI" className="max-w-[150px]" />
 					</NextLink>
 				</div>
 
@@ -140,7 +140,7 @@ export default function Header() {
 	flex flex-col`} // make column
 			>
 				<div className="shrink-0 flex items-center justify-between p-6">
-					<img src="/images/logo/base.svg" alt="" className="h-8" />
+					<img src="/esai-logo.svg" alt="EsAI" className="h-8" />
 					<button
 						className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-neutral-700 bg-neutral-800 active:scale-95 cursor-pointer"
 						onClick={closeMenu}

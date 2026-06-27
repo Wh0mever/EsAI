@@ -1,0 +1,7 @@
+<svg viewBox="0 0 400 170" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="EsAI">
+  <text x="8" y="132" font-family="'Inter','Helvetica Neue',Arial,sans-serif" font-weight="800" letter-spacing="-6">
+    <tspan font-size="155" fill="#141414">E</tspan><tspan font-size="98" fill="#141414">s</tspan><tspan font-size="155" fill="#F5C518">A</tspan><tspan font-size="155" fill="#F5C518">I</tspan>
+  </text>
+  <!-- 4-конечная звезда-искра над I -->
+  <path d="M348 6 Q348 40 384 40 Q348 40 348 74 Q348 40 312 40 Q348 40 348 6 Z" fill="#141414"/>
+</svg>

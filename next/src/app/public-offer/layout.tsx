@@ -3,8 +3,8 @@ import Header from "@/components/main/Header";
 import Footer from "@/components/main/Footer";
 
 export const metadata: Metadata = {
-  title: "Public Offer | Vokalo",
-  description: "Public offer for access to the Vokalo AI content platform.",
+  title: "Public Offer | EsAI",
+  description: "Public offer for access to the EsAI platform.",
 };
 
 export default function RootLayout({
