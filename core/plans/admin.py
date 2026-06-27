@@ -1,4 +1,7 @@
-from .models import Plan, UserSubscription, GenerationUsage, CurrencyRate, GenerationUnitPrice
+from .models import (
+    Plan, UserSubscription, GenerationUsage, CurrencyRate, GenerationUnitPrice,
+    TokenPackage, TokenTransaction,
+)
 from django.contrib import admin, messages
 from django.core.management import call_command
 from django.urls import path, reverse
@@ -168,3 +171,35 @@ class UserSubscriptionAdmin(admin.ModelAdmin):
     search_fields = ("id", "user__username", "user__email")
     date_hierarchy = "start_date"
     inlines = [GenerationUsageInline]
+
+
+@admin.register(TokenPackage)
+class TokenPackageAdmin(admin.ModelAdmin):
+    list_display = (
+        "id", "name", "tokens", "bonus_tokens", "price", "currency",
+        "is_active", "sort_order",
+    )
+    list_editable = ("tokens", "bonus_tokens", "price", "is_active", "sort_order")
+    list_filter = ("is_active", "currency")
+    search_fields = ("id", "name")
+    ordering = ("sort_order", "id")
+
+
+@admin.register(TokenTransaction)
+class TokenTransactionAdmin(admin.ModelAdmin):
+    list_display = ("id", "user", "delta", "reason", "balance_after", "created_at")
+    list_filter = ("reason", "created_at")
+    search_fields = ("id", "user__email", "user__username")
+    date_hierarchy = "created_at"
+    ordering = ("-created_at",)
+    readonly_fields = ("user", "delta", "reason", "balance_after", "created_at", "meta")
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        # Read-only ledger: allow viewing detail page, forbid edits.
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False

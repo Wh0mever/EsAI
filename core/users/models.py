@@ -123,6 +123,9 @@ class User(AbstractBaseUser, PermissionsMixin):
     bonus_images = models.PositiveIntegerField(default=0, verbose_name='Бонусные изображения')
     bonus_songs = models.PositiveIntegerField(default=0, verbose_name='Бонусные песни')
     bonus_music = models.PositiveIntegerField(default=0, verbose_name='Бонусная музыка')
+
+    # Pay-as-you-go token balance (новая токен-система)
+    token_balance = models.BigIntegerField(default=0, verbose_name='Баланс токенов')
     
     USERNAME_FIELD = 'email'
     REQUIRED_FIELDS = []

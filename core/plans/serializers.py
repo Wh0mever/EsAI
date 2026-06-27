@@ -1,6 +1,9 @@
 from decimal import Decimal, ROUND_HALF_UP
 from rest_framework import serializers
-from .models import Plan, UserSubscription, GenerationUsage, AddonPurchase
+from .models import (
+    Plan, UserSubscription, GenerationUsage, AddonPurchase,
+    TokenPackage, TokenTransaction,
+)
 from .services import get_currency_per_usd_map
 
 # price quantize helper
@@ -174,3 +177,15 @@ class AddonPurchaseSerializer(serializers.ModelSerializer):
         fields = (
             "id", "purchase_date", "music_added", "texts_added", "images_added",
         )
+
+
+class TokenPackageSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = TokenPackage
+        fields = ("id", "name", "tokens", "bonus_tokens", "price", "currency")
+
+
+class TokenTransactionSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = TokenTransaction
+        fields = ("id", "delta", "reason", "balance_after", "created_at", "meta")

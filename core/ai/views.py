@@ -49,11 +49,14 @@ class ChatGptAPIView(APIView):
     @transaction.atomic
     def post(self, request):
         response = OpenAIHandler(request)
-        return Response(
-            response,
-            status=200 if isinstance(
-                response, dict) and "error" not in response else 400
-        )
+        if isinstance(response, dict) and "error" not in response:
+            return Response(response, status=200)
+        # Allow the handler to request a specific HTTP status (e.g. 402 for
+        # insufficient tokens). Default error status is 400.
+        http_status = 400
+        if isinstance(response, dict) and isinstance(response.get("http_status"), int):
+            http_status = response.pop("http_status")
+        return Response(response, status=http_status)
 
 
 class ChatsHistory(APIView):
