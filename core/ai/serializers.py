@@ -5,6 +5,7 @@ from .models import (
     AiChatSession,
     AiChatMessage,
     AiProvider,
+    GPTModels,
 )
 
 class AiPromptTemplateSerializer(serializers.ModelSerializer):
@@ -75,3 +76,10 @@ class AiProviderSerializer(serializers.ModelSerializer):
     class Meta:
         model = AiProvider
         fields = ("id", "name")   # добавь поля, которые нужны фронту
+
+
+class AiModelSerializer(serializers.ModelSerializer):
+    """Публичный список моделей для свитчера в чате (только активные)."""
+    class Meta:
+        model = GPTModels
+        fields = ("id", "name", "openrouter_id", "description", "sort_order")

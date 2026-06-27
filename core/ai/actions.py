@@ -1,14 +1,18 @@
 # core/ai/actions.py
 from __future__ import annotations
 
-from typing import Iterable, Set
+import os
+from typing import Set
 from dataclasses import dataclass
 from django.db import transaction
 from django.utils import timezone
 from openai import OpenAI
 from .models import AiProvider, GPTModels
 
-OPENAI_API_BASE = "https://api.openai.com/v1"
+# OpenRouter defaults (overridable via env)
+OPENROUTER_API_BASE_DEFAULT = "https://openrouter.ai/api/v1"
+OPENROUTER_REFERER_DEFAULT = "https://esai.kg"
+OPENROUTER_TITLE_DEFAULT = "ESAI"
 
 class ProviderConfigError(Exception):
     pass
@@ -21,110 +25,58 @@ class RemoteModel:
     max_tokens: int = 0    # Unknown at fetch time
 
 
-def _build_client(provider_slug: str) -> OpenAI:
-    provider = AiProvider.objects.filter(slug=provider_slug).first()
-    if provider is None:
-        # Auto-create provider record to simplify initial setup, then ask for config.
-        if provider_slug == "gpt":
-            AiProvider.objects.get_or_create(
-                name=AiProvider.NAME_GPT,
-                defaults={"is_active": False, "token": "", "description": "Auto-created provider record"},
-            )
-            raise ProviderConfigError(
-                "GPT provider was missing and has been auto-created. "
-                "Open AI providers in admin, set token and enable it."
-            )
-        raise ProviderConfigError(f"Provider '{provider_slug}' does not exist.")
-    if not provider.is_active:
-        raise ProviderConfigError(f"Provider '{provider.name}' is disabled.")
-    if not (provider.token or "").strip():
-        raise ProviderConfigError(f"Provider '{provider.name}' has empty token.")
-    # openai>=1.0: use api_key, not token
-    kwargs = {"api_key": provider.token}
-    slug = (provider.slug or "").strip().lower()
-    if slug == "gpt":
-        kwargs["base_url"] = OPENAI_API_BASE
-    return OpenAI(**kwargs)
+def _build_client(provider_slug: str | None = None) -> OpenAI:
+    """Build an OpenRouter-compatible OpenAI client from environment config.
+
+    The api_key / base_url come from env (OPENROUTER_API_KEY / OPENROUTER_API_BASE),
+    not from AiProvider.token. AiProvider is kept only as an optional directory record.
+    """
+    api_key = (os.environ.get("OPENROUTER_API_KEY") or "").strip()
+    if not api_key:
+        raise ProviderConfigError(
+            "OpenRouter is not configured: set OPENROUTER_API_KEY in the environment."
+        )
+    base_url = (os.environ.get("OPENROUTER_API_BASE") or OPENROUTER_API_BASE_DEFAULT).strip()
+    referer = (os.environ.get("OPENROUTER_HTTP_REFERER") or OPENROUTER_REFERER_DEFAULT).strip()
+    title = (os.environ.get("OPENROUTER_X_TITLE") or OPENROUTER_TITLE_DEFAULT).strip()
+    return OpenAI(
+        api_key=api_key,
+        base_url=base_url,
+        default_headers={"HTTP-Referer": referer, "X-Title": title},
+    )
 
 def _fetch_remote_models(client: OpenAI) -> list[RemoteModel]:
     # The /models endpoint returns .data (list of Model objects with .id)
     resp = client.models.list()
     return [RemoteModel(m.id) for m in resp.data]
 
-def _should_track(model_id: str) -> bool:
-    """
-    Keep policy simple & future-proof:
-    - Track public chat/completion models (gpt-, o, o3, o4, omni, chatgpt-).
-    - Ignore internal/embedding/audio-only tools if не нужно — при желании убери фильтр.
-    """
-    prefixes = ("gpt-", "o", "o3", "o4", "omni", "chatgpt-")
-    return model_id.startswith(prefixes)
-
 @transaction.atomic
 def sync_gpt_models() -> dict:
     """
-    Upsert models from OpenAI into GPTModels.
-    Deactivate missing ones (soft).
+    Verify the OpenRouter ids configured in GPTModels against the live OpenRouter
+    catalogue. This is a non-destructive helper (the catalogue is managed by the
+    client in the admin, not auto-imported): it only reports which of the configured
+    openrouter_id values are currently available remotely. It never creates,
+    deactivates or overwrites admin-managed rows.
     """
-    client = _build_client("gpt")
+    client = _build_client()
     remote_all = _fetch_remote_models(client)
-    remote = [m for m in remote_all if _should_track(m.id)]
 
     now = timezone.now()
+    remote_ids: Set[str] = {m.id for m in remote_all}
 
-    # Active set from remote
-    active_ids: Set[str] = {m.id for m in remote}
-
-    # Existing map
-    existing: dict[str, GPTModels] = {
-        obj.name: obj for obj in GPTModels.objects.all().only("id", "name", "is_active", "max_tokens", "description")
-    }
-
-    created, updated, activated, deactivated = 0, 0, 0, 0
-
-    # Upsert current (create or update fields)
-    for m in remote:
-        obj = existing.get(m.id)
-        if obj is None:
-            GPTModels.objects.create(
-                name=m.id,
-                description=m.description,
-                max_tokens=m.max_tokens,
-                is_active=True,
-            )
-            created += 1
-        else:
-            changed = False
-            if not obj.is_active:
-                obj.is_active = True
-                changed = True
-                activated += 1
-            # Keep description/max_tokens in sync if you later enrich them
-            if obj.description != m.description:
-                obj.description = m.description
-                changed = True
-            if obj.max_tokens != m.max_tokens:
-                obj.max_tokens = m.max_tokens
-                changed = True
-            if changed:
-                obj.save(update_fields=["description", "max_tokens", "is_active", "updated_at"])
-                updated += 1
-
-    # Deactivate models that disappeared remotely
-    to_deactivate: Iterable[GPTModels] = GPTModels.objects.exclude(name__in=active_ids).filter(is_active=True)
-    for obj in to_deactivate:
-        obj.is_active = False
-        obj.save(update_fields=["is_active", "updated_at"])
-        deactivated += 1
+    configured = list(
+        GPTModels.objects.all().only("id", "name", "openrouter_id", "is_active")
+    )
+    available = [m for m in configured if (m.openrouter_id or "") in remote_ids]
+    missing = [m for m in configured if (m.openrouter_id or "") not in remote_ids]
 
     return {
         "timestamp": now.isoformat(),
         "remote_total": len(remote_all),
-        "tracked": len(remote),
-        "created": created,
-        "updated": updated,
-        "activated": activated,
-        "deactivated": deactivated,
+        "configured": len(configured),
+        "available": [m.openrouter_id for m in available],
+        "missing": [m.openrouter_id or m.name for m in missing],
     }
 
 

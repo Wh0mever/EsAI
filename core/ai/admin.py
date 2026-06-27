@@ -30,7 +30,11 @@ class JSONTextarea(forms.Textarea):
 
 @admin.register(GPTModels)
 class GPTModelsAdmin(admin.ModelAdmin):
-    list_display = ('name', 'max_tokens', 'is_active', 'created_at', 'updated_at')
+    list_display = ('name', 'openrouter_id', 'markup_coefficient', 'is_active', 'sort_order', 'max_tokens', 'updated_at')
+    list_editable = ('markup_coefficient', 'is_active', 'sort_order')
+    search_fields = ('name', 'openrouter_id')
+    list_filter = ('is_active',)
+    ordering = ('sort_order', 'id')
 
     def get_urls(self):
         urls = super().get_urls()

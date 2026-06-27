@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect, FormEvent, KeyboardEvent } from "react";
+import { useState, useEffect, FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import { fetchData } from "@/tools/fetchData";
@@ -8,22 +8,12 @@ import { Message, ChatForm } from "./ChatForm";
 import { ChatView } from "./ChatView";
 import type { ChatMode as Mode } from "@/types/chat";
 
-export type ChatMode = "text-chat" | "image-chat" | "music-chat";
+export type ChatMode = "text-chat";
 
 type Props = {
   mode: ChatMode;
   chatId?: string; // optional
 };
-
-type MusicLanguage = "ru" | "en" | "kg";
-type MusicTrackType = "instrumental" | "song";
-
-function normalizeMusicLanguage(raw?: string): MusicLanguage {
-  const base = (raw || "ru").toLowerCase().split("-")[0];
-  if (base === "en") return "en";
-  if (base === "kg" || base === "ky") return "kg";
-  return "ru";
-}
 
 export default function Chat({ mode, chatId }: Props) {
   const router = useRouter();
@@ -34,9 +24,6 @@ export default function Chat({ mode, chatId }: Props) {
   const [loading, setLoading] = useState(false);
   const [historyHydrated, setHistoryHydrated] = useState(false);
   const [animateIndex, setAnimateIndex] = useState<number | null>(null);
-  const [musicLanguage, setMusicLanguage] = useState<MusicLanguage>(() => normalizeMusicLanguage(i18n?.language));
-  const [musicGenre, setMusicGenre] = useState("pop");
-  const [musicTrackType, setMusicTrackType] = useState<MusicTrackType>("instrumental");
   const [subscriptionNoticeShown, setSubscriptionNoticeShown] = useState(false);
   const linksByCode = (code?: string) => {
     const c = (code || "").trim();
@@ -57,11 +44,6 @@ export default function Chat({ mode, chatId }: Props) {
     return {};
   };
 
-  useEffect(() => {
-    if (mode !== "music-chat") return;
-    setMusicLanguage(normalizeMusicLanguage(i18n?.language));
-  }, [i18n?.language, mode]);
-
   // Show subscription/trial notice right after opening chat, even before first prompt.
   useEffect(() => {
     let ignore = false;
@@ -74,11 +56,7 @@ export default function Chat({ mode, chatId }: Props) {
         const user = (res?.data as any)?.user || {};
         if (sub?.status === "active") return;
 
-        const hasAnyBonus =
-          Number(user?.bonus_texts || 0) > 0 ||
-          Number(user?.bonus_images || 0) > 0 ||
-          Number(user?.bonus_songs || 0) > 0 ||
-          Number(user?.bonus_music || 0) > 0;
+        const hasAnyBonus = Number(user?.bonus_texts || 0) > 0;
         const joinedRaw = user?.date_joined ? new Date(user.date_joined) : null;
         const trialEnd = joinedRaw && !isNaN(joinedRaw.getTime())
           ? new Date(joinedRaw.getTime() + 7 * 24 * 60 * 60 * 1000)
@@ -97,18 +75,8 @@ export default function Chat({ mode, chatId }: Props) {
             Date.now() < graceUntil.getTime()
         );
         const isUnpaid = String(sub?.payment_status || "").toLowerCase() === "unpaid";
-        const isUnlimited =
-          mode === "image-chat"
-            ? Boolean(sub?.is_images_unlimited)
-            : mode === "music-chat"
-            ? Boolean(sub?.is_music_unlimited)
-            : Boolean(sub?.is_texts_unlimited);
-        const remainingValue =
-          mode === "image-chat"
-            ? Number(sub?.remaining_images ?? 0)
-            : mode === "music-chat"
-            ? Number(sub?.remaining_music ?? 0)
-            : Number(sub?.remaining_texts ?? 0);
+        const isUnlimited = Boolean(sub?.is_texts_unlimited);
+        const remainingValue = Number(sub?.remaining_texts ?? 0);
         const generationsExhausted = !isUnlimited && remainingValue <= 0;
         let text = "";
         let variant: "warning" | "error" = "error";
@@ -251,9 +219,6 @@ export default function Chat({ mode, chatId }: Props) {
 
     const templates = localStorage.getItem("ai-templates");
 
-    // kept to avoid breaking behavior
-    JSON.stringify({ message: content }); // no-op
-
     // Helper for localized error messages in the chat bubble
     const formatError = (res?: { ok?: boolean; status?: number; error?: string } | null): string => {
       const status = res?.status ?? 0;
@@ -261,8 +226,6 @@ export default function Chat({ mode, chatId }: Props) {
       if (status === 401) return t("chat.error_unauthorized");
       if (status === 403) return t("chat.error_forbidden");
       if (status === 404) return t("chat.error_notfound");
-      if (mode === "image-chat") return t("chat.error_image_generation");
-      if (mode === "music-chat") return t("chat.error_music_generation");
       return t("chat.error_request_failed");
     };
     const backendErrorMessage = (res?: any): string => {
@@ -284,133 +247,43 @@ export default function Chat({ mode, chatId }: Props) {
       if (chatId) payload.chat_id = chatId; // bind to existing session when provided
       if (readyAttachments.length) payload.attachments = readyAttachments;
       // pass current UI language to backend so it can respond in user's locale
-      if (mode === "music-chat") payload.lang = musicLanguage;
-      else if (i18n?.language) payload.lang = i18n.language;
+      if (i18n?.language) payload.lang = i18n.language;
 
       // hide attachments preview immediately for snappy UX
       if (attachments && attachments.length) setAttachments([]);
 
-      if (mode === "image-chat" || mode === "music-chat") {
-        // Async pattern: submit job then poll status
-        const submitEndpoint = mode === "image-chat" ? "ai/image/submit/" : "ai/music/submit/";
-        const statusEndpoint = mode === "image-chat" ? "ai/image/status/" : "ai/music/status/";
-        const submitPayload = mode === "music-chat"
-          ? {
-              ...payload,
-              prompt: content,
-              title: "Track",
-              lyrics: "",
-              is_auto: 1,
-              instrumental: musicTrackType === "instrumental" ? 1 : 0,
-              language: musicLanguage,
-              genre: musicGenre,
-            }
-          : payload;
-
-        const submit = await fetchData(submitEndpoint, "POST", submitPayload, true);
-        setInput("");
-        if (!submit?.ok || !(submit?.data as any)?.job_id) {
-          const msg = backendErrorMessage(submit) || formatError(submit);
-          const code = backendCode(submit);
-          const links = linksByCode(code);
-          setMessages((prev) => [...prev, { role: "assistant", content: msg, variant: "error", ...links } as any]);
-          return;
-        }
-        const submitWarning = backendWarningMessage(submit);
-        if (submitWarning) {
-          const code = backendCode(submit);
-          const link = code === "chat_warning_test_mode_bonus_only" ? "/pricing" : undefined;
-          const linkLabel = link ? t("chat.go_to_pricing", { defaultValue: "Перейти к тарифам" }) : undefined;
-          setMessages((prev) => [...prev, { role: "assistant", content: submitWarning, variant: "warning", link, linkLabel } as any]);
-        }
-        const jobId = (submit.data as any).job_id as string;
-
-        // Poll until done (music can take noticeably longer)
-        const startedAt = Date.now();
-        const maxMs = mode === "music-chat" ? 10 * 60 * 1000 : 5 * 60 * 1000;
-        const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
-        let finalUrl = "";
-        let finalMusicMeta: any = null;
-        let sessionMeta: { id?: string; uid?: string; title?: string } | null = null;
-        while (Date.now() - startedAt < maxMs) {
-          const st = await fetchData(`${statusEndpoint}?job=${encodeURIComponent(jobId)}`, "GET", null, true);
-          if (!st?.ok) { await delay(1500); continue; }
-          const status = (st.data as any)?.status;
-          if (status === "SUCCESS") {
-            const result = (st.data as any)?.result || {};
-            finalUrl = mode === "music-chat" ? (result?.music?.url || "") : (result?.image?.url || "");
-            finalMusicMeta = mode === "music-chat" ? (result?.music || null) : null;
-            sessionMeta = result?.session || null;
-            break;
-          }
-          if (status === "FAILURE") {
-            const backendError = ((st.data as any)?.error || "").toString().trim();
-            const msg = backendError || (mode === "music-chat" ? t("chat.error_music_generation") : t("chat.error_image_generation"));
-            setMessages((prev) => [...prev, { role: "assistant", content: msg, variant: "error" }]);
-            return;
-          }
-          await delay(1500);
-        }
-
-        if (!finalUrl) {
-          const msg = mode === "music-chat"
-            ? `${t("chat.error_music_generation")} (timeout 10m)`
-            : t("chat.error_image_generation");
-          setMessages((prev) => [...prev, { role: "assistant", content: msg, variant: "error" }]);
-          return;
-        }
-        setMessages((prev) => [...prev, {
-          role: "assistant",
-          content: finalUrl,
-          attachments: [{ type: mode === "music-chat" ? "audio" : "image", url: finalUrl }],
-          meta: mode === "music-chat" ? { music: finalMusicMeta } : undefined,
-        }]);
-
-        // Update route if a new session created
-        const routeSessionId = sessionMeta?.uid || sessionMeta?.id;
-        if (!chatId && sessionMeta && routeSessionId) {
-          try {
-            if (typeof window !== 'undefined') sessionStorage.setItem(`chat.animate.${routeSessionId}`, '1');
-            router.push(`/dashboard/${mode}/${routeSessionId}`);
-          } catch {}
-          try { window.dispatchEvent(new CustomEvent("chat:session-created", { detail: { id: routeSessionId, uid: sessionMeta.uid, title: sessionMeta.title || content.slice(0, 60), chat_mode: mode } })); } catch {}
-        }
-      } else {
-        const res = await fetchData("ai/chat/", "POST", payload, true);
-        setInput("");
-        if (!res?.ok) {
-          const msg = backendErrorMessage(res) || formatError(res);
-          const code = backendCode(res);
-          const links = linksByCode(code);
-          setMessages((prev) => [...prev, { role: "assistant", content: msg, variant: "error", ...links } as any]);
-          return;
-        }
-        const syncWarning = backendWarningMessage(res);
-        if (syncWarning) {
-          const code = backendCode(res);
-          const link = code === "chat_warning_test_mode_bonus_only" ? "/pricing" : undefined;
-          const linkLabel = link ? t("chat.go_to_pricing", { defaultValue: "Перейти к тарифам" }) : undefined;
-          setMessages((prev) => [...prev, { role: "assistant", content: syncWarning, variant: "warning", link, linkLabel } as any]);
-        }
-        const sessionMeta = (res?.data?.session ?? null) as { id?: string; uid?: string; title?: string } | null;
-        const assistantContent = (res?.data as any)?.response || "";
-        if (!assistantContent) {
-          const msg = t("chat.error_generic");
-          setMessages((prev) => [...prev, { role: "assistant", content: msg, variant: "error" }]);
-        } else {
-          setMessages((prev) => [...prev, { role: "assistant", content: assistantContent }]);
-        }
-        const routeSessionId = sessionMeta?.uid || sessionMeta?.id;
-        if (!chatId && sessionMeta && routeSessionId) {
-          try {
-            if (typeof window !== 'undefined') sessionStorage.setItem(`chat.animate.${routeSessionId}`, '1');
-            router.push(`/dashboard/${mode}/${routeSessionId}`);
-          } catch {}
-          try { window.dispatchEvent(new CustomEvent("chat:session-created", { detail: { id: routeSessionId, uid: sessionMeta.uid, title: sessionMeta.title || content.slice(0, 60), chat_mode: mode } })); } catch {}
-        }
+      const res = await fetchData("ai/chat/", "POST", payload, true);
+      setInput("");
+      if (!res?.ok) {
+        const msg = backendErrorMessage(res) || formatError(res);
+        const code = backendCode(res);
+        const links = linksByCode(code);
+        setMessages((prev) => [...prev, { role: "assistant", content: msg, variant: "error", ...links } as any]);
+        return;
       }
-
-      // already cleared before request; keep as is
+      const syncWarning = backendWarningMessage(res);
+      if (syncWarning) {
+        const code = backendCode(res);
+        const link = code === "chat_warning_test_mode_bonus_only" ? "/pricing" : undefined;
+        const linkLabel = link ? t("chat.go_to_pricing", { defaultValue: "Перейти к тарифам" }) : undefined;
+        setMessages((prev) => [...prev, { role: "assistant", content: syncWarning, variant: "warning", link, linkLabel } as any]);
+      }
+      const sessionMeta = (res?.data?.session ?? null) as { id?: string; uid?: string; title?: string } | null;
+      const assistantContent = (res?.data as any)?.response || "";
+      if (!assistantContent) {
+        const msg = t("chat.error_generic");
+        setMessages((prev) => [...prev, { role: "assistant", content: msg, variant: "error" }]);
+      } else {
+        setMessages((prev) => [...prev, { role: "assistant", content: assistantContent }]);
+      }
+      const routeSessionId = sessionMeta?.uid || sessionMeta?.id;
+      if (!chatId && sessionMeta && routeSessionId) {
+        try {
+          if (typeof window !== 'undefined') sessionStorage.setItem(`chat.animate.${routeSessionId}`, '1');
+          router.push(`/dashboard/${mode}/${routeSessionId}`);
+        } catch {}
+        try { window.dispatchEvent(new CustomEvent("chat:session-created", { detail: { id: routeSessionId, uid: sessionMeta.uid, title: sessionMeta.title || content.slice(0, 60), chat_mode: mode } })); } catch {}
+      }
     } catch (error) {
       console.error("Ошибка при обращении к /api/chat/:", error);
     } finally {
@@ -430,12 +303,6 @@ export default function Chat({ mode, chatId }: Props) {
         setMessages={setMessages}
         attachments={attachments}
         setAttachments={setAttachments}
-        musicLanguage={musicLanguage}
-        setMusicLanguage={setMusicLanguage}
-        musicGenre={musicGenre}
-        setMusicGenre={setMusicGenre}
-        musicTrackType={musicTrackType}
-        setMusicTrackType={setMusicTrackType}
       />
     </div>
   );

@@ -17,7 +17,7 @@ export default function RootLayout({
 
       <div className="flex-auto hidden lg:flex flex-col gap-5 justify-center items-center p-10">
         <div className="text-center">
-          <h2 className="text-5xl font-bold">{t('auth.your_music')}</h2>
+          <h2 className="text-5xl font-bold">{t('auth.your_ai', { defaultValue: 'Твой AI' })}</h2>
           <h3
             className="text-5xl font-bold"
             style={{
@@ -33,8 +33,6 @@ export default function RootLayout({
         <TextSlider
           slides={[
             t('auth.welcome'),
-            t('auth.create_music'),
-            t('auth.create_pictures'),
             t('auth.gpt'),
             t('auth.you_can'),
           ]}

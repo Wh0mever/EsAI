@@ -10,9 +10,17 @@ def _gen_chat_session_uid() -> str:
 
 
 class GPTModels(models.Model):
-    name = models.CharField(max_length=100, unique=True)
+    """AI-модель OpenRouter (управляется из админки, без хардкода)."""
+    name = models.CharField(max_length=100, unique=True, help_text="Отображаемое имя модели")
+    openrouter_id = models.CharField(
+        max_length=128, unique=True, default="",
+        help_text="Системный ID модели в OpenRouter (напр. 'openai/gpt-4o')")
     description = models.TextField(blank=True)
     max_tokens = models.IntegerField(help_text="Maximum tokens allowed")
+    markup_coefficient = models.DecimalField(
+        max_digits=6, decimal_places=3, default=1.0,
+        help_text="Коэффициент наценки для списания токенов")
+    sort_order = models.PositiveIntegerField(default=100)
     is_active = models.BooleanField(default=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -22,6 +30,7 @@ class GPTModels(models.Model):
         return self.name
 
     class Meta:
+        ordering = ["sort_order", "id"]
         verbose_name = "GPT модель"
         verbose_name_plural = "GPT модели"
 
