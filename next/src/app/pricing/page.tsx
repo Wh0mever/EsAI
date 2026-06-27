@@ -22,7 +22,7 @@ export default function Pricing() {
 				<div className="lg:px-40 px-6 w-full">
 					<div className="mt-10 rounded-2xl border border-white/10 bg-neutral-900/60 backdrop-blur p-6 flex flex-col gap-3">
 						<h3 className="text-2xl font-semibold">
-							{t("pricing_referral.referral_title", { defaultValue: "Реферальная программа Vokalo" })}
+							{t("pricing_referral.referral_title", { defaultValue: "Реферальная программа EsAI" })}
 						</h3>
 						<p className="text-neutral-300">
 							{t("pricing_referral.referral_subtitle", {

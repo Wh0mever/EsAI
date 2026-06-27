@@ -3,8 +3,8 @@ import Header from "@/components/main/Header";
 import Footer from "@/components/main/Footer";
 
 export const metadata: Metadata = {
-  title: "Privacy Policy | Vokalo",
-  description: "Privacy Policy for the Vokalo AI content platform.",
+  title: "Privacy Policy | EsAI",
+  description: "Privacy Policy for the EsAI platform.",
 };
 
 export default function RootLayout({

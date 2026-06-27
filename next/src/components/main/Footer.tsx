@@ -60,8 +60,9 @@ export default function Footer() {
             </div>
           </div>
 
-          <div className="flex justify-center order-last md:order-none">
-            <p className="text-xs text-white/40">© 2026 | Vokalo.online</p>
+          <div className="flex flex-col items-center justify-center gap-2 order-last md:order-none">
+            <img src="/esai-logo.svg" alt="EsAI" className="h-7 w-auto" />
+            <p className="text-xs text-white/40">© 2026 | EsAI</p>
           </div>
 
           <nav className="flex md:justify-end justify-center">
