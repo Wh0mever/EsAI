@@ -1,6 +1,6 @@
 ﻿from django.db import transaction
 from rest_framework.views import APIView
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from .handlers import OpenAIHandler
@@ -43,8 +43,10 @@ def _get_session_for_user(session_ref: str, user):
 
 
 class ChatGptAPIView(APIView):
+    # AllowAny: authenticated users keep the full flow (wallet/sessions/billing);
+    # anonymous visitors get a limited free-quota guest flow inside OpenAIHandler.
     authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]
 
     @transaction.atomic
     def post(self, request):

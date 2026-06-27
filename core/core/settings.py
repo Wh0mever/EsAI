@@ -288,6 +288,11 @@ SOCIALACCOUNT_PROVIDERS = {
 SOCIALACCOUNT_ADAPTER = "users.adapters.SocialAccountAdapter"
 SOCIALACCOUNT_LOGIN_ON_GET = True
 
+# --- Telegram login (exposed to the frontend widget) ---
+# These mirror the values used inside SOCIALACCOUNT_PROVIDERS["telegram"]["APP"].
+TELEGRAM_BOT_ID = env("TELEGRAM_BOT_ID", default="")
+TELEGRAM_BOT_USERNAME = env("TELEGRAM_BOT_USERNAME", default="")
+
 # --- Email ---
 EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
 EMAIL_HOST = "smtp.gmail.com"
@@ -401,6 +406,11 @@ EXCHANGE_API_KEY = env.str("EXCHANGE_API_KEY")
 
 # --- OpenAI timeouts ---
 OPENAI_TIMEOUT_SECONDS = env.int("OPENAI_TIMEOUT_SECONDS", default=480)
+
+# --- Guest (anonymous) chat free quota ---
+# Number of free chat requests an unauthenticated visitor gets before being
+# asked to sign in. Counted in the cache backend (Redis) keyed by guest id / IP.
+GUEST_FREE_REQUESTS = env.int("GUEST_FREE_REQUESTS", default=3)
 
 
 # --- FreedomPay settings ---

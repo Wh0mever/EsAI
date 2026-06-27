@@ -70,6 +70,7 @@ urlpatterns = [
     # Card management
     # path('card/bind/', BindCardView.as_view(), name='card-bind'),
     # path('card/unbind/', UnbindCardView.as_view(), name='card-unbind'),
+    path('telegram-config/', TelegramConfigApiView.as_view(), name='telegram-config'),
     path('question/', QuestionAPIView.as_view(), name='question'),
     path('feedback/', FeedbackView.as_view(), name='feedback'),
     path('currency/', CurrencyPreferenceView.as_view(), name='currency-preference'),
