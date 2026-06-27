@@ -69,6 +69,7 @@ INSTALLED_APPS = [
     "ai.apps.AiConfig",
     "plans.apps.PlansConfig",
     "payments.apps.PaymentsConfig",
+    "audit.apps.AuditConfig",
 ]
 
 SITE_ID = 1
@@ -94,6 +95,8 @@ MIDDLEWARE = [
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
     "allauth.account.middleware.AccountMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
+    # Аудит: ловит необработанные исключения вью → EventLog(error_server)
+    "audit.middleware.AuditExceptionMiddleware",
 ]
 
 # --- URL / WSGI ---
@@ -349,8 +352,20 @@ LOGGING = {
             "level": "WARNING",
             "propagate": False,
         },
+        "audit": {
+            "handlers": ["file"],
+            "level": "WARNING",
+            "propagate": False,
+        },
     },
 }
+
+# --- Audit / dashboard ---
+# ОЦЕНОЧНАЯ ставка стоимости OpenRouter (USD за 1 токен) для дашборда.
+# Реальной per-token цены в БД нет — расход считается приблизительно.
+AUDIT_OPENROUTER_USD_PER_TOKEN = env.str(
+    "AUDIT_OPENROUTER_USD_PER_TOKEN", default="0.0000005"
+)
 
 # === DEBUG mode: extra console logging ===
 if DEBUG:
