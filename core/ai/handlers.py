@@ -1,11 +1,8 @@
-import json
+﻿import json
 from typing import Any, Optional, List, Tuple
 from django.db import transaction
 from openai import OpenAI
-from django.core.files.base import ContentFile
 from django.conf import settings
-import base64
-import uuid
 
 from .models import (
     AiProvider,
@@ -13,8 +10,6 @@ from .models import (
     AiChatMessage,
     AiPromptTemplate,
     GPTModels,
-    TopMediaModels,
-    AiGeneratedImage,
 )
 from plans.models import UserSubscription
 from plans.services import get_chat_access_state, consume_bonus_without_subscription
@@ -26,11 +21,6 @@ HISTORY_LIMIT = None
 
 
 def _provider_name_by_mode(mode: str | None) -> str:
-    normalized = (mode or "text-chat").strip().lower()
-    if normalized == "image-chat":
-        return AiProvider.NAME_DALLE
-    if normalized == "music-chat":
-        return AiProvider.NAME_TOPMEDIA
     return AiProvider.NAME_GPT
 
 
@@ -122,7 +112,6 @@ def _parse_template(request, provider_name: str):
 )
 
 OPENAI_API_BASE = "https://api.openai.com/v1"
-TOPMEDIA_API_BASE = "https://api.topmediai.com"
 
 
 def _render_messages_as_dialog(messages: List[dict]) -> str:
@@ -150,10 +139,8 @@ def _make_openai_client(provider: AiProvider) -> OpenAI:
     kwargs = {"api_key": provider.token}
     slug = (provider.slug or "").strip().lower()
     # Do not depend on DB base_url for runtime routing.
-    if slug in {"gpt", "dall-e"}:
+    if slug == "gpt":
         kwargs["base_url"] = OPENAI_API_BASE
-    elif slug == "topmedia":
-        kwargs["base_url"] = TOPMEDIA_API_BASE
     # Respect global timeout to avoid gunicorn worker timeouts
     try:
         from django.conf import settings as dj_settings
@@ -328,10 +315,6 @@ def _pick_lang(request) -> tuple[str, str]:
 def OpenAIHandler(request):
     try:
         mode = request.data.get("mode") or "text-chat"
-        if mode == "music-chat":
-            return {
-                "error": "music-chat теперь работает через TopMedia async API. Используйте POST /api/ai/music/submit/ и GET /api/ai/music/status/?job=<id>."
-            }
         lang_code, _ = _pick_lang(request)
         access = get_chat_access_state(request.user, "kg" if lang_code == "ky" else lang_code, kind="text")
         if access.get("blocked"):
@@ -344,23 +327,11 @@ def OpenAIHandler(request):
             .order_by("-start_date")
             .first()
         )
-        # Use plan's configured engine name based on chat mode
+        # Use plan's configured LLM engine name
         plan_obj = getattr(subscription, "plan", None)
-        if mode == "music-chat":
-            plan_engine = getattr(plan_obj, "topmedia_engine", None)
-            fallback_model = TopMediaModels.objects.filter(
-                is_active=True, kind=TopMediaModels.KIND_MUSIC
-            ).order_by("name").first()
-            default_model_name = getattr(plan_engine, "name", None) or getattr(fallback_model, "name", None) or "topmedia-default"
-            model_obj = TopMediaModels.objects.filter(
-                name=request.data.get("model", default_model_name),
-                is_active=True,
-                kind=TopMediaModels.KIND_MUSIC,
-            ).first()
-        else:
-            plan_engine = getattr(plan_obj, "llm_engine", None)
-            default_model_name = getattr(plan_engine, "name", None) or "gpt-4o-mini"
-            model_obj = GPTModels.objects.filter(name=request.data.get("model", default_model_name), is_active=True).first()
+        plan_engine = getattr(plan_obj, "llm_engine", None)
+        default_model_name = getattr(plan_engine, "name", None) or "gpt-4o-mini"
+        model_obj = GPTModels.objects.filter(name=request.data.get("model", default_model_name), is_active=True).first()
 
         model_name = request.data.get("model", default_model_name)
         provider_name = _provider_name_by_mode(mode)
@@ -434,16 +405,11 @@ def OpenAIHandler(request):
                 attachments=attachments if isinstance(attachments, list) else None,
             )
 
-        # 6) Limits pre-check based on mode
-        consume_kind = "music" if mode == "music-chat" else "text"
+        # 6) Limits pre-check (text)
+        consume_kind = "text"
         if subscription and not subscription.can_consume(consume_kind):
             is_unpaid = str(getattr(subscription, "payment_status", "")).lower() == "unpaid"
             code = "chat_blocked_limits_exhausted_unpaid" if is_unpaid else "chat_blocked_limits_exhausted"
-            if consume_kind == "music":
-                return {
-                    "error": "Лимиты на генерацию музыки исчерпаны. Пополните лимит или обновите тариф.",
-                    "error_code": code,
-                }
             return {
                 "error": "Лимиты на генерацию текста исчерпаны. Пополните лимит или обновите тариф.",
                 "error_code": code,
@@ -543,155 +509,4 @@ def OpenAIHandler(request):
 
     except Exception as e:
         print(f"Error in OpenAIHandler: {e} ")
-        return {"error": str(e)}
-
-
-def OpenAIImageHandler(request):
-    """Generate image via OpenAI Images (DALL·E/gpt-image-1) and persist file + DB entry.
-
-    Request expects:
-      - message: prompt text (required)
-      - session_id: optional existing session id
-      - size: optional size like '1024x1024'
-      - model: optional model name (default gpt-image-1)
-      - provider_slug: optional provider (default 'dall-e')
-    """
-    try:
-        lang_code, _ = _pick_lang(request)
-        access = get_chat_access_state(request.user, "kg" if lang_code == "ky" else lang_code, kind="image")
-        if access.get("blocked"):
-            return {"error": access.get("error"), "error_code": access.get("error_code"), "grace_until": access.get("grace_until")}
-
-        prompt = (request.data.get("message") or "").strip()
-        if not prompt:
-            return {"error": "No prompt provided"}
-
-        size = (request.data.get("size") or "1024x1024").strip()
-        if size not in {"256x256", "512x512", "1024x1024"}:
-            size = "1024x1024"
-        model_name = (request.data.get("model") or "gpt-image-1").strip()
-        provider, provider_error = _load_active_provider("image-chat")
-        if provider_error:
-            return {"error": provider_error}
-
-        if not (provider.token or "").strip():
-            return {"error": "Image provider is not configured."}
-
-        client = _make_openai_client(provider)
-
-        # Ensure session in image-chat mode and store user prompt
-        session_id = request.data.get("session_id") or request.data.get("chat_id")
-        with transaction.atomic():
-            if session_id:
-                session = _resolve_session_for_user(request.user, session_id, for_update=True)
-                if not session:
-                    return {"error": "Session not found"}
-            else:
-                title = (prompt[:60] or "Image Chat").strip() or "Image Chat"
-                session = AiChatSession.objects.create(
-                    user=request.user,
-                    provider=provider,
-                    title=title,
-                    chat_mode='image-chat',
-                )
-
-            # include attachments, if provided by client (e.g., reference images/files)
-            req_attachments = request.data.get("attachments")
-            if not isinstance(req_attachments, list):
-                req_attachments = None
-
-            AiChatMessage.objects.create(
-                session=session,
-                role="user",
-                content=prompt,
-                attachments=req_attachments,
-            )
-
-        # Limits pre-check (images)
-        subscription = (
-            UserSubscription.objects
-            .filter(user=request.user, status="active")
-            .select_related("plan")
-            .order_by("-start_date")
-            .first()
-        )
-        if subscription and not subscription.can_consume("image"):
-            is_unpaid = str(getattr(subscription, "payment_status", "")).lower() == "unpaid"
-            code = "chat_blocked_limits_exhausted_unpaid" if is_unpaid else "chat_blocked_limits_exhausted"
-            return {
-                "error": "Лимиты на генерацию изображений исчерпаны. Пополните лимит или обновите тариф.",
-                "error_code": code,
-            }
-
-        # Call Images API (with timeout safety)
-        try:
-            result = client.images.generate(model=model_name, prompt=prompt, size=size, n=1)
-        except Exception as e:
-            msg = str(e)
-            low = msg.lower()
-            if "timeout" in low or "timed out" in low or "read timeout" in low:
-                return {"error": "Image generation timed out. Please try again."}
-            if "api key" in low or "authentication" in low:
-                return {"error": "Image provider authentication failed."}
-            return {"error": "Failed to generate image."}
-        data0 = result.data[0] if getattr(result, "data", None) else None
-        if not data0:
-            return {"error": "No image data received"}
-
-        b64 = getattr(data0, "b64_json", None) or getattr(data0, "b64", None)
-        if not b64:
-            return {"error": "No base64 image in response"}
-
-        try:
-            raw = base64.b64decode(b64)
-        except Exception:
-            return {"error": "Failed to decode image data"}
-
-        # Persist image
-        gen = AiGeneratedImage(
-            user=request.user,
-            session=session,
-            provider=provider,
-            model_name=model_name,
-            prompt=prompt,
-            size=size,
-        )
-        # Use stable name
-        filename = f"{uuid.uuid4().hex}.png"
-        gen.image.save(filename, ContentFile(raw), save=True)
-
-        # Assistant message with image URL in content for simple rendering
-        try:
-            url = gen.image.url
-            assistant_msg = AiChatMessage.objects.create(
-                session=session,
-                role="assistant",
-                content=url,
-                attachments=[{"type": "image", "url": url}],
-                meta={"model": model_name, "size": size},
-            )
-        except Exception:
-            assistant_msg = None
-            url = None
-
-        # Consume one image generation unit
-        if subscription:
-            try:
-                subscription.consume("image")
-            except ValidationError:
-                pass
-        else:
-            consume_bonus_without_subscription(request.user, "image")
-
-        return {
-            "session": {"id": session.id, "uid": session.uid, "title": session.title, "provider": provider.slug, "updated_at": session.updated_at},
-            "image": {"url": url, "size": size, "id": gen.id, "uniqid": gen.uniqid},
-            "message": AiChatMessageSerializer(assistant_msg).data if assistant_msg else None,
-            "warning": access.get("warning"),
-            "warning_code": access.get("warning_code"),
-            "grace_until": access.get("grace_until"),
-        }
-
-    except Exception as e:
-        print(f"Error in OpenAIImageHandler: {e}")
         return {"error": str(e)}

@@ -5,19 +5,15 @@ from django.http import HttpResponse
 from django.utils.timezone import now
 from django.urls import path, reverse
 from django.shortcuts import redirect
-from django.utils.html import format_html
-from .actions import get_gpt_models_action, get_topmedia_models_action, ProviderConfigError
+from .actions import get_gpt_models_action, ProviderConfigError
 import json
 
 from .models import (
     GPTModels,
-    TopMediaModels,
     AiProvider,
     AiPromptTemplate,
     AiChatSession,
     AiChatMessage,
-    AiGeneratedImage,
-    AiGeneratedMusic,
 )
 
 class JSONTextarea(forms.Textarea):
@@ -72,47 +68,6 @@ class GPTModelsAdmin(admin.ModelAdmin):
             messages.error(request, f"Ошибка синхронизации GPT моделей: {e}")
         return redirect("..")
 
-
-@admin.register(TopMediaModels)
-class TopMediaModelsAdmin(admin.ModelAdmin):
-    list_display = ('name', 'kind', 'max_tokens', 'is_active', 'created_at', 'updated_at')
-    list_filter = ('kind', 'is_active')
-
-    def get_urls(self):
-        urls = super().get_urls()
-        app_label = self.model._meta.app_label
-        model_name = self.model._meta.model_name
-        custom = [
-            path(
-                "sync-models/",
-                self.admin_site.admin_view(self.sync_models_view),
-                name=f"{app_label}_{model_name}_sync",
-            )
-        ]
-        return custom + urls
-
-    def changelist_view(self, request, extra_context=None):
-        extra_context = extra_context or {}
-        app_label = self.model._meta.app_label
-        model_name = self.model._meta.model_name
-        extra_context["sync_url"] = reverse(f"admin:{app_label}_{model_name}_sync")
-        return super().changelist_view(request, extra_context=extra_context)
-
-    def sync_models_view(self, request):
-        if not request.user.is_superuser:
-            messages.error(request, "Недостаточно прав.")
-            return redirect("..")
-        if request.method != "POST":
-            messages.error(request, "Метод не разрешён.")
-            return redirect("..")
-        try:
-            get_topmedia_models_action()
-            messages.success(request, "Список TopMedia-моделей обновлен.")
-        except ProviderConfigError as e:
-            messages.error(request, str(e))
-        except Exception as e:
-            messages.error(request, f"Ошибка синхронизации TopMedia моделей: {e}")
-        return redirect("..")
 
 @admin.register(AiProvider)
 class AiProviderAdmin(admin.ModelAdmin):
@@ -238,39 +193,3 @@ class AiChatMessageAdmin(admin.ModelAdmin):
         c = obj.content.strip()
         return c[:120] + ('…' if len(c) > 120 else '')
     short_content.short_description = 'Текст'
-
-
-@admin.register(AiGeneratedImage)
-class AiGeneratedImageAdmin(admin.ModelAdmin):
-    list_display = ("id", "user", "session", "model_name", "size", "created_at", "preview")
-    search_fields = ("prompt", "user__email", "model_name", "uniqid")
-    list_filter = ("model_name", "size", "created_at")
-    readonly_fields = ("created_at",)
-
-    def preview(self, obj):
-        try:
-            if not obj.image:
-                return "—"
-            url = obj.image.url
-            return format_html("<img src='{}' style='max-height:60px;border-radius:6px'/>", url)
-        except Exception:
-            return "—"
-    preview.short_description = "Preview"
-
-
-@admin.register(AiGeneratedMusic)
-class AiGeneratedMusicAdmin(admin.ModelAdmin):
-    list_display = ("id", "user", "session", "model_name", "title", "instrumental", "created_at", "audio_link")
-    search_fields = ("prompt", "title", "lyrics", "user__email", "model_name", "uniqid", "topmedia_task_id")
-    list_filter = ("model_name", "instrumental", "created_at")
-    readonly_fields = ("created_at",)
-
-    def audio_link(self, obj):
-        try:
-            url = obj.audio.url if obj.audio else obj.source_url
-            if not url:
-                return "—"
-            return format_html("<a href='{}' target='_blank' rel='noreferrer'>Open audio</a>", url)
-        except Exception:
-            return "—"
-    audio_link.short_description = "Audio"

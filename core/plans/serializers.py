@@ -15,7 +15,6 @@ class PlanSerializer(serializers.ModelSerializer):
     has_discount = serializers.SerializerMethodField()
     discount_percent = serializers.SerializerMethodField()
     llm_engine_name = serializers.SerializerMethodField()
-    topmedia_engine_name = serializers.SerializerMethodField()
 
     # new: prices in RUB/KGS
     price_amount_rub = serializers.SerializerMethodField()
@@ -30,7 +29,6 @@ class PlanSerializer(serializers.ModelSerializer):
             "price_amount", "price_base_amount",
             "has_discount", "discount_percent",
             "llm_engine_id", "llm_engine_name",
-            "topmedia_engine_id", "topmedia_engine_name",
             "song_limit", "music_limit", "text_limit", "image_limit",
             "sunday_bonus_songs", "sunday_bonus_music", "sunday_bonus_texts", "sunday_bonus_images",
             "ai_chat_enabled", "realtime_chat_enabled",
@@ -55,10 +53,6 @@ class PlanSerializer(serializers.ModelSerializer):
 
     def get_llm_engine_name(self, obj: Plan) -> str | None:
         engine = getattr(obj, "llm_engine", None)
-        return getattr(engine, "name", None) if engine else None
-
-    def get_topmedia_engine_name(self, obj: Plan) -> str | None:
-        engine = getattr(obj, "topmedia_engine", None)
         return getattr(engine, "name", None) if engine else None
 
     # ---- currency conversion helpers ----

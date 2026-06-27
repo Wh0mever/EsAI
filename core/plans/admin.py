@@ -6,7 +6,6 @@ from django.shortcuts import redirect
 from django.utils.translation import gettext_lazy as _
 from django.utils.decorators import method_decorator
 from django.views.decorators.http import require_POST
-from ai.models import TopMediaModels
 
 @admin.register(CurrencyRate)
 class CurrencyRateAdmin(admin.ModelAdmin):
@@ -72,7 +71,6 @@ class PlanAdmin(admin.ModelAdmin):
         "price_amount": "Цена",
         "price_base_amount": "Базовая цена (до скидки)",
         "llm_engine": "LLM модель",
-        "topmedia_engine": "TopMedia модель",
         "template_name_ru": "Название шаблона (RU)",
         "template_name_en": "Название шаблона (EN)",
         "template_name_kg": "Название шаблона (KG)",
@@ -114,7 +112,7 @@ class PlanAdmin(admin.ModelAdmin):
             )
         }),
         ("Цены", {"fields": ( "price_amount", "price_base_amount")}),
-        ("Модель", {"fields": ("llm_engine", "topmedia_engine")}),
+        ("Модель", {"fields": ("llm_engine",)}),
         ("Лимиты (0 = без включённых генераций)", {
             "fields": (
                 "song_limit", "music_limit", "text_limit", "image_limit",
@@ -134,13 +132,6 @@ class PlanAdmin(admin.ModelAdmin):
             "fields": ("can_purchase_addons",),
         }),
     )
-
-    def formfield_for_foreignkey(self, db_field, request, **kwargs):
-        if db_field.name == "topmedia_engine":
-            kwargs["queryset"] = TopMediaModels.objects.filter(
-                kind=TopMediaModels.KIND_MUSIC
-            ).order_by("name")
-        return super().formfield_for_foreignkey(db_field, request, **kwargs)
 
     def formfield_for_dbfield(self, db_field, request, **kwargs):
         formfield = super().formfield_for_dbfield(db_field, request, **kwargs)

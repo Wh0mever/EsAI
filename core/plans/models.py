@@ -77,10 +77,7 @@ class Plan(models.Model):
     llm_engine = models.ForeignKey(
         'ai.GPTModels', on_delete=models.SET_NULL, null=True, blank=True, related_name='+'
     )
-    topmedia_engine = models.ForeignKey(
-        'ai.TopMediaModels', on_delete=models.SET_NULL, null=True, blank=True, related_name='+'
-    )
-    
+
     # Template Names
     template_name_ru = models.CharField(max_length=100, null=True, blank=True)
     template_name_en = models.CharField(max_length=100, null=True, blank=True)
