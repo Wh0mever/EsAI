@@ -6,6 +6,7 @@ from typing import Any, Optional, List, Tuple
 from django.db import transaction
 from openai import OpenAI
 from django.conf import settings
+from django.core.cache import cache
 
 from .models import (
     AiProvider,
@@ -390,7 +391,197 @@ def _pick_lang(request) -> tuple[str, str]:
     return "ru", "Russian"
 
 
+def _guest_id(request) -> str:
+    """Identify an anonymous visitor for the free-quota counter.
+
+    Preference order: explicit X-Guest-Id header from the frontend, then the
+    client IP (X-Forwarded-For first hop, else REMOTE_ADDR).
+    """
+    gid = (request.headers.get("X-Guest-Id") or "").strip()
+    if gid:
+        return gid[:128]
+    xff = (request.META.get("HTTP_X_FORWARDED_FOR") or "").split(",")[0].strip()
+    if xff:
+        return xff
+    return (request.META.get("REMOTE_ADDR") or "unknown").strip() or "unknown"
+
+
+def _guest_messages_from_request(request, system_prompt: str, message: str) -> List[dict]:
+    """Build the OpenRouter messages list for a guest WITHOUT touching the DB.
+
+    Starts from the system prompt, optionally appends a short prior history if
+    the frontend sent one (``messages`` or ``history`` in the body), then the
+    new user message. Only role/content text is used (no DB, no attachments).
+    """
+    out: List[dict] = [{"role": "system", "content": system_prompt}]
+
+    raw_history = request.data.get("messages")
+    if raw_history is None:
+        raw_history = request.data.get("history")
+    # Allow a JSON-encoded string as well as a native list.
+    if isinstance(raw_history, str):
+        try:
+            raw_history = json.loads(raw_history)
+        except Exception:
+            raw_history = None
+    if isinstance(raw_history, list):
+        for m in raw_history:
+            if not isinstance(m, dict):
+                continue
+            role = (m.get("role") or "").strip().lower()
+            if role not in ("user", "assistant", "system"):
+                continue
+            content = m.get("content")
+            text = content if isinstance(content, str) else ""
+            text = (text or "").strip()
+            if not text:
+                continue
+            out.append({"role": role, "content": text})
+
+    out.append({"role": "user", "content": message})
+    return out
+
+
+def _guest_chat(request):
+    """Handle a chat request from an unauthenticated visitor.
+
+    - Enforces a free-request quota counted in the cache (Redis) by guest id/IP.
+    - Performs a single OpenRouter completion with NO DB writes (no session, no
+      messages) and NO token billing (guests have no balance).
+    - Increments the counter only on a successful answer.
+    """
+    free_limit = int(getattr(settings, "GUEST_FREE_REQUESTS", 3) or 3)
+    gid = _guest_id(request)
+    cache_key = f"guest_chat:{gid}"
+
+    try:
+        used = int(cache.get(cache_key) or 0)
+    except Exception:
+        used = 0
+
+    if used >= free_limit:
+        return {
+            "error": "guest_limit_reached",
+            "message": "Вы использовали бесплатный лимит. Войдите через Google или Telegram, чтобы продолжить.",
+            "free_used": used,
+            "free_limit": free_limit,
+            "http_status": 401,
+        }
+
+    # OpenRouter must be configured.
+    if not _openrouter_config().get("api_key"):
+        return {"error": "OpenRouter is not configured (OPENROUTER_API_KEY is empty)."}
+
+    # Model selection: same resolver as authenticated path (by sent `model`, else default).
+    requested_model_ref = request.data.get("model")
+    model_obj = _resolve_gpt_model(requested_model_ref, None)
+    if not model_obj:
+        return {"error": f"Model '{requested_model_ref}' not found or inactive."}
+    selected_model_name = model_obj.openrouter_id or model_obj.name
+    if not (selected_model_name or "").strip():
+        return {"error": f"Model '{model_obj.name}' has no openrouter_id configured."}
+    model_max_tokens = model_obj.max_tokens or None
+
+    # User message.
+    message = (request.data.get("message") or "").strip()
+    if not message:
+        return {"error": "No message provided"}
+
+    # System prompt + locale policy (same shape as authenticated path).
+    lang_code, lang_name = _pick_lang(request)
+    locale_policy = (
+        f"Always and strictly reply in {lang_name} language (locale: {lang_code}). "
+        f"Do not switch languages unless explicitly told to translate into another language, "
+        f"and prefer {lang_name} for all outputs and explanations."
+    )
+    system_prompt = f"You are a helpful assistant.\n\n{locale_policy}"
+
+    # Optional temperature.
+    req_temperature = request.data.get("temperature", None)
+    try:
+        if req_temperature is not None:
+            req_temperature = float(req_temperature)
+    except Exception:
+        req_temperature = None
+
+    messages = _guest_messages_from_request(request, system_prompt, message)
+    client = _make_openai_client(None)
+
+    max_limit = model_max_tokens or None
+    is_reason = _is_reasoning(selected_model_name)
+    allow_temperature = (not is_reason) and (req_temperature is not None)
+
+    # Same call+fallback strategy as the authenticated path.
+    messages_work = list(messages)
+    while True:
+        try:
+            completion, endpoint = _call_chat_completions_with_fallback(
+                client=client,
+                model_name=selected_model_name,
+                messages=messages_work,
+                max_tokens_limit=max_limit,
+                allow_temperature=allow_temperature,
+                requested_temperature=req_temperature,
+            )
+            break
+        except Exception as chat_err:
+            try:
+                completion, endpoint = _call_responses_api(
+                    client=client,
+                    model_name=selected_model_name,
+                    messages=messages_work,
+                    max_tokens_limit=max_limit,
+                )
+                break
+            except Exception as resp_err:
+                if _is_context_error(chat_err) or _is_context_error(resp_err):
+                    if len(messages_work) > 3:
+                        del messages_work[1]
+                        continue
+                raise chat_err
+
+    answer = _extract_text_from_result(completion, endpoint)
+    if not (answer or "").strip():
+        # Do NOT consume the free quota when nothing was generated.
+        return {"error": "Failed to generate response."}
+
+    # Success: capture usage meta (for parity), then increment the quota.
+    usage_meta = _extract_usage_meta(completion, endpoint, selected_model_name)
+    usage_meta = _augment_usage_meta_with_cost(usage_meta, model_obj)
+
+    try:
+        # incr is atomic in Redis; seed the key with a 24h TTL on first use.
+        new_used = cache.get_or_set(cache_key, 0, timeout=60 * 60 * 24)
+        new_used = cache.incr(cache_key)
+    except Exception:
+        new_used = used + 1
+        try:
+            cache.set(cache_key, new_used, timeout=60 * 60 * 24)
+        except Exception:
+            pass
+
+    return {
+        "response": answer,
+        "guest": True,
+        "free_used": new_used,
+        "free_limit": free_limit,
+        "message": {
+            "role": "assistant",
+            "content": answer or "",
+            "attachments": None,
+            "meta": usage_meta,
+        },
+    }
+
+
 def OpenAIHandler(request):
+    # Guests (unauthenticated) get a limited, DB-less, billing-less flow.
+    if not getattr(request.user, "is_authenticated", False):
+        try:
+            return _guest_chat(request)
+        except Exception as e:
+            print(f"Error in guest OpenAIHandler: {e} ")
+            return {"error": str(e)}
     try:
         mode = request.data.get("mode") or "text-chat"
         lang_code, _ = _pick_lang(request)
