@@ -1,4 +1,6 @@
 ﻿import json
+import os
+from decimal import Decimal
 from typing import Any, Optional, List, Tuple
 from django.db import transaction
 from openai import OpenAI
@@ -111,7 +113,20 @@ def _parse_template(request, provider_name: str):
         or templates.get("GPT")
 )
 
-OPENAI_API_BASE = "https://api.openai.com/v1"
+# OpenRouter defaults (overridable via env)
+OPENROUTER_API_BASE_DEFAULT = "https://openrouter.ai/api/v1"
+OPENROUTER_REFERER_DEFAULT = "https://esai.kg"
+OPENROUTER_TITLE_DEFAULT = "ESAI"
+
+
+def _openrouter_config() -> dict:
+    """Read OpenRouter connection config from environment."""
+    return {
+        "base_url": (os.environ.get("OPENROUTER_API_BASE") or OPENROUTER_API_BASE_DEFAULT).strip(),
+        "api_key": (os.environ.get("OPENROUTER_API_KEY") or "").strip(),
+        "referer": (os.environ.get("OPENROUTER_HTTP_REFERER") or OPENROUTER_REFERER_DEFAULT).strip(),
+        "title": (os.environ.get("OPENROUTER_X_TITLE") or OPENROUTER_TITLE_DEFAULT).strip(),
+    }
 
 
 def _render_messages_as_dialog(messages: List[dict]) -> str:
@@ -135,12 +150,22 @@ def _is_new_chat(model_name: str) -> bool:
     return m.startswith(("gpt-4o", "gpt-4.1"))
 
 
-def _make_openai_client(provider: AiProvider) -> OpenAI:
-    kwargs = {"api_key": provider.token}
-    slug = (provider.slug or "").strip().lower()
-    # Do not depend on DB base_url for runtime routing.
-    if slug == "gpt":
-        kwargs["base_url"] = OPENAI_API_BASE
+def _make_openai_client(provider: AiProvider | None = None) -> OpenAI:
+    """Build an OpenRouter-compatible OpenAI client.
+
+    base_url/api_key are taken from environment (OPENROUTER_API_BASE / OPENROUTER_API_KEY).
+    The OpenAI SDK is OpenRouter-compatible; only base_url/key/headers differ.
+    AiProvider is kept as a directory record but is no longer the source of the key.
+    """
+    cfg = _openrouter_config()
+    kwargs = {
+        "api_key": cfg["api_key"],
+        "base_url": cfg["base_url"],
+        "default_headers": {
+            "HTTP-Referer": cfg["referer"],
+            "X-Title": cfg["title"],
+        },
+    }
     # Respect global timeout to avoid gunicorn worker timeouts
     try:
         from django.conf import settings as dj_settings
@@ -290,6 +315,57 @@ def _extract_usage_meta(result: Any, endpoint: str, model_name: str) -> dict:
     return meta
 
 
+def _resolve_gpt_model(model_ref: Any, default_ref: Any = None) -> Optional[GPTModels]:
+    """Resolve an active GPTModels record from a client-provided identifier.
+
+    Accepts the DB id, the openrouter_id, or the display name. No hardcoded model
+    list — everything comes from the GPTModels table (managed via admin).
+    Falls back to default_ref (same lookup rules) when model_ref is empty/unmatched.
+    """
+    def _lookup(ref: Any) -> Optional[GPTModels]:
+        raw = (str(ref).strip() if ref is not None else "")
+        if not raw:
+            return None
+        qs = GPTModels.objects.filter(is_active=True)
+        if raw.isdigit():
+            obj = qs.filter(id=int(raw)).first()
+            if obj:
+                return obj
+        return (
+            qs.filter(openrouter_id=raw).first()
+            or qs.filter(name=raw).first()
+        )
+
+    return (
+        _lookup(model_ref)
+        or _lookup(default_ref)
+        or GPTModels.objects.filter(is_active=True).order_by("sort_order", "id").first()
+    )
+
+
+def _augment_usage_meta_with_cost(meta: dict, model_obj: GPTModels) -> dict:
+    """Enrich usage meta with the OpenRouter model id, markup coefficient and a
+    computed cost = total_tokens * markup_coefficient.
+
+    This only records data into the assistant message meta; no balance is touched.
+    """
+    meta = dict(meta or {})
+    try:
+        meta["openrouter_id"] = model_obj.openrouter_id or model_obj.name
+        coeff = model_obj.markup_coefficient
+        meta["markup_coefficient"] = float(coeff) if coeff is not None else None
+        total = meta.get("total_tokens")
+        if total is not None and coeff is not None:
+            cost = Decimal(str(total)) * Decimal(str(coeff))
+            meta["cost"] = float(cost)
+        else:
+            meta["cost"] = None
+    except Exception:
+        # Never break the chat flow over bookkeeping metadata
+        meta.setdefault("cost", None)
+    return meta
+
+
 def _pick_lang(request) -> tuple[str, str]:
     """Return (lang_code, human_name) from request (data.lang or Accept-Language)."""
     # Preferred: explicit lang from client
@@ -327,24 +403,31 @@ def OpenAIHandler(request):
             .order_by("-start_date")
             .first()
         )
-        # Use plan's configured LLM engine name
+        # Use plan's configured LLM engine name as a fallback default (still resolved from DB)
         plan_obj = getattr(subscription, "plan", None)
         plan_engine = getattr(plan_obj, "llm_engine", None)
-        default_model_name = getattr(plan_engine, "name", None) or "gpt-4o-mini"
-        model_obj = GPTModels.objects.filter(name=request.data.get("model", default_model_name), is_active=True).first()
+        default_model_ref = getattr(plan_engine, "name", None)
 
-        model_name = request.data.get("model", default_model_name)
         provider_name = _provider_name_by_mode(mode)
         template_data = _parse_template(request, provider_name)
-        selected_model_name = model_obj.name if model_obj else model_name
-        model_max_tokens = model_obj.max_tokens if model_obj else None
 
-        # 2) Provider
+        # Dynamic model selection from DB (id / openrouter_id / name). No hardcoded list.
+        requested_model_ref = request.data.get("model")
+        model_obj = _resolve_gpt_model(requested_model_ref, default_model_ref)
+        if not model_obj:
+            return {"error": f"Model '{requested_model_ref}' not found or inactive."}
+        # The actual model id sent to OpenRouter
+        selected_model_name = model_obj.openrouter_id or model_obj.name
+        if not (selected_model_name or "").strip():
+            return {"error": f"Model '{model_obj.name}' has no openrouter_id configured."}
+        model_max_tokens = model_obj.max_tokens or None
+
+        # 2) Provider (kept as a directory record; OpenRouter key comes from env)
         provider, provider_error = _load_active_provider(mode)
         if provider_error:
             return {"error": provider_error}
-        if not (provider.token or "").strip():
-            return {"error": "Text provider is not configured."}
+        if not _openrouter_config().get("api_key"):
+            return {"error": "OpenRouter is not configured (OPENROUTER_API_KEY is empty)."}
 
         # 3) System prompt + locale policy
         lang_code, lang_name = _pick_lang(request)
@@ -472,6 +555,8 @@ def OpenAIHandler(request):
             return {"error": "Failed to generate response."}
 
         usage_meta = _extract_usage_meta(completion, endpoint, selected_model_name)
+        # Capture usage + computed cost for future token billing (no balance change yet)
+        usage_meta = _augment_usage_meta_with_cost(usage_meta, model_obj)
 
         # 8) Save assistant message
         assistant_msg = AiChatMessage.objects.create(

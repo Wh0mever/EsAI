@@ -10,12 +10,14 @@ from .models import (
     AiChatMessage,
     AiPromptTemplate,
     AiPromptTemplateFavorite,
+    GPTModels,
 )
 from .serializers import (
     AiChatSessionListSerializer,
     AiChatMessageSerializer,
     AiPromptTemplateSerializer,
     AiProviderSerializer,
+    AiModelSerializer,
 )
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
@@ -207,6 +209,17 @@ class AiProvidersApiView(APIView):
     def get(self, request):
         qs = AiProvider.objects.all().order_by("id")
         data = AiProviderSerializer(qs, many=True).data
+        return Response(data, status=status.HTTP_200_OK)
+
+
+class AiModelsListAPIView(APIView):
+    """Публичный список активных моделей для свитчера в чате (доступен гостям)."""
+    authentication_classes = []
+    permission_classes = []
+
+    def get(self, request):
+        qs = GPTModels.objects.filter(is_active=True).order_by("sort_order", "id")
+        data = AiModelSerializer(qs, many=True).data
         return Response(data, status=status.HTTP_200_OK)
 
 

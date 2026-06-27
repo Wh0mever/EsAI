@@ -1,11 +1,8 @@
 "use client";
 
 import React, { useEffect, useState, useCallback } from "react";
-import { usePathname } from "next/navigation";
 import { useTranslation } from "react-i18next";
-import { FiPlus, FiChevronDown, FiChevronLeft, FiChevronRight, FiSettings } from "react-icons/fi";
-import { IoImages, IoLibrary } from "react-icons/io5";
-import { RiMusic2Line } from "react-icons/ri";
+import { FiPlus, FiChevronLeft, FiChevronRight, FiSettings } from "react-icons/fi";
 import { FaRegUser } from "react-icons/fa";
 import { CiMenuFries } from "react-icons/ci";
 import NextLink from "@/components/ui/nextLink/NextLink";
@@ -15,7 +12,6 @@ import { Button } from "../ui/buttons/Buttons";
 import Cookies from "js-cookie";
 
 type Chat = { id: string; uid?: string; title: string; href?: string; chat_mode: string };
-type HistorySection = "music" | "images" | "text";
 
 type SidebarProps = {
 	chats: Chat[];
@@ -175,11 +171,8 @@ function useUsername() {
 
 export default function Sidebar({ chats, activeChatId, onNewChat, className }: SidebarProps) {
 	const { t } = useTranslation("common");
-	const pathname = usePathname();
 	// Normalize chats to array to avoid runtime errors when API shape differs
 	const list: Chat[] = Array.isArray(chats) ? chats : [];
-	const musicChats = list.filter((c) => c?.chat_mode === "music-chat");
-	const imageChats = list.filter((c) => c?.chat_mode === "image-chat");
 	const textChats = list.filter((c) => c?.chat_mode === "text-chat");
 	const [collapsed, setCollapsed] = usePersistentBoolean(LS_COLLAPSED, false);
 	const [showMobileAside, setShowMobileAside] = useState(false);
@@ -204,126 +197,27 @@ export default function Sidebar({ chats, activeChatId, onNewChat, className }: S
 
 	const chatRef = (c: Chat) => String(c.uid || c.id);
 	const hasAnyHistory = list.length > 0;
-	const currentChat = list.find((c) => chatRef(c) === String(activeChatId || ""));
-	const currentSectionByChat: HistorySection | null =
-		currentChat?.chat_mode === "music-chat"
-			? "music"
-			: currentChat?.chat_mode === "image-chat"
-			? "images"
-			: currentChat?.chat_mode === "text-chat"
-			? "text"
-			: null;
-	const currentSectionByPath: HistorySection | null =
-		pathname?.includes("/music-chat")
-			? "music"
-			: pathname?.includes("/image-chat")
-			? "images"
-			: pathname?.includes("/text-chat")
-			? "text"
-			: null;
-	const defaultOpenSection = currentSectionByChat || currentSectionByPath || "text";
-	const [openSection, setOpenSection] = useState<HistorySection>(defaultOpenSection);
-
-	useEffect(() => {
-		setOpenSection(defaultOpenSection);
-	}, [defaultOpenSection]);
 
 	const renderHistoryGroups = (onClick?: () => void) => (
 		<div className="mt-1 space-y-3 overflow-y-auto pr-1 flex-1">
 			<div className="space-y-1">
-				<button
-					type="button"
-					className="w-full flex items-center justify-between rounded-md px-2 py-1 hover:bg-white/5 cursor-pointer"
-					onClick={() => setOpenSection("music")}
-				>
-					<div className="text-[11px] uppercase tracking-wide text-neutral-500">{t("chat.chat_history_music")}</div>
-					<FiChevronDown
-						className={["transition-transform", openSection === "music" ? "rotate-180" : ""].join(" ")}
-						size={14}
-					/>
-				</button>
-				{openSection === "music" && (
-					<ul className="space-y-1">
-						{musicChats.map((c) => (
-							<li key={chatRef(c)}>
-								<NextLink
-									href={`/dashboard/${c.chat_mode}/${chatRef(c)}`}
-									className={[
-										"block rounded-md px-2 py-2 text-sm truncate",
-										chatRef(c) === String(activeChatId || "") ? "bg-white/10" : "hover:bg-white/5",
-									].join(" ")}
-									onClick={onClick}
-								>
-									{c.title}
-								</NextLink>
-							</li>
-						))}
-					</ul>
-				)}
-			</div>
-
-			<div className="space-y-1">
-				<button
-					type="button"
-					className="w-full flex items-center justify-between rounded-md px-2 py-1 hover:bg-white/5 cursor-pointer"
-					onClick={() => setOpenSection("images")}
-				>
-					<div className="text-[11px] uppercase tracking-wide text-neutral-500">{t("chat.chat_history_images")}</div>
-					<FiChevronDown
-						className={["transition-transform", openSection === "images" ? "rotate-180" : ""].join(" ")}
-						size={14}
-					/>
-				</button>
-				{openSection === "images" && (
-					<ul className="space-y-1">
-						{imageChats.map((c) => (
-							<li key={chatRef(c)}>
-								<NextLink
-									href={`/dashboard/${c.chat_mode}/${chatRef(c)}`}
-									className={[
-										"block rounded-md px-2 py-2 text-sm truncate",
-										chatRef(c) === String(activeChatId || "") ? "bg-white/10" : "hover:bg-white/5",
-									].join(" ")}
-									onClick={onClick}
-								>
-									{c.title}
-								</NextLink>
-							</li>
-						))}
-					</ul>
-				)}
-			</div>
-
-			<div className="space-y-1">
-				<button
-					type="button"
-					className="w-full flex items-center justify-between rounded-md px-2 py-1 hover:bg-white/5 cursor-pointer"
-					onClick={() => setOpenSection("text")}
-				>
-					<div className="text-[11px] uppercase tracking-wide text-neutral-500">{t("chat.chat_history_text")}</div>
-					<FiChevronDown
-						className={["transition-transform", openSection === "text" ? "rotate-180" : ""].join(" ")}
-						size={14}
-					/>
-				</button>
-				{openSection === "text" && (
-					<ul className="space-y-1">
-						{textChats.map((c) => (
-							<li key={chatRef(c)}>
-								<NextLink
-									href={`/dashboard/${c.chat_mode}/${chatRef(c)}`}
-									className={[
-										"block rounded-md px-2 py-2 text-sm truncate",
-										chatRef(c) === String(activeChatId || "") ? "bg-white/10" : "hover:bg-white/5",
-									].join(" ")}
-									onClick={onClick}
-								>
-									{c.title}
-								</NextLink>
-							</li>
-						))}
-					</ul>
-				)}
+				<div className="text-[11px] uppercase tracking-wide text-neutral-500 px-2 py-1">{t("chat.chat_history_text")}</div>
+				<ul className="space-y-1">
+					{textChats.map((c) => (
+						<li key={chatRef(c)}>
+							<NextLink
+								href={`/dashboard/${c.chat_mode}/${chatRef(c)}`}
+								className={[
+									"block rounded-md px-2 py-2 text-sm truncate",
+									chatRef(c) === String(activeChatId || "") ? "bg-white/10" : "hover:bg-white/5",
+								].join(" ")}
+								onClick={onClick}
+							>
+								{c.title}
+							</NextLink>
+						</li>
+					))}
+				</ul>
 			</div>
 
 			{!hasAnyHistory && (
@@ -411,10 +305,6 @@ export default function Sidebar({ chats, activeChatId, onNewChat, className }: S
 									showText={true}
 									title={`${t("chat.new_chat")} (Ctrl/Cmd+B to toggle sidebar)`}
 								/>
-								<NavLink href="/dashboard/image-chat/" icon={<IoImages />} label={"DALL·E"} showText={true} />
-								<NavLink href="/dashboard/music-chat/" icon={<RiMusic2Line />} label={t("chat.models_tabs.music")} showText={true} />
-								<NavLink href="/dashboard/images/" icon={<IoLibrary />} label={t("chat.images_library")} showText={true} />
-								<NavLink href="/dashboard/music/" icon={<IoLibrary />} label={t("chat.music_library")} showText={true} />
 							</div>
 
 							<div className="px-2 pt-2 flex-1 min-h-0 flex flex-col">
@@ -472,10 +362,6 @@ export default function Sidebar({ chats, activeChatId, onNewChat, className }: S
 						showText={!collapsed}
 						title={`${t("chat.new_chat")} (Ctrl/Cmd+B to toggle sidebar)`}
 					/>
-					<NavLink href="/dashboard/image-chat/" icon={<IoImages />} label={"DALL·E"} showText={!collapsed} />
-					<NavLink href="/dashboard/music-chat/" icon={<RiMusic2Line />} label={t("chat.models_tabs.music")} showText={!collapsed} />
-					<NavLink href="/dashboard/images/" icon={<IoLibrary />} label={t("chat.images_library")} showText={!collapsed} />
-					<NavLink href="/dashboard/music/" icon={<IoLibrary />} label={t("chat.music_library")} showText={!collapsed} />
 				</div>
 
 				{!collapsed && (
