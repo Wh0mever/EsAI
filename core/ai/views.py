@@ -1,9 +1,10 @@
 ﻿from django.db import transaction
+from django.http import StreamingHttpResponse
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.response import Response
 from rest_framework_simplejwt.authentication import JWTAuthentication
-from .handlers import OpenAIHandler
+from .handlers import OpenAIHandler, stream_chat
 from .models import (
     AiProvider,
     AiChatSession,
@@ -42,15 +43,48 @@ def _get_session_for_user(session_ref: str, user):
     return qs.filter(uid=raw).first()
 
 
+def _is_stream_request(request) -> bool:
+    """True, если клиент попросил потоковый ответ (body.stream truthy)."""
+    val = (getattr(request, "data", {}) or {}).get("stream")
+    if isinstance(val, bool):
+        return val
+    if val is None:
+        return False
+    if isinstance(val, (int, float)):
+        return val != 0
+    return str(val).strip().lower() in ("1", "true", "yes", "on")
+
+
 class ChatGptAPIView(APIView):
     # AllowAny: authenticated users keep the full flow (wallet/sessions/billing);
     # anonymous visitors get a limited free-quota guest flow inside OpenAIHandler.
     authentication_classes = [JWTAuthentication]
     permission_classes = [AllowAny]
 
-    @transaction.atomic
     def post(self, request):
-        response = OpenAIHandler(request)
+        # --- Streaming path (SSE) -------------------------------------------
+        # Не держим transaction.atomic вокруг всего стрима (поток долгий):
+        # сохранение/списание оборачиваются в короткую транзакцию внутри
+        # генератора (см. handlers.stream_chat). Пред-проверки (нет токенов →
+        # 402, гость сверх лимита → 401) возвращаются обычным JSON.
+        if _is_stream_request(request):
+            kind, payload = stream_chat(request)
+            if kind == "stream":
+                resp = StreamingHttpResponse(payload, content_type="text/event-stream")
+                resp["Cache-Control"] = "no-cache"
+                resp["X-Accel-Buffering"] = "no"
+                return resp
+            # kind == "error": обычный JSON с опциональным http_status.
+            http_status = 400
+            if isinstance(payload, dict) and isinstance(payload.get("http_status"), int):
+                http_status = payload.pop("http_status")
+            return Response(payload, status=http_status)
+
+        # --- Non-streaming path (unchanged behaviour) -----------------------
+        # Сохраняем прежнюю атомарность вокруг всего обработчика, которая раньше
+        # давалась декоратором @transaction.atomic на post().
+        with transaction.atomic():
+            response = OpenAIHandler(request)
         if isinstance(response, dict) and "error" not in response:
             return Response(response, status=200)
         # Allow the handler to request a specific HTTP status (e.g. 402 for

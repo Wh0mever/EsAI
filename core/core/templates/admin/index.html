@@ -1,0 +1,10 @@
+{% extends "admin/index.html" %}
+{% load i18n %}
+
+{% block content %}
+<div style="margin-bottom:18px; padding:14px 16px; border:1px solid var(--hairline-color,#e0e0e0); border-radius:8px; background:var(--body-bg,#fff);">
+  <strong>{% trans "Аналитика" %}:</strong>
+  <a href="{% url 'admin:audit_dashboard' %}">{% trans "Открыть дашборд бизнес-аналитики →" %}</a>
+</div>
+{{ block.super }}
+{% endblock %}

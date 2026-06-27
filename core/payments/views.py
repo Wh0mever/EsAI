@@ -36,8 +36,40 @@ from .freedompay import (
 )
 from .models import Payment
 
+from audit.services import log_event
+
 
 logger = logging.getLogger()
+
+
+def _log_payment_event(payment, kind: str) -> None:
+    """Записать событие оплаты в централизованный журнал (audit.EventLog).
+
+    Безопасно: log_event сам проглатывает ошибки. kind — тип callback'а
+    (success/failure/post/onetime/topup/tokens), используется в meta/level.
+    """
+    if not payment:
+        return
+    success = bool(getattr(payment, "success", False))
+    log_event(
+        "payment",
+        message=(
+            f"{kind}: order={getattr(payment, 'order_id', '')} "
+            f"amount={getattr(payment, 'amount', '')} "
+            f"{getattr(payment, 'currency', '')} "
+            f"{'OK' if success else 'FAIL'}"
+        ),
+        user=getattr(payment, "user", None),
+        meta={
+            "kind": kind,
+            "order_id": getattr(payment, "order_id", ""),
+            "amount": str(getattr(payment, "amount", "")),
+            "currency": getattr(payment, "currency", ""),
+            "success": success,
+            "error": getattr(payment, "error", "") or "",
+        },
+        level="info" if success else "warning",
+    )
 
 Q2 = Decimal("0.01")
 
@@ -621,6 +653,7 @@ class FreedomPayOneTimeResultBaseView(APIView):
                 payment.success = False
                 payment.error = payload.get("pg_error_description") or payload.get("pg_error_message") or "freedompay_failure"
             payment.save(update_fields=["response", "success", "error"])
+            _log_payment_event(payment, self.result_type)
 
         if self.result_type == "post":
             return Response({"status": "ok"}, status=status.HTTP_200_OK)
@@ -698,6 +731,7 @@ class FreedomPayGenerationTopupResultBaseView(APIView):
                 payment.success = False
                 payment.error = payload.get("pg_error_description") or payload.get("pg_error_message") or "freedompay_failure"
             payment.save(update_fields=["response", "success", "error"])
+            _log_payment_event(payment, self.result_type)
 
         if self.result_type == "post":
             return Response({"status": "ok"}, status=status.HTTP_200_OK)
@@ -829,6 +863,7 @@ class FreedomPayTokenPurchaseResultBaseView(APIView):
                 payment.success = False
                 payment.error = payload.get("pg_error_description") or payload.get("pg_error_message") or "freedompay_failure"
             payment.save(update_fields=["response", "success", "error"])
+            _log_payment_event(payment, self.result_type)
 
         if self.result_type == "post":
             return Response({"status": "ok"}, status=status.HTTP_200_OK)
@@ -905,6 +940,7 @@ class FreedomPayChargeResultView(APIView):
             payment.success = False
             payment.error = payload.get("pg_error_description") or payload.get("pg_error_message") or "freedompay_failure"
         payment.save(update_fields=["response", "success", "error"])
+        _log_payment_event(payment, f"charge_{self.result_type}")
 
 
 class FreedomPayChargeFailureView(FreedomPayChargeResultView):

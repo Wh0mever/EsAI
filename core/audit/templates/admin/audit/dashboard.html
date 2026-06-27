@@ -1,0 +1,124 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block extrastyle %}{{ block.super }}
+<style>
+  .dash-wrap { max-width: 1200px; }
+  .dash-section-title { margin: 24px 0 8px; font-size: 16px; font-weight: 600; }
+  .dash-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 14px;
+  }
+  .dash-card {
+    background: var(--body-bg, #fff);
+    border: 1px solid var(--hairline-color, #e0e0e0);
+    border-radius: 8px;
+    padding: 14px 16px;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+  }
+  .dash-card .label { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--body-quiet-color, #666); }
+  .dash-card .value { font-size: 26px; font-weight: 700; margin-top: 6px; }
+  .dash-card .sub { font-size: 12px; color: var(--body-quiet-color, #888); margin-top: 4px; }
+  .dash-badge-est {
+    display: inline-block; font-size: 10px; font-weight: 700;
+    background: #f5a623; color: #fff; border-radius: 4px;
+    padding: 1px 6px; margin-left: 6px; vertical-align: middle;
+  }
+  .dash-na { color: #999; font-style: italic; }
+  .dash-table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+  .dash-table th, .dash-table td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--hairline-color, #eee); }
+  .dash-note { font-size: 12px; color: var(--body-quiet-color, #777); margin-top: 6px; }
+  .dash-meta-time { color: var(--body-quiet-color, #888); font-size: 12px; margin-bottom: 16px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="dash-wrap">
+  <p class="dash-meta-time">Данные на {{ metrics.generated_at|date:"d.m.Y H:i:s" }} •
+    <a href="{% url 'admin:audit_eventlog_changelist' %}">Журнал событий →</a>
+  </p>
+
+  <div class="dash-section-title">Пользователи</div>
+  <div class="dash-grid">
+    <div class="dash-card"><div class="label">Всего</div><div class="value">{{ metrics.users_total }}</div></div>
+    <div class="dash-card"><div class="label">Новых сегодня</div><div class="value">{{ metrics.users_today }}</div></div>
+    <div class="dash-card"><div class="label">Новых за 30 дней</div><div class="value">{{ metrics.users_month }}</div></div>
+  </div>
+
+  <div class="dash-section-title">Активность</div>
+  <div class="dash-grid">
+    <div class="dash-card"><div class="label">Сообщений всего</div><div class="value">{{ metrics.messages_total }}</div></div>
+    <div class="dash-card"><div class="label">Запросов пользователей</div><div class="value">{{ metrics.user_requests_total }}</div><div class="sub">role=user</div></div>
+    <div class="dash-card"><div class="label">Активные за 24ч</div><div class="value">{{ metrics.active_users_24h }}</div></div>
+    <div class="dash-card"><div class="label">Активные за 30д</div><div class="value">{{ metrics.active_users_30d }}</div></div>
+  </div>
+
+  <div class="dash-section-title">Оплаты</div>
+  <div class="dash-grid">
+    <div class="dash-card"><div class="label">Успешных платежей</div><div class="value">{{ metrics.payments_success_count }}</div></div>
+    <div class="dash-card">
+      <div class="label">Выручка <span class="dash-badge-est" title="{{ metrics.estimates.revenue_total }}">смеш. валюта</span></div>
+      <div class="value">{{ metrics.revenue_total }}</div>
+      <div class="sub">{{ metrics.estimates.revenue_total }}</div>
+    </div>
+    <div class="dash-card"><div class="label">Средний чек</div><div class="value">{{ metrics.avg_check }}</div></div>
+  </div>
+
+  <div class="dash-section-title">Токены</div>
+  <div class="dash-grid">
+    <div class="dash-card"><div class="label">Списано (chat)</div><div class="value">{{ metrics.tokens_spent }}</div></div>
+    <div class="dash-card"><div class="label">Начислено (purchase)</div><div class="value">{{ metrics.tokens_purchased }}</div></div>
+    <div class="dash-card"><div class="label">Σ total_tokens (meta)</div><div class="value">{{ metrics.total_tokens_sum }}</div></div>
+  </div>
+
+  <div class="dash-section-title">Экономика (оценка)</div>
+  <div class="dash-grid">
+    <div class="dash-card">
+      <div class="label">Расход OpenRouter, USD <span class="dash-badge-est">оценка</span></div>
+      <div class="value">{{ metrics.openrouter_cost_estimate_usd }}</div>
+      <div class="sub">ставка {{ metrics.openrouter_rate_used }} USD/токен</div>
+    </div>
+    <div class="dash-card">
+      <div class="label">Прибыль <span class="dash-badge-est">оценка</span></div>
+      <div class="value">{{ metrics.profit_estimate }}</div>
+      <div class="sub">{{ metrics.estimates.profit_estimate }}</div>
+    </div>
+  </div>
+
+  <div class="dash-section-title">Качество / ошибки</div>
+  <div class="dash-grid">
+    <div class="dash-card"><div class="label">Ошибки OpenRouter</div><div class="value">{{ metrics.errors_openrouter }}</div></div>
+    <div class="dash-card"><div class="label">Ошибки сервера</div><div class="value">{{ metrics.errors_server }}</div></div>
+    <div class="dash-card"><div class="label">Ошибки FreedomPay</div><div class="value">{{ metrics.errors_freedompay }}</div></div>
+    <div class="dash-card">
+      <div class="label">Среднее время ответа</div>
+      {% if metrics.avg_latency is not None %}
+        <div class="value">{{ metrics.avg_latency }} c</div>
+      {% else %}
+        <div class="value dash-na">N/A</div>
+        <div class="sub">в meta нет ключа latency</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <div class="dash-section-title">Популярные модели</div>
+  {% if metrics.top_models %}
+  <table class="dash-table">
+    <thead><tr><th>Модель</th><th>Запросов (ответов ассистента)</th></tr></thead>
+    <tbody>
+      {% for model, cnt in metrics.top_models %}
+      <tr><td>{{ model }}</td><td>{{ cnt }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p class="dash-na">Нет данных по моделям (meta.model пуст).</p>
+  {% endif %}
+
+  <p class="dash-note">
+    Метрики, помеченные «оценка», рассчитаны приблизительно: реальной per-token
+    стоимости OpenRouter в БД нет, выручка может суммироваться в смешанных валютах.
+  </p>
+</div>
+{% endblock %}
