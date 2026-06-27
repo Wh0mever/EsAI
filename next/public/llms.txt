@@ -1,0 +1,47 @@
+# EsAI
+
+> EsAI — агрегатор нейросетей: ChatGPT, DeepSeek, Gemini, Claude, Grok, Mistral и Perplexity в одном чате. Один интерфейс, оплата в сомах, поддержка русского, кыргызского и английского языков. Можно начать бесплатно и без регистрации.
+
+EsAI (esai.kg) даёт доступ к лучшим моделям искусственного интеллекта через единый чат. Пользователь выбирает модель и пишет запрос: текст, код, перевод, рефераты, резюме, анализ PDF и Excel, помощь в учёбе, маркетинге и бизнесе. Гость может попробовать чат без входа; вход — через Google или Telegram.
+
+## Что умеет EsAI
+- Доступ к моделям: ChatGPT (OpenAI), DeepSeek, Gemini (Google), Claude (Anthropic), Grok (xAI), Mistral, Perplexity — в одном окне
+- Написание и редактирование текстов, статей, постов
+- Генерация и объяснение кода
+- Перевод между языками
+- Рефераты, эссе, конспекты и помощь в учёбе
+- Создание резюме и сопроводительных писем
+- Анализ документов: PDF и Excel
+- Задачи для маркетинга и бизнеса
+- Оплата в кыргызских сомах (KGS)
+
+## Основные страницы
+- [Главная — чат EsAI](https://esai.kg/): рабочий чат со всеми нейросетями
+- [Цены](https://esai.kg/pricing): тарифы и пополнение баланса
+- [Блог](https://esai.kg/blog): статьи о нейросетях и применении ИИ
+
+## Страницы моделей (/model/<slug>)
+- [ChatGPT](https://esai.kg/model/chatgpt)
+- [DeepSeek](https://esai.kg/model/deepseek)
+- [Gemini](https://esai.kg/model/gemini)
+- [Claude](https://esai.kg/model/claude)
+- [Grok](https://esai.kg/model/grok)
+- [Mistral](https://esai.kg/model/mistral)
+- [Perplexity](https://esai.kg/model/perplexity)
+
+## Страницы функций (/ai/<slug>)
+- [Написать текст](https://esai.kg/ai/napisat-tekst)
+- [Написать код](https://esai.kg/ai/napisat-kod)
+- [Перевод](https://esai.kg/ai/perevod)
+- [Реферат](https://esai.kg/ai/referat)
+- [Резюме](https://esai.kg/ai/rezume)
+- [Анализ PDF](https://esai.kg/ai/pdf)
+- [Анализ Excel](https://esai.kg/ai/excel)
+- [Маркетинг](https://esai.kg/ai/marketing)
+- [Бизнес](https://esai.kg/ai/biznes)
+- [Учёба](https://esai.kg/ai/ucheba)
+
+## Языки
+- Русский (ru) — основной
+- Кыргызский (kg)
+- English (en)

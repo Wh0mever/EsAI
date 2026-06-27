@@ -816,6 +816,11 @@
     "name": "EsAI",
     "slogan": "Бардык AI бир жерде."
   },
+  "guest": {
+    "limit_title": "Акысыз лимит түгөндү",
+    "limit_desc": "Сиз акысыз лимитти колдондуңуз. Улантуу үчүн Google же Telegram аркылуу кириңиз.",
+    "free_remaining": "{{limit}} ичинен {{count}} акысыз билдирүү калды"
+  },
   "theme": {
     "title": "Тема",
     "light": "Жарык",

@@ -817,6 +817,11 @@
     "name": "EsAI",
     "slogan": "All AI in one place."
   },
+  "guest": {
+    "limit_title": "Free limit reached",
+    "limit_desc": "You have used your free limit. Sign in with Google or Telegram to continue.",
+    "free_remaining": "{{count}} of {{limit}} free messages left"
+  },
   "theme": {
     "title": "Theme",
     "light": "Light",

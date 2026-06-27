@@ -14,6 +14,7 @@ import {
   FiMoon,
   FiMonitor,
   FiLogOut,
+  FiLogIn,
   FiTrash2,
 } from "react-icons/fi";
 import NextLink from "@/components/ui/nextLink/NextLink";
@@ -262,7 +263,7 @@ export default function ChatSidebar({
                 >
                   <FiSettings className="text-muted" /> {t("common.settings", { defaultValue: "Настройки" })}
                 </NextLink>
-                {isAuthed && (
+                {isAuthed ? (
                   <>
                     <button
                       type="button"
@@ -279,6 +280,14 @@ export default function ChatSidebar({
                       <FiLogOut /> {t("nav.logout", { defaultValue: "Выйти" })}
                     </button>
                   </>
+                ) : (
+                  <NextLink
+                    href="/auth/signin"
+                    onClick={onClose}
+                    className="flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm hover:bg-surface-2 cursor-pointer text-accent-strong font-medium"
+                  >
+                    <FiLogIn /> {t("auth.login", { defaultValue: "Войти" })}
+                  </NextLink>
                 )}
               </div>
             </motion.aside>

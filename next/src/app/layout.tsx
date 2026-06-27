@@ -7,40 +7,55 @@ import "highlight.js/styles/github-dark.css";
 import "@/assets/style.scss";
 import DomainDefaults from "@/components/bootstrap/DomainDefaults";
 import { THEME_BOOTSTRAP } from "@/lib/theme";
+import { SITE_URL, SITE_NAME, OG_IMAGE } from "@/lib/seo/site";
+import { homeJsonLd } from "@/lib/seo/jsonLd";
 
 export const metadata: Metadata = {
+	metadataBase: new URL(SITE_URL),
 	title: "EsAI — Все AI в одном месте",
 	description:
 		"EsAI — нейросети в одном месте. ChatGPT, DeepSeek, Claude, Gemini онлайн на русском, кыргызском и английском. Пишите тексты, код, переводите и анализируйте документы.",
 	keywords: [
 		"EsAI",
-		"нейросети",
+		"нейросети онлайн",
+		"чат gpt на русском",
+		"чат gpt на кыргызском",
 		"ChatGPT",
 		"DeepSeek",
 		"Claude",
 		"Gemini",
-		"AI онлайн",
+		"Grok",
+		"Mistral",
+		"Perplexity",
 		"искусственный интеллект",
-		"чат с нейросетью",
+		"нейросеть онлайн без VPN",
+		"AI чат на русском",
+		"нейросеть для текста",
+		"нейросеть для кода",
+		"оплата в сомах",
 	],
 	icons: {
 		icon: "/esai-mark.svg",
 		shortcut: "/esai-mark.svg",
 		apple: "/esai-mark.svg",
 	},
+	alternates: {
+		canonical: "/",
+	},
 	openGraph: {
 		title: "EsAI — Все AI в одном месте",
 		description:
 			"Все AI в одном месте. ChatGPT, DeepSeek, Claude, Gemini онлайн на русском и кыргызском.",
-		siteName: "EsAI",
+		url: SITE_URL,
+		siteName: SITE_NAME,
 		type: "website",
-		images: [{ url: "/esai-logo.svg" }],
+		images: [{ url: OG_IMAGE }],
 	},
 	twitter: {
 		card: "summary_large_image",
 		title: "EsAI — Все AI в одном месте",
 		description: "Все AI в одном месте. ChatGPT, DeepSeek, Claude, Gemini онлайн.",
-		images: ["/esai-logo.svg"],
+		images: [OG_IMAGE],
 	},
 };
 
@@ -75,6 +90,10 @@ export default async function RootLayout({ children }: { children: React.ReactNo
 		<html lang={lang} className="dark" data-theme="dark" suppressHydrationWarning>
 			<head>
 				<script dangerouslySetInnerHTML={{ __html: THEME_BOOTSTRAP }} />
+				<script
+					type="application/ld+json"
+					dangerouslySetInnerHTML={{ __html: JSON.stringify(homeJsonLd()) }}
+				/>
 			</head>
 			<body>
 				<DomainDefaults />
