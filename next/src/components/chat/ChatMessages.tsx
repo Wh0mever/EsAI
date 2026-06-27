@@ -6,7 +6,7 @@ import Markdown from "./Markdown";
 import MessageActions from "./MessageActions";
 import NextLink from "@/components/ui/nextLink/NextLink";
 import { BACKEND } from "@/tools/fetchData";
-import type { Message } from "@/types/chat";
+import type { Message, ChatSource } from "@/types/chat";
 
 function toAbsUrl(raw?: string): string {
   if (!raw) return "";
@@ -87,6 +87,45 @@ function Attachments({ atts }: { atts?: any[] }) {
   );
 }
 
+function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return url;
+  }
+}
+
+function Sources({ sources }: { sources?: ChatSource[] }) {
+  const { t } = useTranslation("common");
+  if (!Array.isArray(sources) || sources.length === 0) return null;
+  const clean = sources.filter((s) => s && s.url);
+  if (clean.length === 0) return null;
+  return (
+    <div className="mt-2 rounded-xl border border-border bg-surface-2/60 px-3 py-2.5">
+      <p className="text-xs font-semibold text-muted mb-1.5">
+        {t("chat.sources", { defaultValue: "Источники" })}
+      </p>
+      <ol className="flex flex-col gap-1">
+        {clean.map((s, i) => (
+          <li key={`${s.url}-${i}`} className="text-sm leading-snug flex gap-2">
+            <span className="text-muted-2 shrink-0 tabular-nums">{i + 1}.</span>
+            <a
+              href={s.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-accent-strong hover:underline underline-offset-2 break-words min-w-0"
+              title={s.url}
+            >
+              <span>{s.title?.trim() || hostOf(s.url)}</span>
+              <span className="text-muted-2 text-xs ml-1">({hostOf(s.url)})</span>
+            </a>
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}
+
 function AssistantBubble({
   msg,
   animate,
@@ -104,12 +143,26 @@ function AssistantBubble({
 }) {
   const { t } = useTranslation("common");
   const content = msg.content || "";
-  const { shown, done } = useTyping(content, animate, onScroll);
+  const streaming = (msg as any)?.streaming === true;
+  // Typing-effect only on the non-stream fallback path. While streaming, real
+  // deltas drive the text, so we render `content` directly.
+  const { shown, done: typedDone } = useTyping(content, animate && !streaming, onScroll);
 
   const isError = (msg as any)?.variant === "error";
   const isWarning = (msg as any)?.variant === "warning";
   const link = ((msg as any)?.link || "").toString().trim();
   const linkLabel = ((msg as any)?.linkLabel || "").toString().trim();
+  const sources = (msg as any)?.sources as ChatSource[] | undefined;
+
+  // Keep the view pinned to the bottom as streamed text grows.
+  useEffect(() => {
+    if (streaming) onScroll();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [content, streaming]);
+
+  const text = streaming ? content : shown;
+  const showCaret = streaming || (!typedDone && animate);
+  const finished = !streaming && (typedDone || !animate);
 
   const tone = isError
     ? "border border-rose-500/40 bg-rose-500/10"
@@ -122,9 +175,11 @@ function AssistantBubble({
       <div className={`px-4 py-3 rounded-2xl rounded-tl-md text-foreground ${tone}`}>
         {isError || isWarning ? (
           <span className="whitespace-pre-wrap">{content}</span>
+        ) : streaming && !text ? (
+          <ThinkingDots />
         ) : (
-          <span className={!done ? "esai-caret" : ""}>
-            <Markdown content={shown} />
+          <span className={showCaret ? "esai-caret" : ""}>
+            <Markdown content={text} />
           </span>
         )}
         {link && (
@@ -134,8 +189,9 @@ function AssistantBubble({
             </NextLink>
           </div>
         )}
+        {!isError && !isWarning && <Sources sources={sources} />}
       </div>
-      {!isError && !isWarning && done && content && (
+      {!isError && !isWarning && finished && content && (
         <MessageActions content={content} onRetry={onRetry} onContinue={onContinue} onFeedback={onFeedback} />
       )}
     </div>

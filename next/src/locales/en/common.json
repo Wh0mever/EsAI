@@ -417,6 +417,8 @@
     "cover_error_unknown": "Failed to save cover",
     "thinking": "Thinking",
     "thinking_ellipsis": "Thinking…",
+    "sources": "Sources",
+    "web_search_short": "Search",
     "voice_enter": "Voice Enter",
     "attachments": "Attachments",
     "attachment_upload_error": "Upload error",
@@ -816,6 +818,13 @@
   "brand": {
     "name": "EsAI",
     "slogan": "All AI in one place."
+  },
+  "pwa": {
+    "install_title": "Install the EsAI app",
+    "install_desc": "Quick access to the chat from your home screen, like a native app.",
+    "install_cta": "Install",
+    "ios_hint": "Tap Share, then “Add to Home Screen”.",
+    "dismiss": "Not now"
   },
   "guest": {
     "limit_title": "Free limit reached",

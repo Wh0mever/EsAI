@@ -416,6 +416,8 @@
     "cover_error_unknown": "Не удалось сохранить обложку",
     "thinking": "Думаю",
     "thinking_ellipsis": "Думаю…",
+    "sources": "Источники",
+    "web_search_short": "Поиск",
     "voice_enter": "Голосовой ввод",
     "attachments": "Вложения",
     "attachment_upload_error": "Ошибка загрузки",
@@ -815,6 +817,13 @@
   "brand": {
     "name": "EsAI",
     "slogan": "Все AI в одном месте."
+  },
+  "pwa": {
+    "install_title": "Установить приложение EsAI",
+    "install_desc": "Быстрый доступ к чату с экрана телефона, как обычное приложение.",
+    "install_cta": "Установить",
+    "ios_hint": "Нажмите «Поделиться», затем «На экран „Домой“».",
+    "dismiss": "Не сейчас"
   },
   "guest": {
     "limit_title": "Бесплатный лимит исчерпан",

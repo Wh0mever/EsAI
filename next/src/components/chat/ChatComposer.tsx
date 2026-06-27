@@ -3,7 +3,7 @@
 import React, { useEffect, useRef, type FormEvent, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { IoIosSend, IoIosAttach } from "react-icons/io";
-import { IoDocumentTextOutline } from "react-icons/io5";
+import { IoDocumentTextOutline, IoGlobeOutline } from "react-icons/io5";
 import { fetchData, BACKEND } from "@/tools/fetchData";
 import ModelSelector, { type AiModel } from "./ModelSelector";
 
@@ -17,6 +17,8 @@ type Props = {
   model: string;
   onModelChange: (id: string, m: AiModel) => void;
   autoFocus?: boolean;
+  webSearch?: boolean;
+  onToggleWebSearch?: (v: boolean) => void;
 };
 
 /**
@@ -34,6 +36,8 @@ export default function ChatComposer({
   model,
   onModelChange,
   autoFocus,
+  webSearch = false,
+  onToggleWebSearch,
 }: Props) {
   const { t } = useTranslation("common");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -185,6 +189,23 @@ export default function ChatComposer({
               <IoIosAttach className="text-xl" />
             </button>
             <input ref={fileInputRef} type="file" multiple className="hidden" onChange={onFilesPicked} />
+            {onToggleWebSearch && (
+              <button
+                type="button"
+                onClick={() => onToggleWebSearch(!webSearch)}
+                aria-pressed={webSearch}
+                className={
+                  "inline-flex items-center gap-1.5 h-9 px-3 rounded-full border text-sm transition-colors cursor-pointer " +
+                  (webSearch
+                    ? "border-accent/60 bg-accent-soft text-accent-strong"
+                    : "border-border text-muted hover:text-foreground hover:bg-surface-2")
+                }
+                title={t("chat.quick.web_search", { defaultValue: "Поиск в интернете" })}
+              >
+                <IoGlobeOutline className="text-lg" />
+                <span className="hidden sm:inline">{t("chat.web_search_short", { defaultValue: "Поиск" })}</span>
+              </button>
+            )}
           </div>
           <button
             type="submit"
