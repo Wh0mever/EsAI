@@ -8,12 +8,15 @@ from .actions import charge_by_current_plan
 @admin.register(User)
 class UserAdmin(admin.ModelAdmin):
     list_display = (
-        'email', 'first_name', 'last_name', 'patronymic', 'tel', 
-        'telegram', 'country', 'city', 'is_active', 'is_staff', 
-        'is_superuser', 'is_confirmed', 'free_plan_activated', 'date_joined', 
+        'email', 'first_name', 'last_name', 'patronymic', 'tel',
+        'telegram', 'country', 'city', 'is_active', 'is_staff',
+        'is_superuser', 'is_confirmed', 'free_plan_activated', 'date_joined',
         'last_login', 'last_session', 'date_of_birth',
-        'referral_uid', 'bonus_texts', 'bonus_images', 'bonus_songs', 'bonus_music'
+        'referral_uid', 'token_balance',
+        'bonus_texts', 'bonus_images', 'bonus_songs', 'bonus_music'
     )
+    # Ручная корректировка баланса токенов админом прямо из списка (ТЗ 7.4).
+    list_editable = ('token_balance',)
     search_fields = ('email', 'first_name', 'last_name', 'tel', 'referral_uid')
     list_filter = ('is_active', 'is_staff', 'is_superuser', 'is_confirmed', 'date_joined')
     ordering = ('-date_joined',)

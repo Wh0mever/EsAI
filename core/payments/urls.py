@@ -16,6 +16,9 @@ from .views import (
     FreedomPayGenerationTopupSuccessView,
     FreedomPayGenerationTopupFailureView,
     FreedomPayGenerationTopupPostbackView,
+    FreedomPayTokenPurchaseSuccessView,
+    FreedomPayTokenPurchaseFailureView,
+    FreedomPayTokenPurchasePostbackView,
 )
 
 app_name = "payments"
@@ -36,4 +39,8 @@ urlpatterns = [
     path('topup/success/', FreedomPayGenerationTopupSuccessView.as_view(), name='freedompay-topup-success'),
     path('topup/failure/', FreedomPayGenerationTopupFailureView.as_view(), name='freedompay-topup-failure'),
     path('topup/postback/', FreedomPayGenerationTopupPostbackView.as_view(), name='freedompay-topup-postback'),
+    # Token package purchase callbacks (pay-as-you-go)
+    path('tokens/success/', FreedomPayTokenPurchaseSuccessView.as_view(), name='freedompay-tokens-success'),
+    path('tokens/failure/', FreedomPayTokenPurchaseFailureView.as_view(), name='freedompay-tokens-failure'),
+    path('tokens/postback/', FreedomPayTokenPurchasePostbackView.as_view(), name='freedompay-tokens-postback'),
 ]

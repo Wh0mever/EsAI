@@ -1,4 +1,5 @@
 ﻿import json
+import math
 import os
 from decimal import Decimal
 from typing import Any, Optional, List, Tuple
@@ -15,6 +16,7 @@ from .models import (
 )
 from plans.models import UserSubscription
 from plans.services import get_chat_access_state, consume_bonus_without_subscription
+from plans.wallet import has_tokens, charge_tokens, InsufficientTokens
 from django.core.exceptions import ValidationError
 from .serializers import AiChatMessageSerializer
 
@@ -395,6 +397,16 @@ def OpenAIHandler(request):
         access = get_chat_access_state(request.user, "kg" if lang_code == "ky" else lang_code, kind="text")
         if access.get("blocked"):
             return {"error": access.get("error"), "error_code": access.get("error_code"), "grace_until": access.get("grace_until")}
+
+        # 0) Token pre-check (pay-as-you-go). Если нет токенов — НЕ дергаем OpenRouter.
+        if not has_tokens(request.user):
+            return {
+                "error": "insufficient_tokens",
+                "error_code": "insufficient_tokens",
+                "balance_tokens": 0,
+                "http_status": 402,
+            }
+
         # 1) Model + subscription/limits
         subscription = (
             UserSubscription.objects
@@ -567,7 +579,52 @@ def OpenAIHandler(request):
             meta=usage_meta,
         )
 
-        # 9) Consume one unit (best-effort; race-safe inside consume)
+        # 9) Списание токенов за ответ (pay-as-you-go).
+        # OpenRouter уже успешно ответил (assistant_msg сохранён), поэтому списываем.
+        # charged = max(1, ceil(total_tokens * markup_coefficient))
+        total_tokens = usage_meta.get("total_tokens")
+        coeff = usage_meta.get("markup_coefficient")
+        try:
+            coeff_dec = Decimal(str(coeff)) if coeff is not None else Decimal("1")
+        except Exception:
+            coeff_dec = Decimal("1")
+        try:
+            total_int = int(total_tokens) if total_tokens is not None else 0
+        except Exception:
+            total_int = 0
+        charged = max(1, math.ceil(total_int * float(coeff_dec)))
+
+        try:
+            new_balance = charge_tokens(
+                request.user,
+                charged,
+                "chat",
+                meta={
+                    "session_id": session.id,
+                    "message_id": assistant_msg.id,
+                    "model": usage_meta.get("model"),
+                    "openrouter_id": usage_meta.get("openrouter_id"),
+                    "total_tokens": total_int,
+                    "markup_coefficient": float(coeff_dec),
+                },
+            )
+        except InsufficientTokens as exc:
+            # Очень редкая гонка: баланс ушёл в 0 между pre-check и списанием.
+            # Ответ уже сгенерирован и сохранён — спишем сколько есть (до нуля),
+            # чтобы не терять деньги и не падать.
+            new_balance = exc.balance
+            if exc.balance > 0:
+                try:
+                    new_balance = charge_tokens(request.user, exc.balance, "chat", meta={
+                        "session_id": session.id,
+                        "message_id": assistant_msg.id,
+                        "partial": True,
+                        "required": charged,
+                    })
+                except InsufficientTokens as exc2:
+                    new_balance = exc2.balance
+
+        # Legacy счётчики (оставлены «спящими» для совместимости — не основной путь).
         if subscription:
             try:
                 subscription.consume(consume_kind)
@@ -587,6 +644,8 @@ def OpenAIHandler(request):
             },
             "response": answer,
             "message": AiChatMessageSerializer(assistant_msg).data,
+            "tokens_charged": charged,
+            "balance_tokens": new_balance,
             "warning": access.get("warning"),
             "warning_code": access.get("warning_code"),
             "grace_until": access.get("grace_until"),

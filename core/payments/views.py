@@ -723,6 +723,137 @@ class FreedomPayGenerationTopupPostbackView(FreedomPayGenerationTopupResultBaseV
     result_type = "post"
 
 
+def _credit_token_package_for_payment(payment: "Payment", order_id: str) -> None:
+    """Начислить токены за оплаченный пакет. Идемпотентно по order_id.
+
+    Защита от двойного начисления:
+    1) флаг response["token_purchase_applied"];
+    2) проверка существующей TokenTransaction(reason="purchase") с этим order_id в meta.
+    """
+    from plans.models import TokenPackage, TokenTransaction
+    from plans.wallet import credit_tokens
+
+    response = payment.response or {}
+    if bool(response.get("token_purchase_applied")):
+        return
+
+    info = (payment.request or {}).get("token_purchase") or {}
+    package_id = info.get("package_id")
+    if not payment.user or not package_id:
+        raise ValueError("token_purchase_info_missing")
+
+    # Idempotency: did we already credit for this order?
+    already = TokenTransaction.objects.filter(
+        user=payment.user,
+        reason="purchase",
+        meta__order_id=order_id,
+    ).exists()
+    if already:
+        response["token_purchase_applied"] = True
+        payment.response = response
+        return
+
+    try:
+        package = TokenPackage.objects.get(pk=int(package_id))
+        total = int(package.tokens or 0) + int(package.bonus_tokens or 0)
+    except (TokenPackage.DoesNotExist, TypeError, ValueError):
+        # Пакет мог быть удалён — fallback на снапшот из request.
+        total = int(info.get("tokens") or 0) + int(info.get("bonus_tokens") or 0)
+
+    if total <= 0:
+        raise ValueError("token_package_zero_amount")
+
+    credit_tokens(
+        payment.user,
+        total,
+        "purchase",
+        meta={
+            "order_id": order_id,
+            "package_id": package_id,
+            "tokens": int(info.get("tokens") or 0),
+            "bonus_tokens": int(info.get("bonus_tokens") or 0),
+        },
+    )
+    response["token_purchase_applied"] = True
+    payment.response = response
+
+
+class FreedomPayTokenPurchaseResultBaseView(APIView):
+    """Обработка success/failure/postback оплаты пакета токенов.
+
+    На успешный платёж начисляет токены через credit_tokens (идемпотентно).
+    Старая подписочная/topup-ветка не затрагивается.
+    """
+
+    authentication_classes = []
+    permission_classes = []
+    result_type = "success"
+
+    def get(self, request, *args, **kwargs):
+        return self._handle(request, request.query_params)
+
+    def post(self, request, *args, **kwargs):
+        return self._handle(request, request.data)
+
+    def _handle(self, request, payload_source):
+        payload = _normalize_payload(payload_source)
+        order_id = payload.get("pg_order_id") or payload.get("order_id")
+        payment = Payment.objects.filter(order_id=order_id).order_by("-id").first() if order_id else None
+
+        if payment:
+            response = payment.response or {}
+            callbacks = list(response.get("callbacks") or [])
+            callbacks.append({"type": self.result_type, "payload": payload})
+            response["callbacks"] = callbacks
+            payment.response = response
+
+            if self.result_type == "success":
+                error_text = payload.get("pg_error_description") or payload.get("pg_error_message") or ""
+                status_text = str(payload.get("pg_status") or "").lower()
+                result_flag = str(payload.get("pg_result") or "").strip()
+                is_ok_status = (not status_text) or (status_text in {"ok", "success"})
+                is_ok_result = (not result_flag) or (result_flag == "1")
+                if error_text or (not is_ok_status) or (not is_ok_result):
+                    payment.success = False
+                    payment.error = str(error_text or f"freedompay_status_error:{status_text or result_flag or 'unknown'}")
+                else:
+                    payment.success = True
+                    payment.error = ""
+                    try:
+                        with transaction.atomic():
+                            _credit_token_package_for_payment(payment, order_id)
+                    except Exception as exc:
+                        payment.success = False
+                        payment.error = f"token_purchase_apply_failed:{exc}"
+            elif self.result_type == "failure":
+                payment.success = False
+                payment.error = payload.get("pg_error_description") or payload.get("pg_error_message") or "freedompay_failure"
+            payment.save(update_fields=["response", "success", "error"])
+
+        if self.result_type == "post":
+            return Response({"status": "ok"}, status=status.HTTP_200_OK)
+
+        if self.result_type == "success":
+            return HttpResponseRedirect(
+                _frontend_absolute_url(request, "/profile", {"payment": "tokens_success"})
+            )
+        return HttpResponseRedirect(
+            _frontend_absolute_url(request, "/profile", {"payment": "tokens_failed"})
+        )
+
+
+class FreedomPayTokenPurchaseSuccessView(FreedomPayTokenPurchaseResultBaseView):
+    result_type = "success"
+
+
+class FreedomPayTokenPurchaseFailureView(FreedomPayTokenPurchaseResultBaseView):
+    result_type = "failure"
+
+
+class FreedomPayTokenPurchasePostbackView(FreedomPayTokenPurchaseResultBaseView):
+    result_type = "post"
+
+
 class FreedomPayChargeResultView(APIView):
     """Record recurring charge redirects/callbacks."""
 

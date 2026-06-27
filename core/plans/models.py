@@ -374,3 +374,65 @@ class AddonPurchase(models.Model):
 
     def __str__(self):
         return f"{self.user} — +M:{self.music_added} +T:{self.texts_added} +I:{self.images_added}"
+
+
+# =========================================================================
+# Pay-as-you-go токен-система (новая бизнес-логика; не ломает таблицы выше)
+# =========================================================================
+
+
+class TokenPackage(models.Model):
+    """Пакет токенов для покупки (pay-as-you-go). Редактируется в админке."""
+    name = models.CharField(max_length=100, verbose_name="Название")
+    tokens = models.BigIntegerField(verbose_name="Токенов")
+    bonus_tokens = models.BigIntegerField(default=0, verbose_name="Бонусных токенов")
+    price = models.DecimalField(max_digits=12, decimal_places=2, verbose_name="Цена")
+    currency = models.CharField(max_length=10, default="KGS", verbose_name="Валюта")
+    is_active = models.BooleanField(default=True, verbose_name="Активен")
+    sort_order = models.PositiveIntegerField(default=100, verbose_name="Порядок сортировки")
+    description = models.TextField(blank=True, verbose_name="Описание")
+
+    class Meta:
+        ordering = ["sort_order", "id"]
+        verbose_name = "Пакет токенов"
+        verbose_name_plural = "Пакеты токенов"
+
+    def __str__(self):
+        return f"{self.name} ({self.tokens}+{self.bonus_tokens} = {self.price} {self.currency})"
+
+
+class TokenTransactionReason(models.TextChoices):
+    CHAT = "chat", "Списание за чат"
+    PURCHASE = "purchase", "Покупка пакета"
+    ADMIN = "admin", "Ручная корректировка"
+    BONUS = "bonus", "Бонус"
+    REFUND = "refund", "Возврат"
+
+
+class TokenTransaction(models.Model):
+    """Леджер движения токенов (для аудита). Только append, не редактируется."""
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="token_transactions",
+        verbose_name="Пользователь",
+    )
+    # delta: + начисление / − списание
+    delta = models.BigIntegerField(verbose_name="Изменение")
+    reason = models.CharField(
+        max_length=20,
+        choices=TokenTransactionReason.choices,
+        verbose_name="Причина",
+    )
+    balance_after = models.BigIntegerField(verbose_name="Баланс после")
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True, verbose_name="Создано")
+    meta = models.JSONField(null=True, blank=True, verbose_name="Метаданные")
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "Транзакция токенов"
+        verbose_name_plural = "Транзакции токенов"
+
+    def __str__(self):
+        sign = "+" if self.delta >= 0 else ""
+        return f"{self.user_id}: {sign}{self.delta} ({self.reason}) -> {self.balance_after}"
