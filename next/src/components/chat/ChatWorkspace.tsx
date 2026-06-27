@@ -3,8 +3,11 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
+import Cookies from "js-cookie";
 import { FiMenu, FiPlus, FiZap } from "react-icons/fi";
 import { fetchData } from "@/tools/fetchData";
+import { getGuestId } from "@/lib/guest";
+import { isJwtValid } from "@/tools/jwt";
 import type { Message } from "@/types/chat";
 import type { AiModel } from "./ModelSelector";
 import ChatMessages from "./ChatMessages";
@@ -13,6 +16,7 @@ import StartScreen from "./StartScreen";
 import ChatSidebar, { type ChatItem } from "./ChatSidebar";
 import TopUpModal from "./TopUpModal";
 import InsufficientTokensModal from "./InsufficientTokensModal";
+import GuestLimitModal from "./GuestLimitModal";
 import { useBalance } from "@/hooks/useBalance";
 
 type Props = {
@@ -42,12 +46,43 @@ export default function ChatWorkspace({ chatId, mode = MODE }: Props) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [topUpOpen, setTopUpOpen] = useState(false);
   const [insufficientOpen, setInsufficientOpen] = useState(false);
+  const [guestLimitOpen, setGuestLimitOpen] = useState(false);
+  /** Remaining free guest messages, shown until the user signs in. null = unknown. */
+  const [guestFree, setGuestFree] = useState<{ used: number; limit: number } | null>(null);
   const [chats, setChats] = useState<ChatItem[]>([]);
 
   const { balance, setBalance, refresh: refreshBalance } = useBalance();
   const lastUserRef = useRef<string>("");
 
   const started = messages.length > 0;
+
+  /* ---------- deep-link from SEO pages: /?model=<openrouter_id>&q=<prompt> ---------- */
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const sp = new URLSearchParams(window.location.search);
+      const qModel = sp.get("model");
+      const qPrompt = sp.get("q");
+      let changed = false;
+      if (qModel) {
+        setModel(qModel);
+        // ModelSelector initialises its selection from this key, so keep it in sync.
+        try { localStorage.setItem("esai-model", qModel); } catch {}
+        changed = true;
+      }
+      if (qPrompt) {
+        setInput(qPrompt);
+        changed = true;
+      }
+      // Clean the URL so a refresh/share doesn't re-trigger the prefill.
+      if (changed) {
+        const clean = window.location.pathname + window.location.hash;
+        window.history.replaceState({}, "", clean);
+      }
+    } catch {}
+    // run once on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   /* ---------- load sessions list ---------- */
   useEffect(() => {
@@ -125,7 +160,19 @@ export default function ChatWorkspace({ chatId, mode = MODE }: Props) {
         if (readyAttachments.length) payload.attachments = readyAttachments;
         if (i18n?.language) payload.lang = i18n.language;
 
-        const res = await fetchData<any>("ai/chat/", "POST", payload, true);
+        // Authenticated users go through the Bearer path (auth=true).
+        // Guests send X-Guest-Id and must NOT trigger the auth redirect, so we
+        // call with auth=false and handle the guest-limit response ourselves.
+        const authed = isJwtValid(Cookies.get("access"));
+        const extraHeaders = authed ? undefined : { "X-Guest-Id": getGuestId() };
+        const res = await fetchData<any>("ai/chat/", "POST", payload, authed, extraHeaders);
+
+        // Guest free-quota exhausted -> invite sign-in (no redirect).
+        if (!authed && res?.status === 401 && (res?.data as any)?.error === "guest_limit_reached") {
+          // remove the optimistic user message so they can retry after login
+          setGuestLimitOpen(true);
+          return;
+        }
 
         // Insufficient tokens
         if (res?.status === 402 || (res?.data as any)?.error === "insufficient_tokens") {
@@ -142,7 +189,12 @@ export default function ChatWorkspace({ chatId, mode = MODE }: Props) {
         const assistantContent = data.response || "";
         // update balance from response if present
         if (typeof data.balance_tokens === "number") setBalance(data.balance_tokens);
-        else refreshBalance();
+        else if (authed) refreshBalance();
+
+        // Guest response carries free-usage counters: { guest, free_used, free_limit }
+        if (data.guest && typeof data.free_limit === "number") {
+          setGuestFree({ used: Number(data.free_used) || 0, limit: Number(data.free_limit) || 0 });
+        }
 
         if (!assistantContent) {
           setMessages((prev) => [...prev, { role: "assistant", content: t("chat.error_generic", { defaultValue: "Произошла ошибка." }), variant: "error" } as any]);
@@ -274,10 +326,20 @@ export default function ChatWorkspace({ chatId, mode = MODE }: Props) {
             onModelChange={(id) => setModel(id)}
             autoFocus={!started}
           />
-          {!started && (
+          {guestFree && guestFree.limit > 0 ? (
             <p className="text-center text-xs text-muted-2 mt-2">
-              {t("brand.slogan", { defaultValue: "Все AI в одном месте." })}
+              {t("guest.free_remaining", {
+                defaultValue: "Осталось {{count}} из {{limit}} бесплатных сообщений",
+                count: Math.max(0, guestFree.limit - guestFree.used),
+                limit: guestFree.limit,
+              })}
             </p>
+          ) : (
+            !started && (
+              <p className="text-center text-xs text-muted-2 mt-2">
+                {t("brand.slogan", { defaultValue: "Все AI в одном месте." })}
+              </p>
+            )
           )}
         </div>
       </main>
@@ -298,6 +360,7 @@ export default function ChatWorkspace({ chatId, mode = MODE }: Props) {
         onClose={() => setInsufficientOpen(false)}
         onTopUp={() => setTopUpOpen(true)}
       />
+      <GuestLimitModal open={guestLimitOpen} onClose={() => setGuestLimitOpen(false)} />
     </div>
   );
 }
