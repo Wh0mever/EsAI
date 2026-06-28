@@ -103,3 +103,21 @@ def has_tokens(user) -> bool:
         return int(getattr(user, "token_balance", 0) or 0) > 0
     except Exception:
         return False
+
+
+def grant_welcome_bonus(user) -> int:
+    """Начислить приветственный бонус новому пользователю ОДИН раз.
+
+    Сумма — settings.WELCOME_BONUS_TOKENS (по умолчанию 3000). Идемпотентно:
+    повторно не начисляет (по наличию TokenTransaction reason='welcome').
+    """
+    from django.conf import settings as dj_settings
+
+    if not user or not getattr(user, "pk", None):
+        return 0
+    amount = int(getattr(dj_settings, "WELCOME_BONUS_TOKENS", 3000) or 0)
+    if amount <= 0:
+        return int(getattr(user, "token_balance", 0) or 0)
+    if TokenTransaction.objects.filter(user=user, reason="welcome").exists():
+        return int(getattr(user, "token_balance", 0) or 0)
+    return credit_tokens(user, amount, "welcome", meta={"source": "signup"})

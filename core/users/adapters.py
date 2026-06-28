@@ -153,4 +153,12 @@ class SocialAccountAdapter(DefaultSocialAccountAdapter):
                 activate_free_plan_for_user(user)
             except Exception:
                 pass
+        # Приветственный бонус (3000 токенов) новым пользователям соц-входа.
+        # Идемпотентно (по reason='welcome'), повторно не начислит.
+        if user:
+            try:
+                from plans.wallet import grant_welcome_bonus
+                grant_welcome_bonus(user)
+            except Exception:
+                pass
         return user

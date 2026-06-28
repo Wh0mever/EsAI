@@ -23,6 +23,9 @@ ALLOWED_HOSTS = env.list(
 # Behind nginx reverse proxy: trust X-Forwarded-Proto
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
+# Приветственный бонус новым пользователям (токены). Клиент: 3000.
+WELCOME_BONUS_TOKENS = env.int("WELCOME_BONUS_TOKENS", default=3000)
+
 # CSRF trusted origins
 _DEFAULT_CSRF_TRUSTED = [
     "https://esai.kg",
