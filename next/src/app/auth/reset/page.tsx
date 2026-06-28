@@ -9,6 +9,9 @@ import { fetchData } from "@/tools/fetchData";
 import NextLink from "@/components/ui/nextLink/NextLink";
 import SmartForm from "@/components/forms/SmartForm";
 
+const INPUT_CLASS =
+	"w-full rounded-xl bg-surface-2 border border-border text-foreground placeholder:text-muted-2 text-sm px-4 py-3 focus:border-accent focus:outline-none transition-colors";
+
 export default function ResetPassword() {
 	const { t } = useTranslation("common");
 	const [step, setStep] = useState<"request" | "verify" | "reset">("request");
@@ -57,18 +60,7 @@ export default function ResetPassword() {
 	};
 
 	return (
-		<SmartForm
-			onSubmit={onSubmit}
-			submitLabel={
-				step === "request"
-					? t("auth.resetPassword")
-					: step === "verify"
-					? t("auth.confirm")
-					: t("auth.save_password")
-			}
-			loadingLabel={t("status.loading")}
-			className="flex-1 h-full flex flex-col gap-8 items-center px-10 lg:py-10 py-20 overflow-auto w-full"
-		>
+		<div className="w-full flex flex-col gap-7">
 			{alert && (
 				<Alert
 					show
@@ -83,54 +75,53 @@ export default function ResetPassword() {
 					closeButton
 				/>
 			)}
-			<NextLink href="/" className="w-full flex justify-center">
-				<img src="/images/logo/base.svg" alt="Logo" className="max-w-[200px]" />
+
+			<NextLink href="/" className="lg:hidden flex justify-center">
+				<img src="/esai-logo.svg" alt="EsAI" className="h-8" />
 			</NextLink>
-			{step === "request" && (
-				<div className="w-full select-none flex flex-col">
-					<label htmlFor="email" className="flex items-center gap-2 w-full">
-						<span className="text-gray-700 font-light">{t("auth.email")}</span>
-						<span className="text-rose-500 text-2xl">*</span>
-					</label>
-					<Field
-						className="bg-white border border-white text-black white-field-style text-sm px-3 py-2"
-						type="email"
-						name="email"
-						placeholder={t("auth.enter_email")}
-						id="email"
-					/>
-				</div>
-			)}
-			{step === "verify" && (
-				<div className="w-full select-none flex flex-col">
-					<label htmlFor="code" className="flex items-center gap-2 w-full">
-						<span className="text-gray-700 font-light">{t("auth.enter_code")}</span>
-						<span className="text-rose-500 text-2xl">*</span>
-					</label>
-					<Field
-						className="bg-white border border-white text-black white-field-style text-sm px-3 py-2"
-						type="text"
-						name="code"
-						placeholder="123456"
-						id="code"
-					/>
-				</div>
-			)}
-			{step === "reset" && (
-				<div className="w-full select-none flex flex-col">
-					<label htmlFor="password" className="flex items-center gap-2 w-full">
-						<span className="text-gray-700 font-light">{t("auth.new_password")}</span>
-						<span className="text-rose-500 text-2xl">*</span>
-					</label>
-					<Field
-						className="bg-white border border-white text-black white-field-style text-sm px-3 py-2"
-						type="password"
-						name="password"
-						placeholder={t("auth.enter_new_password")}
-						id="password"
-					/>
-				</div>
-			)}
-		</SmartForm>
+
+			<div className="text-center space-y-1">
+				<h1 className="text-2xl font-bold text-foreground">{t("auth.resetPassword", { defaultValue: "Восстановление пароля" })}</h1>
+				<p className="text-sm text-muted">
+					{step === "request"
+						? t("auth.reset_hint", { defaultValue: "Введите email — пришлём код" })
+						: step === "verify"
+						? t("auth.enter_code", { defaultValue: "Введите код из письма" })
+						: t("auth.new_password", { defaultValue: "Новый пароль" })}
+				</p>
+			</div>
+
+			<SmartForm
+				onSubmit={onSubmit}
+				submitLabel={
+					step === "request" ? t("auth.resetPassword") : step === "verify" ? t("auth.confirm") : t("auth.save_password")
+				}
+				loadingLabel={t("status.loading")}
+				className="w-full flex flex-col gap-4"
+			>
+				{step === "request" && (
+					<div className="flex flex-col gap-1.5">
+						<label htmlFor="email" className="text-sm text-muted">{t("auth.email")} <span className="text-accent">*</span></label>
+						<Field className={INPUT_CLASS} type="email" name="email" placeholder={t("auth.enter_email")} id="email" />
+					</div>
+				)}
+				{step === "verify" && (
+					<div className="flex flex-col gap-1.5">
+						<label htmlFor="code" className="text-sm text-muted">{t("auth.enter_code")} <span className="text-accent">*</span></label>
+						<Field className={`${INPUT_CLASS} tracking-[0.4em] text-center`} type="text" name="code" placeholder="XXXXXX" id="code" />
+					</div>
+				)}
+				{step === "reset" && (
+					<div className="flex flex-col gap-1.5">
+						<label htmlFor="password" className="text-sm text-muted">{t("auth.new_password")} <span className="text-accent">*</span></label>
+						<Field className={INPUT_CLASS} type="password" name="password" placeholder={t("auth.enter_new_password")} id="password" />
+					</div>
+				)}
+			</SmartForm>
+
+			<div className="text-center text-sm">
+				<NextLink href="/auth/signin" className="text-accent font-medium hover:underline">{t("auth.signin", { defaultValue: "Войти" })}</NextLink>
+			</div>
+		</div>
 	);
 }
