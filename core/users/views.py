@@ -47,52 +47,37 @@ class SigninApiView(APIView):
     permission_classes = []
 
     def post(self, request):
-        serializer = SignInSerializer(data=request.data)
-        if serializer.is_valid():
-            user = serializer.validated_data['user']
-            email = user['email']
-
-            try:
-                user_object = User.objects.get(email=email)
-                if not user_object._2fa:
-                    refresh = RefreshToken.for_user(user_object)
-                    return Response({
-                        "status": "authenticated",
-                        "data": {
-                            "access": str(refresh.access_token),
-                            "refresh": str(refresh),
-                            "user": {
-                                "id": user_object.id,
-                                "email": user_object.email,
-                                "tel": user_object.tel,
-                            }
-                        }
-                    }, status=200)
-            except Exception as ex:
-                print(ex)
-                return Response({"status": "error", "message": "user was not found"}, status=status.HTTP_400_BAD_REQUEST)
-
-            code = str(random.randint(100000, 999999))
-            cache.set(f"email_code:{email}", code, timeout=600)
-            cache.set(f"auth_data:{email}",
-                      serializer.validated_data, timeout=600)
-
-            send_template_email(
-                subject="Your verification code",
-                template_name="verify_email.html",
-                context={
-                    "code": code, "message": "To confirm your email, please use the 6-digit code below:"},
-                recipient_list=[email],
+        # Единый passwordless-вход по email (OTP). Пароль не требуется:
+        # на любой корректный email отправляем код; аккаунт создаётся при
+        # подтверждении кода (см. VerifyCodeApiView). Отдельной регистрации нет.
+        email = (request.data.get("email") or "").strip().lower()
+        if not email or "@" not in email or "." not in email.split("@")[-1]:
+            return Response(
+                {"status": "error", "message": "Введите корректный email"},
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
-            return Response({
-                "status": "success",
-                "message": "Verification code sent to email"
-            }, status=status.HTTP_200_OK)
-        return Response({
-            "status": "error",
-            "errors": format_errors(serializer.errors),
-        }, status=status.HTTP_400_BAD_REQUEST)
+        code = str(random.randint(100000, 999999))
+        cache.set(f"email_code:{email}", code, timeout=600)
+
+        try:
+            send_template_email(
+                subject="Код входа в EsAI",
+                template_name="verify_email.html",
+                context={"code": code, "message": "Ваш код для входа в EsAI:"},
+                recipient_list=[email],
+            )
+        except Exception as ex:
+            print("send code error:", ex)
+            return Response(
+                {"status": "error", "message": "Не удалось отправить код, попробуйте позже"},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        return Response(
+            {"status": "success", "message": "Код отправлен на email"},
+            status=status.HTTP_200_OK,
+        )
 
 
 class VerifyCodeApiView(APIView):
@@ -108,20 +93,47 @@ class VerifyCodeApiView(APIView):
         if not email or not code:
             return Response({"error": "Email and code are required."}, status=400)
 
+        email = email.lower()
         cached_code = cache.get(f"email_code:{email}")
         if isinstance(cached_code, (bytes, bytearray)):
             cached_code = cached_code.decode()
-        if cached_code != code:
-            return Response({"error": "Invalid or expired code."}, status=400)
-
-        try:
-            user = User.objects.get(email=email)
-        except User.DoesNotExist:
-            return Response({"error": "User not found."}, status=404)
+        if not cached_code or cached_code != code:
+            return Response({"error": "Неверный или просроченный код."}, status=400)
 
         cache.delete(f"email_code:{email}")
-        user.is_confirmed = True
-        user.save()
+
+        # Авто-создание аккаунта при первом входе (отдельной регистрации нет).
+        user = User.objects.filter(email=email).first()
+        created = False
+        if not user:
+            created = True
+            user = User(email=email)
+            try:
+                user.set_unusable_password()
+            except Exception:
+                pass
+            for field, value in (("is_confirmed", True), ("is_active", True), ("tel", "")):
+                if hasattr(user, field):
+                    try:
+                        setattr(user, field, value)
+                    except Exception:
+                        pass
+            user.save()
+
+        if not getattr(user, "is_confirmed", True):
+            user.is_confirmed = True
+            user.save(update_fields=["is_confirmed"])
+
+        if created:
+            try:
+                activate_free_plan_for_user(user)
+            except Exception:
+                pass
+            try:
+                from plans.wallet import grant_welcome_bonus
+                grant_welcome_bonus(user)  # +3000 токенов новому пользователю
+            except Exception:
+                pass
 
         refresh = RefreshToken.for_user(user)
 
@@ -133,7 +145,7 @@ class VerifyCodeApiView(APIView):
                 "user": {
                     "id": user.id,
                     "email": user.email,
-                    "tel": user.tel,
+                    "tel": getattr(user, "tel", ""),
                 }
             }
         }, status=200)
