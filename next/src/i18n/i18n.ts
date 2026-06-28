@@ -15,7 +15,7 @@ export const initI18n = async (lang: string) => {
   if (!i18n.isInitialized) {
     await i18n.init({
       lng: lang,
-      fallbackLng: "ru",
+      fallbackLng: ["kg", "ru"],
       supportedLngs: languages,
       defaultNS: "common",
       ns: ["common", "header", "home", "privacy", "offer", "terms"],

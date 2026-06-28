@@ -9,10 +9,15 @@ function normalizeHost(input: string) {
 
 function defaultsByHost(hostname: string) {
   const h = normalizeHost(hostname);
+  // EsAI hosts
+  if (h.endsWith('esai.kg')) return { locale: 'kg', currency: 'KGS' } as const;
+  if (h.endsWith('esai.ru')) return { locale: 'ru', currency: 'RUB' } as const;
+  if (h.endsWith('esai.online') || h.endsWith('esai.com')) return { locale: 'en', currency: 'USD' } as const;
+  // Legacy Vokalo hosts (kept for backward compatibility)
   if (h.endsWith('vokalo.ru')) return { locale: 'ru', currency: 'RUB' } as const;
   if (h.endsWith('vokalo.kg')) return { locale: 'kg', currency: 'KGS' } as const;
   if (h.endsWith('vokalo.online')) return { locale: 'en', currency: 'USD' } as const;
-  return { locale: 'ru', currency: 'USD' } as const; // fallback
+  return { locale: 'kg', currency: 'KGS' } as const; // fallback — kg by default (ТЗ)
 }
 
 export function middleware(request: NextRequest) {

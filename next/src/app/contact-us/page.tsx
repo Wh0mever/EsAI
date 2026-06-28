@@ -26,7 +26,7 @@ export default function ContactUs() {
 
             <a
               href={`mailto:${t("contact_us.write_email")}`}
-              className="mt-2 inline-flex items-center gap-1 border border-gray-700 py-3 px-5 rounded-lg bg-neutral-900 hover:bg-indigo-600 transition-all duration-300 w-full sm:w-auto"
+              className="mt-2 inline-flex items-center gap-1 border border-gray-700 py-3 px-5 rounded-lg bg-neutral-900 hover:bg-accent hover:text-on-accent transition-all duration-300 w-full sm:w-auto"
             >
               <span>{t("contact_us.write_button")}</span>
               <i><IoIosArrowRoundForward /></i>
@@ -46,7 +46,7 @@ export default function ContactUs() {
 
             <a
               href={`tel:+996555919141`}
-              className="mt-2 inline-flex items-center gap-1 border border-gray-700 py-3 px-5 rounded-lg bg-neutral-900 hover:bg-indigo-600 transition-all duration-300 w-full sm:w-auto"
+              className="mt-2 inline-flex items-center gap-1 border border-gray-700 py-3 px-5 rounded-lg bg-neutral-900 hover:bg-accent hover:text-on-accent transition-all duration-300 w-full sm:w-auto"
             >
               <span>{t("contact_us.call_button")}</span>
               <i><IoIosArrowRoundForward /></i>

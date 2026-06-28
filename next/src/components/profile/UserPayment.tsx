@@ -381,7 +381,7 @@
 // 					<Button
 // 						type="submit"
 // 						disabled={loading}
-// 						className="px-3 py-2 rounded-xl bg-indigo-500 hover:bg-indigo-700 mt-5"
+// 						className="px-3 py-2 rounded-xl bg-accent text-on-accent hover:bg-accent-strong mt-5"
 // 					>
 // 						{loading ? t("common.processing") : t("profile.add_card")}
 // 					</Button>

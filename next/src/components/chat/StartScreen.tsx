@@ -24,7 +24,7 @@ export default function StartScreen({ onUsePrompt }: Props) {
         {t("chat.start.greeting", { defaultValue: "Чем могу помочь?" })}
       </h1>
       <p className="mt-2 text-center text-muted">
-        {t("brand.slogan", { defaultValue: "Все AI в одном месте." })}
+        {t("brand.slogan", { defaultValue: "EsAI — Все нейросети в одном месте. Без лишних трат и подписок." })}
       </p>
 
       {/* Quick actions */}

@@ -33,7 +33,7 @@ export default function AuthButtons() {
         </Link>
         <Link
           href="/dashboard/text-chat"
-          className="hidden lg:inline-flex bg-indigo-500 px-4 py-2 rounded-3xl hover:bg-indigo-600 text-nowrap duration-300"
+          className="hidden lg:inline-flex bg-accent text-on-accent px-4 py-2 rounded-3xl hover:bg-accent-strong text-nowrap duration-300"
         >
           {t("nav.ai_chat")}
         </Link>
@@ -47,7 +47,7 @@ export default function AuthButtons() {
         </Link>
         <Link
           href="/dashboard/text-chat"
-          className="lg:hidden bg-indigo-500 p-3 rounded-3xl hover:bg-indigo-600 duration-300"
+          className="lg:hidden bg-accent text-on-accent p-3 rounded-3xl hover:bg-accent-strong duration-300"
         >
           <FiGrid className="text-xl" />
         </Link>
@@ -60,13 +60,13 @@ export default function AuthButtons() {
 			{/* Signin */}
 			<Link
 				href="/auth/signin"
-				className="hidden lg:inline-flex border border-neutral-700 px-4 py-2 rounded-3xl hover:bg-indigo-600 text-nowrap duration-300"
+				className="hidden lg:inline-flex border border-neutral-700 px-4 py-2 rounded-3xl hover:bg-accent hover:text-on-accent hover:border-transparent text-nowrap duration-300"
 			>
 				{t("nav.signin")}
 			</Link>
 			<Link
 				href="/auth/signin"
-				className="lg:hidden border border-neutral-700 p-3 rounded-3xl hover:bg-indigo-600 duration-300"
+				className="lg:hidden border border-neutral-700 p-3 rounded-3xl hover:bg-accent hover:text-on-accent hover:border-transparent duration-300"
 			>
 				<FiLogIn className="text-xl" />
 			</Link>
@@ -76,13 +76,13 @@ export default function AuthButtons() {
 			{/* Signup */}
 			<Link
 				href="/auth/signup"
-				className="hidden lg:inline-flex bg-indigo-500 px-4 py-2 rounded-3xl hover:bg-indigo-600 text-nowrap duration-300"
+				className="hidden lg:inline-flex bg-accent text-on-accent px-4 py-2 rounded-3xl hover:bg-accent-strong text-nowrap duration-300"
 			>
 				{t("nav.signup")}
 			</Link>
 			<Link
 				href="/auth/signup"
-				className="lg:hidden bg-indigo-500 p-3 rounded-3xl hover:bg-indigo-600 duration-300"
+				className="lg:hidden bg-accent text-on-accent p-3 rounded-3xl hover:bg-accent-strong duration-300"
 			>
 				<FiUserPlus className="text-xl" />
 			</Link>

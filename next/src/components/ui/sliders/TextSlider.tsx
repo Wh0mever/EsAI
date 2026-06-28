@@ -42,7 +42,7 @@ export default function TextSlider({ slides, delay = 3000 }: TextSliderProps) {
           <div
             key={index}
             className={`w-3 h-3 transition-all duration-500 ${
-              currentIndex === index ? "bg-indigo-600 px-4 rounded-xl" : "bg-gray-400 rounded-full"
+              currentIndex === index ? "bg-accent px-4 rounded-xl" : "bg-gray-400 rounded-full"
             }`}
           />
         ))}

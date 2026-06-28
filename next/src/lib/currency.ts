@@ -8,10 +8,15 @@ function readCookie(name: string): string | null {
 
 function currencyFromHost(hostname: string | undefined | null): Currency {
   const h = (hostname || "").toLowerCase();
+  // EsAI hosts
+  if (h.endsWith("esai.kg")) return "KGS";
+  if (h.endsWith("esai.ru")) return "RUB";
+  if (h.endsWith("esai.online") || h.endsWith("esai.com")) return "USD";
+  // Legacy Vokalo hosts (kept for backward compatibility)
   if (h.endsWith("vokalo.ru")) return "RUB";
   if (h.endsWith("vokalo.kg")) return "KGS";
   if (h.endsWith("vokalo.online")) return "USD";
-  return "USD";
+  return "KGS"; // kg by default (ТЗ)
 }
 
 export function getInitialCurrency(): Currency {

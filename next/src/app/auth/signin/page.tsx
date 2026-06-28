@@ -120,7 +120,7 @@ export default function SignIn() {
 
 			<div className="text-center space-y-1">
 				<h1 className="text-2xl font-bold text-foreground">{t("auth.title", { defaultValue: "Вход в EsAI" })}</h1>
-				<p className="text-sm text-muted">{t("auth.subtitle", { defaultValue: "Все AI в одном месте" })}</p>
+				<p className="text-sm text-muted">{t("auth.subtitle", { defaultValue: "Без лишних трат и подписок." })}</p>
 			</div>
 
 			<SocialAuthButtons />

@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { useTranslation } from "react-i18next";
 import Cookies from "js-cookie";
@@ -16,6 +17,8 @@ import {
   FiLogOut,
   FiLogIn,
   FiTrash2,
+  FiEdit2,
+  FiCheck,
 } from "react-icons/fi";
 import NextLink from "@/components/ui/nextLink/NextLink";
 import { ConfirmationModal } from "@/components/dialog/Dialog";
@@ -48,11 +51,27 @@ export default function ChatSidebar({
   onNewChat,
 }: Props) {
   const { t, i18n } = useTranslation("common");
+  const router = useRouter();
   const { preference, setPreference } = useTheme();
   const [logoutOpen, setLogoutOpen] = useState(false);
   const [clearOpen, setClearOpen] = useState(false);
   const [clearing, setClearing] = useState(false);
   const isAuthed = typeof window !== "undefined" ? Boolean(Cookies.get("access")) : false;
+
+  // Local, mutable copy of the chat list so rename/delete reflect instantly.
+  // Kept in sync with the `chats` prop (parent is the source of truth on load).
+  const [items, setItems] = useState<ChatItem[]>(chats);
+  useEffect(() => setItems(chats), [chats]);
+
+  // Inline rename state.
+  const [editingRef, setEditingRef] = useState<string | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+  const [savingRef, setSavingRef] = useState<string | null>(null);
+  const editInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Delete confirmation state.
+  const [deleteTarget, setDeleteTarget] = useState<ChatItem | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   // Lock body scroll while drawer open.
   useEffect(() => {
@@ -61,7 +80,61 @@ export default function ChatSidebar({
     return () => document.body.classList.remove("overflow-hidden");
   }, [open]);
 
+  useEffect(() => {
+    if (editingRef) editInputRef.current?.focus();
+  }, [editingRef]);
+
   const ref = (c: ChatItem) => String(c.uid || c.id);
+
+  const startRename = (c: ChatItem) => {
+    setEditingRef(ref(c));
+    setEditTitle(c.title || "");
+  };
+
+  const cancelRename = () => {
+    setEditingRef(null);
+    setEditTitle("");
+  };
+
+  const submitRename = async (c: ChatItem) => {
+    const id = ref(c);
+    const title = editTitle.trim();
+    if (!title || title === (c.title || "")) {
+      cancelRename();
+      return;
+    }
+    setSavingRef(id);
+    try {
+      const res = await fetchData(`ai/sessions/${id}/`, "PATCH", { title }, true);
+      if (res.ok) {
+        setItems((prev) => prev.map((x) => (ref(x) === id ? { ...x, title } : x)));
+      }
+    } catch {
+      /* noop */
+    } finally {
+      setSavingRef(null);
+      cancelRename();
+    }
+  };
+
+  const confirmDelete = async () => {
+    if (!deleteTarget || deleting) return;
+    const id = ref(deleteTarget);
+    const wasActive = id === String(activeChatId || "");
+    setDeleting(true);
+    try {
+      const res = await fetchData(`ai/sessions/${id}/`, "DELETE", null, true);
+      if (res.ok) {
+        setItems((prev) => prev.filter((x) => ref(x) !== id));
+        if (wasActive) router.push("/");
+      }
+    } catch {
+      /* noop */
+    } finally {
+      setDeleting(false);
+      setDeleteTarget(null);
+    }
+  };
 
   const handleLogout = () => {
     Cookies.remove("access");
@@ -153,25 +226,93 @@ export default function ChatSidebar({
                   {t("chat.chat_history", { defaultValue: "История чатов" })}
                 </div>
                 <div className="overflow-y-auto pr-1 flex-1">
-                  {chats.length === 0 ? (
+                  {items.length === 0 ? (
                     <div className="text-sm text-muted-2 italic px-1 py-2">
                       {t("chat.chats_list_empty", { defaultValue: "История пуста" })}
                     </div>
                   ) : (
                     <ul className="space-y-1">
-                      {chats.map((c) => (
-                        <li key={ref(c)}>
-                          <NextLink
-                            href={`/dashboard/${c.chat_mode || "text-chat"}/${ref(c)}`}
-                            onClick={onClose}
-                            className={`block rounded-lg px-2.5 py-2 text-sm truncate ${
-                              ref(c) === String(activeChatId || "") ? "bg-accent-soft" : "hover:bg-surface-2"
-                            }`}
-                          >
-                            {c.title}
-                          </NextLink>
-                        </li>
-                      ))}
+                      {items.map((c) => {
+                        const id = ref(c);
+                        const isActive = id === String(activeChatId || "");
+                        const isEditing = editingRef === id;
+                        return (
+                          <li key={id}>
+                            {isEditing ? (
+                              <div
+                                className={`flex items-center gap-1 rounded-lg px-2 py-1.5 ${
+                                  isActive ? "bg-accent-soft" : "bg-surface-2"
+                                }`}
+                              >
+                                <input
+                                  ref={editInputRef}
+                                  value={editTitle}
+                                  onChange={(e) => setEditTitle(e.target.value)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") submitRename(c);
+                                    if (e.key === "Escape") cancelRename();
+                                  }}
+                                  disabled={savingRef === id}
+                                  className="flex-1 min-w-0 bg-surface text-foreground text-sm rounded-md px-2 py-1 border border-border outline-none focus:border-accent"
+                                  aria-label={t("chat.rename", { defaultValue: "Переименовать" })}
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => submitRename(c)}
+                                  disabled={savingRef === id}
+                                  className="p-1.5 rounded-md text-accent hover:bg-surface cursor-pointer disabled:opacity-60"
+                                  title={t("common.save", { defaultValue: "Сохранить" })}
+                                >
+                                  <FiCheck />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={cancelRename}
+                                  disabled={savingRef === id}
+                                  className="p-1.5 rounded-md text-muted hover:text-foreground hover:bg-surface cursor-pointer disabled:opacity-60"
+                                  title={t("common.cancel", { defaultValue: "Отмена" })}
+                                >
+                                  <FiX />
+                                </button>
+                              </div>
+                            ) : (
+                              <div
+                                className={`group flex items-center rounded-lg pr-1 ${
+                                  isActive ? "bg-accent-soft" : "hover:bg-surface-2"
+                                }`}
+                              >
+                                <NextLink
+                                  href={`/dashboard/${c.chat_mode || "text-chat"}/${id}`}
+                                  onClick={onClose}
+                                  className="flex-1 min-w-0 block px-2.5 py-2 text-sm text-foreground truncate"
+                                >
+                                  {c.title}
+                                </NextLink>
+                                <div className="flex items-center shrink-0 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+                                  <button
+                                    type="button"
+                                    onClick={() => startRename(c)}
+                                    className="p-1.5 rounded-md text-muted hover:text-foreground hover:bg-surface cursor-pointer"
+                                    title={t("chat.rename", { defaultValue: "Переименовать" })}
+                                    aria-label={t("chat.rename", { defaultValue: "Переименовать" })}
+                                  >
+                                    <FiEdit2 className="text-sm" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setDeleteTarget(c)}
+                                    className="p-1.5 rounded-md text-muted hover:text-rose-400 hover:bg-surface cursor-pointer"
+                                    title={t("chat.delete", { defaultValue: "Удалить" })}
+                                    aria-label={t("chat.delete", { defaultValue: "Удалить" })}
+                                  >
+                                    <FiTrash2 className="text-sm" />
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+                          </li>
+                        );
+                      })}
                     </ul>
                   )}
                 </div>
@@ -313,6 +454,17 @@ export default function ChatSidebar({
         onConfirm={handleClearHistory}
         onCancel={() => setClearOpen(false)}
         confirmDisabled={clearing}
+      />
+      <ConfirmationModal
+        isOpen={Boolean(deleteTarget)}
+        title={t("chat.delete_confirm_title", { defaultValue: "Удалить чат?" })}
+        description={t("chat.delete_confirm_desc", { defaultValue: "Чат и все его сообщения будут удалены безвозвратно." })}
+        confirmText={t("common.yes", { defaultValue: "Да" })}
+        confirmLoadingText={t("common.loading", { defaultValue: "Загрузка..." })}
+        cancelText={t("common.no", { defaultValue: "Нет" })}
+        onConfirm={confirmDelete}
+        onCancel={() => setDeleteTarget(null)}
+        confirmDisabled={deleting}
       />
     </>
   );

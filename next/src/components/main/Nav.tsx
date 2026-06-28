@@ -36,7 +36,9 @@ const CURRENCY_KEY = "APP_CURRENCY";
 const CURRENCY_CHANGED_EVENT = "app:currency-changed";
 
 function useLocale() {
-  const current = Cookies.get("NEXT_LOCALE") || "ru";
+  const { i18n } = useTranslation();
+  // Derive from the live i18n language so the UI updates instantly on switch.
+  const current = i18n.language || Cookies.get("NEXT_LOCALE") || "kg";
   const change = (lang: string) => {
     if (typeof window !== "undefined") {
       setLanguagePreference(lang as "ru" | "en" | "kg");

@@ -188,7 +188,7 @@ export function TabsTrigger({ value, disabled, leading, trailing, className, ...
     ctx.size === "lg" && "px-5 py-3 text-lg rounded-xl",
     ctx.variant === "underline" && "border-b-2 border-transparent data-[state=active]:border-white",
     ctx.variant === "soft" && "data-[state=active]:bg-white/10 hover:bg-white/5",
-    ctx.variant === "solid" && "data-[state=active]:bg-indigo-700 text-white bg-neutral-800 hover:bg-indigo-800/90 z",
+    ctx.variant === "solid" && "data-[state=active]:bg-accent data-[state=active]:text-on-accent text-white bg-neutral-800 hover:bg-accent-strong/90 z",
     disabled && "opacity-50 cursor-not-allowed",
     className
   );

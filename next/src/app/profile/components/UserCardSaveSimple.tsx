@@ -77,7 +77,7 @@ export default function UserCardSaveSimple({ data }: any) {
               type="button"
               onClick={startBind}
               disabled={loading}
-              className="px-5 py-2 rounded-xl bg-indigo-500 hover:bg-indigo-600 disabled:opacity-60"
+              className="px-5 py-2 rounded-xl bg-accent text-on-accent hover:bg-accent-strong disabled:opacity-60"
             >
               {loading ? t("profile.card_bind_loading") : t("profile.card_bind_button")}
             </Button>
@@ -101,7 +101,7 @@ export default function UserCardSaveSimple({ data }: any) {
                 type="button"
                 onClick={startBind}
                 disabled={loading}
-                className="px-5 py-2 rounded-xl bg-indigo-500 hover:bg-indigo-600 disabled:opacity-60"
+                className="px-5 py-2 rounded-xl bg-accent text-on-accent hover:bg-accent-strong disabled:opacity-60"
               >
                 {loading ? t("profile.card_bind_loading") : t("profile.card_bind_new_button")}
               </Button>

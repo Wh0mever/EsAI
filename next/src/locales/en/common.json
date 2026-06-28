@@ -41,7 +41,7 @@
 		"try_now": "Try",
 		"getstarted": "Get started with our new package",
 		"loading": "Loading...",
-		"vokalo_test": "EsAITest",
+		"free_test": "Free test",
 		"test_subtitle": "Trial",
 		"monthly_subtitle": "30 days",
 		"weekly_subtitle": "7 days",
@@ -174,8 +174,8 @@
 		"go_now": "Go now"
 	},
 	"auth": {
-		"title": "EsAI awaits your genre, lyrics, and instruments.",
-		"subtitle": "No credit card required!",
+		"title": "EsAI — all neural networks in one place.",
+		"subtitle": "No extra costs or subscriptions.",
 		"google": "Sign in with Google",
 		"social_soon": "Coming soon",
 		"or": "Or",
@@ -195,13 +195,12 @@
 		"enter_code": "Enter code",
 		"tel": "Phone",
 		"have_account": "Already have an account?",
-		"your_music": "Your music",
 		"start_here": "starts here!",
-		"welcome": "Welcome to the platform!",
-		"create_music": "Create music in seconds",
-		"create_pictures": "Generate images with neural networks",
-		"gpt": "Connect GPT for automation",
-		"you_can": "You can do it 💪",
+		"welcome": "EsAI.kg — все флагманские нейросети в одном месте.",
+		"create_music": "Access top AI models in seconds",
+		"create_pictures": "Generate text, code and images with neural networks",
+		"gpt": "ChatGPT, DeepSeek, Claude, Gemini, Grok, Mistral и Perplexity для учебы, работы и бизнеса.",
+		"you_can": "Молниеносная скорость работы и удобная оплата в кыргызских сомах.",
 		"signin_with_phone": "Sign in with phone number",
 		"signin_with_email": "Sign in with email",
 		"dont_have_account": "Don't have an account?",
@@ -263,8 +262,8 @@
 		"message_sended": "Your message was sent",
 		"questions": {
 			"0": {
-				"q": "How to create my first song or image?",
-				"a": "Sign up, choose a category (music or image), enter a text prompt, click \"Generate\" — and get the result in seconds."
+				"q": "How do I start using AI in EsAI?",
+				"a": "Open the chat, pick a model (ChatGPT, Claude, Gemini, DeepSeek and more), type your request — and get an answer in seconds. No registration required to try."
 			},
 			"1": {
 				"q": "How many generations are available in my plan?",
@@ -303,7 +302,7 @@
 			},
 			"7": {
 				"q": "How to contact support?",
-				"a": "Write to support@esai.kg or Telegram: @VokaloSupportBot"
+				"a": "Write to support@esai.kg or Telegram: @EsaiSupportBot"
 			}
 		},
 		"modalTitle": "Ask a Question",
@@ -312,26 +311,26 @@
 	},
 	"blog": {
 		"title": "🟡 Blog",
-		"subtitle": "Welcome to the EsAI Blog — a space where we share ideas, tips, and stories from the world of music, AI, and creativity.",
+		"subtitle": "Welcome to the EsAI Blog — a space where we share ideas, tips, and stories from the world of neural networks and AI.",
 		"points": [
-			"🎵 Tips for writing songs and lyrics",
-			"🤖 Reviews of new AI tools",
-			"🎨 Hacks for generating visual content",
+			"🤖 Guides to ChatGPT, Claude, Gemini, DeepSeek and other models",
+			"💼 How to use AI for study, work and business",
+			"⚡ Prompt hacks for fast results",
 			"📢 Platform news and updates",
-			"💡 User stories and best works"
+			"💡 User stories and best cases"
 		],
-		"footer": "We publish only useful, inspiring, and relevant content. Stay tuned — and be in sync with the future!"
+		"footer": "We publish only useful, inspiring, and relevant content. Stay tuned — and keep up with the future of AI!"
 	},
 	"about": {
 		"title": "🟡 About Us",
-		"subtitle": "EsAI is an innovative online service where artificial intelligence helps you create music, lyrics, and images. We combine technology and creativity so that anyone — from beginners to professionals — can bring their ideas to life quickly.",
+		"subtitle": "EsAI is an aggregator of flagship neural networks in one place: ChatGPT, DeepSeek, Claude, Gemini, Grok, Mistral and Perplexity. One access to all models for study, work and business — without extra costs or subscriptions.",
 		"points": [
-			"🔹 Generate songs based on your lyrics",
-			"🔹 Get music that fits the mood and style",
-			"🔹 Create covers, visuals, and illustrations using neural networks",
-			"🔹 Share, rate, get inspired"
+			"🔹 All top neural networks in one chat",
+			"🔹 Write text and code, translate, analyze documents",
+			"🔹 Lightning-fast speed and convenient payment in soms",
+			"🔹 One token balance across all models"
 		],
-		"footer": "We believe that AI is not a replacement but a partner in creativity. EsAI is built for those who want to create in a new way."
+		"footer": "We believe AI is a partner in work and study. EsAI is built to give simple, affordable access to the best neural networks."
 	},
 	"referral": {
 		"title": "🟡 Referral Program",
@@ -375,18 +374,11 @@
 		"clear_history": "Clear History",
 		"lib": "Library",
 		"images_library": "Image Library",
-		"music_library": "Music Library",
 		"images_library_empty": "No images yet",
 		"images_library_empty_title": "Your image library is empty!",
 		"images_library_empty_subtitle": "Create your first image with EsAI right now",
-		"music_library_empty_title": "Your music library is empty!",
-		"music_library_empty_subtitle": "Create your first track with EsAI right now",
 		"download": "Download",
 		"downloading": "Downloading...",
-		"mp4_preparing": "Preparing MP4...",
-		"mp4_preparing_hint": "MP4 is being prepared. Download will start shortly. Please wait.",
-		"mp4_download_not_available": "MP4 is not available for this track yet",
-		"mp4_plan_locked": "This feature is not supported on your current plan",
 		"chat_list_empty": "No chats yet. Click \"New Chat\" to start.",
 		"delete_chat": "Delete Chat",
 		"delete_chat_confirmation": "Are you sure you want to delete this chat?",
@@ -408,19 +400,6 @@
 		"title_error_audio_format": "Audio format does not support title metadata",
 		"title_error_embed_failed": "Failed to write title into audio file",
 		"title_error_unknown": "Failed to save title",
-		"cover_error_music_not_found": "Music track not found",
-		"cover_error_image_not_found": "Image not found",
-		"cover_error_source_required": "Choose an image or upload your own cover",
-		"cover_error_media_path_invalid": "Invalid cover path",
-		"cover_error_open_failed": "Failed to open cover file",
-		"cover_error_download_failed": "Failed to download cover image",
-		"cover_error_empty_payload": "Cover file is empty",
-		"cover_error_format_unsupported": "Unsupported cover format (allowed: jpg, png)",
-		"cover_error_audio_missing": "Track audio file not found",
-		"cover_error_audio_path": "Audio file path is unavailable",
-		"cover_error_audio_format": "Audio format does not support embedded cover",
-		"cover_error_embed_failed": "Failed to embed cover into audio file",
-		"cover_error_unknown": "Failed to save cover",
 		"thinking": "Thinking",
 		"thinking_ellipsis": "Thinking…",
 		"sources": "Sources",
@@ -766,7 +745,7 @@
 				"id": "complaints",
 				"title": "Complaints & Appeals",
 				"paras": [
-					"If you believe your rights are infringed or you detect illegal information, you may report it to EsAI at info@vokalo.online.",
+					"If you believe your rights are infringed or you detect illegal information, you may report it to EsAI at support@esai.kg.",
 					"You may submit materials for an appeal; EsAI will respond within 5 business days after receipt."
 				]
 			},
@@ -823,7 +802,7 @@
 	},
 	"brand": {
 		"name": "EsAI",
-		"slogan": "All AI in one place."
+		"slogan": "EsAI — all neural networks in one place. No extra costs or subscriptions."
 	},
 	"pwa": {
 		"install_title": "Install the EsAI app",
