@@ -11,16 +11,17 @@ import { fetchData } from "@/tools/fetchData";
 import SmartForm from "@/components/forms/SmartForm";
 import SocialAuthButtons from "@/components/auth/SocialAuthButtons";
 
+const INPUT_CLASS =
+	"w-full rounded-xl bg-surface-2 border border-border text-foreground placeholder:text-muted-2 text-sm px-4 py-3 focus:border-accent focus:outline-none transition-colors";
+
 function signin(response: any, setResponseData: any, t: any) {
 	const { access, refresh, user } = response.data.data;
 
-	// clear old values if exist
 	Cookies.remove("access");
 	Cookies.remove("refresh");
 	Cookies.remove("user");
 	Cookies.remove("sessionid");
 
-	// set new values
 	Cookies.set("access", access, { expires: 7 });
 	Cookies.set("refresh", refresh, { expires: 15 });
 	Cookies.set("user", JSON.stringify(user));
@@ -49,9 +50,9 @@ export default function SignIn() {
 			setAlertMessage(responseData.message || t("status_extended.success"));
 			setAlertType(responseData.status || "warning");
 			if (responseData.status === "success") {
-					setTimeout(() => {
-						window.location.href = "/dashboard/text-chat";
-					}, 2000);
+				setTimeout(() => {
+					window.location.href = "/dashboard/text-chat";
+				}, 1500);
 			}
 		}
 	}, [responseData, t]);
@@ -98,12 +99,7 @@ export default function SignIn() {
 	};
 
 	return (
-		<SmartForm
-			onSubmit={onSubmit}
-			submitLabel={step === "signin" ? t("auth.signin") : t("auth.confirm")}
-			loadingLabel={t("status.loading")}
-			className="flex-1 h-full flex flex-col gap-8 items-center px-10 lg:py-10 py-20 overflow-auto w-full"
-		>
+		<div className="w-full flex flex-col gap-7">
 			<Alert
 				show={showAlert}
 				title={alertTitle}
@@ -116,79 +112,71 @@ export default function SignIn() {
 				autoCloseDuration={2000}
 				closeButton
 			/>
-			<NextLink href="/" className="w-full flex justify-center">
-				<img src="/images/logo/base.svg" alt="Logo" className="max-w-[200px]" />
+
+			{/* Лого только на мобиле (на десктопе оно в левой панели) */}
+			<NextLink href="/" className="lg:hidden flex justify-center">
+				<img src="/esai-logo.svg" alt="EsAI" className="h-8" />
 			</NextLink>
-			<div className="text-center">
-				<h4 className="text-xl font-bold text-neutral-700">{t("auth.title")}</h4>
-				<p className="text-md text-yellow-400">{t("auth.subtitle")}</p>
+
+			<div className="text-center space-y-1">
+				<h1 className="text-2xl font-bold text-foreground">{t("auth.title", { defaultValue: "Вход в EsAI" })}</h1>
+				<p className="text-sm text-muted">{t("auth.subtitle", { defaultValue: "Все AI в одном месте" })}</p>
 			</div>
 
 			<SocialAuthButtons />
 
-			<div className="py-5 w-full">
-				<div className="relative flex items-center justify-center border-b border-gray-500">
-					<span className="absolute px-6 py-1 text-sm rounded-sm bg-gray-100 text-black">{t("auth.or")}</span>
-				</div>
+			<div className="relative flex items-center justify-center">
+				<span className="w-full border-t border-border" />
+				<span className="absolute px-3 text-xs uppercase tracking-wide text-muted-2 bg-background">
+					{t("auth.or", { defaultValue: "или" })}
+				</span>
 			</div>
-			{step === "signin" && (
-				<>
-					<div className="w-full select-none flex flex-col">
-						<label htmlFor="email" className="flex items-center gap-2 w-full">
-							<span className="text-gray-700 font-light">{t("auth.email")}</span>
-							<span className="text-rose-500 text-2xl">*</span>
+
+			<SmartForm
+				onSubmit={onSubmit}
+				submitLabel={step === "signin" ? t("auth.signin") : t("auth.confirm")}
+				loadingLabel={t("status.loading")}
+				className="w-full flex flex-col gap-4"
+			>
+				{step === "signin" && (
+					<>
+						<div className="w-full flex flex-col gap-1.5">
+							<label htmlFor="email" className="text-sm text-muted">
+								{t("auth.email")} <span className="text-accent">*</span>
+							</label>
+							<Field className={INPUT_CLASS} type="email" name="email" placeholder={t("auth.enter_email")} id="email" />
+						</div>
+						<div className="w-full flex flex-col gap-1.5">
+							<label htmlFor="password" className="text-sm text-muted">
+								{t("auth.password")} <span className="text-accent">*</span>
+							</label>
+							<Field className={INPUT_CLASS} type="password" name="password" placeholder={t("auth.enter_password")} id="password" />
+						</div>
+					</>
+				)}
+				{step === "verify" && (
+					<div className="w-full flex flex-col gap-1.5">
+						<label htmlFor="code" className="text-sm text-muted">
+							{t("auth.enter_code")} <span className="text-accent">*</span>
 						</label>
-						<Field
-							className="bg-white border border-white text-black white-field-style text-sm px-3 py-2"
-							type="email"
-							name="email"
-							placeholder={t("auth.enter_email")}
-							id="email"
-						/>
+						<Field className={`${INPUT_CLASS} tracking-[0.4em] text-center`} type="text" name="code" placeholder="XXXXXX" id="code" />
 					</div>
-					<div className="w-full select-none">
-						<label htmlFor="password" className="flex items-center gap-2 w-full">
-							<span className="text-gray-700 font-light">{t("auth.password")}</span>
-							<span className="text-rose-500 text-2xl">*</span>
-						</label>
-						<Field
-							className="bg-white border border-white text-black white-field-style text-sm px-3 py-2"
-							type="password"
-							name="password"
-							placeholder={t("auth.enter_password")}
-							id="password"
-						/>
-					</div>
-				</>
-			)}
-			{step === "verify" && (
-				<div className="w-full select-none flex flex-col">
-					<label htmlFor="code" className="flex items-center gap-2 w-full">
-						<span className="text-gray-700 font-light">{t("auth.enter_code")}</span>
-						<span className="text-rose-500 text-2xl">*</span>
-					</label>
-					<Field
-						className="bg-white border border-white text-black white-field-style text-sm px-3 py-2"
-						type="text"
-						name="code"
-						placeholder="XXXXXX"
-						id="code"
-					/>
-				</div>
-			)}
+				)}
+			</SmartForm>
+
 			{step === "signin" && (
-				<div className="text-center mt-3 pt-4 flex flex-col items-center gap-2">
+				<div className="text-center flex flex-col items-center gap-2 text-sm">
 					<div className="flex items-center gap-2">
-						<span className="text-gray-500 font-light">{t("auth.dont_have_account")}</span>
-						<NextLink href="/auth/signup" className="text-purple-500 text-sm">
+						<span className="text-muted">{t("auth.dont_have_account")}</span>
+						<NextLink href="/auth/signup" className="text-accent font-medium hover:underline">
 							{t("auth.signup")}
 						</NextLink>
 					</div>
-					<NextLink href="/auth/reset" className="text-purple-500 text-sm">
+					<NextLink href="/auth/reset" className="text-muted-2 hover:text-foreground transition-colors">
 						{t("auth.forgot_password")}
 					</NextLink>
 				</div>
 			)}
-		</SmartForm>
+		</div>
 	);
 }
