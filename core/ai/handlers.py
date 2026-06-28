@@ -572,18 +572,17 @@ def _pick_lang(request) -> tuple[str, str]:
 
 
 def _guest_id(request) -> str:
-    """Identify an anonymous visitor for the free-quota counter.
+    """Server-trusted key for the guest free-quota counter.
 
-    Preference order: explicit X-Guest-Id header from the frontend, then the
-    client IP (X-Forwarded-For first hop, else REMOTE_ADDR).
+    Keyed on the CLIENT IP (X-Forwarded-For first hop behind nginx, else
+    REMOTE_ADDR). НЕ доверяем клиентскому X-Guest-Id как ключу квоты — иначе
+    лимит обходится простой сменой заголовка (бесплатные ответы OpenRouter
+    за счёт владельца). Заголовок может использоваться фронтом локально, но
+    серверная квота считается строго по IP.
     """
-    gid = (request.headers.get("X-Guest-Id") or "").strip()
-    if gid:
-        return gid[:128]
     xff = (request.META.get("HTTP_X_FORWARDED_FOR") or "").split(",")[0].strip()
-    if xff:
-        return xff
-    return (request.META.get("REMOTE_ADDR") or "unknown").strip() or "unknown"
+    ip = xff or (request.META.get("REMOTE_ADDR") or "").strip() or "unknown"
+    return f"ip:{ip}"
 
 
 def _guest_messages_from_request(request, system_prompt: str, message: str) -> List[dict]:
