@@ -125,6 +125,11 @@ body {
   line-height: 1.3;
   margin: 1.1em 0 0.5em;
 }
+/* Offset anchored headings (blog TOC) so they clear the sticky SeoShell header. */
+.esai-md h2[id],
+.esai-md h3[id] {
+  scroll-margin-top: 5rem;
+}
 .esai-md h1 { font-size: 1.5em; }
 .esai-md h2 { font-size: 1.3em; }
 .esai-md h3 { font-size: 1.12em; }

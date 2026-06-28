@@ -25,10 +25,148 @@ from django.views.decorators.csrf import csrf_exempt
 from django.db import transaction, IntegrityError
 
 from rest_framework import status, permissions
+from rest_framework.throttling import AnonRateThrottle, UserRateThrottle
 from django.core.files.storage import default_storage
 from django.utils.text import get_valid_filename
 import uuid
 import os
+
+
+# Максимальная длина извлечённого из документа текста (символы), чтобы не
+# раздувать контекст модели и не упираться в лимит токенов OpenRouter.
+DOCUMENT_TEXT_MAX_CHARS = 200_000
+
+# Расширения документов, из которых мы умеем извлекать текст.
+_DOCUMENT_EXTENSIONS = {
+    ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".txt",
+}
+
+
+def _truncate_text(text: str, limit: int = DOCUMENT_TEXT_MAX_CHARS) -> str:
+    """Обрезать текст до limit символов (best-effort, не падать на None)."""
+    if not text:
+        return ""
+    if len(text) <= limit:
+        return text
+    return text[:limit]
+
+
+def extract_text_from_file(file, filename: str) -> str:
+    """Извлечь текст из загруженного файла по его расширению.
+
+    Поддержка:
+      - .pdf            → pypdf
+      - .docx           → python-docx
+      - .xlsx           → openpyxl
+      - .pptx           → python-pptx
+      - .txt            → decode (utf-8 с фолбэком)
+      - .doc/.xls/.ppt  → старые бинарные форматы НЕ поддержаны (best-effort:
+                          пробуем декодировать как текст, иначе пустая строка)
+
+    Возвращает строку, обрезанную до DOCUMENT_TEXT_MAX_CHARS символов. Никогда не
+    бросает исключение — при ошибке возвращает "" (загрузка файла не должна
+    падать из-за проблем извлечения текста).
+    """
+    name = (filename or "").lower()
+    ext = os.path.splitext(name)[1]
+
+    def _read_bytes() -> bytes:
+        try:
+            file.seek(0)
+        except Exception:
+            pass
+        try:
+            return file.read() or b""
+        except Exception:
+            return b""
+
+    try:
+        if ext == ".pdf":
+            from pypdf import PdfReader
+            import io
+            reader = PdfReader(io.BytesIO(_read_bytes()))
+            parts = []
+            for page in reader.pages:
+                try:
+                    parts.append(page.extract_text() or "")
+                except Exception:
+                    continue
+            return _truncate_text("\n".join(parts).strip())
+
+        if ext == ".docx":
+            from docx import Document
+            import io
+            doc = Document(io.BytesIO(_read_bytes()))
+            parts = [p.text for p in doc.paragraphs if p.text]
+            # Таблицы тоже несут текст.
+            for table in doc.tables:
+                for row in table.rows:
+                    cells = [c.text for c in row.cells if c.text]
+                    if cells:
+                        parts.append("\t".join(cells))
+            return _truncate_text("\n".join(parts).strip())
+
+        if ext == ".xlsx":
+            from openpyxl import load_workbook
+            import io
+            wb = load_workbook(io.BytesIO(_read_bytes()), read_only=True, data_only=True)
+            parts = []
+            for ws in wb.worksheets:
+                parts.append(f"# {ws.title}")
+                for row in ws.iter_rows(values_only=True):
+                    cells = [str(c) for c in row if c is not None]
+                    if cells:
+                        parts.append("\t".join(cells))
+                    if sum(len(p) for p in parts) > DOCUMENT_TEXT_MAX_CHARS:
+                        break
+                if sum(len(p) for p in parts) > DOCUMENT_TEXT_MAX_CHARS:
+                    break
+            try:
+                wb.close()
+            except Exception:
+                pass
+            return _truncate_text("\n".join(parts).strip())
+
+        if ext == ".pptx":
+            from pptx import Presentation
+            import io
+            prs = Presentation(io.BytesIO(_read_bytes()))
+            parts = []
+            for slide in prs.slides:
+                for shape in slide.shapes:
+                    if getattr(shape, "has_text_frame", False):
+                        for para in shape.text_frame.paragraphs:
+                            line = "".join(run.text for run in para.runs)
+                            if line:
+                                parts.append(line)
+            return _truncate_text("\n".join(parts).strip())
+
+        if ext == ".txt":
+            raw = _read_bytes()
+            for enc in ("utf-8", "utf-8-sig", "cp1251", "latin-1"):
+                try:
+                    return _truncate_text(raw.decode(enc).strip())
+                except Exception:
+                    continue
+            return _truncate_text(raw.decode("utf-8", errors="ignore").strip())
+
+        # Старые бинарные форматы .doc/.xls/.ppt — best-effort попытка декода.
+        if ext in (".doc", ".xls", ".ppt"):
+            raw = _read_bytes()
+            try:
+                decoded = raw.decode("utf-8", errors="ignore")
+                # Грубая эвристика: если осмысленного текста мало — не возвращаем мусор.
+                printable = sum(1 for ch in decoded if ch.isprintable() or ch in "\n\t")
+                if decoded and printable / max(1, len(decoded)) > 0.6:
+                    return _truncate_text(decoded.strip())
+            except Exception:
+                pass
+            return ""
+    except Exception:
+        # Извлечение текста не должно ломать загрузку файла.
+        return ""
+
+    return ""
 
 
 def _get_session_for_user(session_ref: str, user):
@@ -60,6 +198,8 @@ class ChatGptAPIView(APIView):
     # anonymous visitors get a limited free-quota guest flow inside OpenAIHandler.
     authentication_classes = [JWTAuthentication]
     permission_classes = [AllowAny]
+    # Защита от abuse: anon/user rate-limit (ТЗ 8). Ставки в settings (anon/user).
+    throttle_classes = [AnonRateThrottle, UserRateThrottle]
 
     def post(self, request):
         # --- Streaming path (SSE) -------------------------------------------
@@ -265,6 +405,8 @@ class AiModelsListAPIView(APIView):
 class ChatAttachmentUploadAPIView(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
+    # Загрузка/парсинг документов — ресурсоёмкая операция: лимитируем (ТЗ 8).
+    throttle_classes = [UserRateThrottle]
 
     def post(self, request):
         files = request.FILES.getlist("files")
@@ -280,13 +422,29 @@ class ChatAttachmentUploadAPIView(APIView):
             saved_path = default_storage.save(path, f)
             url = default_storage.url(saved_path)
             ctype = getattr(f, "content_type", "application/octet-stream") or "application/octet-stream"
-            typ = "image" if ctype.startswith("image/") else "file"
-            uploaded.append({
+
+            ext = os.path.splitext((f.name or "").lower())[1]
+            if ctype.startswith("image/"):
+                typ = "image"
+            elif ext in _DOCUMENT_EXTENSIONS:
+                typ = "document"
+            else:
+                typ = "file"
+
+            item = {
                 "type": typ,
                 "url": url,
                 "name": name,
                 "size": getattr(f, "size", None),
                 "content_type": ctype,
-            })
+            }
+
+            # Документы: извлекаем текст для RAG-подмешивания в контекст чата.
+            if typ == "document":
+                # Извлекаем из исходного UploadedFile (saved-файл уже на диске,
+                # но in-memory объект ещё доступен для чтения).
+                item["text"] = extract_text_from_file(f, f.name or name)
+
+            uploaded.append(item)
 
         return Response({"attachments": uploaded}, status=200)

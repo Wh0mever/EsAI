@@ -17,6 +17,15 @@ class GPTModels(models.Model):
         help_text="Системный ID модели в OpenRouter (напр. 'openai/gpt-4o')")
     description = models.TextField(blank=True)
     max_tokens = models.IntegerField(help_text="Maximum tokens allowed")
+    system_prompt = models.TextField(
+        blank=True, default="",
+        help_text="Системный промпт по умолчанию для этой модели")
+    temperature = models.FloatField(
+        null=True, blank=True,
+        help_text="Temperature (0..2). Пусто — использовать значение по умолчанию")
+    top_p = models.FloatField(
+        null=True, blank=True,
+        help_text="Top-p (0..1). Пусто — использовать значение по умолчанию")
     markup_coefficient = models.DecimalField(
         max_digits=6, decimal_places=3, default=1.0,
         help_text="Коэффициент наценки для списания токенов")

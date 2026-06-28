@@ -4,8 +4,21 @@ import React, { useEffect, useRef, type FormEvent, type KeyboardEvent } from "re
 import { useTranslation } from "react-i18next";
 import { IoIosSend, IoIosAttach } from "react-icons/io";
 import { IoDocumentTextOutline, IoGlobeOutline } from "react-icons/io5";
+import { FiFileText } from "react-icons/fi";
 import { fetchData, BACKEND } from "@/tools/fetchData";
 import ModelSelector, { type AiModel } from "./ModelSelector";
+
+/** Accepted document types for the RAG document picker (ТЗ 2.12). */
+const DOC_ACCEPT =
+  ".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt," +
+  "application/pdf," +
+  "application/msword," +
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document," +
+  "application/vnd.ms-excel," +
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet," +
+  "application/vnd.ms-powerpoint," +
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation," +
+  "text/plain";
 
 type Props = {
   input: string;
@@ -42,6 +55,7 @@ export default function ChatComposer({
   const { t } = useTranslation("common");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const docInputRef = useRef<HTMLInputElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
 
   const autoGrow = () => {
@@ -74,6 +88,9 @@ export default function ChatComposer({
   }, []);
 
   const uploading = Array.isArray(attachments) && attachments.some((a: any) => a?.status === "uploading");
+  const hasDocument =
+    Array.isArray(attachments) &&
+    attachments.some((a: any) => a?.type === "document" || a?.type === "file");
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (uploading) return;
@@ -83,13 +100,18 @@ export default function ChatComposer({
     }
   };
 
-  const onFilesPicked = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []);
+  /**
+   * Shared upload routine for both the media picker and the document picker.
+   * `kind` only decides the placeholder type of the pending chip — the server
+   * response (which carries the authoritative `type`, e.g. "document", plus
+   * `url`, `name`, `text`) overwrites it once parsing finishes.
+   */
+  const uploadFiles = async (files: File[], kind: "media" | "document") => {
     if (!files.length) return;
     const pending = files.map((f) => ({
       name: f.name,
-      type: f.type?.startsWith("image/") ? "image" : "file",
-      preview: URL.createObjectURL(f),
+      type: kind === "document" ? "document" : f.type?.startsWith("image/") ? "image" : "file",
+      preview: kind === "media" ? URL.createObjectURL(f) : undefined,
       status: "uploading",
     }));
     setAttachments((prev) => [...prev, ...pending]);
@@ -120,8 +142,24 @@ export default function ChatComposer({
         for (let i = out.length - pending.length; i < out.length; i++) if (i >= 0) out[i] = { ...out[i], status: "error" };
         return out;
       });
+    }
+  };
+
+  const onFilesPicked = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    try {
+      await uploadFiles(files, "media");
     } finally {
       if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
+  const onDocsPicked = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    try {
+      await uploadFiles(files, "document");
+    } finally {
+      if (docInputRef.current) docInputRef.current.value = "";
     }
   };
 
@@ -147,9 +185,21 @@ export default function ChatComposer({
                 {isImg ? (
                   <img src={abs} alt={a?.name || "attachment"} className="w-16 h-16 object-cover rounded-lg border border-border" />
                 ) : (
-                  <div className="w-16 h-16 bg-surface-2 rounded-lg grid place-items-center text-[10px] text-foreground p-1 text-center border border-border">
-                    <IoDocumentTextOutline className="text-lg opacity-80" />
-                    <span className="truncate max-w-[3.5rem]">{a?.name || "file"}</span>
+                  <div
+                    className="h-16 max-w-[12rem] bg-surface-2 rounded-lg flex items-center gap-2 px-3 text-foreground border border-border"
+                    title={a?.name || "document"}
+                  >
+                    <IoDocumentTextOutline className="text-xl shrink-0 text-accent-strong" />
+                    <span className="flex flex-col min-w-0">
+                      <span className="truncate text-xs font-medium max-w-[8rem]">{a?.name || "document"}</span>
+                      <span className="text-[10px] text-muted-2">
+                        {a?.status === "uploading"
+                          ? t("chat.doc_parsing", { defaultValue: "Обработка…" })
+                          : a?.status === "error"
+                          ? t("chat.doc_error", { defaultValue: "Ошибка" })
+                          : t("chat.doc_ready", { defaultValue: "Документ" })}
+                      </span>
+                    </span>
                   </div>
                 )}
                 {a?.status === "uploading" && (
@@ -174,7 +224,11 @@ export default function ChatComposer({
           onInput={autoGrow}
           onKeyDown={onKeyDown}
           rows={1}
-          placeholder={t("chat.ask_something", { defaultValue: "Спросите что-нибудь..." })}
+          placeholder={
+            hasDocument
+              ? t("chat.ask_about_document", { defaultValue: "Задайте вопрос по документу" })
+              : t("chat.ask_something", { defaultValue: "Спросите что-нибудь..." })
+          }
           className="w-full resize-none overflow-y-auto bg-transparent outline-none text-foreground placeholder:text-muted-2 px-1 py-1 leading-6 max-h-[200px]"
         />
         <div className="flex items-center justify-between gap-2 mt-1.5">
@@ -189,6 +243,22 @@ export default function ChatComposer({
               <IoIosAttach className="text-xl" />
             </button>
             <input ref={fileInputRef} type="file" multiple className="hidden" onChange={onFilesPicked} />
+            <button
+              type="button"
+              onClick={() => docInputRef.current?.click()}
+              className="w-9 h-9 grid place-items-center rounded-full text-muted hover:text-foreground hover:bg-surface-2 transition-colors cursor-pointer"
+              title={t("chat.attach_document", { defaultValue: "Прикрепить документ" })}
+            >
+              <FiFileText className="text-xl" />
+            </button>
+            <input
+              ref={docInputRef}
+              type="file"
+              multiple
+              accept={DOC_ACCEPT}
+              className="hidden"
+              onChange={onDocsPicked}
+            />
             {onToggleWebSearch && (
               <button
                 type="button"

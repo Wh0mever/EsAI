@@ -176,6 +176,17 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.IsAuthenticated",
     ],
+    # --- Throttling (ТЗ 8: защита от abuse) ---
+    # Глобальные классы троттлинга: аноним по IP, авторизованный по user id.
+    # Ставки переопределяемы через env (anon/user), дефолты ниже.
+    "DEFAULT_THROTTLE_CLASSES": [
+        "rest_framework.throttling.AnonRateThrottle",
+        "rest_framework.throttling.UserRateThrottle",
+    ],
+    "DEFAULT_THROTTLE_RATES": {
+        "anon": env.str("DRF_THROTTLE_ANON", default="30/min"),
+        "user": env.str("DRF_THROTTLE_USER", default="120/min"),
+    },
 }
 
 # --- Cache (use shared Redis to avoid per-process cache issues) ---

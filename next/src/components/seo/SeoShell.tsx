@@ -1,14 +1,25 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { SITE_NAME } from "@/lib/seo/site";
+import type { SiteSettings } from "@/lib/content";
 
 /**
  * SeoShell — lightweight, server-rendered wrapper for SEO landing pages
- * (/model/*, /ai/*). Header with the EsAI logo + "Open in chat" link, the
- * page content, and a minimal footer. Uses the existing brand CSS variables so
- * it follows the dark/light theme automatically.
+ * (/model/*, /ai/*, /blog/*). Header with the EsAI logo + "Open in chat" link,
+ * the page content, and a minimal footer. Uses the existing brand CSS variables
+ * so it follows the dark/light theme automatically.
+ *
+ * `settings` is optional dynamic contact data (from /api/content/site-settings/).
+ * When present, contact links are rendered in the footer; otherwise the footer
+ * falls back to the static nav only.
  */
-export default function SeoShell({ children }: { children: ReactNode }) {
+export default function SeoShell({
+  children,
+  settings,
+}: {
+  children: ReactNode;
+  settings?: SiteSettings | null;
+}) {
   const year = new Date().getFullYear();
   return (
     <div className="min-h-[100dvh] flex flex-col bg-background text-foreground">
@@ -40,6 +51,21 @@ export default function SeoShell({ children }: { children: ReactNode }) {
             <Link href="/blog" className="hover:text-foreground transition-colors">Блог</Link>
           </nav>
         </div>
+        {settings && (settings.email || settings.phone || settings.address) && (
+          <div className="mx-auto max-w-4xl w-full px-4 pb-6 -mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-2">
+            {settings.email && (
+              <a href={`mailto:${settings.email}`} className="hover:text-foreground transition-colors">
+                {settings.email}
+              </a>
+            )}
+            {settings.phone && (
+              <a href={`tel:${settings.phone}`} className="hover:text-foreground transition-colors">
+                {settings.phone}
+              </a>
+            )}
+            {settings.address && <span>{settings.address}</span>}
+          </div>
+        )}
       </footer>
     </div>
   );
