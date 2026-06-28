@@ -127,8 +127,10 @@ export default async function RootLayout({ children }: { children: React.ReactNo
 						__html: `window.__FP_ENV__=${JSON.stringify({ pk: fpPk, token: fpToken, merchantId: fpMerchantId })};`,
 					}}
 				/>
-				<I18nProvider lang={lang}>{children}</I18nProvider>
-				<PwaManager />
+				<I18nProvider lang={lang}>
+					{children}
+					<PwaManager />
+				</I18nProvider>
 			</body>
 		</html>
 	);

@@ -1,855 +1,870 @@
 {
-  "common": {
-    "yes": "Yes",
-    "no": "No",
-    "submit": "Submit",
-    "cancel": "Cancel",
-    "processing": "Processing...",
-    "loading": "Loading...",
-    "settings": "Settings",
-    "language": "Language",
-    "notifications": "Notifications",
-    "prev": "Prev",
-    "next": "Next",
-    "close": "Close"
-  },
-  "compass": {
-    "1": "Songs",
-    "2": "Images",
-    "3": "Voices",
-    "4": "Text",
-    "5": "Music"
-  },
-  "pricing": {
-    "title": "Subscription Plans",
-    "subtitle": "EsAI | All AI in one place",
-    "monthly": "Monthly",
-    "weekly": "Weekly",
-    "yearly": "Yearly",
-    "day": "Day",
-    "month": "Month",
-    "year": "Year",
-    "free": "Free",
-    "basic": "Basic",
-    "pro": "Pro",
-    "premium": "Premium",
-    "unlimited": "Unlimited",
-    "enterprise": "Enterprise",
-    "business": "Business",
-    "trial": "Trial",
-    "startofwork": "Start of Work",
-    "try_now": "Try",
-    "getstarted": "Get started with our new package",
-    "loading": "Loading...",
-    "vokalo_test": "EsAITest",
-    "test_subtitle": "Trial",
-    "monthly_subtitle": "30 days",
-    "weekly_subtitle": "7 days",
-    "yearly_subtitle": "12 months",
-    "view_all_plans": "View all plans",
-    "back_to_all": "Back to all plans",
-    "connect_plan": "Activate plan",
-    "plan_already_active": "This plan is already active",
-    "next_charge_on": "Next charge date: {{date}}",
-    "plan": "Plan",
-    "monthly_short": "mo",
-    "weekly_short": "wk",
-    "yearly_short": "yr",
-    "meta": "Details",
-    "period": "Period",
-    "addons": "Add-ons",
-    "included": "What’s included",
-    "confirm_title": "Confirm plan activation",
-    "confirm_description": "Do you confirm you want to switch to this plan?",
-    "not_found": "Plan not found",
-    "nothing_found": "Nothing found",
-    "features": {
-      "open_ai_model": "OpenAI model",
-      "ai_templates": "AI Templates",
-      "ops_per_month": "Operations per month",
-      "covers": "Covers",
-      "ai_chat": "AI Chat",
-      "realtime_chat": "Realtime Chat",
-      "rewriter": "AI Rewriter",
-      "antiplag": "Antiplagiarism",
-      "ai_images": "AI Images",
-      "diffusion_images": "Diffusion Images",
-      "blog_master": "Blog Master",
-      "music": "Music",
-      "tts": "Text-to-Speech",
-      "my_templates": "My Templates",
-      "manager": "Manager",
-      "support": "Support",
-      "songs_count": "Number of songs",
-      "images_count": "Number of images",
-      "music_count": "Number of music generations",
-      "sunday_bonus_title": "Sunday bonuses",
-      "sunday_bonus_songs": "songs",
-      "sunday_bonus_music": "music generations",
-      "sunday_bonus_texts": "texts",
-      "sunday_bonus_images": "images",
-      "mp4": "MP4"
-    },
-    "questions": "Still have questions?",
-    "questionsText": "Didn't find the answer here? You can contact us at",
-    "questionsLink": "Go to FAQ",
-    "all": "All"
-  },
-  "pricing_referral": {
-    "referral_title": "EsAI Referral Program",
-    "referral_subtitle": "Expand your limits with our referral program.",
-    "referral_line": "A friend of my friend is my friend 🙂",
-    "referral_desc": "Increase your limits for each new user registered with your unique referral code.",
-    "referral_more": "Learn more"
-  },
-  "date": {
-    "day": "Day",
-    "month": "Month",
-    "year": "Year",
-    "today": "Today",
-    "yesterday": "Yesterday",
-    "tomorrow": "Tomorrow"
-  },
-  "status": {
-    "success": "Success",
-    "error": "Error",
-    "loading": "Loading",
-    "notfound": "Not found",
-    "unauthorized": "Unauthorized",
-    "forbidden": "Forbidden",
-    "processing": "Processing",
-    "completed": "Completed",
-    "pending": "Pending",
-    "active": "Active",
-    "inactive": "Inactive",
-    "code_sent": "Code sent",
-    "enter_code": "Enter code"
-  },
-  "status_extended": {
-    "success": "Operation completed successfully",
-    "error": "An error occurred",
-    "loading": "Please wait, loading in progress",
-    "notfound": "The requested resource was not found",
-    "unauthorized": "You do not have access to this resource",
-    "forbidden": "Access to this resource is forbidden",
-    "processing": "Your request is being processed",
-    "error_username_password": "Incorrect username or password",
-    "check_email": "Please check your email for further instructions",
-    "invalid_code": "The code you entered is invalid"
-  },
-  "subscribe": {
-    "success_title": "Subscription activated",
-    "success_message": "Plan connected. Payment will be charged automatically.",
-    "success_plan_activated": "Plan {{plan}} activated",
-    "success_access_until": "Access is valid until {{date}}",
-    "success_card_extra": "Auto-renewal is enabled. Sunday bonuses are active.",
-    "success_one_time_extra": "Auto-renewal is disabled. Bonuses are not accrued.",
-    "attach_card_title": "Add a card",
-    "no_card_short": "To activate this plan, add a card in",
-    "payment_modal_title": "Choose a convenient payment method",
-    "payment_modal_description": "Card is optional. Choose the payment option you prefer.",
-    "card_title": "Bank card",
-    "card_description": "Plan auto-renewal, Sunday bonuses, and uninterrupted access.",
-    "card_button": "Link card",
-    "wallets_title": "E-wallets (Freedom Pay, YooMoney, etc.)",
-    "wallets_description": "One-time payment without auto charges. Access remains until period end.",
-    "wallets_button": "Pay one-time",
-    "payment_optional_note": "Card linking is optional. You can use EsAI with one-time payment.",
-    "one_time_title": "One-time payment",
-    "one_time_description": "Use a one-time payment to activate the plan now. Press the button below to continue.",
-    "one_time_button": "Activate with one-time payment",
-    "crypto_title": "Crypto payment",
-    "crypto_description": "You can pay for the plan with crypto through Binance using the QR code.",
-    "crypto_button": "Activate with crypto",
-    "crypto_modal_title": "Crypto payment via Binance",
-    "crypto_modal_description": "Scan the QR code and complete payment for the selected plan.",
-    "crypto_receipt_text": "After crypto payment, send the receipt to our email and we will activate your selected plan.",
-    "go_to_profile": "profile",
-    "error_no_card": "No card on file. Please add a card in your profile.",
-    "error_no_token": "No recurring token found. Please re-bind your card.",
-    "error_already_active": "Subscription is already active.",
-    "error_plan_not_found": "Plan not found.",
-    "error_unknown": "Could not connect the plan. Please try again later.",
-    "redirect_in_profile": "You will be redirected to profile in {{seconds}}s.",
-    "go_now": "Go now"
-  },
-  "auth": {
-    "title": "EsAI awaits your genre, lyrics, and instruments.",
-    "subtitle": "No credit card required!",
-    "google": "Sign in with Google",
-    "social_soon": "Coming soon",
-    "or": "Or",
-    "fullname": "Full name",
-    "email": "Email",
-    "password": "Password",
-    "confirm_password": "Confirm password",
-    "confirm": "Confirm",
-    "signup": "Sign up",
-    "signin": "Sign in",
-    "login": "Log in",
-    "forgotPassword": "Forgot password?",
-    "resetPassword": "Reset password",
-    "enter_email": "Enter your email address",
-    "enter_fullname": "Enter your full name",
-    "enter_password": "Enter your password",
-    "enter_code": "Enter code",
-    "tel": "Phone",
-    "have_account": "Already have an account?",
-    "your_music": "Your music",
-    "start_here": "starts here!",
-    "welcome": "Welcome to the platform!",
-    "create_music": "Create music in seconds",
-    "create_pictures": "Generate images with neural networks",
-    "gpt": "Connect GPT for automation",
-    "you_can": "You can do it 💪",
-    "signin_with_phone": "Sign in with phone number",
-    "signin_with_email": "Sign in with email",
-    "dont_have_account": "Don't have an account?",
-    "forgot_password": "Forgot password?",
-    "reset_with_email": "Reset with email",
-    "reset_with_phone": "Reset with phone",
-    "user_was_successfully_created": "User was successfully created",
-    "code_sent": "Code sent to email",
-    "code_verified": "Code verified successfully",
-    "password_changed": "Password successfully changed",
-    "reset_failed": "Failed to reset password",
-    "enter_new_password": "Enter new password",
-    "save_password": "Save password",
-    "new_password": "New password",
-    "referral_code": "Referral code",
-    "enter_referral_code": "Enter referral code (optional)"
-  },
-  "auth_extra": {},
-  "pages_titles": {
-    "home": "Home",
-    "pricing": "Pricing",
-    "signup": "Sign Up",
-    "signin": "Sign In",
-    "reset_password": "Reset Password",
-    "profile": "Profile",
-    "settings": "Settings",
-    "about": "About Us",
-    "contact": "Contact",
-    "terms": "Terms of Use",
-    "privacy": "Privacy Policy",
-    "faq": "Frequently Asked Questions (FAQ)",
-    "blog": "Blog",
-    "referral": "Referral Program"
-  },
-  "contact_us": {
-    "write_title": "Write to us",
-    "write_description": "Write to us and you'll receive a reply shortly.",
-    "write_button": "Write to us",
-    "write_email": "support@esai.kg",
-    "call_title": "Call us",
-    "call_description": "Call us. Our experts are ready to talk to you.",
-    "call_button": "Call us",
-    "call_phone": "+996 (555) 919 141",
-    "form_title": "Talk to our team",
-    "form_subtitle": "Write to us, we’ll gladly assist with your questions.",
-    "name_label": "Your name",
-    "name_placeholder": "Name",
-    "email_label": "Your email",
-    "email_placeholder": "Email",
-    "phone_label": "Your phone",
-    "phone_placeholder": "Phone",
-    "message_label": "Message",
-    "submit_button": "Contact us"
-  },
-  "faq": {
-    "title": "🟡 Any questions?",
-    "text": "Have a question that isn't answered here? You can contact us at",
-    "button": "Have a question? Contact us",
-    "message_sended": "Your message was sent",
-    "questions": {
-      "0": {
-        "q": "How to create my first song or image?",
-        "a": "Sign up, choose a category (music or image), enter a text prompt, click \"Generate\" — and get the result in seconds."
-      },
-      "1": {
-        "q": "How many generations are available in my plan?",
-        "a": [
-          "Free — 1 generation per day for 7 days",
-          "Basic — 50 generations per month",
-          "Standard — 100 generations + bonuses",
-          "Pro, Premium, Enterprise — extended limits and discounts"
-        ]
-      },
-      "2": {
-        "q": "What if generation fails?",
-        "a": "If you see an error or strange result, just try again — generations are only deducted on success. If the problem persists, contact support."
-      },
-      "3": {
-        "q": "How to activate the trial?",
-        "a": "After registration, you’ll immediately get 5 free generations without linking a card. Want full 7-day trial access? Simply link your bank card — this helps us prevent spam. Everything is secure: no charges will be made without your confirmation."
-      },
-      "4": {
-        "q": "How to pay for a subscription?",
-        "a": [
-          "Freedom Pay (Kyrgyzstan)",
-          "YuMoney (Russia & CIS)",
-          "USDT TRC20 (Payment receipt required)",
-          "Bank cards and e-wallets",
-          "All payments are secure"
-        ]
-      },
-      "5": {
-        "q": "How does the referral program work?",
-        "a": "Invite friends using your referral link and get bonus generations. +5 free generations for each active user."
-      },
-      "6": {
-        "q": "How to change or cancel my plan?",
-        "a": "Go to your account, select a plan and click \"Switch\". You can cancel anytime — access stays until the end of the paid period."
-      },
-      "7": {
-        "q": "How to contact support?",
-        "a": "Write to support@esai.kg or Telegram: @VokaloSupportBot"
-      }
-    },
-    "modalTitle": "Ask a Question",
-    "questionDescription": "Your Question",
-    "questionDescriptionPlaceholder": "Type your question here..."
-  },
-  "blog": {
-    "title": "🟡 Blog",
-    "subtitle": "Welcome to the EsAI Blog — a space where we share ideas, tips, and stories from the world of music, AI, and creativity.",
-    "points": [
-      "🎵 Tips for writing songs and lyrics",
-      "🤖 Reviews of new AI tools",
-      "🎨 Hacks for generating visual content",
-      "📢 Platform news and updates",
-      "💡 User stories and best works"
-    ],
-    "footer": "We publish only useful, inspiring, and relevant content. Stay tuned — and be in sync with the future!"
-  },
-  "about": {
-    "title": "🟡 About Us",
-    "subtitle": "EsAI is an innovative online service where artificial intelligence helps you create music, lyrics, and images. We combine technology and creativity so that anyone — from beginners to professionals — can bring their ideas to life quickly.",
-    "points": [
-      "🔹 Generate songs based on your lyrics",
-      "🔹 Get music that fits the mood and style",
-      "🔹 Create covers, visuals, and illustrations using neural networks",
-      "🔹 Share, rate, get inspired"
-    ],
-    "footer": "We believe that AI is not a replacement but a partner in creativity. EsAI is built for those who want to create in a new way."
-  },
-  "referral": {
-    "title": "🟡 Referral Program",
-    "subtitle": "After full registration and activation of the first plan, you receive a unique UID in your profile. Share it during signup — and get bonuses.",
-    "how_title": "How it works",
-    "step1": {
-      "title": "Get your UID",
-      "text": "After registration and first plan activation, your UID appears in Profile."
-    },
-    "step2": {
-      "title": "A friend signs up",
-      "text": "They enter your referral code on the signup page."
-    },
-    "step3": {
-      "title": "+5 free generations",
-      "text": "You receive +5 free generations for all features."
-    },
-    "usage_title": "How bonuses are used",
-    "usage1": "Bonuses are stored separately from your plan.",
-    "usage2": "They are used after the main plan limits are exhausted.",
-    "usage3": "Without an active plan, bonuses are inactive and will wait."
-  },
-  "chat": {
-    "clear_history_confirm_title": "Confirm history deletion",
-    "clear_history_confirm_desc": "Do you want to delete the entire chat history? This action cannot be undone.",
-    "collapse_sidebar": "Collapse sidebar",
-    "new_chat": "New Chat",
-    "chat_history": "Chat History",
-    "chat_history_music": "Music History",
-    "chat_history_images": "Image History",
-    "chat_history_text": "Text Chat History",
-    "send": "Send",
-    "search": "Search",
-    "settings": "Settings",
-    "clear_history": "Clear History",
-    "lib": "Library",
-    "images_library": "Image Library",
-    "music_library": "Music Library",
-    "images_library_empty": "No images yet",
-    "images_library_empty_title": "Your image library is empty!",
-    "images_library_empty_subtitle": "Create your first image with EsAI right now",
-    "music_library_empty_title": "Your music library is empty!",
-    "music_library_empty_subtitle": "Create your first track with EsAI right now",
-    "download": "Download",
-    "downloading": "Downloading...",
-    "mp4_preparing": "Preparing MP4...",
-    "mp4_preparing_hint": "MP4 is being prepared. Download will start shortly. Please wait.",
-    "mp4_download_not_available": "MP4 is not available for this track yet",
-    "mp4_plan_locked": "This feature is not supported on your current plan",
-    "chat_list_empty": "No chats yet. Click \"New Chat\" to start.",
-    "delete_chat": "Delete Chat",
-    "delete_chat_confirmation": "Are you sure you want to delete this chat?",
-    "delete_chat_success": "Chat deleted successfully",
-    "delete_chat_error": "Error deleting chat",
-    "ask_something": "Ask something...",
-    "music_ask_something": "Describe your composition or song lyrics...",
-    "music_empty_hint": "Describe your composition or song lyrics below. No lyrics yet? No worries, just create them in our",
-    "text_chat_link": "text chat",
-    "music_generated_details_link": "View details and configure it in your music library",
-    "set_title": "Track title",
-    "track_title_placeholder": "Enter track title",
-    "title_saved": "Title saved",
-    "title_error_music_not_found": "Music track not found",
-    "title_error_required": "Enter track title",
-    "title_error_too_long": "Title is too long",
-    "title_error_audio_missing": "Track audio file not found",
-    "title_error_audio_path": "Audio file path is unavailable",
-    "title_error_audio_format": "Audio format does not support title metadata",
-    "title_error_embed_failed": "Failed to write title into audio file",
-    "title_error_unknown": "Failed to save title",
-    "cover_error_music_not_found": "Music track not found",
-    "cover_error_image_not_found": "Image not found",
-    "cover_error_source_required": "Choose an image or upload your own cover",
-    "cover_error_media_path_invalid": "Invalid cover path",
-    "cover_error_open_failed": "Failed to open cover file",
-    "cover_error_download_failed": "Failed to download cover image",
-    "cover_error_empty_payload": "Cover file is empty",
-    "cover_error_format_unsupported": "Unsupported cover format (allowed: jpg, png)",
-    "cover_error_audio_missing": "Track audio file not found",
-    "cover_error_audio_path": "Audio file path is unavailable",
-    "cover_error_audio_format": "Audio format does not support embedded cover",
-    "cover_error_embed_failed": "Failed to embed cover into audio file",
-    "cover_error_unknown": "Failed to save cover",
-    "thinking": "Thinking",
-    "thinking_ellipsis": "Thinking…",
-    "sources": "Sources",
-    "web_search_short": "Search",
-    "voice_enter": "Voice Enter",
-    "attachments": "Attachments",
-    "attachment_upload_error": "Upload error",
-    "error_generic": "Something went wrong. Please try again later.",
-    "error_network": "Network error. Check your connection and try again.",
-    "error_unauthorized": "Authentication required. Please sign in and try again.",
-    "error_forbidden": "Access denied.",
-    "error_notfound": "Resource not found.",
-    "error_image_generation": "Failed to generate image.",
-    "error_music_generation": "Failed to generate music.",
-    "error_request_failed": "Request failed.",
-    "go_to_pricing": "Go to pricing",
-    "chats_list_empty": "Chats list is empty",
-    "empty_text_title": "Ready to create text with EsAI?",
-    "empty_text_subtitle": "Let’s get started!",
-    "empty_image_title": "Ready to create images with EsAI?",
-    "empty_image_subtitle": "Let’s get started!",
-    "empty_music_title": "Ready to create music with EsAI?",
-    "empty_music_subtitle": "Let’s get started!",
-    "templates": {
-      "templates": "Templates",
-      "usage": "Total usage",
-      "namePlaceholder": "Template name",
-      "descriptionPlaceholder": "Template description",
-      "promptPlaceholder": "Prompt",
-      "templateUsed": "Template used",
-      "activeTemplates": "Active templates",
-      "useTemplate": "Use Template",
-      "createTemplate": "Create Template",
-      "createTemplateSuccess": "Template created successfully",
-      "createTemplateError": "Error creating template",
-      "editTemplate": "Edit Template",
-      "editTemplateSuccess": "Template edited successfully",
-      "editTemplateError": "Error editing template",
-      "deleteTemplate": "Delete Template",
-      "deleteTemplateConfirmation": "Are you sure you want to delete this template?",
-      "deleteTemplateSuccess": "Template deleted successfully",
-      "deleteTemplateError": "Error deleting template",
-      "favoriteTemplate": "Favorite Template",
-      "favoriteTemplateSuccess": "Template added to favorites",
-      "favoriteTemplateError": "Error adding template to favorites"
-    },
-    "tabs": {
-      "global": "EsAI Templates",
-      "favorites": "Favorites templates",
-      "create": "Create new template",
-      "selected": "Selected template",
-      "usage": "Usage"
-    },
-    "models_tabs": {
-      "text": "Text generation",
-      "image": "Image generation",
-      "music": "Music generation"
-    },
-    "go_to_profile_for_card": "Go to profile (link card)",
-    "go_to_profile_for_topup": "Go to profile (top-up)",
-    "menu": "Menu",
-    "profile": "Profile",
-    "model": {
-      "select": "Select model"
-    },
-    "start": {
-      "greeting": "How can I help?"
-    },
-    "actions": {
-      "copy": "Copy",
-      "copied": "Copied",
-      "retry": "Retry",
-      "continue": "Continue",
-      "continue_prompt": "Continue.",
-      "like": "Good answer",
-      "dislike": "Bad answer"
-    },
-    "quick": {
-      "upload_doc": "Upload document",
-      "upload_doc_prompt": "Analyze the attached document and summarize it: ",
-      "web_search": "Search the web",
-      "web_search_prompt": "Find up-to-date information on the web about: ",
-      "translate": "Translate text",
-      "translate_prompt": "Translate the following text into English:\n\n",
-      "write_text": "Write text",
-      "write_text_prompt": "Write a text about: ",
-      "write_code": "Write code",
-      "write_code_prompt": "Write code that does the following: "
-    },
-    "scenario": {
-      "article": "Write an article",
-      "article_desc": "A structured article on any topic",
-      "article_prompt": "Write a detailed article about: ",
-      "summary": "Summarize",
-      "summary_desc": "Shorten a long text to the essentials",
-      "summary_prompt": "Summarize the following text:\n\n",
-      "contract": "Analyze a contract",
-      "contract_desc": "Find risks and key clauses",
-      "contract_prompt": "Analyze this contract: find risks, key terms and pitfalls:\n\n",
-      "translate_doc": "Translate document",
-      "translate_doc_desc": "Translation that keeps the meaning",
-      "translate_doc_prompt": "Translate the document, keeping meaning and formatting:\n\n",
-      "excel": "Excel analysis",
-      "excel_desc": "Break down tables and data",
-      "excel_prompt": "Analyze the table data and draw conclusions:\n\n",
-      "improve": "Improve text",
-      "improve_desc": "Make the text clearer and cleaner",
-      "improve_prompt": "Improve the following text — make it clearer, cleaner and more convincing:\n\n",
-      "resume": "Resume",
-      "resume_desc": "Build a professional resume",
-      "resume_prompt": "Help me build a professional resume. Here is my info:\n\n",
-      "ideas": "Ideas",
-      "ideas_desc": "Brainstorm and suggestions",
-      "ideas_prompt": "Suggest 10 creative ideas about: ",
-      "code_help": "Code help",
-      "code_help_desc": "Explain, fix or write code",
-      "code_help_prompt": "Help with code — explain and fix the error:\n\n",
-      "learning": "Learning help",
-      "learning_desc": "Explain a topic in simple words",
-      "learning_prompt": "Explain in simple words the topic: "
-    }
-  },
-  "profile": {
-    "profile": "Profile",
-    "fullname": "Full name",
-    "email": "Email",
-    "phone": "Phone",
-    "change": "Change",
-    "leave_feedback": "Leave feedback",
-    "feedback_rating": "Rating",
-    "feedback_placeholder": "Your feedback",
-    "feedback_send": "Send feedback",
-    "feedback_sent": "Thanks! Feedback submitted",
-    "card": "Payment card",
-    "brand": "Brand",
-    "last4": "Last 4 digits",
-    "period": "Validity period",
-    "code": "Secret code",
-    "subscription": "Subscription",
-    "plan": "Plan",
-    "price": "Price",
-    "pricing": "Pricing",
-    "write-off": "Next write-off",
-    "unsubscribe": "Unsubscribe",
-    "unsubscribe_confirm_title": "Confirm unsubscribe",
-    "unsubscribe_confirm_desc": "Auto-renewal will be disabled. Continue?",
-    "unsubscribe_notice": "Auto-renewal disabled.",
-    "resume_subscription": "Resume subscription",
-    "resume_notice": "Auto-renewal enabled.",
-    "add_card": "Add card",
-    "no_card": "No card",
-    "card_number": "Card number",
-    "cvv": "CVV",
-    "expired_date": "Expired date",
-    "name_on_card ": "Name on card",
-    "card_bind_description": "Link your card via the secure FreedomPay Hosted Payment Page to enable payments.",
-    "card_bind_button": "Link card",
-    "card_bind_loading": "Processing…",
-    "card_bind_ready_badge": "Card linked",
-    "card_bind_ready_text": "Your card is linked and ready for payments.",
-    "card_bind_new_button": "Link new card",
-    "card_remove_button": "Remove card",
-    "card_remove_confirm_title": "Remove card?",
-    "card_remove_confirm_desc": "The card will be removed from FreedomPay and your account. Continue?",
-    "card_remove_notice": "Card removed. Link a card again to continue.",
-    "card_hash_label": "Card",
-    "card_hash_unknown": "Card info unavailable",
-    "card_expiry_label": "Valid thru",
-    "card_expiry_unknown": "Not specified",
-    "no_card_payment_notice": "Pay one-time or link a card for auto-renewal and Sunday bonuses to always stay with EsAI.",
-    "_2fa": "Two-factor authentication",
-    "plan_info": {
-      "empty_title": "7 days free",
-      "empty_text": "Enter your card details and get free access for 7 days. You can cancel your subscription at any time!",
-      "empty_text2": "Explore more advanced subscription plans",
-      "empty_alert_title": "Great! Registration is almost complete",
-      "empty_alert_text": "Please fill in your payment card details below to activate your 7-day free trial",
-      "empty_alert_text2": "You can cancel your subscription at any time"
-    },
-    "user_info": {
-      "user_changed": "Profile data has been successfully updated",
-      "no_data": "No data to update",
-      "empty_data": "All fields are required"
-    },
-    "status": "Status",
-    "billing_grace_card_missing": "Chat will be disabled soon: no linked card. Pay your plan or link a card before {{date}}.",
-    "billing_grace_charge_failed": "Chat will be disabled soon: automatic payment failed. Pay your plan before {{date}}.",
-    "billing_grace_generic": "Chat will be disabled soon: payment issue detected. Pay your plan before {{date}}.",
-    "chat_blocked_card_missing": "Chat is unavailable because there is no active subscription: card is not linked and the payment grace period has ended.",
-    "chat_blocked_charge_failed": "Chat is unavailable because there is no active subscription: charge failed and the payment grace period has ended.",
-    "chat_blocked_no_active": "Chat is unavailable because there is no active subscription. Please pay your plan.",
-    "test_mode_notice": "You are in test mode: bonus generations are being used. To continue without limits, connect a plan.",
-    "test_mode_expired_notice": "Test period has ended: without a plan, bonus generations are available only during the first 7 days after registration. Connect a plan.",
-    "payment_status": {
-      "paid": "paid",
-      "unpaid": "unpaid",
-      "pending": "processing",
-      "failed": "failed",
-      "canceled": "canceled"
-    },
-    "start_date": "Start date",
-    "change_plan": "Change plan",
-    "unsubscribe_disabled": "Unsubscribe unavailable: subscription is not active",
-    "period_unit": {
-      "weekly": "week",
-      "monthly": "month",
-      "yearly": "year"
-    },
-    "plan_period": {
-      "weekly": "weekly period",
-      "monthly": "monthly period",
-      "yearly": "yearly period"
-    },
-    "left_counters": {
-      "title": "Remaining generations",
-      "left": "Left",
-      "plan_part": "plan",
-      "bonus_part": "bonus",
-      "items": {
-        "texts": "Texts",
-        "images": "Images",
-        "songs": "Songs",
-        "music": "Music"
-      }
-    },
-    "buy_generations": {
-      "open_button": "Buy more generations",
-      "title": "Generation top-up",
-      "loading": "Loading prices...",
-      "empty_state": "This section will soon let you buy extra generations for your plan.",
-      "unit_price": "Price per 1",
-      "row_total": "Row total",
-      "selected": "Selected generations",
-      "total": "Total",
-      "items": {
-        "texts": "Texts",
-        "images": "Images",
-        "music": "Music"
-      }
-    },
-    "bonus_counters": {
-      "title": "Bonuses"
-    },
-    "referral": {
-      "title": "Referral",
-      "uid": "UID",
-      "copy": "Copy code",
-      "copied": "Copied"
-    },
-    "no_plan_attach_or_choose_notice": "You do not have an active plan yet. To enable test mode, link a card in your profile. Or choose a plan in pricing.",
-    "unpaid_and_generations_exhausted_notice": "Payment is not completed and generations are exhausted. Pay your subscription or activate a new plan.",
-    "generations_exhausted_notice": "Generations are exhausted. You can top up in profile or choose a new plan."
-  },
-  "nav": {
-    "dashboard": "Dashboard",
-    "profile": "Profile",
-    "settings": "Settings",
-    "logout": "Logout",
-    "logOutConfirmTitle": "Are you sure you want to log out?"
-  },
-  "forms": {
-    "required_short": "Please fill in all required fields"
-  },
-  "templates": {
-    "create": {
-      "submit": "Create template",
-      "submitting": "Creating...",
-      "success": "Template created",
-      "error": "Failed to create template"
-    },
-    "fields": {
-      "name": "Name",
-      "purpose": "Purpose",
-      "description": "Description",
-      "template": "Template body",
-      "provider": "Provider",
-      "mode": "Mode"
-    },
-    "placeholders": {
-      "name": "E.g.: System prompt for EsAI",
-      "purpose": "Briefly: what is this template for",
-      "description": "Optional: how to use, limitations...",
-      "template": "Use {{variables}} or {{language}} if you have your own renderer",
-      "provider": "Select a provider",
-      "mode": "Select a mode"
-    }
-  },
-  "ai": {
-    "mode": {
-      "text": "Text",
-      "images": "Images",
-      "music": "Music"
-    }
-  },
-  "terms": {
-    "title": "Terms & Conditions",
-    "sections": [
-      {
-        "id": "welcome",
-        "title": "Welcome to EsAI!",
-        "paras": [
-          "Welcome to EsAI. Through this website you can access our company’s products. By accessing our site and using our tools, you agree to these Terms.",
-          "We may modify these Terms as well as products, prices, and services at any time. EsAI will use all available legal remedies to correct and stop violations of these Terms."
-        ]
-      },
-      {
-        "id": "copyright",
-        "title": "Copyright",
-        "paras": [
-          "All content on this website is the copyright of EsAI. All rights reserved. Copyright includes, without limitation, graphics, tool usage, logos, sounds, and text. In general, you may not reproduce any part of this website without prior written permission from EsAI.",
-          "Two exceptions apply: (1) you may save a copy of this website and its content to your hard drive for personal, non-commercial use; (2) you may copy content for third parties for their own non-commercial use, provided you cite this website as the source."
-        ]
-      },
-      {
-        "id": "service",
-        "title": "Service Description",
-        "paras": [
-          "EsAI uses AI to provide services including text-to-speech, audio generation, AI drawing, AI covers, and AI music. Users submit text, audio, and other inputs; EsAI generates creative works based on them.",
-          "AI functions include: text-to-speech, voice-to-speech, AI drawing, AI covers, AI music. The service evolves as technology and user feedback progress."
-        ]
-      },
-      {
-        "id": "use_rules",
-        "title": "Usage Specifications & Rules",
-        "paras": [
-          "Users must comply with applicable laws and policies and must not use the service for illegal activity or to create illegal content. Prohibited content/actions include: violating international or local laws; infringing others’ rights (privacy, IP, etc.); spreading hate, violence, pornography, terrorism; harming lawful rights or public interests.",
-          "Users warrant their inputs are lawful and that they hold the right to use such data or have obtained necessary permissions, and grant EsAI a non-exclusive right to use them for service provision.",
-          "EsAI may review user inputs and outputs and remove or block content that violates rules.",
-          "Where required by law, EsAI will label AI-generated content; users may not remove or alter such labels without permission.",
-          "Users must: obey laws, respect third-party rights, not use the service to build competing products, not obtain content or data in improper ways, and not reverse-engineer or attempt to hack the service."
-        ]
-      },
-      {
-        "id": "liability_limit",
-        "title": "Limitation of Liability",
-        "paras": [
-          "While EsAI strives to deliver quality, it cannot guarantee the service fully meets all needs, nor the accuracy, reliability, or legality of generated content.",
-          "Generated content is for reference only and is not legal, medical, or other professional advice. EsAI is not liable for outcomes of using generated content.",
-          "EsAI may change or discontinue parts of the service per laws, regulations, or third-party requirements without prior notice or liability."
-        ]
-      },
-      {
-        "id": "complaints",
-        "title": "Complaints & Appeals",
-        "paras": [
-          "If you believe your rights are infringed or you detect illegal information, you may report it to EsAI at info@vokalo.online.",
-          "You may submit materials for an appeal; EsAI will respond within 5 business days after receipt."
-        ]
-      },
-      {
-        "id": "ip_music_voice",
-        "title": "Commercial Copyright for AI Music, Covers, Model Training, and Voice Cloning",
-        "paras": [
-          "Covers using your own voice: if you hold commercial use or ownership rights to the original song and use your voice to create a cover via our AI, ownership and commercial rights to the generated cover belong to you.",
-          "Cloning others’ voices: with consent obtained, ownership and commercial rights to the generated cover belong to you. If the cloned voice is materially altered and no longer recognizable, ownership and commercial rights also belong to you.",
-          "Using platform voices: covers generated with voices built into our platform belong to you.",
-          "Platform-generated music (including covers) belongs to you. Our algorithms ensure uniqueness and high quality.",
-          "Custom voice training: if you train a custom voice model on our platform, the model and generated voices belong to you. For questions: support@esai.kg."
-        ]
-      },
-      {
-        "id": "hold_harmless",
-        "title": "Hold Harmless",
-        "paras": [
-          "By accessing this site or using our online tools, you release EsAI from any liabilities, claims, costs, losses, expenses, or other causes of action arising from your use of our products, access to our website, or any communication between you and EsAI."
-        ]
-      },
-      {
-        "id": "trademarks",
-        "title": "Trademarks",
-        "paras": [
-          "\"EsAI\" is a registered trademark of EsAI. You may not use this mark for content, software, or other products or services not produced by EsAI. We will enforce trademark and copyright laws."
-        ]
-      },
-      {
-        "id": "links",
-        "title": "Links to Other Websites",
-        "paras": [
-          "Our site may contain links to third-party sites beyond EsAI’s control. We do not endorse their content, privacy policies, or practices. Visiting such sites is solely your responsibility. These Terms do not apply there; review their legal texts."
-        ]
-      },
-      {
-        "id": "feedback",
-        "title": "Feedback",
-        "paras": [
-          "We welcome feedback and suggestions on improving our products and website.",
-          "By providing feedback, you grant EsAI the unrestricted right to use it without obligation to compensate you."
-        ]
-      },
-      {
-        "id": "legal_disclaimer",
-        "title": "Legal Disclaimer",
-        "paras": [
-          "EsAI tools are provided for lawful purposes only. Do not copy or install our tools on a device you do not own or without explicit permission. Such installation may violate laws and lead to penalties.",
-          "Consult legal counsel to ensure your use case is lawful. You bear full responsibility for your use of EsAI tools. EsAI is not responsible for unlawful use, including unauthorized installation or access.",
-          "EsAI does not and cannot provide legal advice. All rights not expressly granted are reserved by EsAI."
-        ]
-      }
-    ]
-  },
-  "brand": {
-    "name": "EsAI",
-    "slogan": "All AI in one place."
-  },
-  "pwa": {
-    "install_title": "Install the EsAI app",
-    "install_desc": "Quick access to the chat from your home screen, like a native app.",
-    "install_cta": "Install",
-    "ios_hint": "Tap Share, then “Add to Home Screen”.",
-    "dismiss": "Not now"
-  },
-  "guest": {
-    "limit_title": "Free limit reached",
-    "limit_desc": "You have used your free limit. Sign in with Google or Telegram to continue.",
-    "free_remaining": "{{count}} of {{limit}} free messages left"
-  },
-  "theme": {
-    "title": "Theme",
-    "light": "Light",
-    "dark": "Dark",
-    "system": "System"
-  },
-  "balance": {
-    "label": "Token balance",
-    "topup": "Top up"
-  },
-  "topup": {
-    "title": "Top up balance",
-    "tokens": "tokens",
-    "bonus": "bonus",
-    "buy": "Buy",
-    "load_error": "Failed to load packages",
-    "purchase_error": "Failed to start payment",
-    "empty": "No packages available yet",
-    "insufficient_title": "Not enough tokens",
-    "insufficient_desc": "You have run out of tokens. Top up your balance to continue."
-  }
+	"common": {
+		"yes": "Yes",
+		"no": "No",
+		"submit": "Submit",
+		"cancel": "Cancel",
+		"processing": "Processing...",
+		"loading": "Loading...",
+		"settings": "Settings",
+		"language": "Language",
+		"notifications": "Notifications",
+		"prev": "Prev",
+		"next": "Next",
+		"close": "Close"
+	},
+	"compass": {
+		"1": "Songs",
+		"2": "Images",
+		"3": "Voices",
+		"4": "Text",
+		"5": "Music"
+	},
+	"pricing": {
+		"title": "Subscription Plans",
+		"subtitle": "EsAI | All AI in one place",
+		"monthly": "Monthly",
+		"weekly": "Weekly",
+		"yearly": "Yearly",
+		"day": "Day",
+		"month": "Month",
+		"year": "Year",
+		"free": "Free",
+		"basic": "Basic",
+		"pro": "Pro",
+		"premium": "Premium",
+		"unlimited": "Unlimited",
+		"enterprise": "Enterprise",
+		"business": "Business",
+		"trial": "Trial",
+		"startofwork": "Start of Work",
+		"try_now": "Try",
+		"getstarted": "Get started with our new package",
+		"loading": "Loading...",
+		"vokalo_test": "EsAITest",
+		"test_subtitle": "Trial",
+		"monthly_subtitle": "30 days",
+		"weekly_subtitle": "7 days",
+		"yearly_subtitle": "12 months",
+		"view_all_plans": "View all plans",
+		"back_to_all": "Back to all plans",
+		"connect_plan": "Activate plan",
+		"plan_already_active": "This plan is already active",
+		"next_charge_on": "Next charge date: {{date}}",
+		"plan": "Plan",
+		"monthly_short": "mo",
+		"weekly_short": "wk",
+		"yearly_short": "yr",
+		"meta": "Details",
+		"period": "Period",
+		"addons": "Add-ons",
+		"included": "What’s included",
+		"confirm_title": "Confirm plan activation",
+		"confirm_description": "Do you confirm you want to switch to this plan?",
+		"not_found": "Plan not found",
+		"nothing_found": "Nothing found",
+		"features": {
+			"open_ai_model": "OpenAI model",
+			"ai_templates": "AI Templates",
+			"ops_per_month": "Operations per month",
+			"covers": "Covers",
+			"ai_chat": "AI Chat",
+			"realtime_chat": "Realtime Chat",
+			"rewriter": "AI Rewriter",
+			"antiplag": "Antiplagiarism",
+			"ai_images": "AI Images",
+			"diffusion_images": "Diffusion Images",
+			"blog_master": "Blog Master",
+			"music": "Music",
+			"tts": "Text-to-Speech",
+			"my_templates": "My Templates",
+			"manager": "Manager",
+			"support": "Support",
+			"songs_count": "Number of songs",
+			"images_count": "Number of images",
+			"music_count": "Number of music generations",
+			"sunday_bonus_title": "Sunday bonuses",
+			"sunday_bonus_songs": "songs",
+			"sunday_bonus_music": "music generations",
+			"sunday_bonus_texts": "texts",
+			"sunday_bonus_images": "images",
+			"mp4": "MP4"
+		},
+		"questions": "Still have questions?",
+		"questionsText": "Didn't find the answer here? You can contact us at",
+		"questionsLink": "Go to FAQ",
+		"all": "All"
+	},
+	"pricing_referral": {
+		"referral_title": "EsAI Referral Program",
+		"referral_subtitle": "Expand your limits with our referral program.",
+		"referral_line": "A friend of my friend is my friend 🙂",
+		"referral_desc": "Increase your limits for each new user registered with your unique referral code.",
+		"referral_more": "Learn more"
+	},
+	"date": {
+		"day": "Day",
+		"month": "Month",
+		"year": "Year",
+		"today": "Today",
+		"yesterday": "Yesterday",
+		"tomorrow": "Tomorrow"
+	},
+	"status": {
+		"success": "Success",
+		"error": "Error",
+		"loading": "Loading",
+		"notfound": "Not found",
+		"unauthorized": "Unauthorized",
+		"forbidden": "Forbidden",
+		"processing": "Processing",
+		"completed": "Completed",
+		"pending": "Pending",
+		"active": "Active",
+		"inactive": "Inactive",
+		"code_sent": "Code sent",
+		"enter_code": "Enter code"
+	},
+	"status_extended": {
+		"success": "Operation completed successfully",
+		"error": "An error occurred",
+		"loading": "Please wait, loading in progress",
+		"notfound": "The requested resource was not found",
+		"unauthorized": "You do not have access to this resource",
+		"forbidden": "Access to this resource is forbidden",
+		"processing": "Your request is being processed",
+		"error_username_password": "Incorrect username or password",
+		"check_email": "Please check your email for further instructions",
+		"invalid_code": "The code you entered is invalid"
+	},
+	"subscribe": {
+		"success_title": "Subscription activated",
+		"success_message": "Plan connected. Payment will be charged automatically.",
+		"success_plan_activated": "Plan {{plan}} activated",
+		"success_access_until": "Access is valid until {{date}}",
+		"success_card_extra": "Auto-renewal is enabled. Sunday bonuses are active.",
+		"success_one_time_extra": "Auto-renewal is disabled. Bonuses are not accrued.",
+		"attach_card_title": "Add a card",
+		"no_card_short": "To activate this plan, add a card in",
+		"payment_modal_title": "Choose a convenient payment method",
+		"payment_modal_description": "Card is optional. Choose the payment option you prefer.",
+		"card_title": "Bank card",
+		"card_description": "Plan auto-renewal, Sunday bonuses, and uninterrupted access.",
+		"card_button": "Link card",
+		"wallets_title": "E-wallets (Freedom Pay, YooMoney, etc.)",
+		"wallets_description": "One-time payment without auto charges. Access remains until period end.",
+		"wallets_button": "Pay one-time",
+		"payment_optional_note": "Card linking is optional. You can use EsAI with one-time payment.",
+		"one_time_title": "One-time payment",
+		"one_time_description": "Use a one-time payment to activate the plan now. Press the button below to continue.",
+		"one_time_button": "Activate with one-time payment",
+		"crypto_title": "Crypto payment",
+		"crypto_description": "You can pay for the plan with crypto through Binance using the QR code.",
+		"crypto_button": "Activate with crypto",
+		"crypto_modal_title": "Crypto payment via Binance",
+		"crypto_modal_description": "Scan the QR code and complete payment for the selected plan.",
+		"crypto_receipt_text": "After crypto payment, send the receipt to our email and we will activate your selected plan.",
+		"go_to_profile": "profile",
+		"error_no_card": "No card on file. Please add a card in your profile.",
+		"error_no_token": "No recurring token found. Please re-bind your card.",
+		"error_already_active": "Subscription is already active.",
+		"error_plan_not_found": "Plan not found.",
+		"error_unknown": "Could not connect the plan. Please try again later.",
+		"redirect_in_profile": "You will be redirected to profile in {{seconds}}s.",
+		"go_now": "Go now"
+	},
+	"auth": {
+		"title": "EsAI awaits your genre, lyrics, and instruments.",
+		"subtitle": "No credit card required!",
+		"google": "Sign in with Google",
+		"social_soon": "Coming soon",
+		"or": "Or",
+		"fullname": "Full name",
+		"email": "Email",
+		"password": "Password",
+		"confirm_password": "Confirm password",
+		"confirm": "Confirm",
+		"signup": "Sign up",
+		"signin": "Sign in",
+		"login": "Log in",
+		"forgotPassword": "Forgot password?",
+		"resetPassword": "Reset password",
+		"enter_email": "Enter your email address",
+		"enter_fullname": "Enter your full name",
+		"enter_password": "Enter your password",
+		"enter_code": "Enter code",
+		"tel": "Phone",
+		"have_account": "Already have an account?",
+		"your_music": "Your music",
+		"start_here": "starts here!",
+		"welcome": "Welcome to the platform!",
+		"create_music": "Create music in seconds",
+		"create_pictures": "Generate images with neural networks",
+		"gpt": "Connect GPT for automation",
+		"you_can": "You can do it 💪",
+		"signin_with_phone": "Sign in with phone number",
+		"signin_with_email": "Sign in with email",
+		"dont_have_account": "Don't have an account?",
+		"forgot_password": "Forgot password?",
+		"reset_with_email": "Reset with email",
+		"reset_with_phone": "Reset with phone",
+		"user_was_successfully_created": "User was successfully created",
+		"code_sent": "Code sent to email",
+		"code_verified": "Code verified successfully",
+		"password_changed": "Password successfully changed",
+		"reset_failed": "Failed to reset password",
+		"enter_new_password": "Enter new password",
+		"save_password": "Save password",
+		"new_password": "New password",
+		"referral_code": "Referral code",
+		"enter_referral_code": "Enter referral code (optional)"
+	},
+	"auth_extra": {},
+	"pages_titles": {
+		"home": "Home",
+		"pricing": "Pricing",
+		"signup": "Sign Up",
+		"signin": "Sign In",
+		"reset_password": "Reset Password",
+		"profile": "Profile",
+		"settings": "Settings",
+		"about": "About Us",
+		"contact": "Contact",
+		"terms": "Terms of Use",
+		"privacy": "Privacy Policy",
+		"faq": "Frequently Asked Questions (FAQ)",
+		"blog": "Blog",
+		"referral": "Referral Program"
+	},
+	"contact_us": {
+		"write_title": "Write to us",
+		"write_description": "Write to us and you'll receive a reply shortly.",
+		"write_button": "Write to us",
+		"write_email": "support@esai.kg",
+		"call_title": "Call us",
+		"call_description": "Call us. Our experts are ready to talk to you.",
+		"call_button": "Call us",
+		"call_phone": "+996 (555) 919 141",
+		"form_title": "Talk to our team",
+		"form_subtitle": "Write to us, we’ll gladly assist with your questions.",
+		"name_label": "Your name",
+		"name_placeholder": "Name",
+		"email_label": "Your email",
+		"email_placeholder": "Email",
+		"phone_label": "Your phone",
+		"phone_placeholder": "Phone",
+		"message_label": "Message",
+		"submit_button": "Contact us"
+	},
+	"faq": {
+		"title": "🟡 Any questions?",
+		"text": "Have a question that isn't answered here? You can contact us at",
+		"button": "Have a question? Contact us",
+		"message_sended": "Your message was sent",
+		"questions": {
+			"0": {
+				"q": "How to create my first song or image?",
+				"a": "Sign up, choose a category (music or image), enter a text prompt, click \"Generate\" — and get the result in seconds."
+			},
+			"1": {
+				"q": "How many generations are available in my plan?",
+				"a": [
+					"Free — 1 generation per day for 7 days",
+					"Basic — 50 generations per month",
+					"Standard — 100 generations + bonuses",
+					"Pro, Premium, Enterprise — extended limits and discounts"
+				]
+			},
+			"2": {
+				"q": "What if generation fails?",
+				"a": "If you see an error or strange result, just try again — generations are only deducted on success. If the problem persists, contact support."
+			},
+			"3": {
+				"q": "How to activate the trial?",
+				"a": "After registration, you’ll immediately get 5 free generations without linking a card. Want full 7-day trial access? Simply link your bank card — this helps us prevent spam. Everything is secure: no charges will be made without your confirmation."
+			},
+			"4": {
+				"q": "How to pay for a subscription?",
+				"a": [
+					"Freedom Pay (Kyrgyzstan)",
+					"YuMoney (Russia & CIS)",
+					"USDT TRC20 (Payment receipt required)",
+					"Bank cards and e-wallets",
+					"All payments are secure"
+				]
+			},
+			"5": {
+				"q": "How does the referral program work?",
+				"a": "Invite friends using your referral link and get bonus generations. +5 free generations for each active user."
+			},
+			"6": {
+				"q": "How to change or cancel my plan?",
+				"a": "Go to your account, select a plan and click \"Switch\". You can cancel anytime — access stays until the end of the paid period."
+			},
+			"7": {
+				"q": "How to contact support?",
+				"a": "Write to support@esai.kg or Telegram: @VokaloSupportBot"
+			}
+		},
+		"modalTitle": "Ask a Question",
+		"questionDescription": "Your Question",
+		"questionDescriptionPlaceholder": "Type your question here..."
+	},
+	"blog": {
+		"title": "🟡 Blog",
+		"subtitle": "Welcome to the EsAI Blog — a space where we share ideas, tips, and stories from the world of music, AI, and creativity.",
+		"points": [
+			"🎵 Tips for writing songs and lyrics",
+			"🤖 Reviews of new AI tools",
+			"🎨 Hacks for generating visual content",
+			"📢 Platform news and updates",
+			"💡 User stories and best works"
+		],
+		"footer": "We publish only useful, inspiring, and relevant content. Stay tuned — and be in sync with the future!"
+	},
+	"about": {
+		"title": "🟡 About Us",
+		"subtitle": "EsAI is an innovative online service where artificial intelligence helps you create music, lyrics, and images. We combine technology and creativity so that anyone — from beginners to professionals — can bring their ideas to life quickly.",
+		"points": [
+			"🔹 Generate songs based on your lyrics",
+			"🔹 Get music that fits the mood and style",
+			"🔹 Create covers, visuals, and illustrations using neural networks",
+			"🔹 Share, rate, get inspired"
+		],
+		"footer": "We believe that AI is not a replacement but a partner in creativity. EsAI is built for those who want to create in a new way."
+	},
+	"referral": {
+		"title": "🟡 Referral Program",
+		"subtitle": "After completing registration, your unique referral code appears in your profile. Share your link when friends sign up — and earn bonus tokens.",
+		"how_title": "How it works",
+		"step1": {
+			"title": "Get your UID",
+			"text": "After registration and first plan activation, your UID appears in Profile."
+		},
+		"step2": {
+			"title": "A friend signs up",
+			"text": "They enter your referral code on the signup page."
+		},
+		"step3": {
+			"title": "Bonus tokens",
+			"text": "You receive bonus tokens to your balance for each invited friend."
+		},
+		"usage_title": "How bonuses are used",
+		"usage1": "Bonus tokens are credited to your balance.",
+		"usage2": "They are spent the same way as purchased tokens.",
+		"usage3": "The more friends you invite, the more bonus tokens you get.",
+		"your_link": "Your referral link",
+		"copy": "Copy",
+		"copied": "Copied",
+		"guest_hint": "Sign in to get your referral link.",
+		"sign_in": "Sign in",
+		"no_code": "Your referral code is not available yet. It will appear after you complete registration."
+	},
+	"chat": {
+		"clear_history_confirm_title": "Confirm history deletion",
+		"clear_history_confirm_desc": "Do you want to delete the entire chat history? This action cannot be undone.",
+		"collapse_sidebar": "Collapse sidebar",
+		"new_chat": "New Chat",
+		"chat_history": "Chat History",
+		"chat_history_music": "Music History",
+		"chat_history_images": "Image History",
+		"chat_history_text": "Text Chat History",
+		"send": "Send",
+		"search": "Search",
+		"settings": "Settings",
+		"clear_history": "Clear History",
+		"lib": "Library",
+		"images_library": "Image Library",
+		"music_library": "Music Library",
+		"images_library_empty": "No images yet",
+		"images_library_empty_title": "Your image library is empty!",
+		"images_library_empty_subtitle": "Create your first image with EsAI right now",
+		"music_library_empty_title": "Your music library is empty!",
+		"music_library_empty_subtitle": "Create your first track with EsAI right now",
+		"download": "Download",
+		"downloading": "Downloading...",
+		"mp4_preparing": "Preparing MP4...",
+		"mp4_preparing_hint": "MP4 is being prepared. Download will start shortly. Please wait.",
+		"mp4_download_not_available": "MP4 is not available for this track yet",
+		"mp4_plan_locked": "This feature is not supported on your current plan",
+		"chat_list_empty": "No chats yet. Click \"New Chat\" to start.",
+		"delete_chat": "Delete Chat",
+		"delete_chat_confirmation": "Are you sure you want to delete this chat?",
+		"delete_chat_success": "Chat deleted successfully",
+		"delete_chat_error": "Error deleting chat",
+		"ask_something": "Ask something...",
+		"music_ask_something": "Describe your composition or song lyrics...",
+		"music_empty_hint": "Describe your composition or song lyrics below. No lyrics yet? No worries, just create them in our",
+		"text_chat_link": "text chat",
+		"music_generated_details_link": "View details and configure it in your music library",
+		"set_title": "Track title",
+		"track_title_placeholder": "Enter track title",
+		"title_saved": "Title saved",
+		"title_error_music_not_found": "Music track not found",
+		"title_error_required": "Enter track title",
+		"title_error_too_long": "Title is too long",
+		"title_error_audio_missing": "Track audio file not found",
+		"title_error_audio_path": "Audio file path is unavailable",
+		"title_error_audio_format": "Audio format does not support title metadata",
+		"title_error_embed_failed": "Failed to write title into audio file",
+		"title_error_unknown": "Failed to save title",
+		"cover_error_music_not_found": "Music track not found",
+		"cover_error_image_not_found": "Image not found",
+		"cover_error_source_required": "Choose an image or upload your own cover",
+		"cover_error_media_path_invalid": "Invalid cover path",
+		"cover_error_open_failed": "Failed to open cover file",
+		"cover_error_download_failed": "Failed to download cover image",
+		"cover_error_empty_payload": "Cover file is empty",
+		"cover_error_format_unsupported": "Unsupported cover format (allowed: jpg, png)",
+		"cover_error_audio_missing": "Track audio file not found",
+		"cover_error_audio_path": "Audio file path is unavailable",
+		"cover_error_audio_format": "Audio format does not support embedded cover",
+		"cover_error_embed_failed": "Failed to embed cover into audio file",
+		"cover_error_unknown": "Failed to save cover",
+		"thinking": "Thinking",
+		"thinking_ellipsis": "Thinking…",
+		"sources": "Sources",
+		"web_search_short": "Search",
+		"voice_enter": "Voice Enter",
+		"attachments": "Attachments",
+		"attachment_upload_error": "Upload error",
+		"error_generic": "Something went wrong. Please try again later.",
+		"error_network": "Network error. Check your connection and try again.",
+		"error_unauthorized": "Authentication required. Please sign in and try again.",
+		"error_forbidden": "Access denied.",
+		"error_notfound": "Resource not found.",
+		"error_image_generation": "Failed to generate image.",
+		"error_music_generation": "Failed to generate music.",
+		"error_request_failed": "Request failed.",
+		"go_to_pricing": "Go to pricing",
+		"chats_list_empty": "Chats list is empty",
+		"empty_text_title": "Ready to create text with EsAI?",
+		"empty_text_subtitle": "Let’s get started!",
+		"empty_image_title": "Ready to create images with EsAI?",
+		"empty_image_subtitle": "Let’s get started!",
+		"empty_music_title": "Ready to create music with EsAI?",
+		"empty_music_subtitle": "Let’s get started!",
+		"templates": {
+			"templates": "Templates",
+			"usage": "Total usage",
+			"namePlaceholder": "Template name",
+			"descriptionPlaceholder": "Template description",
+			"promptPlaceholder": "Prompt",
+			"templateUsed": "Template used",
+			"activeTemplates": "Active templates",
+			"useTemplate": "Use Template",
+			"createTemplate": "Create Template",
+			"createTemplateSuccess": "Template created successfully",
+			"createTemplateError": "Error creating template",
+			"editTemplate": "Edit Template",
+			"editTemplateSuccess": "Template edited successfully",
+			"editTemplateError": "Error editing template",
+			"deleteTemplate": "Delete Template",
+			"deleteTemplateConfirmation": "Are you sure you want to delete this template?",
+			"deleteTemplateSuccess": "Template deleted successfully",
+			"deleteTemplateError": "Error deleting template",
+			"favoriteTemplate": "Favorite Template",
+			"favoriteTemplateSuccess": "Template added to favorites",
+			"favoriteTemplateError": "Error adding template to favorites"
+		},
+		"tabs": {
+			"global": "EsAI Templates",
+			"favorites": "Favorites templates",
+			"create": "Create new template",
+			"selected": "Selected template",
+			"usage": "Usage"
+		},
+		"models_tabs": {
+			"text": "Text generation",
+			"image": "Image generation",
+			"music": "Music generation"
+		},
+		"go_to_profile_for_card": "Go to profile (link card)",
+		"go_to_profile_for_topup": "Go to profile (top-up)",
+		"menu": "Menu",
+		"profile": "Profile",
+		"model": {
+			"select": "Select model"
+		},
+		"start": {
+			"greeting": "How can I help?"
+		},
+		"actions": {
+			"copy": "Copy",
+			"copied": "Copied",
+			"retry": "Retry",
+			"continue": "Continue",
+			"continue_prompt": "Continue.",
+			"like": "Good answer",
+			"dislike": "Bad answer"
+		},
+		"quick": {
+			"upload_doc": "Upload document",
+			"upload_doc_prompt": "Analyze the attached document and summarize it: ",
+			"web_search": "Search the web",
+			"web_search_prompt": "Find up-to-date information on the web about: ",
+			"translate": "Translate text",
+			"translate_prompt": "Translate the following text into English:\n\n",
+			"write_text": "Write text",
+			"write_text_prompt": "Write a text about: ",
+			"write_code": "Write code",
+			"write_code_prompt": "Write code that does the following: "
+		},
+		"scenario": {
+			"article": "Write an article",
+			"article_desc": "A structured article on any topic",
+			"article_prompt": "Write a detailed article about: ",
+			"summary": "Summarize",
+			"summary_desc": "Shorten a long text to the essentials",
+			"summary_prompt": "Summarize the following text:\n\n",
+			"contract": "Analyze a contract",
+			"contract_desc": "Find risks and key clauses",
+			"contract_prompt": "Analyze this contract: find risks, key terms and pitfalls:\n\n",
+			"translate_doc": "Translate document",
+			"translate_doc_desc": "Translation that keeps the meaning",
+			"translate_doc_prompt": "Translate the document, keeping meaning and formatting:\n\n",
+			"excel": "Excel analysis",
+			"excel_desc": "Break down tables and data",
+			"excel_prompt": "Analyze the table data and draw conclusions:\n\n",
+			"improve": "Improve text",
+			"improve_desc": "Make the text clearer and cleaner",
+			"improve_prompt": "Improve the following text — make it clearer, cleaner and more convincing:\n\n",
+			"resume": "Resume",
+			"resume_desc": "Build a professional resume",
+			"resume_prompt": "Help me build a professional resume. Here is my info:\n\n",
+			"ideas": "Ideas",
+			"ideas_desc": "Brainstorm and suggestions",
+			"ideas_prompt": "Suggest 10 creative ideas about: ",
+			"code_help": "Code help",
+			"code_help_desc": "Explain, fix or write code",
+			"code_help_prompt": "Help with code — explain and fix the error:\n\n",
+			"learning": "Learning help",
+			"learning_desc": "Explain a topic in simple words",
+			"learning_prompt": "Explain in simple words the topic: "
+		}
+	},
+	"profile": {
+		"profile": "Profile",
+		"fullname": "Full name",
+		"email": "Email",
+		"phone": "Phone",
+		"change": "Change",
+		"leave_feedback": "Leave feedback",
+		"feedback_rating": "Rating",
+		"feedback_placeholder": "Your feedback",
+		"feedback_send": "Send feedback",
+		"feedback_sent": "Thanks! Feedback submitted",
+		"card": "Payment card",
+		"brand": "Brand",
+		"last4": "Last 4 digits",
+		"period": "Validity period",
+		"code": "Secret code",
+		"subscription": "Subscription",
+		"plan": "Plan",
+		"price": "Price",
+		"pricing": "Pricing",
+		"write-off": "Next write-off",
+		"unsubscribe": "Unsubscribe",
+		"unsubscribe_confirm_title": "Confirm unsubscribe",
+		"unsubscribe_confirm_desc": "Auto-renewal will be disabled. Continue?",
+		"unsubscribe_notice": "Auto-renewal disabled.",
+		"resume_subscription": "Resume subscription",
+		"resume_notice": "Auto-renewal enabled.",
+		"add_card": "Add card",
+		"no_card": "No card",
+		"card_number": "Card number",
+		"cvv": "CVV",
+		"expired_date": "Expired date",
+		"name_on_card ": "Name on card",
+		"card_bind_description": "Link your card via the secure FreedomPay Hosted Payment Page to enable payments.",
+		"card_bind_button": "Link card",
+		"card_bind_loading": "Processing…",
+		"card_bind_ready_badge": "Card linked",
+		"card_bind_ready_text": "Your card is linked and ready for payments.",
+		"card_bind_new_button": "Link new card",
+		"card_remove_button": "Remove card",
+		"card_remove_confirm_title": "Remove card?",
+		"card_remove_confirm_desc": "The card will be removed from FreedomPay and your account. Continue?",
+		"card_remove_notice": "Card removed. Link a card again to continue.",
+		"card_hash_label": "Card",
+		"card_hash_unknown": "Card info unavailable",
+		"card_expiry_label": "Valid thru",
+		"card_expiry_unknown": "Not specified",
+		"no_card_payment_notice": "Pay one-time or link a card for auto-renewal and Sunday bonuses to always stay with EsAI.",
+		"_2fa": "Two-factor authentication",
+		"plan_info": {
+			"empty_title": "7 days free",
+			"empty_text": "Enter your card details and get free access for 7 days. You can cancel your subscription at any time!",
+			"empty_text2": "Explore more advanced subscription plans",
+			"empty_alert_title": "Great! Registration is almost complete",
+			"empty_alert_text": "Please fill in your payment card details below to activate your 7-day free trial",
+			"empty_alert_text2": "You can cancel your subscription at any time"
+		},
+		"user_info": {
+			"user_changed": "Profile data has been successfully updated",
+			"no_data": "No data to update",
+			"empty_data": "All fields are required"
+		},
+		"status": "Status",
+		"billing_grace_card_missing": "Chat will be disabled soon: no linked card. Pay your plan or link a card before {{date}}.",
+		"billing_grace_charge_failed": "Chat will be disabled soon: automatic payment failed. Pay your plan before {{date}}.",
+		"billing_grace_generic": "Chat will be disabled soon: payment issue detected. Pay your plan before {{date}}.",
+		"chat_blocked_card_missing": "Chat is unavailable because there is no active subscription: card is not linked and the payment grace period has ended.",
+		"chat_blocked_charge_failed": "Chat is unavailable because there is no active subscription: charge failed and the payment grace period has ended.",
+		"chat_blocked_no_active": "Chat is unavailable because there is no active subscription. Please pay your plan.",
+		"test_mode_notice": "You are in test mode: bonus generations are being used. To continue without limits, connect a plan.",
+		"test_mode_expired_notice": "Test period has ended: without a plan, bonus generations are available only during the first 7 days after registration. Connect a plan.",
+		"payment_status": {
+			"paid": "paid",
+			"unpaid": "unpaid",
+			"pending": "processing",
+			"failed": "failed",
+			"canceled": "canceled"
+		},
+		"start_date": "Start date",
+		"change_plan": "Change plan",
+		"unsubscribe_disabled": "Unsubscribe unavailable: subscription is not active",
+		"period_unit": {
+			"weekly": "week",
+			"monthly": "month",
+			"yearly": "year"
+		},
+		"plan_period": {
+			"weekly": "weekly period",
+			"monthly": "monthly period",
+			"yearly": "yearly period"
+		},
+		"left_counters": {
+			"title": "Remaining generations",
+			"left": "Left",
+			"plan_part": "plan",
+			"bonus_part": "bonus",
+			"items": {
+				"texts": "Texts",
+				"images": "Images",
+				"songs": "Songs",
+				"music": "Music"
+			}
+		},
+		"buy_generations": {
+			"open_button": "Buy more generations",
+			"title": "Generation top-up",
+			"loading": "Loading prices...",
+			"empty_state": "This section will soon let you buy extra generations for your plan.",
+			"unit_price": "Price per 1",
+			"row_total": "Row total",
+			"selected": "Selected generations",
+			"total": "Total",
+			"items": {
+				"texts": "Texts",
+				"images": "Images",
+				"music": "Music"
+			}
+		},
+		"bonus_counters": {
+			"title": "Bonuses"
+		},
+		"referral": {
+			"title": "Referral",
+			"uid": "UID",
+			"copy": "Copy code",
+			"copied": "Copied"
+		},
+		"no_plan_attach_or_choose_notice": "You do not have an active plan yet. To enable test mode, link a card in your profile. Or choose a plan in pricing.",
+		"unpaid_and_generations_exhausted_notice": "Payment is not completed and generations are exhausted. Pay your subscription or activate a new plan.",
+		"generations_exhausted_notice": "Generations are exhausted. You can top up in profile or choose a new plan."
+	},
+	"nav": {
+		"dashboard": "Dashboard",
+		"profile": "Profile",
+		"settings": "Settings",
+		"logout": "Logout",
+		"logOutConfirmTitle": "Are you sure you want to log out?"
+	},
+	"forms": {
+		"required_short": "Please fill in all required fields"
+	},
+	"templates": {
+		"create": {
+			"submit": "Create template",
+			"submitting": "Creating...",
+			"success": "Template created",
+			"error": "Failed to create template"
+		},
+		"fields": {
+			"name": "Name",
+			"purpose": "Purpose",
+			"description": "Description",
+			"template": "Template body",
+			"provider": "Provider",
+			"mode": "Mode"
+		},
+		"placeholders": {
+			"name": "E.g.: System prompt for EsAI",
+			"purpose": "Briefly: what is this template for",
+			"description": "Optional: how to use, limitations...",
+			"template": "Use {{variables}} or {{language}} if you have your own renderer",
+			"provider": "Select a provider",
+			"mode": "Select a mode"
+		}
+	},
+	"ai": {
+		"mode": {
+			"text": "Text",
+			"images": "Images",
+			"music": "Music"
+		}
+	},
+	"terms": {
+		"title": "Terms & Conditions",
+		"sections": [
+			{
+				"id": "welcome",
+				"title": "Welcome to EsAI!",
+				"paras": [
+					"Welcome to EsAI. Through this website you can access our company’s products. By accessing our site and using our tools, you agree to these Terms.",
+					"We may modify these Terms as well as products, prices, and services at any time. EsAI will use all available legal remedies to correct and stop violations of these Terms."
+				]
+			},
+			{
+				"id": "copyright",
+				"title": "Copyright",
+				"paras": [
+					"All content on this website is the copyright of EsAI. All rights reserved. Copyright includes, without limitation, graphics, tool usage, logos, sounds, and text. In general, you may not reproduce any part of this website without prior written permission from EsAI.",
+					"Two exceptions apply: (1) you may save a copy of this website and its content to your hard drive for personal, non-commercial use; (2) you may copy content for third parties for their own non-commercial use, provided you cite this website as the source."
+				]
+			},
+			{
+				"id": "service",
+				"title": "Service Description",
+				"paras": [
+					"EsAI uses AI to provide services including text-to-speech, audio generation, AI drawing, AI covers, and AI music. Users submit text, audio, and other inputs; EsAI generates creative works based on them.",
+					"AI functions include: text-to-speech, voice-to-speech, AI drawing, AI covers, AI music. The service evolves as technology and user feedback progress."
+				]
+			},
+			{
+				"id": "use_rules",
+				"title": "Usage Specifications & Rules",
+				"paras": [
+					"Users must comply with applicable laws and policies and must not use the service for illegal activity or to create illegal content. Prohibited content/actions include: violating international or local laws; infringing others’ rights (privacy, IP, etc.); spreading hate, violence, pornography, terrorism; harming lawful rights or public interests.",
+					"Users warrant their inputs are lawful and that they hold the right to use such data or have obtained necessary permissions, and grant EsAI a non-exclusive right to use them for service provision.",
+					"EsAI may review user inputs and outputs and remove or block content that violates rules.",
+					"Where required by law, EsAI will label AI-generated content; users may not remove or alter such labels without permission.",
+					"Users must: obey laws, respect third-party rights, not use the service to build competing products, not obtain content or data in improper ways, and not reverse-engineer or attempt to hack the service."
+				]
+			},
+			{
+				"id": "liability_limit",
+				"title": "Limitation of Liability",
+				"paras": [
+					"While EsAI strives to deliver quality, it cannot guarantee the service fully meets all needs, nor the accuracy, reliability, or legality of generated content.",
+					"Generated content is for reference only and is not legal, medical, or other professional advice. EsAI is not liable for outcomes of using generated content.",
+					"EsAI may change or discontinue parts of the service per laws, regulations, or third-party requirements without prior notice or liability."
+				]
+			},
+			{
+				"id": "complaints",
+				"title": "Complaints & Appeals",
+				"paras": [
+					"If you believe your rights are infringed or you detect illegal information, you may report it to EsAI at info@vokalo.online.",
+					"You may submit materials for an appeal; EsAI will respond within 5 business days after receipt."
+				]
+			},
+			{
+				"id": "ip_music_voice",
+				"title": "Commercial Copyright for AI Music, Covers, Model Training, and Voice Cloning",
+				"paras": [
+					"Covers using your own voice: if you hold commercial use or ownership rights to the original song and use your voice to create a cover via our AI, ownership and commercial rights to the generated cover belong to you.",
+					"Cloning others’ voices: with consent obtained, ownership and commercial rights to the generated cover belong to you. If the cloned voice is materially altered and no longer recognizable, ownership and commercial rights also belong to you.",
+					"Using platform voices: covers generated with voices built into our platform belong to you.",
+					"Platform-generated music (including covers) belongs to you. Our algorithms ensure uniqueness and high quality.",
+					"Custom voice training: if you train a custom voice model on our platform, the model and generated voices belong to you. For questions: support@esai.kg."
+				]
+			},
+			{
+				"id": "hold_harmless",
+				"title": "Hold Harmless",
+				"paras": [
+					"By accessing this site or using our online tools, you release EsAI from any liabilities, claims, costs, losses, expenses, or other causes of action arising from your use of our products, access to our website, or any communication between you and EsAI."
+				]
+			},
+			{
+				"id": "trademarks",
+				"title": "Trademarks",
+				"paras": [
+					"\"EsAI\" is a registered trademark of EsAI. You may not use this mark for content, software, or other products or services not produced by EsAI. We will enforce trademark and copyright laws."
+				]
+			},
+			{
+				"id": "links",
+				"title": "Links to Other Websites",
+				"paras": [
+					"Our site may contain links to third-party sites beyond EsAI’s control. We do not endorse their content, privacy policies, or practices. Visiting such sites is solely your responsibility. These Terms do not apply there; review their legal texts."
+				]
+			},
+			{
+				"id": "feedback",
+				"title": "Feedback",
+				"paras": [
+					"We welcome feedback and suggestions on improving our products and website.",
+					"By providing feedback, you grant EsAI the unrestricted right to use it without obligation to compensate you."
+				]
+			},
+			{
+				"id": "legal_disclaimer",
+				"title": "Legal Disclaimer",
+				"paras": [
+					"EsAI tools are provided for lawful purposes only. Do not copy or install our tools on a device you do not own or without explicit permission. Such installation may violate laws and lead to penalties.",
+					"Consult legal counsel to ensure your use case is lawful. You bear full responsibility for your use of EsAI tools. EsAI is not responsible for unlawful use, including unauthorized installation or access.",
+					"EsAI does not and cannot provide legal advice. All rights not expressly granted are reserved by EsAI."
+				]
+			}
+		]
+	},
+	"brand": {
+		"name": "EsAI",
+		"slogan": "All AI in one place."
+	},
+	"pwa": {
+		"install_title": "Install the EsAI app",
+		"install_desc": "Quick access to the chat from your home screen, like a native app.",
+		"install_cta": "Install",
+		"ios_hint": "Tap Share, then “Add to Home Screen”.",
+		"dismiss": "Not now"
+	},
+	"guest": {
+		"limit_title": "Free limit reached",
+		"limit_desc": "You have used your free limit. Sign in with Google or Telegram to continue.",
+		"free_remaining": "{{count}} of {{limit}} free messages left"
+	},
+	"theme": {
+		"title": "Theme",
+		"light": "Light",
+		"dark": "Dark",
+		"system": "System"
+	},
+	"balance": {
+		"label": "Token balance",
+		"topup": "Top up"
+	},
+	"topup": {
+		"title": "Top up balance",
+		"tokens": "tokens",
+		"bonus": "bonus",
+		"buy": "Buy",
+		"load_error": "Failed to load packages",
+		"purchase_error": "Failed to start payment",
+		"empty": "No packages available yet",
+		"insufficient_title": "Not enough tokens",
+		"insufficient_desc": "You have run out of tokens. Top up your balance to continue."
+	},
+	"packages": {
+		"title": "Top up balance",
+		"subtitle": "EsAI | Pay as you go",
+		"lead": "Pay only for what you use. Pick a token package and top up your balance — no subscriptions.",
+		"topup": "Top up",
+		"login_to_topup": "Sign in to top up",
+		"questions": "Have questions?",
+		"questions_link": "Go to FAQ"
+	}
 }
