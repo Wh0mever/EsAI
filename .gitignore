@@ -5,3 +5,6 @@ static/
 media/
 logs/
 __pycache__/
+.env
+.env.*
+!.env.example
