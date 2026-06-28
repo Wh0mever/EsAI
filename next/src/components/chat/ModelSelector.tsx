@@ -97,7 +97,7 @@ export default function ModelSelector({ value, onChange, className }: Props) {
       </button>
 
       {open && models.length > 0 && (
-        <div className="absolute z-50 mt-2 w-72 max-h-80 overflow-y-auto rounded-xl border border-border bg-surface shadow-2xl p-1.5">
+        <div className="absolute z-50 bottom-full mb-2 left-0 w-72 max-h-80 overflow-y-auto rounded-xl border border-border bg-surface shadow-2xl p-1.5">
           {models.map((m) => {
             const active = modelKey(m) === value;
             return (
