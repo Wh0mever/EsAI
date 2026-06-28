@@ -11,8 +11,9 @@ const config: NextConfig = {
     // Allow either server-style (FREEDOM_PAY_*) or direct NEXT_PUBLIC_* envs
     NEXT_PUBLIC_FREEDOM_PAY_PUBLIC_KEY:
       process.env.NEXT_PUBLIC_FREEDOM_PAY_PUBLIC_KEY || process.env.FREEDOM_PAY_PUBLIC_KEY,
+    // НЕ фолбэчим на серверный FREEDOM_PAY_TOKEN — это секрет подписи, он не должен попасть в бандл.
     NEXT_PUBLIC_FREEDOM_PAY_TOKEN:
-      process.env.NEXT_PUBLIC_FREEDOM_PAY_TOKEN || process.env.FREEDOM_PAY_TOKEN,
+      process.env.NEXT_PUBLIC_FREEDOM_PAY_TOKEN,
     NEXT_PUBLIC_FREEDOM_PAY_TEST:
       process.env.NEXT_PUBLIC_FREEDOM_PAY_TEST
       || process.env.NEXT_PUBLIC_FREEDOM_PAY_TEST_MODE

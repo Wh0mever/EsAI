@@ -105,7 +105,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
 	const lang = manual && cookieLang ? cookieLang : (cookieLang && ["ru","en","kg"].includes(cookieLang) ? cookieLang : computed);
 
 	const fpPk = process.env.NEXT_PUBLIC_FREEDOM_PAY_PUBLIC_KEY || process.env.FREEDOM_PAY_PUBLIC_KEY || "";
-	const fpToken = process.env.NEXT_PUBLIC_FREEDOM_PAY_TOKEN || process.env.FREEDOM_PAY_TOKEN || "";
+	// ВАЖНО: не впрыскиваем серверный секрет подписи в HTML. Только публичный SDK-токен (если задан).
+	const fpToken = process.env.NEXT_PUBLIC_FREEDOM_PAY_TOKEN || "";
 	const fpMerchantId = process.env.NEXT_PUBLIC_FREEDOM_PAY_MERCHANT_ID || process.env.FREEDOM_PAY_MERCHANT_ID || "";
 
 	return (

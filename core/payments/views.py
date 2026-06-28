@@ -830,43 +830,56 @@ class FreedomPayTokenPurchaseResultBaseView(APIView):
         return self._handle(request, request.data)
 
     def _handle(self, request, payload_source):
+        from django.conf import settings as dj_settings
+        from .freedompay import verify_freedompay_signature
+
         payload = _normalize_payload(payload_source)
         order_id = payload.get("pg_order_id") or payload.get("order_id")
         payment = Payment.objects.filter(order_id=order_id).order_by("-id").first() if order_id else None
 
+        # Токены начисляются ТОЛЬКО на подписанном server-to-server postback.
+        # Браузерные success/failure — презентационные (никаких начислений),
+        # т.к. их может открыть кто угодно с pg_status=success (подделка оплаты).
+        if self.result_type == "post":
+            if not payment:
+                return Response({"status": "ok"}, status=status.HTTP_200_OK)
+            secret = (dj_settings.FREEDOM_PAY_TOKEN or "").strip()
+            if not verify_freedompay_signature(request, payload, secret):
+                _log_payment_event(payment, "tokens_postback_bad_signature")
+                return Response({"status": "invalid_signature"}, status=status.HTTP_400_BAD_REQUEST)
+            response = payment.response or {}
+            callbacks = list(response.get("callbacks") or [])
+            callbacks.append({"type": "post", "payload": payload})
+            response["callbacks"] = callbacks
+            payment.response = response
+            error_text = payload.get("pg_error_description") or payload.get("pg_error_message") or ""
+            status_text = str(payload.get("pg_status") or "").lower()
+            result_flag = str(payload.get("pg_result") or "").strip()
+            is_ok = (status_text in {"ok", "success"} or not status_text) and (result_flag in {"1", ""})
+            if error_text or not is_ok:
+                payment.success = False
+                payment.error = str(error_text or f"freedompay_status:{status_text or result_flag or 'unknown'}")
+            else:
+                payment.success = True
+                payment.error = ""
+                try:
+                    with transaction.atomic():
+                        _credit_token_package_for_payment(payment, order_id)
+                except Exception as exc:
+                    payment.success = False
+                    payment.error = f"token_purchase_apply_failed:{exc}"
+            payment.save(update_fields=["response", "success", "error"])
+            _log_payment_event(payment, "tokens_postback")
+            return Response({"status": "ok"}, status=status.HTTP_200_OK)
+
+        # Браузерный редирект — только сохранить факт обращения + редирект.
         if payment:
             response = payment.response or {}
             callbacks = list(response.get("callbacks") or [])
-            callbacks.append({"type": self.result_type, "payload": payload})
+            callbacks.append({"type": self.result_type, "payload": payload, "presentational": True})
             response["callbacks"] = callbacks
             payment.response = response
-
-            if self.result_type == "success":
-                error_text = payload.get("pg_error_description") or payload.get("pg_error_message") or ""
-                status_text = str(payload.get("pg_status") or "").lower()
-                result_flag = str(payload.get("pg_result") or "").strip()
-                is_ok_status = (not status_text) or (status_text in {"ok", "success"})
-                is_ok_result = (not result_flag) or (result_flag == "1")
-                if error_text or (not is_ok_status) or (not is_ok_result):
-                    payment.success = False
-                    payment.error = str(error_text or f"freedompay_status_error:{status_text or result_flag or 'unknown'}")
-                else:
-                    payment.success = True
-                    payment.error = ""
-                    try:
-                        with transaction.atomic():
-                            _credit_token_package_for_payment(payment, order_id)
-                    except Exception as exc:
-                        payment.success = False
-                        payment.error = f"token_purchase_apply_failed:{exc}"
-            elif self.result_type == "failure":
-                payment.success = False
-                payment.error = payload.get("pg_error_description") or payload.get("pg_error_message") or "freedompay_failure"
-            payment.save(update_fields=["response", "success", "error"])
-            _log_payment_event(payment, self.result_type)
-
-        if self.result_type == "post":
-            return Response({"status": "ok"}, status=status.HTTP_200_OK)
+            payment.save(update_fields=["response"])
 
         if self.result_type == "success":
             return HttpResponseRedirect(
