@@ -1,31 +1,52 @@
+/* EsAI admin theme — чёрный #141414 + золото #F5C518 (вместо старого Vokalo indigo) */
 :root,
 html[data-theme="light"],
-html[data-theme="auto"] {
-  --primary: #3d3778;      /* Indigo-500 */
-  --secondary: #45406d;    /* Indigo-700 */
-  --accent: #818cf8;       /* Indigo-400 */
-  --primary-fg: #fff;
-  --header-bg: var(--primary);
-  --button-bg: var(--primary);
-  --button-hover-bg: #4f46e5; /* Indigo-600 */
-}
-
+html[data-theme="auto"],
 html[data-theme="dark"] {
-  --primary: #3d3778;      /* Indigo-700 */
-  --secondary: #45406d;    /* Indigo-500 */
-  --accent: #818cf8;       /* Indigo-400 */
-  --primary-fg: #f0f0f0;
-  --header-bg: var(--primary);
-  --button-bg: var(--primary);
-  --button-hover-bg: #6366f1;
+  --primary: #141414;
+  --secondary: #1f1f1f;
+  --accent: #F5C518;
+  --primary-fg: #ffffff;
+
+  --header-bg: #141414;
+  --header-color: #F5C518;
+  --header-link-color: #F5C518;
+  --header-branding-color: #F5C518;
+
+  --link-fg: #9a7400;
+  --link-hover-color: #c79400;
+  --link-selected-fg: #c79400;
+
+  --button-bg: #F5C518;
+  --button-fg: #141414;
+  --button-hover-bg: #e0b30f;
+  --default-button-bg: #F5C518;
+  --default-button-hover-bg: #e0b30f;
 }
 
+#header {
+  background: #141414;
+  color: #F5C518;
+}
 
 .admin-logo {
-    height: 50px;
+  height: 44px;
+  width: auto;
 }
 
 .admin-custom-button {
-    padding: 0.2rem 1rem !important;
-    border-radius: 1rem !important;
+  padding: 0.2rem 1rem !important;
+  border-radius: 1rem !important;
+}
+
+/* Кнопки сохранения: тёмный текст на золоте (читаемость) */
+.submit-row input,
+.button,
+input[type="submit"],
+input[type="button"] {
+  color: #141414;
+}
+.submit-row a.deletelink,
+.deletelink {
+  color: #ffffff;
 }
