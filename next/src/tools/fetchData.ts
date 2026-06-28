@@ -172,9 +172,17 @@ export async function fetchData<T = any>(
     // Treat both 401 and 403 as auth failures for soft redirect
     if (!(auth && (first.status === 401 || first.status === 403))) return first;
 
+    // Была ли у пользователя сессия (токены) ДО рефреша? Если гость без токенов —
+    // не редиректим на /auth/signin (он вправе пользоваться гостевым режимом на «/»).
+    const hadSession = Boolean(Cookies.get("access") || Cookies.get("refresh"));
     const refreshed = await refreshAuth();
     if (!refreshed) {
-        // Soft sign-in redirect: clear tokens and navigate to /auth/signin with next
+        // Гость без сессии: тихо возвращаем 401 вызывающему (покажет пустые данные),
+        // НЕ перебрасываем на вход.
+        if (!hadSession) {
+            return first;
+        }
+        // Истёкшая сессия залогиненного пользователя — мягкий выход на /auth/signin.
         try {
             Cookies.remove("access");
             Cookies.remove("refresh");
