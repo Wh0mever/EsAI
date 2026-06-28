@@ -17,7 +17,7 @@ def send_template_email(
     """
     context = context or {}
     # Inject branding defaults if not provided
-    context.setdefault("company_name", getattr(settings, "SITE_NAME", "Vokalo"))
+    context.setdefault("company_name", getattr(settings, "SITE_NAME", "EsAI"))
     context.setdefault("company_logo_url", "/static/img/base.png")
     from_email = from_email or settings.DEFAULT_FROM_EMAIL
     recipient_list = recipient_list or []

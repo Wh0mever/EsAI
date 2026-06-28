@@ -92,5 +92,6 @@ class PageSeoAdmin(admin.ModelAdmin):
     )
 
 
-admin.site.site_header = "Vokalo Admin"
-admin.site.site_title = "Панель управления"
+admin.site.site_header = "EsAI Admin"
+admin.site.site_title = "EsAI"
+admin.site.index_title = "EsAI"

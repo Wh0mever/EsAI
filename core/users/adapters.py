@@ -41,7 +41,7 @@ class SocialAccountAdapter(DefaultSocialAccountAdapter):
     def _build_fallback_email(self, sociallogin) -> str:
         provider = self._provider_id(sociallogin) or "social"
         uid = self._account_uid(sociallogin) or "user"
-        return f"{provider}_{uid}@social.vokalo.local"
+        return f"{provider}_{uid}@social.esai.local"
 
     def populate_user(self, request, sociallogin, data):
         user = super().populate_user(request, sociallogin, data)

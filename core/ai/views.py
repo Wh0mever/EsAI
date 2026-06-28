@@ -9,6 +9,7 @@ from .models import (
     AiProvider,
     AiChatSession,
     AiChatMessage,
+    AiMessageFeedback,
     AiPromptTemplate,
     AiPromptTemplateFavorite,
     GPTModels,
@@ -181,6 +182,29 @@ def _get_session_for_user(session_ref: str, user):
     return qs.filter(uid=raw).first()
 
 
+def _normalize_feedback_value(raw):
+    """Привести значение фидбека к 1 / -1. None — если значение не распознано.
+
+    Поддерживаются формы фронта: 'up'/'down', '1'/'-1', 1/-1, True/False,
+    'like'/'dislike'.
+    """
+    if isinstance(raw, bool):
+        return AiMessageFeedback.VALUE_UP if raw else AiMessageFeedback.VALUE_DOWN
+    if isinstance(raw, (int, float)):
+        if raw > 0:
+            return AiMessageFeedback.VALUE_UP
+        if raw < 0:
+            return AiMessageFeedback.VALUE_DOWN
+        return None
+    if isinstance(raw, str):
+        s = raw.strip().lower()
+        if s in ("up", "like", "1", "+1", "true", "yes"):
+            return AiMessageFeedback.VALUE_UP
+        if s in ("down", "dislike", "-1", "false", "no"):
+            return AiMessageFeedback.VALUE_DOWN
+    return None
+
+
 def _is_stream_request(request) -> bool:
     """True, если клиент попросил потоковый ответ (body.stream truthy)."""
     val = (getattr(request, "data", {}) or {}).get("stream")
@@ -281,6 +305,71 @@ class ChatSessionDetailAPIView(APIView):
             "messages": messages,
         }
         return Response(payload, status=200)
+
+    def patch(self, request, session_ref: str):
+        session = _get_session_for_user(session_ref, request.user)
+        if not session:
+            return Response({"error": "Session not found"}, status=404)
+
+        data = request.data or {}
+        if "title" not in data:
+            return Response({"detail": "Nothing to update"}, status=400)
+        title = (data.get("title") or "").strip()
+        if not title:
+            return Response({"detail": "Title is required"}, status=400)
+
+        session.title = title[:255]
+        session.save(update_fields=["title", "updated_at"])
+        return Response(
+            {
+                "id": session.id,
+                "uid": session.uid,
+                "title": session.title,
+                "provider_id": session.provider_id,
+                "created_at": session.created_at,
+                "updated_at": session.updated_at,
+                "is_active": session.is_active,
+            },
+            status=200,
+        )
+
+    def delete(self, request, session_ref: str):
+        session = _get_session_for_user(session_ref, request.user)
+        if not session:
+            return Response({"error": "Session not found"}, status=404)
+        session.delete()
+        return Response(status=204)
+
+
+class ChatMessageFeedbackAPIView(APIView):
+    """POST /api/ai/chat/feedback/ — лайк/дизлайк ответа ассистента (upsert)."""
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        data = request.data or {}
+        message_id = data.get("message_id")
+        value = _normalize_feedback_value(data.get("value"))
+
+        if message_id is None:
+            return Response({"detail": "message_id is required"}, status=400)
+        if value is None:
+            return Response({"detail": "Invalid value"}, status=400)
+
+        message = AiChatMessage.objects.filter(pk=message_id).first()
+        if not message:
+            return Response({"error": "Message not found"}, status=404)
+
+        # Оценивать можно только ответы в собственных сессиях пользователя.
+        if message.session.user_id != request.user.id:
+            return Response({"error": "Message not found"}, status=404)
+
+        obj, _created = AiMessageFeedback.objects.update_or_create(
+            message=message,
+            user=request.user,
+            defaults={"value": value},
+        )
+        return Response({"message_id": message.id, "value": obj.value}, status=200)
 
 
 class AiTemplatesApiView(APIView):
