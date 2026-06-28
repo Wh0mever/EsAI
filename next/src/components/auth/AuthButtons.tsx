@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 import Cookies from "js-cookie";
 import { isJwtValid } from "@/tools/jwt";
 import { useEffect, useState } from "react";
-import { FiUserPlus, FiLogIn, FiGrid, FiUser } from "react-icons/fi";
+import { FiLogIn, FiGrid, FiUser } from "react-icons/fi";
 
 export default function AuthButtons() {
 	const { t } = useTranslation("home");
@@ -55,36 +55,23 @@ export default function AuthButtons() {
     );
   }
 
+	// Единая авторизация «Войти» — отдельной регистрации нет, аккаунт создаётся
+	// автоматически при первом входе на /auth/signin.
 	return (
 		<div className="flex items-center gap-2 bg-neutral-900 rounded-4xl px-3 py-2">
-			{/* Signin */}
+			{/* Войти (десктоп) — золотая CTA */}
 			<Link
 				href="/auth/signin"
-				className="hidden lg:inline-flex border border-neutral-700 px-4 py-2 rounded-3xl hover:bg-accent hover:text-on-accent hover:border-transparent text-nowrap duration-300"
+				className="hidden lg:inline-flex bg-accent text-on-accent px-5 py-2 rounded-3xl hover:bg-accent-strong text-nowrap duration-300"
 			>
-				{t("nav.signin")}
+				{t("nav.signin", { defaultValue: "Войти" })}
 			</Link>
+			{/* Войти (мобайл) */}
 			<Link
 				href="/auth/signin"
-				className="lg:hidden border border-neutral-700 p-3 rounded-3xl hover:bg-accent hover:text-on-accent hover:border-transparent duration-300"
-			>
-				<FiLogIn className="text-xl" />
-			</Link>
-
-			<div className="text-neutral-500 px-1 hidden lg:block">|</div>
-
-			{/* Signup */}
-			<Link
-				href="/auth/signup"
-				className="hidden lg:inline-flex bg-accent text-on-accent px-4 py-2 rounded-3xl hover:bg-accent-strong text-nowrap duration-300"
-			>
-				{t("nav.signup")}
-			</Link>
-			<Link
-				href="/auth/signup"
 				className="lg:hidden bg-accent text-on-accent p-3 rounded-3xl hover:bg-accent-strong duration-300"
 			>
-				<FiUserPlus className="text-xl" />
+				<FiLogIn className="text-xl" />
 			</Link>
 		</div>
 	);
