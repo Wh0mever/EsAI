@@ -24,6 +24,44 @@ from .serializers import AiChatMessageSerializer
 # No hard message count limit; we'll include full history.
 HISTORY_LIMIT = None
 
+# Лимит на длину текста ОДНОГО документа, подмешиваемого в контекст чата
+# (символы). Дублирует обрезку на этапе загрузки (views.extract_text_from_file),
+# но защищает и от старых/чужих вложений с большим "text".
+DOCUMENT_CONTEXT_MAX_CHARS = 200_000
+
+
+def _document_prefix_from_attachments(atts: Any) -> str:
+    """Собрать текстовый префикс из вложений type=="document" с непустым "text".
+
+    Возвращает строку вида:
+        Содержимое документа «name1»:
+        <text1>
+
+        Содержимое документа «name2»:
+        <text2>
+
+    Пустая строка, если документов с текстом нет. Безопасно к любому формату atts.
+    """
+    if not isinstance(atts, list):
+        return ""
+    blocks: List[str] = []
+    for a in atts:
+        try:
+            if (a or {}).get("type") != "document":
+                continue
+            text = ((a or {}).get("text") or "").strip()
+            if not text:
+                continue
+            name = ((a or {}).get("name") or "документ").strip() or "документ"
+            if len(text) > DOCUMENT_CONTEXT_MAX_CHARS:
+                text = text[:DOCUMENT_CONTEXT_MAX_CHARS]
+            blocks.append(f"Содержимое документа «{name}»:\n{text}")
+        except Exception:
+            continue
+    if not blocks:
+        return ""
+    return "\n\n".join(blocks) + "\n\n"
+
 
 def _provider_name_by_mode(mode: str | None) -> str:
     return AiProvider.NAME_GPT
@@ -77,13 +115,16 @@ def _build_openai_messages(session: AiChatSession, new_user_text: str, system_pr
 
     for m in history:
         parts = []
-        txt = (m.content or "").strip()
-        if txt:
-            parts.append({"type": "text", "text": txt})
         try:
             atts = m.attachments or []
         except Exception:
             atts = []
+        # RAG: подмешиваем извлечённый текст документов перед текстом пользователя.
+        doc_prefix = _document_prefix_from_attachments(atts)
+        txt = (m.content or "").strip()
+        combined_txt = f"{doc_prefix}{txt}" if doc_prefix else txt
+        if combined_txt:
+            parts.append({"type": "text", "text": combined_txt})
         if isinstance(atts, list):
             for a in atts:
                 try:
@@ -94,7 +135,7 @@ def _build_openai_messages(session: AiChatSession, new_user_text: str, system_pr
                 except Exception:
                     continue
         # Fallback to simple string if no parts
-        content_obj = parts if parts else (txt or "")
+        content_obj = parts if parts else (combined_txt or "")
         out.append({"role": m.role, "content": content_obj})
 
     return out
@@ -186,6 +227,7 @@ def _call_chat_completions_with_fallback(
     max_tokens_limit: Optional[int],
     allow_temperature: bool,
     requested_temperature: Optional[float],
+    top_p: Optional[float] = None,
 ) -> Tuple[Any, str]:
     """
     Try Chat Completions:
@@ -201,6 +243,9 @@ def _call_chat_completions_with_fallback(
     # Temperature: add only if allowed/requested
     if allow_temperature and requested_temperature is not None:
         base["temperature"] = requested_temperature
+    # top_p из настроек модели (если задан и температура разрешена).
+    if allow_temperature and top_p is not None:
+        base["top_p"] = top_p
 
     attempts = []
 
@@ -344,6 +389,46 @@ def _resolve_gpt_model(model_ref: Any, default_ref: Any = None) -> Optional[GPTM
         or _lookup(default_ref)
         or GPTModels.objects.filter(is_active=True).order_by("sort_order", "id").first()
     )
+
+
+def _model_generation_params(model_obj: GPTModels) -> dict:
+    """Прочитать настройки генерации из GPTModels ЧЕРЕЗ getattr (защищённо).
+
+    Поля system_prompt / temperature / top_p добавляет параллельный агент в модель;
+    читаем их безопасно, чтобы код не падал, если миграция ещё не применена.
+
+    Возвращает dict:
+      {
+        "system_prompt": <str|"">,        # пустая строка, если не задан
+        "temperature":   <float|None>,
+        "top_p":         <float|None>,
+        "max_tokens":    <int|None>,
+      }
+    """
+    sp = getattr(model_obj, "system_prompt", "") or ""
+
+    def _as_float(val: Any) -> Optional[float]:
+        if val is None:
+            return None
+        try:
+            return float(val)
+        except Exception:
+            return None
+
+    def _as_int(val: Any) -> Optional[int]:
+        if val is None:
+            return None
+        try:
+            return int(val)
+        except Exception:
+            return None
+
+    return {
+        "system_prompt": sp if isinstance(sp, str) else str(sp or ""),
+        "temperature": _as_float(getattr(model_obj, "temperature", None)),
+        "top_p": _as_float(getattr(model_obj, "top_p", None)),
+        "max_tokens": _as_int(getattr(model_obj, "max_tokens", None)),
+    }
 
 
 def _augment_usage_meta_with_cost(meta: dict, model_obj: GPTModels) -> dict:
@@ -533,7 +618,12 @@ def _guest_messages_from_request(request, system_prompt: str, message: str) -> L
                 continue
             out.append({"role": role, "content": text})
 
-    out.append({"role": "user", "content": message})
+    # RAG для гостя: если фронт прислал вложения-документы с извлечённым "text",
+    # подмешиваем их перед текстом нового пользовательского сообщения.
+    attachments = request.data.get("attachments")
+    doc_prefix = _document_prefix_from_attachments(attachments)
+    user_content = f"{doc_prefix}{message}" if doc_prefix else message
+    out.append({"role": "user", "content": user_content})
     return out
 
 
@@ -586,21 +676,27 @@ def _guest_chat(request):
         return {"error": "No message provided"}
 
     # System prompt + locale policy (same shape as authenticated path).
+    # Параметры генерации из БД (getattr; гость получает хотя бы system_prompt).
+    gen_params = _model_generation_params(model_obj)
     lang_code, lang_name = _pick_lang(request)
     locale_policy = (
         f"Always and strictly reply in {lang_name} language (locale: {lang_code}). "
         f"Do not switch languages unless explicitly told to translate into another language, "
         f"and prefer {lang_name} for all outputs and explanations."
     )
-    system_prompt = f"You are a helpful assistant.\n\n{locale_policy}"
+    base_system = gen_params["system_prompt"].strip() or "You are a helpful assistant."
+    system_prompt = f"{base_system}\n\n{locale_policy}"
 
-    # Optional temperature.
+    # Optional temperature (запрос → фолбэк на настройку модели из БД).
     req_temperature = request.data.get("temperature", None)
     try:
         if req_temperature is not None:
             req_temperature = float(req_temperature)
     except Exception:
         req_temperature = None
+    if req_temperature is None:
+        req_temperature = gen_params["temperature"]
+    model_top_p = gen_params["top_p"]
 
     messages = _guest_messages_from_request(request, system_prompt, message)
     client = _make_openai_client(None)
@@ -620,6 +716,7 @@ def _guest_chat(request):
                 max_tokens_limit=max_limit,
                 allow_temperature=allow_temperature,
                 requested_temperature=req_temperature,
+                top_p=model_top_p if allow_temperature else None,
             )
             break
         except Exception as chat_err:
@@ -704,7 +801,8 @@ def _guest_chat(request):
 
 def _stream_chat_completion(client: OpenAI, model_name: str, messages: List[dict],
                             max_tokens_limit: Optional[int], allow_temperature: bool,
-                            requested_temperature: Optional[float]):
+                            requested_temperature: Optional[float],
+                            top_p: Optional[float] = None):
     """Генератор: стримит Chat Completions OpenRouter и выдаёт промежуточные кадры.
 
     Yields tuples:
@@ -726,6 +824,8 @@ def _stream_chat_completion(client: OpenAI, model_name: str, messages: List[dict
     }
     if allow_temperature and requested_temperature is not None:
         params["temperature"] = requested_temperature
+    if allow_temperature and top_p is not None:
+        params["top_p"] = top_p
     if max_tokens_limit:
         params["max_tokens"] = min(1000, max_tokens_limit)
 
@@ -837,13 +937,16 @@ def _guest_chat_stream(request):
     if not message:
         return ("error", {"error": "No message provided"})
 
+    # Параметры генерации из БД (getattr; гость получает хотя бы system_prompt).
+    gen_params = _model_generation_params(model_obj)
     lang_code, lang_name = _pick_lang(request)
     locale_policy = (
         f"Always and strictly reply in {lang_name} language (locale: {lang_code}). "
         f"Do not switch languages unless explicitly told to translate into another language, "
         f"and prefer {lang_name} for all outputs and explanations."
     )
-    system_prompt = f"You are a helpful assistant.\n\n{locale_policy}"
+    base_system = gen_params["system_prompt"].strip() or "You are a helpful assistant."
+    system_prompt = f"{base_system}\n\n{locale_policy}"
 
     req_temperature = request.data.get("temperature", None)
     try:
@@ -851,6 +954,9 @@ def _guest_chat_stream(request):
             req_temperature = float(req_temperature)
     except Exception:
         req_temperature = None
+    if req_temperature is None:
+        req_temperature = gen_params["temperature"]
+    model_top_p = gen_params["top_p"]
 
     messages = _guest_messages_from_request(request, system_prompt, message)
     client = _make_openai_client(None)
@@ -868,6 +974,7 @@ def _guest_chat_stream(request):
                 max_tokens_limit=max_limit,
                 allow_temperature=allow_temperature,
                 requested_temperature=req_temperature,
+                top_p=model_top_p if allow_temperature else None,
             ):
                 if kind == "delta":
                     yield _sse({"delta": payload})
@@ -976,8 +1083,12 @@ def _authed_chat_stream(request):
         if not _openrouter_config().get("api_key"):
             return ("error", {"error": "OpenRouter is not configured (OPENROUTER_API_KEY is empty)."})
 
+        # Параметры генерации из БД (getattr, поля добавит параллельный агент).
+        gen_params = _model_generation_params(model_obj)
         lang_code, lang_name = _pick_lang(request)
         system_prompt = "You are a helpful assistant."
+        if gen_params["system_prompt"].strip():
+            system_prompt = gen_params["system_prompt"].strip()
         locale_policy = (
             f"Always and strictly reply in {lang_name} language (locale: {lang_code}). "
             f"Do not switch languages unless explicitly told to translate into another language, "
@@ -1004,6 +1115,9 @@ def _authed_chat_stream(request):
                 req_temperature = float(req_temperature)
         except Exception:
             req_temperature = None
+        if req_temperature is None:
+            req_temperature = gen_params["temperature"]
+        model_top_p = gen_params["top_p"]
 
         # Сессия + пользовательское сообщение (короткая транзакция ДО потока).
         session_id = request.data.get("session_id") or request.data.get("chat_id")
@@ -1066,6 +1180,7 @@ def _authed_chat_stream(request):
                 max_tokens_limit=max_limit,
                 allow_temperature=allow_temperature,
                 requested_temperature=req_temperature,
+                top_p=model_top_p if allow_temperature else None,
             ):
                 if kind == "delta":
                     yield _sse({"delta": payload})
@@ -1232,8 +1347,14 @@ def OpenAIHandler(request):
             return {"error": "OpenRouter is not configured (OPENROUTER_API_KEY is empty)."}
 
         # 3) System prompt + locale policy
+        # Параметры генерации из БД (system_prompt/temperature/top_p/max_tokens),
+        # читаются через getattr (поля добавляет параллельный агент).
+        gen_params = _model_generation_params(model_obj)
         lang_code, lang_name = _pick_lang(request)
         system_prompt = "You are a helpful assistant."
+        # system_prompt из настроек модели (БД) имеет приоритет над дефолтным.
+        if gen_params["system_prompt"].strip():
+            system_prompt = gen_params["system_prompt"].strip()
         # Enforce reply language strictly
         locale_policy = (
             f"Always and strictly reply in {lang_name} language (locale: {lang_code}). "
@@ -1258,13 +1379,17 @@ def OpenAIHandler(request):
             return {"error": "No message provided"}
         attachments = request.data.get("attachments")
 
-        # Optional temperature from request (only if user passes explicitly)
+        # Optional temperature from request (only if user passes explicitly).
+        # Фолбэк на temperature из настроек модели (БД), если запрос не прислал.
         req_temperature = request.data.get("temperature", None)
         try:
             if req_temperature is not None:
                 req_temperature = float(req_temperature)
         except Exception:
             req_temperature = None
+        if req_temperature is None:
+            req_temperature = gen_params["temperature"]
+        model_top_p = gen_params["top_p"]
 
         # 5) Session + user message (transactional)
         # Support both keys from clients: session_id and chat_id
@@ -1331,6 +1456,7 @@ def OpenAIHandler(request):
                     max_tokens_limit=max_limit if is_newchat else max_limit,
                     allow_temperature=allow_temperature,
                     requested_temperature=req_temperature,
+                    top_p=model_top_p if allow_temperature else None,
                 )
                 break
             except Exception as chat_err:

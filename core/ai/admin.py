@@ -35,6 +35,24 @@ class GPTModelsAdmin(admin.ModelAdmin):
     search_fields = ('name', 'openrouter_id')
     list_filter = ('is_active',)
     ordering = ('sort_order', 'id')
+    readonly_fields = ('created_at', 'updated_at')
+    fieldsets = (
+        (None, {
+            'fields': ('name', 'openrouter_id', 'description', 'is_active', 'sort_order'),
+        }),
+        ('Параметры генерации', {
+            'fields': ('system_prompt', 'temperature', 'top_p', 'max_tokens'),
+            'description': 'Эти параметры читает обработчик ИИ. Пустые temperature/top_p — '
+                           'использовать значения по умолчанию провайдера.',
+        }),
+        ('Биллинг', {
+            'fields': ('markup_coefficient',),
+        }),
+        ('Служебное', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',),
+        }),
+    )
 
     def get_urls(self):
         urls = super().get_urls()

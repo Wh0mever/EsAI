@@ -69,6 +69,37 @@ export function breadcrumbJsonLd(items: { name: string; url: string }[]) {
   };
 }
 
+/** BlogPosting/Article schema for a single blog article. */
+export function articleJsonLd(input: {
+  title: string;
+  description?: string;
+  url: string;
+  image?: string;
+  author?: string;
+  datePublished?: string;
+  dateModified?: string;
+}) {
+  const node: Record<string, unknown> = {
+    "@context": "https://schema.org",
+    "@type": "BlogPosting",
+    headline: input.title,
+    mainEntityOfPage: { "@type": "WebPage", "@id": absoluteUrl(input.url) },
+    url: absoluteUrl(input.url),
+    publisher: {
+      "@type": "Organization",
+      name: SITE_NAME,
+      logo: { "@type": "ImageObject", url: absoluteUrl(LOGO) },
+    },
+  };
+  if (input.description) node.description = input.description;
+  if (input.image) node.image = absoluteUrl(input.image);
+  if (input.author) node.author = { "@type": "Person", name: input.author };
+  if (input.datePublished) node.datePublished = input.datePublished;
+  if (input.dateModified || input.datePublished)
+    node.dateModified = input.dateModified || input.datePublished;
+  return node;
+}
+
 /** Reusable inline JSON-LD <script> serializer. */
 export function jsonLdScript(data: unknown): string {
   return JSON.stringify(data).replace(/</g, "\\u003c");

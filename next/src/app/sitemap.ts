@@ -2,8 +2,9 @@ import type { MetadataRoute } from "next";
 import { SITE_URL } from "@/lib/seo/site";
 import { SEO_MODELS } from "@/lib/seo/models";
 import { SEO_FUNCTIONS } from "@/lib/seo/functions";
+import { getArticles, articleDate } from "@/lib/content";
 
-export default function sitemap(): MetadataRoute.Sitemap {
+export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const now = new Date();
 
   const home: MetadataRoute.Sitemap = [
@@ -39,5 +40,20 @@ export default function sitemap(): MetadataRoute.Sitemap {
     priority: 0.8,
   }));
 
-  return [...home, ...modelPages, ...functionPages, ...staticPages];
+  // Blog articles (best-effort: getArticles never throws and returns [] on error).
+  const articles = await getArticles();
+  const articlePages: MetadataRoute.Sitemap = articles
+    .filter((a) => a?.slug)
+    .map((a) => {
+      const d = articleDate(a);
+      const lm = d ? new Date(d) : now;
+      return {
+        url: `${SITE_URL}/blog/${a.slug}`,
+        lastModified: Number.isNaN(lm.getTime()) ? now : lm,
+        changeFrequency: "monthly" as const,
+        priority: 0.6,
+      };
+    });
+
+  return [...home, ...modelPages, ...functionPages, ...staticPages, ...articlePages];
 }
