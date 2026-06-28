@@ -216,7 +216,13 @@
 		"save_password": "Save password",
 		"new_password": "New password",
 		"referral_code": "Referral code",
-		"enter_referral_code": "Enter referral code (optional)"
+		"enter_referral_code": "Enter referral code (optional)",
+		"get_code": "Get code",
+		"cta_part1": "Sign in with 1 click and get",
+		"cta_credits": "3,000 credits",
+		"cta_part2": "No card. No subscriptions.",
+		"code_sent_to": "Code sent to email",
+		"auto_create_hint": "First time? An account will be created automatically."
 	},
 	"auth_extra": {},
 	"pages_titles": {
