@@ -14,6 +14,7 @@ from .models import (
     AiPromptTemplate,
     AiChatSession,
     AiChatMessage,
+    AiMessageFeedback,
 )
 
 class JSONTextarea(forms.Textarea):
@@ -215,3 +216,23 @@ class AiChatMessageAdmin(admin.ModelAdmin):
         c = obj.content.strip()
         return c[:120] + ('…' if len(c) > 120 else '')
     short_content.short_description = 'Текст'
+
+
+@admin.register(AiMessageFeedback)
+class AiMessageFeedbackAdmin(admin.ModelAdmin):
+    list_display = ('id', 'message', 'user', 'value', 'created_at')
+    list_filter = ('value', 'created_at')
+    search_fields = ('message__content', 'user__email', 'user__username')
+    ordering = ('-created_at',)
+    date_hierarchy = 'created_at'
+    list_select_related = ('message', 'user')
+    readonly_fields = ('message', 'user', 'value', 'created_at')
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return request.user.is_superuser

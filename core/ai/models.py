@@ -172,3 +172,29 @@ class AiChatMessage(models.Model):
         ordering = ["created_at"]
         verbose_name = "AI сообщение чата"
         verbose_name_plural = "AI сообщения чата"
+
+
+class AiMessageFeedback(models.Model):
+    """Лайк/дизлайк пользователя на ответ ассистента."""
+    VALUE_UP = 1
+    VALUE_DOWN = -1
+    VALUE_CHOICES = [
+        (VALUE_UP, "Like"),
+        (VALUE_DOWN, "Dislike"),
+    ]
+
+    message = models.ForeignKey(
+        AiChatMessage, on_delete=models.CASCADE, related_name="feedbacks")
+    user = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="ai_message_feedbacks")
+    value = models.SmallIntegerField(choices=VALUE_CHOICES, help_text="1 — лайк, -1 — дизлайк")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Feedback {self.value} on message {self.message_id}"
+
+    class Meta:
+        unique_together = ("message", "user")
+        verbose_name = "Оценка ответа ИИ"
+        verbose_name_plural = "Оценки ответов ИИ"

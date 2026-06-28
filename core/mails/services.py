@@ -52,7 +52,7 @@ def render_simple_mail_html(mail: SimpleMail) -> str:
     ctx = mail.context.data if mail.context else {}
     content = _render_lines_from_context(ctx)
     # wrap minimal frame with logo
-    company = getattr(settings, "SITE_NAME", "Vokalo")
+    company = getattr(settings, "SITE_NAME", "EsAI")
     # Try to build absolute logo URL so Gmail/clients can fetch it
     static_url = getattr(settings, "STATIC_URL", "/static/") or "/static/"
     base_url = getattr(settings, "SITE_BASE_URL", "") or getattr(settings, "PUBLIC_BASE_URL", "")

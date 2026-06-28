@@ -14,7 +14,7 @@ class BlogPost(models.Model):
     content_en = models.TextField()
     content_kg = models.TextField()
 
-    author = models.CharField(max_length=100, default='Vokalo')
+    author = models.CharField(max_length=100, default='EsAI')
 
     # --- SEO / CMS поля (ТЗ 7.7 / 10.5) ---
     slug = models.SlugField(

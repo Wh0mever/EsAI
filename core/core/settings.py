@@ -12,6 +12,9 @@ environ.Env.read_env(os.path.join(BASE_DIR, ".env"))
 SECRET_KEY = env("DJANGO_SECRET_KEY")
 DEBUG = env.bool("DJANGO_DEBUG", default=False)
 
+# Brand / site display name (used in emails, admin, etc.)
+SITE_NAME = "EsAI"
+
 ALLOWED_HOSTS = env.list(
     "DJANGO_ALLOWED_HOSTS",
     default=["localhost", "127.0.0.1"],
@@ -22,12 +25,8 @@ SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 
 # CSRF trusted origins
 _DEFAULT_CSRF_TRUSTED = [
-    "https://vokalo.kg",
-    "https://www.vokalo.kg",
-    "https://vokalo.online",
-    "https://www.vokalo.online",
-    "https://vokalo.ru",
-    "https://www.vokalo.ru",
+    "https://esai.kg",
+    "https://www.esai.kg",
 ]
 CSRF_TRUSTED_ORIGINS = env.list("CSRF_TRUSTED_ORIGINS", default=_DEFAULT_CSRF_TRUSTED)
 
@@ -210,14 +209,10 @@ SIMPLE_JWT = {
 }
 
 # --- Security, CSRF & CORS ---
-# Base (prod) CORS allowlist for our three domains
+# Base (prod) CORS allowlist for our domains
 _DEFAULT_CORS_ALLOWED = [
-    "https://vokalo.kg",
-    "https://www.vokalo.kg",
-    "https://vokalo.online",
-    "https://www.vokalo.online",
-    "https://vokalo.ru",
-    "https://www.vokalo.ru",
+    "https://esai.kg",
+    "https://www.esai.kg",
 ]
 
 # Allow override via env, otherwise use defaults above
@@ -312,7 +307,7 @@ EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
 EMAIL_HOST = "smtp.gmail.com"
 EMAIL_PORT = 587
 EMAIL_USE_TLS = True
-EMAIL_HOST_USER = env('EMAIL_HOST_USER', default="support@esai.kg")
+EMAIL_HOST_USER = env('EMAIL_HOST_USER', default="noreply@esai.kg")
 EMAIL_HOST_PASSWORD = env('EMAIL_HOST_PASSWORD')
 DEFAULT_FROM_EMAIL = env('DEFAULT_FROM_EMAIL')
 
