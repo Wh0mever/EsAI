@@ -1,6 +1,7 @@
 import logging
 import uuid
 import hashlib
+import hmac
 from decimal import Decimal
 from typing import Optional, Dict, Any
 from urllib.parse import urlsplit, urljoin
@@ -84,9 +85,40 @@ def make_api_signature(script_name: str, params: Dict[str, Any], secret_key: str
         pieces.append(str(filtered[key]))
     pieces.append(secret_key or "")
     raw = ";".join(pieces)
-    if settings.DEBUG:
-        logger.warning("FreedomPay API signature base string: %s", raw)
     return hashlib.md5(raw.encode("utf-8")).hexdigest()
+
+
+def verify_freedompay_signature(request, payload: Dict[str, Any], secret: str) -> bool:
+    """Проверка подписи pg_sig ВХОДЯЩЕГО callback FreedomPay.
+
+    pg_sig = md5(script_name; <значения параметров по алфавиту ключей>; secret),
+    где script_name — имя скрипта (последний сегмент пути callback-URL).
+    Пробуем несколько кандидатов имени скрипта — все требуют секрет, поэтому
+    подделать подпись без секрета невозможно. Возвращает True только при совпадении.
+    """
+    if not secret:
+        return False
+    sig = str((payload or {}).get("pg_sig") or "").strip().lower()
+    if not sig:
+        return False
+    path = getattr(request, "path", "") or ""
+    parts = [p for p in path.rstrip("/").split("/") if p]
+    candidates = []
+    es = extract_script_name(path)
+    if es:
+        candidates.append(es)
+    if parts:
+        candidates.append(parts[-1])
+        if len(parts) >= 2:
+            candidates.append(f"{parts[-2]}/{parts[-1]}")
+    filtered = {k: v for k, v in (payload or {}).items() if k != "pg_sig" and v is not None}
+    keys = sorted(filtered.keys())
+    for script in dict.fromkeys(candidates):
+        pieces = [script] + [str(filtered[k]) for k in keys] + [secret]
+        calc = hashlib.md5(";".join(pieces).encode("utf-8")).hexdigest()
+        if hmac.compare_digest(calc.lower(), sig):
+            return True
+    return False
 
 def _mask_sensitive(obj: Any) -> Any:
     """Recursively mask tokens and auth values in dicts/lists/strings."""
@@ -198,7 +230,6 @@ class FreedomPayHPPClient:
             pieces.append(str(filtered[key]))
         pieces.append(self.secret)
         raw = ";".join(pieces)
-        logger.warning("FreedomPay ADD signature base: %s", raw)
         return hashlib.md5(raw.encode()).hexdigest()
 
     # ----------------------------- HTTP REQUEST -----------------------------
