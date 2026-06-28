@@ -472,7 +472,7 @@ export default function UserPlan({ t, data, onUnsubscribe, onResume }: Props) {
 					<h2 className="text-xl font-bold">{t("profile.left_counters.title")}</h2>
 					{canPurchaseAddons && (
 						<Button
-							className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-sm"
+							className="px-4 py-2 rounded-xl bg-accent text-on-accent hover:bg-accent-strong text-sm"
 							onClick={() => setPurchaseModalOpen(true)}
 						>
 							{t("profile.buy_generations.open_button")}
@@ -577,7 +577,7 @@ export default function UserPlan({ t, data, onUnsubscribe, onResume }: Props) {
 										<p className="text-sm text-rose-400">{purchaseError}</p>
 									)}
 									<Button
-										className="w-full px-4 py-3 rounded-xl bg-indigo-500 hover:bg-indigo-600 disabled:opacity-60"
+										className="w-full px-4 py-3 rounded-xl bg-accent text-on-accent hover:bg-accent-strong disabled:opacity-60"
 										onClick={openPaymentOptions}
 										disabled={totalSelected <= 0}
 									>
@@ -607,7 +607,7 @@ export default function UserPlan({ t, data, onUnsubscribe, onResume }: Props) {
 									type="button"
 									onClick={onCardPaymentClick}
 									disabled={isPurchaseProcessing}
-									className="mt-4 w-full inline-flex items-center justify-center px-4 py-3 rounded-xl bg-indigo-500 hover:bg-indigo-600 transition-colors disabled:opacity-70"
+									className="mt-4 w-full inline-flex items-center justify-center px-4 py-3 rounded-xl bg-accent text-on-accent hover:bg-accent-strong transition-colors disabled:opacity-70"
 								>
 									{isPurchaseProcessing
 										? t("common.processing")
@@ -679,10 +679,10 @@ export default function UserPlan({ t, data, onUnsubscribe, onResume }: Props) {
 								{t("subscribe.crypto_receipt_text")}
 							</p>
 							<a
-								href="mailto:support@esai.kg"
+								href={`mailto:${t("contact_us.write_email")}`}
 								className="inline-flex items-center justify-center px-4 py-2 rounded-xl border border-white/20 hover:border-white/40 transition-colors text-sm"
 							>
-								support@esai.kg
+								{t("contact_us.write_email")}
 							</a>
 						</div>
 					</Modal>

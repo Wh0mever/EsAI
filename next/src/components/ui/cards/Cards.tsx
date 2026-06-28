@@ -57,7 +57,7 @@ export function TemplateCard({ template, localTemplates, setLocalTemplates }: an
 				alt=""
 				className="absolute h-full w-full left-0 top-0 -z-10"
 			/>
-			<i className="text-3xl p-5 flex rounded-full w-fit h-fit bg-indigo-800/25 text-white">
+			<i className="text-3xl p-5 flex rounded-full w-fit h-fit bg-accent-soft text-accent">
 				<BsStars />
 			</i>
 			<div>
@@ -77,7 +77,7 @@ export function TemplateCard({ template, localTemplates, setLocalTemplates }: an
 							className={`text-sm ${
 								isUsed
 									? "text-yellow-500 hover:text-yellow-600"
-									: "text-indigo-500 hover:text-indigo-600"
+									: "text-accent hover:text-accent-strong"
 							}`}
 							onClick={handleUseTemplate}
 						>
@@ -89,7 +89,7 @@ export function TemplateCard({ template, localTemplates, setLocalTemplates }: an
 					className={`text-2xl cursor-pointer flex items-center justify-center p-3 rounded-full transition-colors ${
 						isFavorite
 							? "text-rose-400 hover:text-rose-600 hover:bg-white/75"
-							: "text-gray-400 hover:text-indigo-600 hover:bg-white/75"
+							: "text-gray-400 hover:text-accent hover:bg-white/75"
 					}`}
 					onClick={() => {
 						handleFavorite();

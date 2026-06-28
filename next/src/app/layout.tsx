@@ -65,9 +65,9 @@ export const metadata: Metadata = {
 		canonical: "/",
 	},
 	openGraph: {
-		title: "EsAI — Все AI в одном месте",
+		title: "EsAI — Все нейросети в одном месте",
 		description:
-			"Все AI в одном месте. ChatGPT, DeepSeek, Claude, Gemini онлайн на русском и кыргызском.",
+			"EsAI — Все нейросети в одном месте. Без лишних трат и подписок.",
 		url: SITE_URL,
 		siteName: SITE_NAME,
 		type: "website",
@@ -75,8 +75,8 @@ export const metadata: Metadata = {
 	},
 	twitter: {
 		card: "summary_large_image",
-		title: "EsAI — Все AI в одном месте",
-		description: "Все AI в одном месте. ChatGPT, DeepSeek, Claude, Gemini онлайн.",
+		title: "EsAI — Все нейросети в одном месте",
+		description: "EsAI — Все нейросети в одном месте. Без лишних трат и подписок.",
 		images: [OG_IMAGE],
 	},
 };
@@ -91,7 +91,7 @@ function localeByHost(host: string) {
   if (h.endsWith(".ru")) return "ru";
   if (h.endsWith(".kg")) return "kg";
   if (h.endsWith(".online") || h.endsWith(".com")) return "en";
-  return "ru"; // fallback
+  return "kg"; // fallback — kg by default (ТЗ)
 }
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {

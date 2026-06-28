@@ -40,10 +40,9 @@ export default function SmartForm({
       <fieldset disabled={loading || disabled} className="w-full">
         <div className="flex flex-col gap-8">{children}</div>
         <Button
-          className="w-full px-3 py-2 rounded-md mt-5"
+          className="w-full px-3 py-2 rounded-xl mt-5 bg-accent text-on-accent hover:bg-accent-strong duration-300"
           type="submit"
           disabled={loading || disabled}
-          style={{ background: "linear-gradient(45deg, #6b3bfa, #f11e76)" }}
         >
           <div className="flex items-center justify-center gap-2">
             {loading && (

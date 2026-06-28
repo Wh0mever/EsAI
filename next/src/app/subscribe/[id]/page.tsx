@@ -268,7 +268,7 @@ export default function SubscribePlanPage() {
 		if (!plan) return "";
 		const local = selectPlanTitle(plan, lang);
 		if (local) return local;
-		return plan.is_free ? t("pricing.vokalo_test") : t(`pricing.${plan.period}`);
+		return plan.is_free ? t("pricing.free_test") : t(`pricing.${plan.period}`);
 	}, [plan, lang, t]);
 
 	const subtitle = useMemo(() => {
@@ -475,7 +475,7 @@ export default function SubscribePlanPage() {
 
 			<section className="px-4 sm:px-8 lg:px-16 xl:px-24 2xl:px-40 z-100">
 				<div className="mb-6">
-					<Link href="/pricing" className="text-indigo-400 hover:text-indigo-500 duration-300">
+					<Link href="/pricing" className="text-accent hover:text-accent-strong duration-300">
 						← {t("pricing.back_to_all")}
 					</Link>
 				</div>
@@ -486,7 +486,7 @@ export default function SubscribePlanPage() {
 					<div className="text-center text-gray-400 py-16">
 						{t("pricing.not_found")}
 						<div className="mt-3">
-							<Link href="/pricing" className="text-indigo-400 hover:text-indigo-500 duration-300">
+							<Link href="/pricing" className="text-accent hover:text-accent-strong duration-300">
 								{t("pricing.back_to_all")}
 							</Link>
 						</div>
@@ -594,7 +594,7 @@ export default function SubscribePlanPage() {
                                     type="button"
                                     onClick={onActivateClick}
                                     disabled={actionLoading}
-                                    className="inline-flex items-center justify-center px-6 py-3 rounded-xl bg-indigo-500 hover:bg-indigo-600 transition-colors disabled:opacity-70"
+                                    className="inline-flex items-center justify-center px-6 py-3 rounded-xl bg-accent text-on-accent hover:bg-accent-strong transition-colors disabled:opacity-70"
                                 >
                                     {actionLoading ? t("common.processing") : t("pricing.connect_plan")}
                                 </button>
@@ -603,13 +603,13 @@ export default function SubscribePlanPage() {
                             <div className="flex flex-col sm:flex-row items-center gap-3">
                                 <Link
                                     href="/auth/signin"
-                                    className="inline-flex items-center justify-center px-6 py-3 rounded-xl bg-indigo-500 hover:bg-indigo-600 transition-colors"
+                                    className="inline-flex items-center justify-center px-6 py-3 rounded-xl bg-accent text-on-accent hover:bg-accent-strong transition-colors"
                                 >
                                     {t("pricing.startofwork")}
                                 </Link>
                             </div>
                         )}
-                        <Link href="/pricing" className="text-indigo-400 hover:text-indigo-500 mt-5">
+                        <Link href="/pricing" className="text-accent hover:text-accent-strong mt-5">
                             {t("pricing.view_all_plans")}
                         </Link>
                     </div>
@@ -663,7 +663,7 @@ export default function SubscribePlanPage() {
                         type="button"
                         onClick={onCardBindStart}
                         disabled={actionLoading}
-                        className="mt-4 w-full inline-flex items-center justify-center px-4 py-3 rounded-xl bg-indigo-500 hover:bg-indigo-600 transition-colors disabled:opacity-70"
+                        className="mt-4 w-full inline-flex items-center justify-center px-4 py-3 rounded-xl bg-accent text-on-accent hover:bg-accent-strong transition-colors disabled:opacity-70"
                     >
                         {actionLoading ? t("common.processing") : t("subscribe.card_button")}
                     </button>

@@ -45,18 +45,18 @@ export default function FAQSection() {
 												Пишите на{" "}
 												<a
 													href="mailto:support@esai.kg"
-													className="text-blue-500"
+													className="text-accent"
 												>
 													support@esai.kg
 												</a>
 												<br />
 												Или через Telegram:{" "}
 												<a
-													href="https://t.me/VokaloSupportBot"
+													href="https://t.me/EsaiSupportBot"
 													target="_blank"
-													className="text-blue-500"
+													className="text-accent"
 												>
-													@VokaloSupportBot
+													@EsaiSupportBot
 												</a>
 											</>
 										) : (

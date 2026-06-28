@@ -309,7 +309,7 @@ export default function UserProfile({ t, data }: { t: any; data: any }) {
 
 				<div className="flex gap-3 items-center mt-5">
 					<Button
-						className="px-6 py-2 rounded-xl bg-indigo-500 hover:bg-indigo-700 w-fit"
+						className="px-6 py-2 rounded-xl bg-accent text-on-accent hover:bg-accent-strong w-fit"
 						onClick={() => {
 							if (Object.keys(userData).length) {
 								const responseStatus = changeUserInfo(userData).then((status) => {
@@ -408,7 +408,7 @@ export default function UserProfile({ t, data }: { t: any; data: any }) {
 							{t("common.cancel")}
 						</Button>
 						<Button
-							className="px-4 py-2 rounded-md bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50"
+							className="px-4 py-2 rounded-md bg-accent text-on-accent hover:bg-accent-strong disabled:opacity-50"
 							disabled={feedbackSending || !feedbackText.trim()}
 							onClick={async () => {
 								try {

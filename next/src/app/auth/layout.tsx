@@ -23,11 +23,10 @@ export default function AuthLayout({
 
         <div className="space-y-6 max-w-md">
           <h2 className="text-4xl xl:text-5xl font-extrabold leading-[1.1]">
-            Все AI в одном месте
+            EsAI — Все нейросети в одном месте.
           </h2>
           <p className="text-base text-muted">
-            ChatGPT, DeepSeek, Claude, Gemini, Grok, Mistral, Perplexity — один чат,
-            оплата в сомах.
+            Без лишних трат и подписок.
           </p>
           <div className="text-accent font-medium">
             <TextSlider

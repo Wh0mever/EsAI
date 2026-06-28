@@ -7,7 +7,7 @@
     }
 
     &:focus {
-        border: 1px solid #a166d7 !important;
+        border: 1px solid var(--accent) !important;
 
         &::placeholder {
             color: #ffffff00 !important;
@@ -79,7 +79,7 @@ button {
     cursor: pointer;
     transition: color 0.3s ease-in-out, background-color 0.3s ease-in-out;
     &.active {
-        color: white;
-        background-color: oklch(.585 .233 277.117);
+        color: var(--on-accent);
+        background-color: var(--accent);
     }
 }

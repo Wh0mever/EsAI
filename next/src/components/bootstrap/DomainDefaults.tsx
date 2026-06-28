@@ -4,11 +4,15 @@ import { useEffect } from "react";
 
 function mapByHost(host: string) {
   const h = (host || "").toLowerCase();
-  console.log(h)
+  // EsAI hosts
+  if (h.endsWith("esai.kg")) return { locale: "kg", currency: "KGS" } as const;
+  if (h.endsWith("esai.ru")) return { locale: "ru", currency: "RUB" } as const;
+  if (h.endsWith("esai.online") || h.endsWith("esai.com")) return { locale: "en", currency: "USD" } as const;
+  // Legacy Vokalo hosts (kept for backward compatibility)
   if (h.endsWith("vokalo.ru")) return { locale: "ru", currency: "RUB" } as const;
   if (h.endsWith("vokalo.kg")) return { locale: "kg", currency: "KGS" } as const;
   if (h.endsWith("vokalo.online")) return { locale: "en", currency: "USD" } as const;
-  return { locale: "ru", currency: "USD" } as const;
+  return { locale: "kg", currency: "KGS" } as const; // kg by default (ТЗ)
 }
 
 export default function DomainDefaults() {

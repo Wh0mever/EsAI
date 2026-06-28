@@ -23,16 +23,16 @@ export default function Questions() {
 				<p className="text-gray-400">
 					{t("faq.text")}{" "}
 					<a
-						href="mailto:support@esai.kg"
-						className="text-indigo-400 hover:text-indigo-500 duration-300"
+						href={`mailto:${t("contact_us.write_email")}`}
+						className="text-accent hover:text-accent-strong duration-300"
 					>
-						support@esai.kg
+						{t("contact_us.write_email")}
 					</a>
 				</p>
 
 				<Button
 					onClick={() => setOpen(true)}
-					className="rounded-3xl w-fit mt-5 bg-neutral-800 hover:bg-indigo-500 duration-300 px-4 py-3"
+					className="rounded-3xl w-fit mt-5 bg-neutral-800 hover:bg-accent hover:text-on-accent duration-300 px-4 py-3"
 				>
 					{t("faq.button")}
 				</Button>

@@ -25,7 +25,7 @@ export default function Footer() {
                 <span className="hidden sm:inline">Facebook</span>
               </a>
               <a
-                href="https://www.instagram.com/vokalo.online?igsh=MXh1MDd5OHc1YXV6aQ%3D%3D&utm_source=qr"
+                href="https://www.instagram.com/esai.kg"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-2 text-sm text-white/90 hover:text-white transition-colors"
@@ -35,7 +35,7 @@ export default function Footer() {
                 <span className="hidden sm:inline">Instagram</span>
               </a>
               <a
-                href="https://t.me/vokaloonline"
+                href="https://t.me/esai_kg"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-2 text-sm text-white/90 hover:text-white transition-colors"
@@ -45,7 +45,7 @@ export default function Footer() {
                 <span className="hidden sm:inline">Telegram</span>
               </a>
               <a
-                href="https://x.com/Vokaloonline"
+                href="https://x.com/esai_kg"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center gap-2 text-sm text-white/90 hover:text-white transition-colors"
