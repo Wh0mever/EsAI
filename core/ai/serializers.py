@@ -79,7 +79,50 @@ class AiProviderSerializer(serializers.ModelSerializer):
 
 
 class AiModelSerializer(serializers.ModelSerializer):
-    """Публичный список моделей для свитчера в чате (только активные)."""
+    """Публичный список моделей для свитчера в чате (только активные).
+
+    Дополнительно (ТЗ Этап 3): is_free / markup_coefficient / locked, чтобы
+    фронт мог показать «замок» на премиум-моделях для гостя/free и подсветить
+    бесплатные. `locked` зависит от текущего пользователя — он берётся из
+    context["request"].user (передаётся вью).
+    """
+    is_free = serializers.SerializerMethodField()
+    markup_coefficient = serializers.SerializerMethodField()
+    locked = serializers.SerializerMethodField()
+    estimated_usage = serializers.SerializerMethodField()
+
     class Meta:
         model = GPTModels
-        fields = ("id", "name", "openrouter_id", "description", "sort_order")
+        fields = (
+            "id", "name", "openrouter_id", "description", "sort_order",
+            "is_free", "markup_coefficient", "locked", "supports_vision",
+            "category", "recommended", "estimated_usage",
+        )
+
+    def get_is_free(self, obj) -> bool:
+        return bool(obj.is_free)
+
+    def get_markup_coefficient(self, obj) -> float:
+        try:
+            return float(obj.markup_coefficient)
+        except Exception:
+            return 1.0
+
+    def get_locked(self, obj) -> bool:
+        # locked = модель недоступна текущему пользователю по его тиру (ТЗ 4.1).
+        # Гость (или отсутствующий request) → тир guest → премиум заблокированы.
+        from plans.tiers import can_use_model
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        return not can_use_model(user, obj)
+
+    def get_estimated_usage(self, obj) -> dict | None:
+        # Каталог AI-моделей (Этап 4): "что получит пользователь за один пакет
+        # 'Старт' на этой модели" — {count, unit_label, package_name} либо None,
+        # если оценить нечего (нет активных пакетов/тарифа). Не должно ронять
+        # список моделей — публичный эндпоинт обязан пережить любую ошибку оценки.
+        from plans.credit_value import estimate_model_usage_cost
+        try:
+            return estimate_model_usage_cost(obj)
+        except Exception:
+            return None

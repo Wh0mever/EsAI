@@ -6,7 +6,7 @@ import { SITE_NAME, SITE_URL } from "@/lib/seo/site";
 export const metadata: Metadata = {
 	title: `О нас — ${SITE_NAME}`,
 	description:
-		"EsAI — агрегатор флагманских нейросетей в одном месте: ChatGPT, DeepSeek, Claude, Gemini, Grok, Mistral и Perplexity. Без лишних трат и подписок, оплата в сомах.",
+		"EsAI — агрегатор флагманских нейросетей в одном месте: ChatGPT, DeepSeek, Claude, Gemini, Grok и Perplexity. Без лишних трат и подписок, оплата в сомах.",
 	alternates: { canonical: `${SITE_URL}/about` },
 };
 
@@ -16,10 +16,13 @@ export default function RootLayout({
 	children: React.ReactNode;
 }>) {
 	return (
-		<>
+		// Маркетинговая страница «тёмная по дизайну» (хардкод text-gray-*):
+		// принудительно включаем тёмные токены независимо от глобальной темы,
+		// иначе в светлой теме серый/белый текст и логотип теряются на белом.
+		<div data-theme="dark" className="min-h-[100dvh] bg-background text-foreground">
 			<Header />
 			{children}
 			<Footer />
-		</>
+		</div>
 	);
 }

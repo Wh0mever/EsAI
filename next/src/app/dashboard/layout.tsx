@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import WelcomeModal from "@/components/dashboard/WelcomeModal";
 // import Header from "@/components/Header/Header";
 
 export const metadata: Metadata = {
@@ -13,6 +14,7 @@ export default function RootLayout({
 }>) {
 	return (
 		<>
+			<WelcomeModal />
 			{children}
 		</>
 	);

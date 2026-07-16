@@ -141,7 +141,7 @@ def _mask_sensitive(obj: Any) -> Any:
         return [_mask_sensitive(v) for v in obj]
     return obj
 
-def save_freedompay_callback(callback_data: Dict[str, Any]) -> None:
+def save_freedompay_callback(callback_data: Dict[str, Any]) -> bool:
 
     data = parse_freedompay_callback(callback_data)
 
@@ -153,16 +153,20 @@ def save_freedompay_callback(callback_data: Dict[str, Any]) -> None:
     
     try:
         user = User.objects.get(id=int(data.get("pg_user_id")))
-        UserCardBind.objects.create(
+        # Дедуп: реплей подписанного card-bind постбэка не должен плодить дубли
+        # UserCardBind. Ключ идемпотентности — (user, card_token).
+        UserCardBind.objects.get_or_create(
             user=user,
-            card_id=data.get("pg_card_id", ""),
             card_token=data.get("pg_card_token", ""),
-            card_hash=data.get("pg_card_hash", ""),
-            card_month=data.get("pg_card_month", ""),
-            card_year=data.get("pg_card_year", ""),
-            card_bank=data.get("pg_bank", ""),
-            card_country=data.get("pg_country", ""),
-            card_3ds=bool(int(data.get("pg_card_3ds", "0"))),
+            defaults={
+                "card_id": data.get("pg_card_id", ""),
+                "card_hash": data.get("pg_card_hash", ""),
+                "card_month": data.get("pg_card_month", ""),
+                "card_year": data.get("pg_card_year", ""),
+                "card_bank": data.get("pg_bank", ""),
+                "card_country": data.get("pg_country", ""),
+                "card_3ds": bool(int(data.get("pg_card_3ds", "0"))),
+            },
         )
         try:
             activate_free_plan_for_user(user)

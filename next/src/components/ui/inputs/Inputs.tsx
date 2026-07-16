@@ -58,7 +58,7 @@ export function TextArea(FieldProps: TextAreaProps) {
 			<label htmlFor={FieldProps.id}>{FieldProps.label}</label>
 			<textarea
 				placeholder={FieldProps.placeholder}
-				className={`rounded-lg px-3 py-2 border-1 border-gray-600 w-100 ${FieldProps.className}`}
+				className={`rounded-lg px-3 py-2 border-1 border-border-strong w-full ${FieldProps.className}`}
 				value={FieldProps.value}
 				name={FieldProps.name}
 				id={FieldProps.id}

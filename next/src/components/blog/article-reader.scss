@@ -1,0 +1,84 @@
+/* =============================================================================
+   ESAI — Article reader scroll experience
+   Scoped styles for the premium scroll/reveal reading experience.
+   JS lives in ArticleReader.tsx (reveal + progress) and ArticleOutline.tsx (TOC,
+   Tailwind-styled). No global resets. Apple-like gentle easing. Reduced-motion safe.
+   Selectors MUST match the class names the components actually emit:
+     ArticleReader: .article-progress[data-active] > .article-progress__fill
+                    markdown blocks toggled: .reveal -> .reveal.reveal-in
+                    per-block stagger via inline custom prop --reveal-delay
+   ========================================================================== */
+
+$esai-ease: cubic-bezier(0.16, 1, 0.3, 1);
+
+/* -----------------------------------------------------------------------------
+   1) Reveal-on-scroll — each top-level `.esai-md` block gets `.reveal`
+      (pre-hidden) then `.reveal-in` when it enters the viewport.
+   -------------------------------------------------------------------------- */
+.reveal {
+  opacity: 0;
+  transform: translateY(18px);
+  transition:
+    opacity 0.6s $esai-ease var(--reveal-delay, 0ms),
+    transform 0.6s $esai-ease var(--reveal-delay, 0ms);
+  will-change: opacity, transform;
+
+  &.reveal-in {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* -----------------------------------------------------------------------------
+   2) Reading progress bar — fixed top bar; ArticleReader sets the fill `width`
+      inline (0..100%) and toggles visibility via data-active.
+   -------------------------------------------------------------------------- */
+.article-progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  z-index: 50;
+  pointer-events: none;
+  background: transparent;
+  opacity: 1;
+  transition: opacity 0.3s ease;
+
+  &[data-active="false"] {
+    opacity: 0;
+  }
+
+  &__fill {
+    height: 100%;
+    width: 0;
+    background: linear-gradient(90deg, var(--accent), var(--accent-strong));
+    border-radius: 0 2px 2px 0;
+    transition: width 0.12s linear;
+    will-change: width;
+  }
+}
+
+/* -----------------------------------------------------------------------------
+   3) Heading scroll-margin so anchor jumps / smooth-scroll clear the fixed header
+   -------------------------------------------------------------------------- */
+.esai-md :is(h2, h3) {
+  scroll-margin-top: 90px;
+}
+
+/* -----------------------------------------------------------------------------
+   4) Reduced motion — disable transforms/transitions, show everything at once
+   -------------------------------------------------------------------------- */
+@media (prefers-reduced-motion: reduce) {
+  .reveal,
+  .reveal.reveal-in {
+    opacity: 1 !important;
+    transform: none !important;
+    transition: none !important;
+  }
+
+  .article-progress,
+  .article-progress__fill {
+    transition: none !important;
+  }
+}

@@ -174,7 +174,7 @@ export default function UserProfile({ t, data }: { t: any; data: any }) {
 					<div className="flex justify-between items-center relative">
 						<h2 className="text-xl font-bold">{t("profile.profile")} </h2>
 						<div className="flex items-center gap-2">
-							<i className="text-7xl text-gray-500">
+							<i className="text-7xl text-muted">
 								<PiUserLight />
 							</i>
 						</div>
@@ -194,7 +194,7 @@ export default function UserProfile({ t, data }: { t: any; data: any }) {
 		<div className="relative pb-5" ref={dropdownRef}>
 					<button
 						type="button"
-						className="px-3 py-1.5 cursor-pointer rounded-md bg-neutral-800 hover:bg-neutral-700 text-sm border border-white/10 relative"
+						className="px-3 py-1.5 cursor-pointer rounded-md bg-surface-2 hover:bg-surface-3 text-sm border border-border relative"
 						onClick={() => setNotifOpen((v) => !v)}
 					>
 						{t("common.notifications")}
@@ -207,27 +207,27 @@ export default function UserProfile({ t, data }: { t: any; data: any }) {
 					{/* Feedback button next to notifications */}
 					<button
 						type="button"
-						className="ml-2 px-3 py-1.5 cursor-pointer rounded-md bg-neutral-800 hover:bg-neutral-700 text-sm border border-white/10"
+						className="ml-2 px-3 py-1.5 cursor-pointer rounded-md bg-surface-2 hover:bg-surface-3 text-sm border border-border"
 						onClick={() => setFeedbackOpen(true)}
 					>
 						{t("profile.leave_feedback")}
 					</button>
             {notifOpen && (
-                <div className="absolute left-0 mt-2 w-72 max-h-[450px] overflow-auto bg-neutral-900 border border-white/10 rounded-lg shadow-lg z-50">
-                    <div className="p-2 border-b border-white/10 text-sm text-neutral-300">
+                <div className="absolute left-0 mt-2 w-72 max-h-[450px] overflow-auto bg-surface border border-border rounded-lg shadow-lg z-50">
+                    <div className="p-2 border-b border-border text-sm text-muted">
                         {t("common.notifications")}
                     </div>
 							{notifLoading ? (
-								<div className="p-3 text-sm text-neutral-400">{t("common.loading")}</div>
+								<div className="p-3 text-sm text-muted">{t("common.loading")}</div>
 							) : notifList.length === 0 ? (
-								<div className="p-3 text-sm text-neutral-400">{t("status.notfound")}</div>
+								<div className="p-3 text-sm text-muted">{t("status.notfound")}</div>
 							) : (
 								<ul className="py-1">
 									{notifList.map((n) => (
 										<li key={`${n.delivery_id}-${n.id}`}>
 											<button
-												className={`w-full cursor-pointer text-left px-3 py-2 text-sm hover:bg-white/5 flex items-center gap-2 ${
-													n.is_read ? "text-neutral-200" : "text-white"
+												className={`w-full cursor-pointer text-left px-3 py-2 text-sm hover:bg-surface-2 flex items-center gap-2 ${
+													n.is_read ? "text-muted" : "text-foreground"
 												}`}
 												onClick={() => openNotif(n)}
 											>
@@ -236,7 +236,7 @@ export default function UserProfile({ t, data }: { t: any; data: any }) {
 												)}
 												<span className="min-w-0">
 													<span className="block truncate">{n.title}</span>
-													<span className="block text-[11px] text-neutral-400 mt-0.5">
+													<span className="block text-[11px] text-muted-2 mt-0.5">
 														{formatNotificationDate(n.created_at)}
 													</span>
 												</span>
@@ -250,19 +250,19 @@ export default function UserProfile({ t, data }: { t: any; data: any }) {
 				</div>
 				
 				<div className="flex flex-col gap-1">
-					<p className="text-gray-500">{t("profile.email")}:</p>
+					<p className="text-muted">{t("profile.email")}:</p>
 					<Field
 						name="email"
-						className="border-b rounded-none border-gray-500 flex-grow text-gray-500"
+						className="border-b rounded-none border-border-strong flex-grow text-muted"
 						value={data?.user?.email}
 						disabled
 					/>
 				</div>
 				<div className="flex flex-col gap-1">
-					<p className="text-gray-500">{t("profile.fullname")}:</p>
+					<p className="text-muted">{t("profile.fullname")}:</p>
 					<Field
 						name="first_name"
-						className="border-b rounded-none border-gray-500 flex-grow"
+						className="border-b rounded-none border-border-strong flex-grow"
 						value={data?.user?.first_name}
 						onChange={(e) => {
 							setUserData((prev: any) => {
@@ -275,10 +275,10 @@ export default function UserProfile({ t, data }: { t: any; data: any }) {
 					/>
 				</div>
 				<div className="flex flex-col gap-1">
-					<p className="text-gray-500">{t("profile.phone")}:</p>
+					<p className="text-muted">{t("profile.phone")}:</p>
 					<Field
 						name="tel"
-						className="border-b rounded-none border-gray-500 flex-grow"
+						className="border-b rounded-none border-border-strong flex-grow"
 						value={data?.user?.tel}
 						onChange={(e) => {
 							setUserData((prev: any) => {
@@ -291,10 +291,10 @@ export default function UserProfile({ t, data }: { t: any; data: any }) {
 					/>
 				</div>
 				<div className="flex flex-col gap-1">
-					<p className="text-gray-500">{t("profile._2fa")}:</p>
+					<p className="text-muted">{t("profile._2fa")}:</p>
 					<Checkbox
 						name="_2fa"
-						className="border-b rounded-none border-gray-500 flex-grow"
+						className="border-b rounded-none border-border-strong flex-grow"
 						checked={data?.user?._2fa}
 						onChange={(e) => {
 							setUserData((prev: any) => {
@@ -359,10 +359,10 @@ export default function UserProfile({ t, data }: { t: any; data: any }) {
 				size="md"
 			>
 				<div className="space-y-2">
-					<div className="text-xs text-neutral-400">
+					<div className="text-xs text-muted">
 						{formatNotificationDate(selectedNotif?.created_at)}
 					</div>
-					<div className="text-neutral-100 whitespace-pre-wrap leading-relaxed">{selectedNotif?.body || ""}</div>
+					<div className="text-foreground whitespace-pre-wrap leading-relaxed">{selectedNotif?.body || ""}</div>
 				</div>
 			</Modal>
 
@@ -376,10 +376,10 @@ export default function UserProfile({ t, data }: { t: any; data: any }) {
 				size="md"
 			>
 				<div className="space-y-3">
-					<label className="block text-sm text-neutral-300">
+					<label className="block text-sm text-muted">
 						{t("profile.feedback_rating")}
 						<select
-							className="mt-1 w-full bg-neutral-900 border border-white/10 rounded-md p-2"
+							className="mt-1 w-full bg-surface-2 border border-border rounded-md p-2"
 							value={feedbackRating ?? ''}
 							onChange={(e) => setFeedbackRating(e.target.value ? Number(e.target.value) : null)}
 						>
@@ -389,20 +389,20 @@ export default function UserProfile({ t, data }: { t: any; data: any }) {
 							))}
 						</select>
 					</label>
-					<label className="block text-sm text-neutral-300">
+					<label className="block text-sm text-muted">
 						{t("profile.feedback_placeholder")}
 						<textarea
-							className="mt-1 w-full bg-neutral-900 border border-white/10 rounded-md p-2 min-h-[120px]"
+							className="mt-1 w-full bg-surface-2 border border-border rounded-md p-2 min-h-[120px]"
 							value={feedbackText}
 							onChange={(e) => setFeedbackText(e.target.value)}
 						/>
 					</label>
 					{feedbackMessage && (
-						<div className="text-sm text-neutral-300">{feedbackMessage}</div>
+						<div className="text-sm text-muted">{feedbackMessage}</div>
 					)}
 					<div className="flex justify-end gap-2 pt-2">
 						<Button
-							className="px-4 py-2 rounded-md bg-neutral-800 hover:bg-neutral-700"
+							className="px-4 py-2 rounded-md bg-surface-2 hover:bg-surface-3"
 							onClick={() => !feedbackSending && setFeedbackOpen(false)}
 						>
 							{t("common.cancel")}

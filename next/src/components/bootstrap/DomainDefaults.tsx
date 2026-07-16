@@ -4,14 +4,8 @@ import { useEffect } from "react";
 
 function mapByHost(host: string) {
   const h = (host || "").toLowerCase();
-  // EsAI hosts
+  // EsAI — единственный домен esai.kg (одна валюта — сом).
   if (h.endsWith("esai.kg")) return { locale: "kg", currency: "KGS" } as const;
-  if (h.endsWith("esai.ru")) return { locale: "ru", currency: "RUB" } as const;
-  if (h.endsWith("esai.online") || h.endsWith("esai.com")) return { locale: "en", currency: "USD" } as const;
-  // Legacy Vokalo hosts (kept for backward compatibility)
-  if (h.endsWith("vokalo.ru")) return { locale: "ru", currency: "RUB" } as const;
-  if (h.endsWith("vokalo.kg")) return { locale: "kg", currency: "KGS" } as const;
-  if (h.endsWith("vokalo.online")) return { locale: "en", currency: "USD" } as const;
   return { locale: "kg", currency: "KGS" } as const; // kg by default (ТЗ)
 }
 
@@ -30,12 +24,9 @@ export default function DomainDefaults() {
 
       let changed = false;
 
-      const manualLang = get("NEXT_LOCALE_MANUAL") === "1";
-      const currLocale = get("NEXT_LOCALE");
-      if (!manualLang && currLocale !== desired.locale) {
-        document.cookie = `NEXT_LOCALE=${desired.locale}; path=/; max-age=${60 * 60 * 24 * 365}`;
-        changed = true;
-      }
+      // Язык интерфейса больше НЕ привязан к домену — он определяется по языку
+      // браузера (middleware + layout) и залипает после ручного выбора. Здесь
+      // оставлена только синхронизация ВАЛЮТЫ по домену.
       const manualCurr = get("APP_CURRENCY_MANUAL") === "1";
       const currVal = get("APP_CURRENCY");
       if (!manualCurr && currVal !== desired.currency) {

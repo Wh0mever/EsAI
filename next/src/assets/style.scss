@@ -4,14 +4,20 @@
 
 body,
 html {
-    height: 100%;
+    /* НЕ фиксируем height:100% (легаси Vokalo): это зажимало body высотой окна,
+       body становился собственным скролл-контейнером и страницы под чатом
+       (статья/футер на / и /dashboard) не проматывались. min-height достаточно. */
     min-height: 100vh;
-    color: #ffffff;
+    min-height: 100dvh;
+    /* Цвет текста НЕ хардкодим: globals.css задаёт color: var(--foreground)
+       по data-theme. Раньше здесь было color:#ffffff — в светлой теме весь
+       унаследованный текст (заголовки без классов и т.п.) был белым на белом. */
 }
 
 body {
     overflow-x: hidden;
     min-height: 100vh;
+    min-height: 100dvh;
 }
 
 .page {
@@ -25,9 +31,10 @@ body {
     display: flex;
     align-items: center !important;
     justify-content: center !important;
-    background-color: #000000;
+    background-color: var(--background, #000000);
     width: 100vw;
     height: 100vh;
+    height: 100dvh;
 
     & .loader-element {
         width: 4rem;

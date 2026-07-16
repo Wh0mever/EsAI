@@ -1,4 +1,5 @@
-﻿from django.db import transaction
+﻿from django.conf import settings
+from django.db import transaction
 from django.http import StreamingHttpResponse
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated, AllowAny
@@ -37,10 +38,27 @@ import os
 # раздувать контекст модели и не упираться в лимит токенов OpenRouter.
 DOCUMENT_TEXT_MAX_CHARS = 200_000
 
+# Лимит размера одного загружаемого файла (байты). Переопределяется через
+# settings.MAX_ATTACHMENT_SIZE. Защита от загрузки огромных файлов.
+MAX_ATTACHMENT_SIZE = getattr(settings, "MAX_ATTACHMENT_SIZE", 15 * 1024 * 1024)  # 15 МБ
+
+# Лимит количества файлов на один запрос загрузки. Переопределяется через
+# settings.MAX_ATTACHMENTS_PER_REQUEST.
+MAX_ATTACHMENTS_PER_REQUEST = getattr(settings, "MAX_ATTACHMENTS_PER_REQUEST", 10)
+
+# Лимит суммарного РАСПАКОВАННОГО размера содержимого OOXML-архива (docx/pptx/
+# xlsx — это zip). Защита от zip-bomb: маленький файл может распаковаться в
+# гигабайты. Переопределяется через settings.MAX_OOXML_UNCOMPRESSED_SIZE.
+MAX_OOXML_UNCOMPRESSED_SIZE = getattr(
+    settings, "MAX_OOXML_UNCOMPRESSED_SIZE", 200 * 1024 * 1024)  # 200 МБ
+
 # Расширения документов, из которых мы умеем извлекать текст.
 _DOCUMENT_EXTENSIONS = {
     ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".txt",
 }
+
+# OOXML-форматы (zip-контейнеры) — для них проверяем распакованный размер.
+_OOXML_EXTENSIONS = {".docx", ".xlsx", ".pptx"}
 
 
 def _truncate_text(text: str, limit: int = DOCUMENT_TEXT_MAX_CHARS) -> str:
@@ -81,6 +99,36 @@ def extract_text_from_file(file, filename: str) -> str:
         except Exception:
             return b""
 
+    def _ooxml_uncompressed_ok(raw: bytes) -> bool:
+        """Проверить РАСПАКОВАННЫЙ размер OOXML-архива до парсинга (анти zip-bomb).
+
+        OOXML (docx/xlsx/pptx) — это zip. Маленький файл может распаковываться в
+        гигабайты. Суммируем ZipInfo.file_size и отклоняем при превышении лимита.
+        При ошибке чтения архива возвращаем False (безопасно — не парсим).
+        """
+        import io
+        import zipfile
+        try:
+            with zipfile.ZipFile(io.BytesIO(raw)) as zf:
+                total = 0
+                for info in zf.infolist():
+                    total += info.file_size
+                    if total > MAX_OOXML_UNCOMPRESSED_SIZE:
+                        return False
+            return True
+        except Exception:
+            return False
+
+    # Защита от zip-bomb / тяжёлых файлов: отсекаем по размеру ДО парсинга.
+    # extract_text никогда не бросает наружу, поэтому при превышении просто
+    # возвращаем "" (текст не извлечён, но загрузка файла не падает).
+    try:
+        fsize = getattr(file, "size", None)
+        if fsize is not None and fsize > MAX_ATTACHMENT_SIZE:
+            return ""
+    except Exception:
+        pass
+
     try:
         if ext == ".pdf":
             from pypdf import PdfReader
@@ -97,20 +145,39 @@ def extract_text_from_file(file, filename: str) -> str:
         if ext == ".docx":
             from docx import Document
             import io
-            doc = Document(io.BytesIO(_read_bytes()))
-            parts = [p.text for p in doc.paragraphs if p.text]
+            raw = _read_bytes()
+            # Анти zip-bomb: проверяем распакованный размер до парсинга.
+            if not _ooxml_uncompressed_ok(raw):
+                return ""
+            doc = Document(io.BytesIO(raw))
+            parts = []
+            _total = 0  # текущая длина накопленного текста (для ранней обрезки)
+            for p in doc.paragraphs:
+                if p.text:
+                    parts.append(p.text)
+                    _total += len(p.text)
+                    if _total > DOCUMENT_TEXT_MAX_CHARS:
+                        return _truncate_text("\n".join(parts).strip())
             # Таблицы тоже несут текст.
             for table in doc.tables:
                 for row in table.rows:
                     cells = [c.text for c in row.cells if c.text]
                     if cells:
-                        parts.append("\t".join(cells))
+                        line = "\t".join(cells)
+                        parts.append(line)
+                        _total += len(line)
+                        if _total > DOCUMENT_TEXT_MAX_CHARS:
+                            return _truncate_text("\n".join(parts).strip())
             return _truncate_text("\n".join(parts).strip())
 
         if ext == ".xlsx":
             from openpyxl import load_workbook
             import io
-            wb = load_workbook(io.BytesIO(_read_bytes()), read_only=True, data_only=True)
+            raw = _read_bytes()
+            # Анти zip-bomb: проверяем распакованный размер до парсинга.
+            if not _ooxml_uncompressed_ok(raw):
+                return ""
+            wb = load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
             parts = []
             for ws in wb.worksheets:
                 parts.append(f"# {ws.title}")
@@ -131,8 +198,13 @@ def extract_text_from_file(file, filename: str) -> str:
         if ext == ".pptx":
             from pptx import Presentation
             import io
-            prs = Presentation(io.BytesIO(_read_bytes()))
+            raw = _read_bytes()
+            # Анти zip-bomb: проверяем распакованный размер до парсинга.
+            if not _ooxml_uncompressed_ok(raw):
+                return ""
+            prs = Presentation(io.BytesIO(raw))
             parts = []
+            _total = 0  # текущая длина накопленного текста (для ранней обрезки)
             for slide in prs.slides:
                 for shape in slide.shapes:
                     if getattr(shape, "has_text_frame", False):
@@ -140,6 +212,9 @@ def extract_text_from_file(file, filename: str) -> str:
                             line = "".join(run.text for run in para.runs)
                             if line:
                                 parts.append(line)
+                                _total += len(line)
+                                if _total > DOCUMENT_TEXT_MAX_CHARS:
+                                    return _truncate_text("\n".join(parts).strip())
             return _truncate_text("\n".join(parts).strip())
 
         if ext == ".txt":
@@ -266,6 +341,79 @@ class ChatsHistory(APIView):
         if sessions.exists():
             sessions.delete();
         return Response({}, status=200)
+
+
+class ChatSessionImportAPIView(APIView):
+    """Импорт гостевого диалога в аккаунт после логина (ТЗ клиента).
+
+    Гостевой чат в БД не пишется (handlers._guest_chat — no DB writes). Когда
+    гость авторизуется, фронт присылает накопленный транскрипт сюда: создаём
+    сессию и сохраняем сообщения КАК ЕСТЬ — БЕЗ повторного вызова модели и БЕЗ
+    списания токенов. Возвращаем uid, чтобы фронт продолжил диалог уже в сессии.
+    """
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [UserRateThrottle]
+
+    MAX_MESSAGES = 60
+    MAX_CONTENT = 200_000
+
+    def post(self, request):
+        raw = request.data.get("messages")
+        if not isinstance(raw, list) or not raw:
+            return Response({"error": "no_messages"}, status=400)
+
+        cleaned = []
+        for m in raw[: self.MAX_MESSAGES * 3]:
+            if not isinstance(m, dict):
+                continue
+            role = m.get("role")
+            if role not in ("user", "assistant"):
+                continue
+            content = m.get("content")
+            if not isinstance(content, str) or not content.strip():
+                continue
+            atts = m.get("attachments")
+            cleaned.append({
+                "role": role,
+                "content": content.strip()[: self.MAX_CONTENT],
+                "attachments": atts if isinstance(atts, list) else None,
+            })
+            if len(cleaned) >= self.MAX_MESSAGES:
+                break
+
+        if not cleaned:
+            return Response({"error": "no_valid_messages"}, status=400)
+
+        title = (request.data.get("title") or "").strip()
+        if not title:
+            first_user = next((c["content"] for c in cleaned if c["role"] == "user"), cleaned[0]["content"])
+            title = (first_user[:60] or "Импортированный чат")
+
+        provider = AiProvider.objects.filter(name__iexact="GPT").first()
+
+        with transaction.atomic():
+            session = AiChatSession.objects.create(
+                user=request.user,
+                provider=provider,
+                title=title[:255],
+                chat_mode="text-chat",
+            )
+            # Поштучно (не bulk) — чтобы created_at шёл по возрастанию и история
+            # сохраняла исходный порядок при последующей загрузке сессии.
+            for c in cleaned:
+                AiChatMessage.objects.create(
+                    session=session,
+                    role=c["role"],
+                    content=c["content"],
+                    attachments=c["attachments"],
+                    meta={"imported": True},
+                )
+
+        return Response(
+            {"session": {"id": session.id, "uid": session.uid, "title": session.title, "chat_mode": session.chat_mode}},
+            status=201,
+        )
 
 
 class ChatSessionListAPIView(APIView):
@@ -481,14 +629,54 @@ class AiProvidersApiView(APIView):
 
 
 class AiModelsListAPIView(APIView):
-    """Публичный список активных моделей для свитчера в чате (доступен гостям)."""
-    authentication_classes = []
+    """Публичный список активных моделей для свитчера в чате (доступен гостям).
+
+    JWTAuthentication опционален: токен НЕ обязателен (permission_classes пуст,
+    доступ открыт всем), но если клиент прислал валидный токен — request.user
+    будет реальным, и поле `locked` посчитается по его тиру (paid видит премиум
+    как доступную). Без токена request.user анонимен → тир guest → премиум locked.
+    """
+    authentication_classes = [JWTAuthentication]
     permission_classes = []
 
     def get(self, request):
         qs = GPTModels.objects.filter(is_active=True).order_by("sort_order", "id")
-        data = AiModelSerializer(qs, many=True).data
+        # context["request"] нужен сериализатору для вычисления `locked` по тиру
+        # текущего пользователя (гость → премиум заблокированы).
+        data = AiModelSerializer(qs, many=True, context={"request": request}).data
         return Response(data, status=status.HTTP_200_OK)
+
+
+class CartoonModelsListAPIView(APIView):
+    """Модели для студии мультфильмов, сгруппированные по этапу (cartoon_stage).
+
+    Тот же доступ и сериализация, что и ai/models/: JWTAuthentication опционален
+    (permission_classes пуст, доступ открыт), а `locked` по тиру пользователя
+    считается ТЕМ ЖЕ AiModelSerializer (через plans.tiers.can_use_model) — без
+    токена гость видит премиум как locked, с валидным токеном — по его тиру.
+
+    Ответ — группы {script, image, video}: активные модели с непустым
+    cartoon_stage, отсортированные по sort_order. Пустые группы = [].
+    """
+    authentication_classes = [JWTAuthentication]
+    permission_classes = []
+
+    # Порядок и набор групп ответа = choices cartoon_stage (кроме пустого "").
+    _STAGES = ("script", "image", "video")
+
+    def get(self, request):
+        qs = (
+            GPTModels.objects
+            .filter(is_active=True, cartoon_stage__in=self._STAGES)
+            .order_by("sort_order", "id")
+        )
+        # context["request"] нужен сериализатору для вычисления `locked` по тиру
+        # текущего пользователя — та же логика, что в ai/models/.
+        grouped = {stage: [] for stage in self._STAGES}
+        for model in qs:
+            data = AiModelSerializer(model, context={"request": request}).data
+            grouped[model.cartoon_stage].append(data)
+        return Response(grouped, status=status.HTTP_200_OK)
 
 
 class ChatAttachmentUploadAPIView(APIView):
@@ -497,10 +685,37 @@ class ChatAttachmentUploadAPIView(APIView):
     # Загрузка/парсинг документов — ресурсоёмкая операция: лимитируем (ТЗ 8).
     throttle_classes = [UserRateThrottle]
 
+    # Расширения изображений — определяем тип по содержимому/расширению,
+    # а не доверяем client-присланному content_type.
+    _IMAGE_EXTENSIONS = {
+        ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".svg", ".heic", ".heif",
+    }
+
     def post(self, request):
         files = request.FILES.getlist("files")
         if not files:
             return Response({"detail": "No files provided"}, status=400)
+
+        # Лимит количества файлов на запрос (ТЗ 8): защита от массовой загрузки.
+        if len(files) > MAX_ATTACHMENTS_PER_REQUEST:
+            return Response(
+                {"detail": f"Too many files (max {MAX_ATTACHMENTS_PER_REQUEST})"},
+                status=400,
+            )
+
+        # Лимит размера на файл — проверяем ДО сохранения на диск.
+        for f in files:
+            fsize = getattr(f, "size", None)
+            if fsize is not None and fsize > MAX_ATTACHMENT_SIZE:
+                return Response(
+                    {
+                        "detail": (
+                            f"File '{f.name or 'file'}' is too large "
+                            f"(max {MAX_ATTACHMENT_SIZE} bytes)"
+                        )
+                    },
+                    status=400,
+                )
 
         uploaded = []
         for f in files:
@@ -513,10 +728,16 @@ class ChatAttachmentUploadAPIView(APIView):
             ctype = getattr(f, "content_type", "application/octet-stream") or "application/octet-stream"
 
             ext = os.path.splitext((f.name or "").lower())[1]
-            if ctype.startswith("image/"):
+            # Тип определяем по расширению (надёжнее), а content_type клиента
+            # используем лишь как дополнительный сигнал — ему нельзя слепо
+            # доверять (его задаёт клиент и может подделать).
+            if ext in self._IMAGE_EXTENSIONS:
                 typ = "image"
             elif ext in _DOCUMENT_EXTENSIONS:
                 typ = "document"
+            elif not ext and ctype.startswith("image/"):
+                # Расширения нет — мягкий фолбэк на content_type для картинок.
+                typ = "image"
             else:
                 typ = "file"
 

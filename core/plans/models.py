@@ -1,5 +1,6 @@
 from django.conf import settings
 from django.db import models
+from django.db.models import Q
 from django.core.exceptions import ValidationError
 from datetime import timedelta
 
@@ -382,15 +383,21 @@ class AddonPurchase(models.Model):
 
 
 class TokenPackage(models.Model):
-    """Пакет токенов для покупки (pay-as-you-go). Редактируется в админке."""
+    """Пакет кредитов для покупки (pay-as-you-go). Редактируется в админке."""
     name = models.CharField(max_length=100, verbose_name="Название")
-    tokens = models.BigIntegerField(verbose_name="Токенов")
-    bonus_tokens = models.BigIntegerField(default=0, verbose_name="Бонусных токенов")
+    tokens = models.BigIntegerField(verbose_name="Кредитов")
+    bonus_tokens = models.BigIntegerField(default=0, verbose_name="Бонусных кредитов")
     price = models.DecimalField(max_digits=12, decimal_places=2, verbose_name="Цена")
     currency = models.CharField(max_length=10, default="KGS", verbose_name="Валюта")
     is_active = models.BooleanField(default=True, verbose_name="Активен")
     sort_order = models.PositiveIntegerField(default=100, verbose_name="Порядок сортировки")
-    description = models.TextField(blank=True, verbose_name="Описание")
+    description = models.TextField(blank=True, verbose_name="Описание (подпись под пакетом)")
+    badge = models.CharField(
+        max_length=60, blank=True, default="", verbose_name="Бейдж",
+        help_text="Маркетинговая плашка над пакетом, напр. «⭐ Популярный», «🔥 Лучший выбор». Пусто — без бейджа.")
+    featured = models.BooleanField(
+        default=False, verbose_name="Выделенный",
+        help_text="Визуально выделить пакет (рамка/увеличение) как рекомендованный. Включайте только у ОДНОГО пакета.")
 
     class Meta:
         ordering = ["sort_order", "id"]
@@ -406,7 +413,13 @@ class TokenTransactionReason(models.TextChoices):
     PURCHASE = "purchase", "Покупка пакета"
     ADMIN = "admin", "Ручная корректировка"
     BONUS = "bonus", "Бонус"
+    WELCOME = "welcome", "Приветственный бонус"
+    DAILY_BONUS = "daily_bonus", "Ежедневный бонус"
     REFUND = "refund", "Возврат"
+    REFERRAL = "referral", "Реферальное начисление"
+    TRANSFER_IN = "transfer_in", "Перевод получен"
+    TRANSFER_OUT = "transfer_out", "Перевод отправлен"
+    PROMO = "promo", "Промокод"
 
 
 class TokenTransaction(models.Model):
@@ -436,3 +449,142 @@ class TokenTransaction(models.Model):
     def __str__(self):
         sign = "+" if self.delta >= 0 else ""
         return f"{self.user_id}: {sign}{self.delta} ({self.reason}) -> {self.balance_after}"
+
+
+# =========================================================================
+# Промокоды (фиксированные кредиты)
+# =========================================================================
+
+
+class PromoCode(models.Model):
+    """Промокод, дающий ФИКСИРОВАННОЕ число кредитов (без процентов).
+
+    Код хранится в верхнем регистре (нормализация в бизнес-слое). Ограничения
+    активаций: max_activations (null=безлимит), per_user_once (один раз на юзера),
+    new_users_only (только для новых регистраций), expires_at, is_active.
+    """
+    code = models.CharField(max_length=40, unique=True, verbose_name="Код")
+    bonus_credits = models.PositiveIntegerField(verbose_name="Кредитов")
+    expires_at = models.DateTimeField(null=True, blank=True, verbose_name="Истекает")
+    max_activations = models.PositiveIntegerField(
+        null=True, blank=True,
+        verbose_name="Максимум активаций",
+        help_text="Пусто — безлимит.",
+    )
+    used_count = models.PositiveIntegerField(default=0, verbose_name="Использовано раз")
+    per_user_once = models.BooleanField(default=True, verbose_name="Один раз на пользователя")
+    new_users_only = models.BooleanField(default=False, verbose_name="Только для новых пользователей")
+    is_active = models.BooleanField(default=True, verbose_name="Активен")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Создан")
+    note = models.CharField(max_length=200, blank=True, verbose_name="Заметка")
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "Промокод"
+        verbose_name_plural = "Промокоды"
+
+    def __str__(self):
+        return self.code
+
+
+class PromoActivation(models.Model):
+    """Факт активации промокода пользователем (идемпотентность + аудит)."""
+    promo = models.ForeignKey(
+        PromoCode,
+        on_delete=models.CASCADE,
+        related_name="activations",
+        verbose_name="Промокод",
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="promo_activations",
+        verbose_name="Пользователь",
+    )
+    credited = models.PositiveIntegerField(verbose_name="Начислено кредитов")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Создано")
+
+    class Meta:
+        ordering = ["-created_at"]
+        unique_together = (("promo", "user"),)
+        verbose_name = "Активация промокода"
+        verbose_name_plural = "Активации промокодов"
+
+    def __str__(self):
+        return f"{self.promo_id}:{self.user_id} (+{self.credited})"
+
+
+# =========================================================================
+# Скидка при уходе со страницы тарифов (exit-intent discount)
+# =========================================================================
+
+
+class ExitDiscountOffer(models.Model):
+    """Оффер скидки на оплату тарифа, показанный при попытке ухода со страницы pricing.
+
+    Скидка реализуется как СНИЖЕНИЕ СУММЫ ОПЛАТЫ за тот же пакет (не бонусные
+    кредиты). shown_at/expires_at — окно действия оффера, сервер источник
+    истины. percent фиксируется на момент показа, чтобы смена рантайм-настройки
+    не меняла задним числом уже выданные офферы. applied_to_payment — мягкая
+    бронь скидки за конкретной попыткой оплаты (ставится атомарно через
+    select_for_update при старте покупки), чтобы 2 параллельных клика "Купить"
+    не оба получили скидку.
+    """
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name="exit_discount_offers",
+        verbose_name="Пользователь",
+    )
+    device_key = models.CharField(
+        max_length=64, blank=True, default="", db_index=True,
+        verbose_name="Device key",
+        help_text="localStorage UUID для гостя (не авторизован).",
+    )
+    ip_address = models.GenericIPAddressField(
+        null=True, blank=True, verbose_name="IP-адрес",
+        help_text="Только для аудита/статистики. НЕ используется как ключ блокировки повторного показа (CGNAT).",
+    )
+    shown_at = models.DateTimeField(null=True, blank=True, verbose_name="Показан")
+    expires_at = models.DateTimeField(null=True, blank=True, verbose_name="Истекает")
+    percent = models.PositiveSmallIntegerField(
+        null=True, blank=True, verbose_name="Процент скидки",
+        help_text="Зафиксирован на момент показа оффера.",
+    )
+    claimed_at = models.DateTimeField(null=True, blank=True, verbose_name="Принят пользователем")
+    dismissed_at = models.DateTimeField(
+        null=True, blank=True, verbose_name="Отклонён",
+        help_text="Аналитика явного отказа (крестик/«Нет спасибо»). НЕ гейт повторного показа — гейт это shown_at.",
+    )
+    redeemed_at = models.DateTimeField(
+        null=True, blank=True, verbose_name="Погашен",
+        help_text="Когда скидка реально применилась к успешно оплаченному платежу.",
+    )
+    applied_to_payment = models.ForeignKey(
+        "payments.Payment",
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name="exit_discount_offer",
+        verbose_name="Применён к платежу",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Создан")
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user"],
+                condition=Q(user__isnull=False),
+                name="uniq_exit_discount_user",
+            ),
+            models.UniqueConstraint(
+                fields=["device_key"],
+                condition=~Q(device_key=""),
+                name="uniq_exit_discount_device",
+            ),
+        ]
+        verbose_name = "Оффер скидки при уходе"
+        verbose_name_plural = "Офферы скидки при уходе"
+
+    def __str__(self):
+        return f"ExitDiscountOffer user={self.user_id} device={self.device_key or '-'}"

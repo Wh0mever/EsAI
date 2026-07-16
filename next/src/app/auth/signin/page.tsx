@@ -7,6 +7,7 @@ import Cookies from "js-cookie";
 import { Alert } from "@/components/ui/alert/Alert";
 import { Field } from "@/components/ui/inputs/Inputs";
 import NextLink from "@/components/ui/nextLink/NextLink";
+import EsaiLogo from "@/components/brand/EsaiLogo";
 import { fetchData } from "@/tools/fetchData";
 import SmartForm from "@/components/forms/SmartForm";
 import SocialAuthButtons from "@/components/auth/SocialAuthButtons";
@@ -15,16 +16,39 @@ const INPUT_CLASS =
 	"w-full rounded-xl bg-surface-2 border border-border text-foreground placeholder:text-muted-2 text-sm px-4 py-3 focus:border-accent focus:outline-none transition-colors";
 
 function signin(response: any, setResponseData: any, t: any) {
-	const { access, refresh, user } = response.data.data;
+	// Безопасный гард: не деструктурируем data вслепую — при ошибочном payload это крашит.
+	const payload = response?.data?.data;
+	if (!response?.ok || !payload || !payload.access || !payload.refresh) {
+		setResponseData({
+			status: "error",
+			title: t("status.error"),
+			message: t("status_extended.error"),
+		});
+		return;
+	}
+	const { access, refresh, user } = payload;
 
 	Cookies.remove("access");
 	Cookies.remove("refresh");
 	Cookies.remove("user");
 	Cookies.remove("sessionid");
 
-	Cookies.set("access", access, { expires: 7 });
-	Cookies.set("refresh", refresh, { expires: 15 });
-	Cookies.set("user", JSON.stringify(user));
+	// Cookie-хардненинг: secure + sameSite lax (lax переживает возврат из OAuth); access короткоживущий.
+	Cookies.set("access", access, { expires: 0.5, secure: true, sameSite: "lax" });
+	Cookies.set("refresh", refresh, { expires: 15, secure: true, sameSite: "lax" });
+	if (user !== undefined) {
+		Cookies.set("user", JSON.stringify(user), { secure: true, sameSite: "lax" });
+	}
+
+	// Новый пользователь → показать приветственное окно + засчитать конверсию
+	// «Регистрация» в Google Ads (ТОЛЬКО для нового аккаунта, после подтверждения
+	// сервером — здесь уже есть JWT, значит аккаунт создан).
+	try {
+		if (payload.is_new) {
+			localStorage.setItem("esai-show-welcome", "1");
+			try { (window as any).gtag_report_conversion?.(); } catch {}
+		}
+	} catch {}
 
 	setResponseData({
 		status: "success",
@@ -38,11 +62,43 @@ export default function SignIn() {
 	// 2-шаговый email-OTP без пароля: request (ввод email) -> verify (ввод кода)
 	const [step, setStep] = useState<"request" | "verify">("request");
 	const [formState, setFormState] = useState<{ email?: string }>({});
+	// Необязательный промокод: сохраняем в cookie esai_promo (30 дней) до отправки
+	// формы — бэк активирует его при создании аккаунта. Не влияет на сам вход.
+	const [promo, setPromo] = useState("");
 	const [responseData, setResponseData] = useState<any>(null);
 	const [showAlert, setShowAlert] = useState(false);
 	const [alertTitle, setAlertTitle] = useState(t("status.success"));
 	const [alertMessage, setAlertMessage] = useState("");
 	const [alertType, setAlertType] = useState<"success" | "error" | "info" | "warning">("info");
+
+	// Реф-код из ?ref → cookie esai_ref (на случай прямой ссылки /auth/signin?ref=).
+	// Основной путь ставит cookie на /auth/signup, но дублируем для надёжности.
+	useEffect(() => {
+		try {
+			const params = new URLSearchParams(window.location.search);
+			const ref = params.get("ref");
+			if (ref) Cookies.set("esai_ref", ref, { expires: 30, sameSite: "lax" });
+			// Промокод: из ?promo или ранее сохранённой cookie → префилл поля.
+			const promoParam = params.get("promo");
+			const saved = Cookies.get("esai_promo");
+			const initial = (promoParam || saved || "").trim();
+			if (initial) {
+				setPromo(initial);
+				Cookies.set("esai_promo", initial, { expires: 30, sameSite: "lax" });
+			}
+		} catch {}
+	}, []);
+
+	// Пишем промокод в cookie на каждый ввод, чтобы он точно ушёл на бэк при
+	// регистрации (в т.ч. через соц-вход, который уходит с текущего origin).
+	const onPromoChange = (value: string) => {
+		setPromo(value);
+		try {
+			const v = value.trim();
+			if (v) Cookies.set("esai_promo", v, { expires: 30, sameSite: "lax" });
+			else Cookies.remove("esai_promo");
+		} catch {}
+	};
 
 	useEffect(() => {
 		if (responseData) {
@@ -119,7 +175,7 @@ export default function SignIn() {
 
 			{/* Лого только на мобиле (на десктопе оно в левой панели) */}
 			<NextLink href="/" className="lg:hidden flex justify-center">
-				<img src="/esai-logo.svg" alt="EsAI" className="h-8" />
+				<EsaiLogo className="h-8 w-auto" />
 			</NextLink>
 
 			<div className="text-center space-y-1">
@@ -129,8 +185,7 @@ export default function SignIn() {
 			{/* CTA клиента — заметный блок с золотым акцентом на «3 000 кредитов» */}
 			<div className="rounded-2xl border border-accent/40 bg-accent/[0.07] px-5 py-4 text-center">
 				<p className="text-base sm:text-lg font-semibold text-foreground leading-snug">
-					{t("auth.cta_part1", { defaultValue: "Войди в 1 клик и получи" })}{" "}
-					<span className="text-accent font-bold">{t("auth.cta_credits", { defaultValue: "3 000 кредитов" })}</span>.
+					{t("auth.cta_part1", { defaultValue: "🎁 Войдите в 1 клик и получите 5 кредитов в подарок." })}
 				</p>
 				<p className="text-sm text-muted mt-1">
 					{t("auth.cta_part2", { defaultValue: "Без карты. Без подписок." })}
@@ -153,12 +208,30 @@ export default function SignIn() {
 				className="w-full flex flex-col gap-4"
 			>
 				{step === "request" && (
-					<div className="w-full flex flex-col gap-1.5">
-						<label htmlFor="email" className="text-sm text-muted">
-							{t("auth.email")} <span className="text-accent">*</span>
-						</label>
-						<Field className={INPUT_CLASS} type="email" name="email" placeholder={t("auth.enter_email")} id="email" />
-					</div>
+					<>
+						<div className="w-full flex flex-col gap-1.5">
+							<label htmlFor="email" className="text-sm text-muted">
+								{t("auth.email")} <span className="text-accent">*</span>
+							</label>
+							<Field className={INPUT_CLASS} type="email" name="email" placeholder={t("auth.enter_email")} id="email" />
+						</div>
+						{/* Необязательный промокод. Значение хранится вне SmartForm (в cookie),
+						    поэтому name не задаём — чтобы не попасть в payload входа. */}
+						<div className="w-full flex flex-col gap-1.5">
+							<label htmlFor="promo" className="text-sm text-muted">
+								{t("auth.promo_label", { defaultValue: "Промокод (необязательно)" })}
+							</label>
+							<input
+								id="promo"
+								type="text"
+								className={`${INPUT_CLASS} uppercase`}
+								value={promo}
+								onChange={(e) => onPromoChange(e.target.value)}
+								placeholder={t("auth.promo_ph", { defaultValue: "Введите промокод" })}
+								autoComplete="off"
+							/>
+						</div>
+					</>
 				)}
 				{step === "verify" && (
 					<div className="w-full flex flex-col gap-1.5">

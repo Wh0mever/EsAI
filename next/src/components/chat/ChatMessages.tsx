@@ -1,11 +1,14 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { FiDownload, FiLoader } from "react-icons/fi";
 import { useTranslation } from "react-i18next";
 import Markdown from "./Markdown";
 import MessageActions from "./MessageActions";
 import NextLink from "@/components/ui/nextLink/NextLink";
 import { BACKEND } from "@/tools/fetchData";
+import { saveMedia, prefetchMedia } from "@/tools/saveMedia";
 import type { Message, ChatSource } from "@/types/chat";
 
 function toAbsUrl(raw?: string): string {
@@ -45,32 +48,193 @@ function useTyping(text: string, enabled: boolean, onTick: () => void) {
   return { shown: text.slice(0, count), done: doneRef.current || count >= text.length };
 }
 
+// Индикатор «Думаю…» (как у конкурентов): иконка-мозг + мерцающий текст, висит
+// до прихода ответа и исчезает, как только пошёл стрим. Реального reasoning у
+// большинства моделей нет — это UI-плейсхолдер ожидания.
 function ThinkingDots() {
   const { t } = useTranslation("common");
-  const [n, setN] = useState(0);
-  useEffect(() => {
-    const id = window.setInterval(() => setN((v) => (v + 1) % 4), 400);
-    return () => window.clearInterval(id);
-  }, []);
   return (
-    <span className="text-muted" aria-live="polite">
-      {t("chat.thinking", { defaultValue: "Думаю" })}
-      {".".repeat(n)}
+    <span className="inline-flex items-center gap-2 text-sm text-muted" aria-live="polite">
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="size-4 shrink-0 animate-pulse"
+        aria-hidden="true"
+      >
+        <path d="M12 18V5" />
+        <path d="M15 13a4.17 4.17 0 0 1-3-4 4.17 4.17 0 0 1-3 4" />
+        <path d="M17.598 6.5A3 3 0 1 0 12 5a3 3 0 1 0-5.598 1.5" />
+        <path d="M17.997 5.125a4 4 0 0 1 2.526 5.77" />
+        <path d="M18 18a4 4 0 0 0 2-7.464" />
+        <path d="M19.967 17.483A4 4 0 1 1 12 18a4 4 0 1 1-7.967-.517" />
+        <path d="M6 18a4 4 0 0 1-2-7.464" />
+        <path d="M6.003 5.125a4 4 0 0 0-2.526 5.77" />
+      </svg>
+      <span className="esai-shimmer">{t("chat.thinking", { defaultValue: "Думаю…" })}</span>
     </span>
   );
 }
 
+/**
+ * SaveMediaButton — кнопка «Скачать» с мгновенной реакцией и защитой от дабл-тапа.
+ * Пока saveMedia качает файл (видео — секунды), кнопка ЗАБЛОКИРОВАНА и показывает
+ * спиннер: иначе пользователь тыкал ещё раз-другой, думая что «не жмётся», и потом
+ * шитшет «Куда сохранить» выскакивал несколько раз подряд (жалоба клиента).
+ */
+function SaveMediaButton({
+  url,
+  filename,
+  className,
+  iconClassName,
+  label,
+  children,
+}: {
+  url: string;
+  filename: string;
+  className?: string;
+  iconClassName?: string;
+  label?: string;
+  children?: React.ReactNode;
+}) {
+  const [saving, setSaving] = useState(false);
+  return (
+    <button
+      type="button"
+      disabled={saving}
+      aria-busy={saving}
+      aria-label={label}
+      title={label}
+      // Предзагрузка на нажатие пальцем/мышью — к моменту click файл уже готов,
+      // и на iOS navigator.share() успевает в окно «user activation» (иначе на
+      // тяжёлом видео шитшет отклонялся и открывался битый предпросмотр).
+      onPointerDown={() => prefetchMedia(url)}
+      onClick={(e) => {
+        e.stopPropagation();
+        if (saving) return;
+        setSaving(true);
+        // finally в saveMedia + локальный флаг снимают состояние по завершении
+        // (в т.ч. когда пользователь закрыл нативный шитшет).
+        void saveMedia(url, filename).finally(() => setSaving(false));
+      }}
+      className={`${className || ""} disabled:opacity-70 disabled:cursor-wait`}
+    >
+      {saving ? (
+        <FiLoader className={`${iconClassName || ""} animate-spin`} />
+      ) : (
+        <FiDownload className={iconClassName} />
+      )}
+      {children}
+    </button>
+  );
+}
+
+/**
+ * ImageLightbox — просмотр картинки ПОВЕРХ чата (портал в body, z выше сайдбара).
+ * Раньше картинка была голой ссылкой <a target="_blank">: в установленном PWA
+ * (standalone, без адресной строки и «назад») она открывалась внутри приложения
+ * без пути обратно — приходилось перезапускать приложение (жалоба клиента).
+ * Закрытие: ✕, тап по фону, Escape.
+ */
+function ImageLightbox({ url, alt, onClose }: { url: string; alt: string; onClose: () => void }) {
+  const { t } = useTranslation("common");
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    document.addEventListener("keydown", onKey);
+    document.body.classList.add("overflow-hidden");
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.classList.remove("overflow-hidden");
+    };
+  }, [onClose]);
+  if (typeof document === "undefined") return null;
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[1200] bg-black/90 flex items-center justify-center p-4"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label={alt}
+    >
+      {/* Скачать картинку (просьба клиента). В установленном PWA (iOS) <a download>
+          игнорируется — используем saveMedia (Web Share → нативный шитшет). */}
+      <SaveMediaButton
+        url={url}
+        filename={
+          (alt || "esai-image").replace(/[^\w.\-]+/g, "_") +
+          (url.match(/\.(png|jpe?g|webp)(\?|$)/i) ? "" : ".png")
+        }
+        label={t("chat.actions.download_image", { defaultValue: "Скачать изображение" })}
+        iconClassName="text-xl"
+        className="absolute top-4 right-[4.5rem] z-10 w-11 h-11 rounded-full bg-white/10 hover:bg-white/20 text-white grid place-items-center cursor-pointer"
+      />
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label={t("common.close", { defaultValue: "Закрыть" })}
+        className="absolute top-4 right-4 z-10 w-11 h-11 rounded-full bg-white/10 hover:bg-white/20 text-white text-2xl leading-none grid place-items-center cursor-pointer"
+      >
+        ×
+      </button>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={url}
+        alt={alt}
+        className="max-w-[92vw] max-h-[88vh] object-contain rounded-lg select-none"
+        onClick={(e) => e.stopPropagation()}
+      />
+    </div>,
+    document.body
+  );
+}
+
 function Attachments({ atts }: { atts?: any[] }) {
+  const { t } = useTranslation("common");
+  const [viewer, setViewer] = useState<{ url: string; alt: string } | null>(null);
   if (!Array.isArray(atts) || atts.length === 0) return null;
   return (
     <div className="mt-1 flex flex-wrap gap-2">
       {atts.map((a, i) => {
         const isImg = (a?.type || "").toLowerCase() === "image";
+        const isVideo = (a?.type || "").toLowerCase() === "video";
         const url = toAbsUrl(a?.url || a?.preview || "");
+        if (isVideo) {
+          // Сгенерированное видео (video-gen модели): плеер + ссылка «Скачать».
+          return (
+            <div key={i} className="flex flex-col gap-1">
+              <video
+                controls
+                playsInline
+                preload="metadata"
+                src={url}
+                className="w-64 sm:w-80 rounded-xl border border-border"
+              />
+              <SaveMediaButton
+                url={url}
+                filename={a?.name || "esai-video.mp4"}
+                label={t("chat.actions.download_video", { defaultValue: "Скачать видео" })}
+                iconClassName="text-[13px]"
+                className="inline-flex items-center gap-1 text-xs text-muted-2 hover:text-foreground transition-colors self-start"
+              >
+                Скачать видео
+              </SaveMediaButton>
+            </div>
+          );
+        }
         return isImg ? (
-          <a key={i} href={url} target="_blank" rel="noreferrer">
+          <button
+            key={i}
+            type="button"
+            onClick={() => setViewer({ url, alt: a?.name || "attachment" })}
+            className="cursor-zoom-in"
+            aria-label={a?.name || t("chat.open_image", { defaultValue: "Открыть изображение" })}
+          >
             <img src={url} alt={a?.name || "attachment"} className="w-24 h-24 object-cover rounded-lg border border-border" />
-          </a>
+          </button>
         ) : (
           <a
             key={i}
@@ -83,6 +247,9 @@ function Attachments({ atts }: { atts?: any[] }) {
           </a>
         );
       })}
+      {viewer && (
+        <ImageLightbox url={viewer.url} alt={viewer.alt} onClose={() => setViewer(null)} />
+      )}
     </div>
   );
 }
@@ -126,6 +293,53 @@ function Sources({ sources }: { sources?: ChatSource[] }) {
   );
 }
 
+// Раскрываемая «Цепочка размышлений» reasoning-моделей (DeepSeek R1 и т.п.).
+// thinking=true — модель ещё «думает» (reasoning стримится, ответа нет):
+// показываем мерцающее «Думаю…». Когда пошёл ответ — заголовок сворачивается
+// в «Цепочка размышлений» (по клику раскрывается полный ход мыслей).
+function ReasoningBlock({ text, thinking }: { text: string; thinking: boolean }) {
+  const { t } = useTranslation("common");
+  const [open, setOpen] = useState(false);
+  if (!text && !thinking) return null;
+  return (
+    <div className="not-prose w-full mb-2">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center gap-2 text-sm text-muted hover:text-foreground transition-colors"
+      >
+        <svg
+          xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"
+          className={`size-4 shrink-0 ${thinking ? "animate-pulse" : ""}`} aria-hidden="true"
+        >
+          <path d="M12 18V5" /><path d="M15 13a4.17 4.17 0 0 1-3-4 4.17 4.17 0 0 1-3 4" />
+          <path d="M17.598 6.5A3 3 0 1 0 12 5a3 3 0 1 0-5.598 1.5" /><path d="M17.997 5.125a4 4 0 0 1 2.526 5.77" />
+          <path d="M18 18a4 4 0 0 0 2-7.464" /><path d="M19.967 17.483A4 4 0 1 1 12 18a4 4 0 1 1-7.967-.517" />
+          <path d="M6 18a4 4 0 0 1-2-7.464" /><path d="M6.003 5.125a4 4 0 0 0-2.526 5.77" />
+        </svg>
+        <span className={`min-w-0 truncate text-left ${thinking ? "esai-shimmer" : ""}`}>
+          {thinking ? t("chat.thinking", { defaultValue: "Думаю…" }) : t("chat.reasoning", { defaultValue: "Цепочка размышлений" })}
+        </span>
+        {text && (
+          <svg
+            xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            strokeWidth={2} strokeLinecap="round" strokeLinejoin="round"
+            className={`size-4 shrink-0 transition-transform ${open ? "rotate-180" : ""}`} aria-hidden="true"
+          >
+            <path d="m6 9 6 6 6-6" />
+          </svg>
+        )}
+      </button>
+      {open && text && (
+        <div className="mt-2 rounded-lg border border-border bg-surface-2/50 p-3 text-xs text-muted whitespace-pre-wrap leading-relaxed max-h-72 overflow-y-auto">
+          {text}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function AssistantBubble({
   msg,
   animate,
@@ -153,6 +367,16 @@ function AssistantBubble({
   const link = ((msg as any)?.link || "").toString().trim();
   const linkLabel = ((msg as any)?.linkLabel || "").toString().trim();
   const sources = (msg as any)?.sources as ChatSource[] | undefined;
+  const reasoning = (((msg.meta as any)?.reasoning) as string) || "";
+  // «думает» = reasoning стримится, а ответа ещё нет.
+  const thinking = streaming && !!reasoning && !content.trim();
+  // Готовится картинка (image-gen): серый пульсирующий плейсхолдер как в ChatGPT,
+  // исчезает когда done приносит attachments (или стрим завершился).
+  const hasAtts = Array.isArray((msg as any)?.attachments) && (msg as any).attachments.length > 0;
+  const imagePending = (msg as any)?.imagePending === true && streaming && !hasAtts;
+  // Готовится видео (video-gen): пульсирующий 16:9-плейсхолдер с подписью,
+  // исчезает когда done приносит attachments (или стрим завершился).
+  const videoPending = (msg as any)?.videoPending === true && streaming && !hasAtts;
 
   // Keep the view pinned to the bottom as streamed text grows.
   useEffect(() => {
@@ -175,12 +399,50 @@ function AssistantBubble({
       <div className={`px-4 py-3 rounded-2xl rounded-tl-md text-foreground ${tone}`}>
         {isError || isWarning ? (
           <span className="whitespace-pre-wrap">{content}</span>
-        ) : streaming && !text ? (
-          <ThinkingDots />
         ) : (
-          <span className={showCaret ? "esai-caret" : ""}>
-            <Markdown content={text} />
-          </span>
+          <>
+            {(reasoning || thinking) && <ReasoningBlock text={reasoning} thinking={thinking} />}
+            {streaming && !text && !reasoning && !imagePending && !videoPending ? (
+              <ThinkingDots />
+            ) : text ? (
+              <span className={showCaret ? "esai-caret" : ""}>
+                <Markdown content={text} />
+              </span>
+            ) : null}
+            {imagePending && (
+              <div
+                className="mt-2 w-56 h-56 sm:w-64 sm:h-64 rounded-xl bg-surface-3 border border-border animate-pulse grid place-items-center"
+                aria-label={t("chat.image_generating", { defaultValue: "Изображение создаётся" })}
+              >
+                <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                     strokeWidth="1.5" className="text-muted-2 opacity-70" aria-hidden>
+                  <rect x="3" y="3" width="18" height="18" rx="3" />
+                  <circle cx="9" cy="9" r="2" />
+                  <path d="m21 15-3.5-3.5L9 20" />
+                </svg>
+              </div>
+            )}
+            {videoPending && (
+              <div
+                className="mt-2 w-64 sm:w-80 aspect-video rounded-xl bg-surface-3 border border-border animate-pulse flex flex-col items-center justify-center gap-2"
+                aria-label={t("chat.video_generating_short", { defaultValue: "Видео создаётся" })}
+              >
+                {/* иконка-плёнка (film) — по образцу image-скелетона */}
+                <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                     strokeWidth="1.5" className="text-muted-2 opacity-70" aria-hidden>
+                  <rect x="3" y="3" width="18" height="18" rx="3" />
+                  <path d="M7 3v18" />
+                  <path d="M17 3v18" />
+                  <path d="M3 8h4" />
+                  <path d="M3 16h4" />
+                  <path d="M17 8h4" />
+                  <path d="M17 16h4" />
+                  <path d="M3 12h18" />
+                </svg>
+                <span className="text-xs text-muted-2">{t("chat.video_generating", { defaultValue: "Видео создаётся… обычно 1–2 минуты" })}</span>
+              </div>
+            )}
+          </>
         )}
         {link && (
           <div className="mt-2">
@@ -190,9 +452,27 @@ function AssistantBubble({
           </div>
         )}
         {!isError && !isWarning && <Sources sources={sources} />}
+        {/* Сгенерированные изображения (image-gen модели) — кликабельны в лайтбокс. */}
+        {!isError && !isWarning && <Attachments atts={(msg as any)?.attachments} />}
       </div>
       {!isError && !isWarning && finished && content && (
-        <MessageActions content={content} onRetry={onRetry} onContinue={onContinue} onFeedback={onFeedback} />
+        <div className="flex items-center gap-3 flex-wrap">
+          <MessageActions content={content} onRetry={onRetry} onContinue={onContinue} onFeedback={onFeedback} />
+          {typeof (msg.meta as any)?.tokens_charged === "number" && (msg.meta as any).tokens_charged > 0 && (() => {
+            // Под ⚡ — СПИСАННЫЕ КРЕДИТЫ (= токены × тариф модели ÷ 1000), не токены.
+            const n = (msg.meta as any).tokens_charged as number;
+            const word = t("chat.credits_unit", { count: n, defaultValue: "кредитов" });
+            return (
+              <span
+                className="inline-flex items-center gap-1 text-xs text-muted-2 tabular-nums select-none"
+                title={t("chat.credits_charged_title", { defaultValue: "Списано кредитов за этот ответ (токены × тариф модели ÷ 1000)" })}
+              >
+                <span className="text-accent">⚡</span>
+                {n.toLocaleString()} {word}
+              </span>
+            );
+          })()}
+        </div>
       )}
     </div>
   );

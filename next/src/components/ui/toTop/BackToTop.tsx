@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef, useState, useCallback } from "react";
+import { useTranslation } from "react-i18next";
 
 type Props = {
   threshold?: number; // px before showing the button
@@ -8,6 +9,7 @@ type Props = {
 };
 
 export default function BackToTopButton({ threshold = 100, className = "" }: Props) {
+  const { t } = useTranslation("common");
   const [visible, setVisible] = useState(false);
   const tickingRef = useRef(false);
 
@@ -52,16 +54,16 @@ export default function BackToTopButton({ threshold = 100, className = "" }: Pro
     <button
       type="button"
       onClick={scrollToTop}
-      aria-label="Back to top"
-      title="Back to top"
+      aria-label={t("common.back_to_top", { defaultValue: "Back to top" })}
+      title={t("common.back_to_top", { defaultValue: "Back to top" })}
       className={[
         "fixed right-4 bottom-6 md:right-6 md:bottom-6 z-[1000] cursor-pointer",
-        "h-12 w-12 rounded-full border border-neutral-700",
-        "bg-neutral-900/80 backdrop-blur shadow-lg",
+        "h-12 w-12 rounded-full border border-border",
+        "bg-surface-2/80 backdrop-blur shadow-lg",
         "transition-all duration-300",
         visible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4 pointer-events-none",
-        "hover:bg-neutral-900 active:scale-95 focus:outline-none focus:ring-2 focus:ring-yellow-400/60",
-        "text-white",
+        "hover:bg-surface-3 active:scale-95 focus:outline-none focus:ring-2 focus:ring-yellow-400/60",
+        "text-foreground",
         className,
       ].join(" ")}
       onKeyDown={(e) => {

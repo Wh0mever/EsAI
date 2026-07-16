@@ -1,49 +1,107 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import Cookies from "js-cookie";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useTranslation } from "react-i18next";
 
+/**
+ * AuthCallback — принимает JWT из соц-входа (query `?access&refresh&user`),
+ * кладёт их в cookie и уводит в приложение.
+ *
+ * Устойчивость к мобильным in-app браузерам (Telegram/Instagram), где раньше
+ * висело «Processing authentication…»:
+ *  - токены читаем НАПРЯМУЮ из window.location (query И fragment), без
+ *    useSearchParams (он требует Suspense и капризничает в WebView);
+ *  - cookie secure только на https; sameSite=lax (переживает OAuth-возврат);
+ *  - pageshow(persisted) — если вкладку вернули из bfcache, форсируем уход;
+ *  - жёсткий таймаут-фолбэк + ручная кнопка «Продолжить», чтобы НИКОГДА не
+ *    зависнуть.
+ */
 export default function AuthCallback() {
-  const router = useRouter();
-  const params = useSearchParams();
+  const { t } = useTranslation("common");
+  const [stuck, setStuck] = useState(false);
 
   useEffect(() => {
-    const access = params.get("access");
-    const refresh = params.get("refresh");
-    const user = params.get("user");
-    const nextUrlRaw = params.get("next");
-    // Only allow internal redirects
-    const nextUrl = (() => {
-      if (!nextUrlRaw) return "/dashboard/text-chat";
-      try {
-        const decoded = decodeURIComponent(nextUrlRaw);
-        if (decoded.startsWith("/") && !decoded.startsWith("//")) return decoded;
-      } catch {}
-      return "/dashboard/text-chat";
-    })();
+    let navigated = false;
+    const go = (url: string) => {
+      if (navigated) return;
+      navigated = true;
+      try { window.location.replace(url); } catch { window.location.href = url; }
+    };
 
-    if (access && refresh) {
-      // Clear old values
-      Cookies.remove("access");
-      Cookies.remove("refresh");
-      Cookies.remove("user");
-      Cookies.remove("sessionid");
+    try {
+      const qs = new URLSearchParams(window.location.search || "");
+      const hs = new URLSearchParams((window.location.hash || "").replace(/^#/, ""));
+      const get = (k: string) => qs.get(k) || hs.get(k);
 
-      Cookies.set("access", access, { expires: 7 });
-      Cookies.set("refresh", refresh, { expires: 15 });
-      if (user) {
-        Cookies.set("user", user);
+      const access = get("access");
+      const refresh = get("refresh");
+      const user = get("user");
+
+      let nextUrl = "/dashboard/text-chat";
+      const nextRaw = get("next");
+      if (nextRaw) {
+        try {
+          const d = decodeURIComponent(nextRaw);
+          if (d.startsWith("/") && !d.startsWith("//")) nextUrl = d;
+        } catch {}
       }
-      router.replace(nextUrl);
-    } else {
-      router.replace("/auth/signin");
+
+      const secure = window.location.protocol === "https:";
+
+      if (access && refresh) {
+        Cookies.remove("access");
+        Cookies.remove("refresh");
+        Cookies.remove("user");
+        Cookies.remove("sessionid");
+        Cookies.set("access", access, { expires: 0.5, secure, sameSite: "lax" });
+        Cookies.set("refresh", refresh, { expires: 15, secure, sameSite: "lax" });
+        if (user) Cookies.set("user", user, { secure, sameSite: "lax" });
+        // Новый соц-пользователь (бэк прислал welcome=1) → приветственное окно
+        // + конверсия «Регистрация» в Google Ads (только для нового аккаунта).
+        try {
+          if (get("welcome")) {
+            localStorage.setItem("esai-show-welcome", "1");
+            // Событие уходит через sendBeacon и переживёт последующий переход.
+            try { (window as any).gtag_report_conversion?.(); } catch {}
+          }
+        } catch {}
+        go(nextUrl);
+      } else {
+        // Нет токенов (например, устаревшая вкладка после выхода) → на вход.
+        go("/auth/signin");
+      }
+    } catch {
+      go("/");
     }
-  }, [params, router]);
+
+    // Вкладка вернулась из bfcache (частый кейс in-app браузеров) → уводим.
+    const onShow = (e: PageTransitionEvent) => {
+      if (e.persisted) {
+        try { window.location.replace("/"); } catch {}
+      }
+    };
+    window.addEventListener("pageshow", onShow);
+
+    // Страховки от зависания: показать кнопку через 2.5с, форс-уход через 6с.
+    const t1 = window.setTimeout(() => setStuck(true), 2500);
+    const t2 = window.setTimeout(() => { try { window.location.replace("/"); } catch {} }, 6000);
+
+    return () => {
+      window.removeEventListener("pageshow", onShow);
+      clearTimeout(t1);
+      clearTimeout(t2);
+    };
+  }, []);
 
   return (
-    <div className="w-full h-full flex items-center justify-center">
-      <span>Processing authentication…</span>
+    <div className="w-full min-h-[60vh] flex flex-col items-center justify-center gap-4 p-6 text-center">
+      <span className="text-muted">{t("common.processing", { defaultValue: "Обработка..." })}</span>
+      {stuck && (
+        <a href="/" className="text-accent-strong underline underline-offset-2">
+          {t("common.continue", { defaultValue: "Продолжить" })}
+        </a>
+      )}
     </div>
   );
 }

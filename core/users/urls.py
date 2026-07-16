@@ -8,6 +8,32 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from .views import *
 
 
+def _allowed_frontend_hosts() -> set:
+    """Allowlist разрешённых хостов для редиректа с JWT.
+
+    Собираем из доверенных настроек (SITE_BASE_URL, CSRF_TRUSTED_ORIGINS,
+    ALLOWED_HOSTS). Хост из запроса (в т.ч. x-forwarded-host) принимается
+    ТОЛЬКО если он есть в этом списке — иначе защита от host-poisoning.
+    """
+    from urllib.parse import urlsplit
+
+    hosts = set()
+    configured = (getattr(settings, "SITE_BASE_URL", "") or "").strip().rstrip("/")
+    if configured:
+        netloc = urlsplit(configured).netloc
+        if netloc:
+            hosts.add(netloc.lower())
+    for origin in (getattr(settings, "CSRF_TRUSTED_ORIGINS", []) or []):
+        netloc = urlsplit(origin).netloc
+        if netloc:
+            hosts.add(netloc.lower())
+    for h in (getattr(settings, "ALLOWED_HOSTS", []) or []):
+        h = (h or "").strip().lower().lstrip("*.")
+        if h and h != "*":
+            hosts.add(h)
+    return hosts
+
+
 def _frontend_base_from_request(request) -> str:
     configured = (getattr(settings, "SITE_BASE_URL", "") or "").strip().rstrip("/")
     raw_host = (
@@ -18,7 +44,9 @@ def _frontend_base_from_request(request) -> str:
     host = (raw_host or "").split(",")[0].strip()
     proto_raw = request.headers.get("x-forwarded-proto") or ""
     proto = (proto_raw.split(",")[0].strip().lower() or ("https" if request.is_secure() else "http"))
-    if host:
+    # Защита от host-poisoning: доверяем присланному хосту ТОЛЬКО если он
+    # в allowlist. Иначе JWT-редирект мог бы уйти на домен атакующего (ATO).
+    if host and host.split(":")[0].lower() in _allowed_frontend_hosts():
         return f"{proto}://{host}"
     return configured or "http://127.0.0.1:3000"
 
@@ -48,11 +76,23 @@ def auth_complete(request):
         "tel": request.user.tel,
     }
 
-    query = urlencode({
+    params = {
         "access": access,
         "refresh": refresh_str,
         "user": json.dumps(user_payload),
-    })
+    }
+    # Новый соц-пользователь (save_user поставил флаг) → показать приветственное
+    # окно на фронте. Флаг одноразовый: читаем и сразу удаляем.
+    try:
+        from django.core.cache import cache
+        wk = f"welcome_show:{request.user.pk}"
+        if cache.get(wk):
+            params["welcome"] = "1"
+            cache.delete(wk)
+    except Exception:
+        pass
+
+    query = urlencode(params)
 
     return HttpResponseRedirect(f"{site_base}/auth/callback?{query}")
 
@@ -76,6 +116,19 @@ urlpatterns = [
     path('currency/', CurrencyPreferenceView.as_view(), name='currency-preference'),
     path("notifications/", NotificationListView.as_view()),
     path("notifications/<int:pk>/read/", NotificationMarkReadView.as_view()),
+    # Память пользователя (как у ChatGPT/Anthropic)
+    path("memory/", UserMemoryListView.as_view(), name="memory-list"),
+    path("memory/clear/", UserMemoryClearView.as_view(), name="memory-clear"),
+    path("memory/toggle/", UserMemoryToggleView.as_view(), name="memory-toggle"),
+    path("memory/<int:pk>/", UserMemoryDeleteView.as_view(), name="memory-delete"),
+    # Web Push (Push API / VAPID)
+    path("push/subscribe/", WebPushSubscribeView.as_view(), name="push-subscribe"),
+    path("push/vapid/", WebPushVapidKeyView.as_view(), name="push-vapid"),
+    # Реферальная программа / переводы кредитов / промокоды
+    path("referral/stats/", ReferralStatsView.as_view(), name="referral-stats"),
+    path("transfer/", TransferView.as_view(), name="credit-transfer"),
+    path("transfers/", TransferHistoryView.as_view(), name="credit-transfers"),
+    path("promo/activate/", PromoActivateView.as_view(), name="promo-activate"),
     path("accounts/", include("allauth.urls")),
     path("auth/complete/", auth_complete, name="auth-complete"),
 ]

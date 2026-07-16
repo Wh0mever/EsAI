@@ -8,6 +8,9 @@ import { SEO_FUNCTIONS, getFunction, getRelatedFunctions } from "@/lib/seo/funct
 
 type Params = { slug: string };
 
+// Только слаги из SEO_FUNCTIONS валидны; любой другой → настоящий 404 (SEO).
+export const dynamicParams = false;
+
 export function generateStaticParams() {
   return SEO_FUNCTIONS.map((f) => ({ slug: f.slug }));
 }

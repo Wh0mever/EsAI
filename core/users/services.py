@@ -27,92 +27,158 @@ FREE_TRIGGER_LAST_DAY = "Сегодня последний день беспла
 
 def activate_free_plan_for_user(user: User) -> Tuple[bool, str]:
     """
-    Attempt to auto-activate a free plan for the given user if:
-    - user has at least one saved card
-    - user has no active subscription yet
-    - free plan exists and user has not activated it previously
+    Легаси-подписки Vokalo сняты: больше НЕ создаём UserSubscription.
+
+    Безопасный no-op. Возвращаем кортеж (False, "subscriptions_deprecated"),
+    чтобы пережили все каллеры — включая тот, что распаковывает результат
+    (`activated, _ = activate_free_plan_for_user(...)`): он просто не активирует
+    подписку. Бизнес-доступ теперь даёт pay-as-you-go токен-система.
     """
-    if user is None:
-        return False, "no_user"
+    return False, "subscriptions_deprecated"
 
-    user_pk = getattr(user, "pk", None)
-    if not user_pk:
-        return False, "no_user"
 
-    if getattr(user, "free_plan_activated", False):
-        return False, "flag_set"
+def maybe_link_referrer(request, new_user) -> None:
+    """Привязать реферера к новому пользователю при регистрации по реф-ссылке.
 
-    # Hard guard: if free plan has ever been activated earlier, never activate again.
-    had_free_before = UserSubscription.objects.filter(user_id=user_pk, plan__is_free=True).exists()
-    if had_free_before:
-        return False, "already_activated_before"
+    Реф-код берём из cookie `esai_ref` (его ставит фронт при переходе по
+    реф-ссылке) — так атрибуция переживает и email-OTP, и соц-вход (cookie уходит
+    на тот же origin /api).
 
-    if not UserCardBind.objects.filter(user_id=user_pk).exists():
-        return False, "no_card"
+    РЕШЕНИЕ КЛИЕНТА: разовый бонус за регистрацию УБРАН. Вместо этого просто
+    фиксируем реферера в new_user.referred_by. Начисление 10% происходит позже —
+    при КАЖДОМ пополнении приглашённого (пожизненно), см. payments/tasks.py.
 
-    plan = (
-        Plan.objects.filter(is_active=True, is_free=True)
-        .order_by("sort_order", "id")
-        .first()
-    )
-    if not plan:
-        return False, "no_free_plan"
+    Идемпотентно: привязываем ТОЛЬКО если referred_by ещё пуст. Защита от
+    самонакрутки (referrer != new_user). Кредиты здесь НЕ начисляются.
+    """
+    try:
+        if not new_user or not getattr(new_user, "pk", None):
+            return
+        # Идемпотентность: реферер ставится один раз и не переписывается.
+        if getattr(new_user, "referred_by_id", None):
+            return
+        try:
+            code = (request.COOKIES.get("esai_ref") or "").strip()
+        except Exception:
+            code = ""
+        if not code:
+            return
+        referrer = User.objects.filter(referral_uid__iexact=code).first()
+        if not referrer and code.isdigit():
+            referrer = User.objects.filter(pk=int(code)).first()
+        if not referrer or referrer.pk == new_user.pk:
+            return
+        new_user.referred_by = referrer
+        new_user.save(update_fields=["referred_by"])
+        logger.info("referrer linked: user %s referred_by %s (code=%s)",
+                    new_user.pk, referrer.pk, code)
+    except Exception:
+        logger.exception("maybe_link_referrer failed")
 
-    activated_sub_id = None
-    with transaction.atomic():
-        locked_user = User.objects.select_for_update().get(pk=user_pk)
-        if locked_user.free_plan_activated:
-            return False, "flag_set"
 
-        had_free_before_locked = UserSubscription.objects.select_for_update().filter(
-            user=locked_user,
-            plan__is_free=True,
-        ).exists()
-        if had_free_before_locked:
-            if not locked_user.free_plan_activated:
-                locked_user.free_plan_activated = True
-                locked_user.save(update_fields=["free_plan_activated"])
-            return False, "already_activated_before"
+# Обратная совместимость: старое имя вызывается из views.py и adapters.py.
+# Оставляем алиас, чтобы не трогать чужие вызовы (сигнатура идентична).
+maybe_grant_referral_bonus = maybe_link_referrer
 
-        existing = (
-            UserSubscription.objects.select_for_update()
-            .filter(user=locked_user, status=SubscriptionStatus.ACTIVE)
-            .order_by("-start_date")
-            .first()
-        )
-        if existing:
-            return False, "has_active_subscription"
 
-        now = timezone.now()
-        sub = UserSubscription.objects.create(
-            user=locked_user,
-            plan=plan,
-            start_date=now,
-            end_date=now + timedelta(days=plan_cycle_days(plan.period)),
-            status=SubscriptionStatus.ACTIVE,
-            payment_status=PaymentStatus.UNPAID,
-            payment_date=None,
-        )
-        GenerationUsage.objects.get_or_create(
-            subscription=sub,
-            defaults={
-                "songs_left": int(plan.song_limit or 0),
-                "music_left": int(plan.music_limit or 0),
-                "texts_left": int(plan.text_limit or 0),
-                "images_left": int(plan.image_limit or 0),
-            },
-        )
-        locked_user.free_plan_activated = True
-        locked_user.save(update_fields=["free_plan_activated"])
-        activated_sub_id = sub.id
+def activate_promo(user, code: str) -> Tuple[bool, str, int]:
+    """Активировать промокод для пользователя. Возвращает (ok, msg, credited).
 
-    logger.info(
-        "free_plan_auto_activated user=%s plan=%s subscription=%s",
-        user_pk,
-        plan.id if plan else None,
-        activated_sub_id,
-    )
-    return True, "activated"
+    Промокод даёт ФИКСИРОВАННОЕ число кредитов (без процентов). Все проверки и
+    начисление выполняются атомарно под select_for_update по строке PromoCode,
+    чтобы параллельные активации (двойной клик/гонка) не пробили лимиты.
+
+    Проверки: код существует и активен; не истёк (expires_at); не исчерпан
+    (used_count < max_activations, если задан); per_user_once → нет прошлой
+    активации этим юзером; new_users_only → пользователь ещё не платил (is_paid).
+    """
+    from django.db import transaction as _tx
+    from plans.models import PromoCode, PromoActivation
+    from plans.wallet import credit_tokens
+
+    if not user or not getattr(user, "pk", None):
+        return False, "Требуется авторизация", 0
+
+    norm = (code or "").strip().upper()
+    if not norm:
+        return False, "Введите промокод", 0
+
+    try:
+        with _tx.atomic():
+            promo = (
+                PromoCode.objects
+                .select_for_update()
+                .filter(code=norm, is_active=True)
+                .first()
+            )
+            if not promo:
+                return False, "Промокод не найден или неактивен", 0
+
+            if promo.expires_at and promo.expires_at <= timezone.now():
+                return False, "Срок действия промокода истёк", 0
+
+            if promo.max_activations is not None and promo.used_count >= promo.max_activations:
+                return False, "Лимит активаций промокода исчерпан", 0
+
+            if promo.new_users_only and getattr(user, "is_paid", False):
+                return False, "Промокод доступен только новым пользователям", 0
+
+            if promo.per_user_once and PromoActivation.objects.filter(promo=promo, user=user).exists():
+                return False, "Вы уже активировали этот промокод", 0
+
+            # Двойная страховка от гонки: unique(promo,user) в PromoActivation.
+            # ВАЖНО: create заворачиваем в ВЛОЖЕННЫЙ atomic (savepoint). На
+            # PostgreSQL любой IntegrityError переводит транзакцию в состояние
+            # "needs rollback" — без savepoint внешний atomic на выходе упал бы
+            # TransactionManagementError вместо чистого возврата. Savepoint
+            # откатывает только неудачный INSERT, внешняя транзакция остаётся живой.
+            try:
+                with _tx.atomic():
+                    PromoActivation.objects.create(
+                        promo=promo, user=user, credited=promo.bonus_credits,
+                    )
+            except Exception:
+                # Уникальный конфликт (параллельная активация) — считаем уже активированным.
+                return False, "Вы уже активировали этот промокод", 0
+
+            promo.used_count = (promo.used_count or 0) + 1
+            promo.save(update_fields=["used_count"])
+
+            credited = int(promo.bonus_credits or 0)
+            new_balance = credit_tokens(user, credited, "promo", meta={"code": norm})
+
+        logger.info("promo %s activated by user %s (+%s credits)", norm, user.pk, credited)
+        return True, "Промокод активирован", credited
+    except Exception:
+        logger.exception("activate_promo failed for code=%s user=%s", norm, getattr(user, "pk", None))
+        return False, "Не удалось активировать промокод, попробуйте позже", 0
+
+
+def maybe_activate_promo_on_signup(request, new_user) -> None:
+    """Опционально активировать промокод при регистрации (тихо, ошибки глотаем).
+
+    Код берётся из cookie `esai_promo` или поля `promo`/`promo_code` в теле
+    запроса. Любые ошибки/провалы валидации не влияют на регистрацию.
+    """
+    try:
+        if not new_user or not getattr(new_user, "pk", None):
+            return
+        code = ""
+        try:
+            code = (request.COOKIES.get("esai_promo") or "").strip()
+        except Exception:
+            code = ""
+        if not code:
+            try:
+                data = getattr(request, "data", None) or {}
+                code = (data.get("promo") or data.get("promo_code") or "").strip()
+            except Exception:
+                code = ""
+        if not code:
+            return
+        activate_promo(new_user, code)
+    except Exception:
+        logger.exception("maybe_activate_promo_on_signup failed")
 
 
 def _notify_user_once(user: User, title: str) -> bool:

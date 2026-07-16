@@ -10,6 +10,7 @@ import DomainDefaults from "@/components/bootstrap/DomainDefaults";
 import { THEME_BOOTSTRAP } from "@/lib/theme";
 import { SITE_URL, SITE_NAME, OG_IMAGE } from "@/lib/seo/site";
 import { homeJsonLd } from "@/lib/seo/jsonLd";
+import { localeFromAcceptLanguage } from "@/lib/localeDetect";
 
 export const viewport: Viewport = {
 	width: "device-width",
@@ -17,7 +18,7 @@ export const viewport: Viewport = {
 	viewportFit: "cover",
 	themeColor: [
 		{ media: "(prefers-color-scheme: dark)", color: "#141414" },
-		{ media: "(prefers-color-scheme: light)", color: "#F5C518" },
+		{ media: "(prefers-color-scheme: light)", color: "#f7f7f5" },
 	],
 };
 
@@ -43,7 +44,6 @@ export const metadata: Metadata = {
 		"Claude",
 		"Gemini",
 		"Grok",
-		"Mistral",
 		"Perplexity",
 		"искусственный интеллект",
 		"нейросеть онлайн без VPN",
@@ -81,28 +81,16 @@ export const metadata: Metadata = {
 	},
 };
 
-function normalizeHost(input: string) {
-  const first = (input || "").split(",")[0].trim().toLowerCase();
-  return first.split(":")[0];
-}
-
-function localeByHost(host: string) {
-  const h = normalizeHost(host);
-  if (h.endsWith(".ru")) return "ru";
-  if (h.endsWith(".kg")) return "kg";
-  if (h.endsWith(".online") || h.endsWith(".com")) return "en";
-  return "kg"; // fallback — kg by default (ТЗ)
-}
-
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
 	const cookieStore = await cookies();
     const hdrs = await headers();
-    const host = normalizeHost(hdrs.get("x-forwarded-host") || hdrs.get("host") || "");
 
 	const manual = cookieStore.get("NEXT_LOCALE_MANUAL")?.value === "1";
 	const cookieLang = cookieStore.get("NEXT_LOCALE")?.value;
-	const computed = localeByHost(host);
-	const lang = manual && cookieLang ? cookieLang : (cookieLang && ["ru","en","kg"].includes(cookieLang) ? cookieLang : computed);
+	// Язык интерфейса: ручной выбор залипает навсегда; иначе — по языку браузера
+	// (Accept-Language: ky→kg, ru→ru, en→en, иначе русский). ТЗ клиента.
+	const browserLang = localeFromAcceptLanguage(hdrs.get("accept-language"));
+	const lang = (manual && cookieLang && ["ru", "en", "kg"].includes(cookieLang)) ? cookieLang : browserLang;
 
 	const fpPk = process.env.NEXT_PUBLIC_FREEDOM_PAY_PUBLIC_KEY || process.env.FREEDOM_PAY_PUBLIC_KEY || "";
 	// ВАЖНО: не впрыскиваем серверный секрет подписи в HTML. Только публичный SDK-токен (если задан).
@@ -110,17 +98,34 @@ export default async function RootLayout({ children }: { children: React.ReactNo
 	const fpMerchantId = process.env.NEXT_PUBLIC_FREEDOM_PAY_MERCHANT_ID || process.env.FREEDOM_PAY_MERCHANT_ID || "";
 
 	return (
-		<html lang={lang} className="dark" data-theme="dark" suppressHydrationWarning>
+		<html lang={lang === "kg" ? "ky" : lang} className="dark" data-theme="dark" suppressHydrationWarning>
 			<head>
 				<script dangerouslySetInnerHTML={{ __html: THEME_BOOTSTRAP }} />
 				<script
 					type="application/ld+json"
 					dangerouslySetInnerHTML={{ __html: JSON.stringify(homeJsonLd()) }}
 				/>
+				{/* Google tag (gtag.js) — отслеживание конверсий Google Ads
+				    (AW-18298490299, запрос клиента). На всех страницах через layout. */}
+				<script async src="https://www.googletagmanager.com/gtag/js?id=AW-18298490299" />
+				<script
+					dangerouslySetInnerHTML={{
+						__html:
+							"window.dataLayer=window.dataLayer||[];function gtag(){dataLayer.push(arguments);}gtag('js',new Date());gtag('config','AW-18298490299');",
+					}}
+				/>
+				{/* Event snippet «Регистрация»: функция вызывается в коде СТРОГО в
+				    момент успешной регистрации (signin() при is_new и соц-колбэк при
+				    welcome), а не по клику. Метка конверсии от клиента. */}
+				<script
+					dangerouslySetInnerHTML={{
+						__html:
+							"function gtag_report_conversion(url){var callback=function(){if(typeof(url)!='undefined'){window.location=url;}};gtag('event','conversion',{'send_to':'AW-18298490299/ZQw_CLDl98ocELubs5VE','event_callback':callback});return false;}",
+					}}
+				/>
 			</head>
 			<body>
 				<DomainDefaults />
-				<BackToTopButton />
 				<div id="alert-root"></div>
 				<script
 					id="fp-env"
@@ -129,6 +134,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
 					}}
 				/>
 				<I18nProvider lang={lang}>
+					<BackToTopButton />
 					{children}
 					<PwaManager />
 				</I18nProvider>

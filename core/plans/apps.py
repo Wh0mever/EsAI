@@ -17,19 +17,9 @@ class PlansConfig(AppConfig):
 
         def ensure_periodic_tasks(sender, **kwargs):
             try:
-                # Every 10 minutes: process due subscriptions
-                interval_10m, _ = IntervalSchedule.objects.get_or_create(
-                    every=10,
-                    period=IntervalSchedule.MINUTES,
-                )
-                PeriodicTask.objects.update_or_create(
-                    name="plans:process_due_subscriptions",
-                    defaults={
-                        "task": "plans.tasks.process_due_subscriptions",
-                        "interval": interval_10m,
-                        "enabled": True,
-                    },
-                )
+                # Легаси-подписки Vokalo сняты: задачу авто-списания
+                # plans:process_due_subscriptions больше не регистрируем,
+                # иначе DatabaseScheduler пересоздаст beat-строку.
 
                 # Hourly: refresh currency rates
                 interval_1h, _ = IntervalSchedule.objects.get_or_create(

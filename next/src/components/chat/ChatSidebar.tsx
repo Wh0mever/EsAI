@@ -15,15 +15,25 @@ import {
   FiMoon,
   FiMonitor,
   FiLogOut,
-  FiLogIn,
   FiTrash2,
+  FiGift,
   FiEdit2,
   FiCheck,
+  FiCpu,
+  FiBell,
+  FiSend,
+  FiTag,
+  FiFilm,
 } from "react-icons/fi";
+import Link from "next/link";
 import NextLink from "@/components/ui/nextLink/NextLink";
-import { ConfirmationModal } from "@/components/dialog/Dialog";
+import EsaiLogo from "@/components/brand/EsaiLogo";
+import { ConfirmationModal, Modal } from "@/components/dialog/Dialog";
+import MemoryModal from "@/components/chat/MemoryModal";
+import PromoActivate from "@/components/cabinet/PromoActivate";
 import { fetchData } from "@/tools/fetchData";
 import { useTheme } from "@/hooks/useTheme";
+import { pushSupported, pushPermission, enablePush } from "@/tools/webPush";
 
 export type ChatItem = { id: string; uid?: string; title: string; chat_mode?: string };
 
@@ -53,10 +63,66 @@ export default function ChatSidebar({
   const { t, i18n } = useTranslation("common");
   const router = useRouter();
   const { preference, setPreference } = useTheme();
-  const [logoutOpen, setLogoutOpen] = useState(false);
   const [clearOpen, setClearOpen] = useState(false);
   const [clearing, setClearing] = useState(false);
+  const [memoryOpen, setMemoryOpen] = useState(false);
+  const [promoOpen, setPromoOpen] = useState(false);
   const isAuthed = typeof window !== "undefined" ? Boolean(Cookies.get("access")) : false;
+
+  // Push-уведомления о бонусах. Показываем пункт только если браузер поддерживает
+  // Web Push. Разрешение запрашиваем СТРОГО из жеста (клик) — iOS иначе молча
+  // отклоняет. Локально держим статус, чтобы кнопка сразу поменяла текст.
+  const [pushCan, setPushCan] = useState(false);
+  const [pushState, setPushState] = useState<NotificationPermission | "unsupported">("default");
+  const [pushBusy, setPushBusy] = useState(false);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    setPushCan(pushSupported());
+    setPushState(pushPermission());
+  }, []);
+  const handleEnablePush = async () => {
+    if (pushBusy || pushState === "granted") return;
+    setPushBusy(true);
+    try {
+      const res = await enablePush();
+      // Синхронизируем видимый статус с фактическим разрешением браузера.
+      setPushState(pushPermission());
+      if (res === "denied") {
+        try {
+          alert(
+            t("push.denied", {
+              defaultValue:
+                "Уведомления отключены в настройках браузера. Включите их для этого сайта.",
+            })
+          );
+        } catch {}
+      } else if (res === "error") {
+        try {
+          alert(t("push.error", { defaultValue: "Не удалось включить уведомления." }));
+        } catch {}
+      }
+    } finally {
+      setPushBusy(false);
+    }
+  };
+
+  // Профиль (аватар + имя) для шапки/футера сайдбара. Аватар приходит из
+  // соц-входа (Telegram photo_url / Google picture) через users/profile/.
+  const [profile, setProfile] = useState<{ avatar_url?: string; first_name?: string; last_name?: string; email?: string; telegram?: string } | null>(null);
+  useEffect(() => {
+    if (!isAuthed) return;
+    let on = true;
+    fetchData<any>("users/profile/", "get", null, true)
+      .then((r) => { if (on) setProfile((r?.data as any)?.user || null); })
+      .catch(() => {});
+    return () => { on = false; };
+  }, [isAuthed]);
+  const displayName =
+    (profile?.first_name || profile?.last_name)
+      ? `${profile?.first_name || ""} ${profile?.last_name || ""}`.trim()
+      : profile?.telegram
+      ? "@" + profile.telegram
+      : profile?.email || t("chat.profile", { defaultValue: "Профиль" });
 
   // Local, mutable copy of the chat list so rename/delete reflect instantly.
   // Kept in sync with the `chats` prop (parent is the source of truth on load).
@@ -125,8 +191,19 @@ export default function ChatSidebar({
     try {
       const res = await fetchData(`ai/sessions/${id}/`, "DELETE", null, true);
       if (res.ok) {
-        setItems((prev) => prev.filter((x) => ref(x) !== id));
-        if (wasActive) router.push("/");
+        const remaining = items.filter((x) => ref(x) !== id);
+        setItems(remaining);
+        // Удалили АКТИВНЫЙ чат → ведём на соседний (самый свежий из оставшихся),
+        // а не на основной экран; на "/" уходим только если чатов не осталось.
+        if (wasActive) {
+          const next = remaining[0];
+          if (next) {
+            onClose();
+            router.push(`/dashboard/${next.chat_mode || "text-chat"}/${ref(next)}`);
+          } else {
+            router.push("/");
+          }
+        }
       }
     } catch {
       /* noop */
@@ -191,20 +268,37 @@ export default function ChatSidebar({
               animate={{ x: 0 }}
               exit={{ x: "-100%" }}
               transition={{ type: "tween", duration: 0.28, ease: "easeOut" }}
+              // Свайп пальцем влево закрывает меню (как тянуть его назад). drag="x"
+              // сам ставит touch-action: pan-y → вертикальный скролл списка чатов
+              // не ломается. Не закрыли до порога — dragSnapToOrigin вернёт на место.
+              drag="x"
+              dragConstraints={{ left: 0, right: 0 }}
+              dragElastic={{ left: 0.6, right: 0 }}
+              dragSnapToOrigin
+              onDragEnd={(_e, info) => {
+                if (info.offset.x < -70 || info.velocity.x < -500) onClose();
+              }}
             >
               {/* Header */}
-              <div className="flex items-center justify-between px-3 py-3 border-b border-border shrink-0">
-                <img src="/esai-logo.svg" alt="EsAI" className="h-7" />
+              {/* pt учитывает вырез iOS (safe-area) в PWA: сайдбар — fixed от
+                  верха экрана, без отступа лого налезал на системную строку. */}
+              <div className="flex items-center justify-between px-3 pb-3 pt-[calc(0.75rem_+_env(safe-area-inset-top,0px))] border-b border-border shrink-0">
+                <EsaiLogo className="h-7 w-auto" />
                 <button
                   type="button"
                   onClick={onClose}
-                  className="p-2 rounded-lg hover:bg-surface-2 text-muted hover:text-foreground cursor-pointer"
+                  className="w-10 h-10 grid place-items-center rounded-lg hover:bg-surface-2 text-muted hover:text-foreground cursor-pointer"
                   title={t("common.close", { defaultValue: "Закрыть" })}
                 >
                   <FiX />
                 </button>
               </div>
 
+              {/* Прокручиваемая середина: новый чат + история + баланс + тема +
+                  язык. Раньше каждая секция была shrink-0 и история flex-1 → на
+                  невысоких экранах секции налезали друг на друга («История пуста»
+                  уходила под карточку баланса). Теперь всё в одном скролле. */}
+              <div className="flex-1 min-h-0 overflow-y-auto">
               {/* New chat */}
               <div className="px-3 pt-3 shrink-0">
                 <button
@@ -220,12 +314,30 @@ export default function ChatSidebar({
                 </button>
               </div>
 
+              {/* Флагман: «Создание мультфильмов» — заметная ссылка с бейджем NEW.
+                  Ведёт в студию-конвейер /studio (от идеи до готового видео). */}
+              <div className="px-3 pt-2 shrink-0">
+                <Link
+                  href="/studio"
+                  onClick={onClose}
+                  className="w-full inline-flex items-center gap-2.5 rounded-xl border border-accent/40 bg-accent-soft px-3 py-2.5 text-sm font-semibold text-foreground hover:border-accent transition-colors cursor-pointer"
+                >
+                  <FiFilm className="text-accent shrink-0" />
+                  <span className="flex-1 min-w-0 truncate">
+                    🎬 {t("chat.studio", { defaultValue: "Создание мультфильмов" })}
+                  </span>
+                  <span className="shrink-0 rounded-full bg-accent px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-on-accent">
+                    {t("common.new_badge", { defaultValue: "NEW" })}
+                  </span>
+                </Link>
+              </div>
+
               {/* History */}
-              <div className="px-3 pt-4 flex-1 min-h-0 flex flex-col">
+              <div className="px-3 pt-4">
                 <div className="text-[11px] uppercase tracking-wide text-muted-2 px-1 mb-1">
                   {t("chat.chat_history", { defaultValue: "История чатов" })}
                 </div>
-                <div className="overflow-y-auto pr-1 flex-1">
+                <div className="pr-1">
                   {items.length === 0 ? (
                     <div className="text-sm text-muted-2 italic px-1 py-2">
                       {t("chat.chats_list_empty", { defaultValue: "История пуста" })}
@@ -260,7 +372,7 @@ export default function ChatSidebar({
                                   type="button"
                                   onClick={() => submitRename(c)}
                                   disabled={savingRef === id}
-                                  className="p-1.5 rounded-md text-accent hover:bg-surface cursor-pointer disabled:opacity-60"
+                                  className="p-2 min-w-9 min-h-9 rounded-md text-accent hover:bg-surface cursor-pointer disabled:opacity-60"
                                   title={t("common.save", { defaultValue: "Сохранить" })}
                                 >
                                   <FiCheck />
@@ -269,7 +381,7 @@ export default function ChatSidebar({
                                   type="button"
                                   onClick={cancelRename}
                                   disabled={savingRef === id}
-                                  className="p-1.5 rounded-md text-muted hover:text-foreground hover:bg-surface cursor-pointer disabled:opacity-60"
+                                  className="p-2 min-w-9 min-h-9 rounded-md text-muted hover:text-foreground hover:bg-surface cursor-pointer disabled:opacity-60"
                                   title={t("common.cancel", { defaultValue: "Отмена" })}
                                 >
                                   <FiX />
@@ -288,11 +400,11 @@ export default function ChatSidebar({
                                 >
                                   {c.title}
                                 </NextLink>
-                                <div className="flex items-center shrink-0 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
+                                <div className="flex items-center shrink-0">
                                   <button
                                     type="button"
                                     onClick={() => startRename(c)}
-                                    className="p-1.5 rounded-md text-muted hover:text-foreground hover:bg-surface cursor-pointer"
+                                    className="p-2 min-w-9 min-h-9 rounded-md text-muted hover:text-foreground hover:bg-surface cursor-pointer"
                                     title={t("chat.rename", { defaultValue: "Переименовать" })}
                                     aria-label={t("chat.rename", { defaultValue: "Переименовать" })}
                                   >
@@ -301,7 +413,7 @@ export default function ChatSidebar({
                                   <button
                                     type="button"
                                     onClick={() => setDeleteTarget(c)}
-                                    className="p-1.5 rounded-md text-muted hover:text-rose-400 hover:bg-surface cursor-pointer"
+                                    className="p-2 min-w-9 min-h-9 rounded-md text-muted hover:text-rose-400 hover:bg-surface cursor-pointer"
                                     title={t("chat.delete", { defaultValue: "Удалить" })}
                                     aria-label={t("chat.delete", { defaultValue: "Удалить" })}
                                   >
@@ -315,29 +427,6 @@ export default function ChatSidebar({
                       })}
                     </ul>
                   )}
-                </div>
-              </div>
-
-              {/* Balance + top up */}
-              <div className="px-3 pt-3 shrink-0">
-                <div className="rounded-xl border border-border bg-surface-2 p-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs text-muted">{t("balance.label", { defaultValue: "Баланс токенов" })}</span>
-                    <FiZap className="text-accent" />
-                  </div>
-                  <div className="mt-0.5 text-xl font-bold text-foreground">
-                    {balance == null ? "—" : balance.toLocaleString()}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      onTopUp();
-                      onClose();
-                    }}
-                    className="mt-2 w-full rounded-lg bg-accent text-on-accent font-semibold text-sm py-2 hover:bg-accent-strong transition-colors cursor-pointer"
-                  >
-                    {t("balance.topup", { defaultValue: "Пополнить" })}
-                  </button>
                 </div>
               </div>
 
@@ -388,24 +477,124 @@ export default function ChatSidebar({
                 </div>
               </div>
 
+              </div>{/* конец прокручиваемой середины */}
+
+              {/* Закреплён вне прокрутки. Авторизован — баланс + «Пополнить».
+                  Гость — вместо баланса «0» заметная кнопка «Войти» с намёком на
+                  подарок (баланс и пополнение до входа не показываем). */}
+              <div className="px-3 pt-3 pb-1 shrink-0">
+                {isAuthed ? (
+                  <div className="rounded-xl border border-border bg-surface-2 p-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs text-muted">{t("balance.label", { defaultValue: "Баланс токенов" })}</span>
+                      <FiZap className="text-accent" />
+                    </div>
+                    <div className="mt-0.5 text-xl font-bold text-foreground">
+                      {(balance ?? 0).toLocaleString()}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        onTopUp();
+                        onClose();
+                      }}
+                      className="mt-2 w-full rounded-lg bg-accent text-on-accent font-semibold text-sm py-2 hover:bg-accent-strong transition-colors cursor-pointer"
+                    >
+                      {t("balance.topup", { defaultValue: "Пополнить" })}
+                    </button>
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-accent/40 bg-accent/[0.07] p-3 text-center">
+                    <p className="text-sm text-foreground font-medium mb-2.5">
+                      🎁 {t("guest.sidebar_bonus", { defaultValue: "5 кредитов в подарок за регистрацию" })}
+                    </p>
+                    <NextLink
+                      href="/auth/signin"
+                      onClick={onClose}
+                      className="flex w-full items-center justify-center rounded-lg bg-accent text-on-accent font-bold text-lg text-center py-3 hover:bg-accent-strong transition-colors cursor-pointer"
+                    >
+                      {t("auth.login", { defaultValue: "Войти" })}
+                    </NextLink>
+                  </div>
+                )}
+              </div>
+
               {/* Footer actions */}
-              <div className="px-3 py-3 mt-2 border-t border-border shrink-0 space-y-1">
+              <div className="px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] border-t border-border shrink-0 space-y-1">
+                {/* Профиль и Настройки — только для вошедших (гостю не нужны,
+                    могут запутать; вход у гостя вынесен наверх заметной кнопкой). */}
+                {isAuthed && (
+                  <NextLink
+                    href="/profile"
+                    onClick={onClose}
+                    className="flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm hover:bg-surface-2 cursor-pointer"
+                  >
+                    {profile?.avatar_url ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={profile.avatar_url} alt="" className="w-7 h-7 rounded-full object-cover shrink-0 border border-border" />
+                    ) : (
+                      <span className="w-7 h-7 rounded-full bg-surface-2 grid place-items-center shrink-0">
+                        <FiUser className="text-muted" />
+                      </span>
+                    )}
+                    <span className="min-w-0 truncate">{displayName}</span>
+                  </NextLink>
+                )}
+                {isAuthed && (
+                  <NextLink
+                    href="/pricing"
+                    onClick={onClose}
+                    className="flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm hover:bg-surface-2 cursor-pointer"
+                  >
+                    <FiSettings className="text-muted" /> {t("common.settings", { defaultValue: "Настройки" })}
+                  </NextLink>
+                )}
+                {/* Партнёрство — из чата раньше было недостижимо (жалоба клиента
+                    «пользователь сможет найти?»): ссылки были только в
+                    маркетинговой шапке и на /pricing. */}
                 <NextLink
-                  href="/profile"
+                  href="/referral"
                   onClick={onClose}
                   className="flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm hover:bg-surface-2 cursor-pointer"
                 >
-                  <FiUser className="text-muted" /> {t("chat.profile", { defaultValue: "Профиль" })}
-                </NextLink>
-                <NextLink
-                  href="/pricing"
-                  onClick={onClose}
-                  className="flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm hover:bg-surface-2 cursor-pointer"
-                >
-                  <FiSettings className="text-muted" /> {t("common.settings", { defaultValue: "Настройки" })}
+                  <FiGift className="text-accent" /> {t("chat.partnership", { defaultValue: "🤝 Партнёрство" })}
                 </NextLink>
                 {isAuthed ? (
                   <>
+                    <NextLink
+                      href="/transfer"
+                      onClick={onClose}
+                      className="flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm hover:bg-surface-2 cursor-pointer"
+                    >
+                      <FiSend className="text-muted" /> {t("chat.transfer_credits", { defaultValue: "💸 Перевести кредиты" })}
+                    </NextLink>
+                    <button
+                      type="button"
+                      onClick={() => setPromoOpen(true)}
+                      className="w-full flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm hover:bg-surface-2 cursor-pointer text-left"
+                    >
+                      <FiTag className="text-muted" /> {t("chat.promo", { defaultValue: "🎟 Промокод" })}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setMemoryOpen(true)}
+                      className="w-full flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm hover:bg-surface-2 cursor-pointer text-left"
+                    >
+                      <FiCpu className="text-muted" /> {t("chat.memory", { defaultValue: "Память" })}
+                    </button>
+                    {pushCan && (
+                      <button
+                        type="button"
+                        onClick={handleEnablePush}
+                        disabled={pushBusy || pushState === "granted"}
+                        className="w-full flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm hover:bg-surface-2 cursor-pointer text-left disabled:cursor-default"
+                      >
+                        <FiBell className={pushState === "granted" ? "text-accent" : "text-muted"} />{" "}
+                        {pushState === "granted"
+                          ? t("push.enabled", { defaultValue: "🔔 Уведомления включены" })
+                          : t("push.enable", { defaultValue: "🔔 Уведомления о бонусах" })}
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => setClearOpen(true)}
@@ -415,35 +604,19 @@ export default function ChatSidebar({
                     </button>
                     <button
                       type="button"
-                      onClick={() => setLogoutOpen(true)}
+                      onClick={handleLogout}
                       className="w-full flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm hover:bg-surface-2 cursor-pointer text-left text-rose-400"
                     >
                       <FiLogOut /> {t("nav.logout", { defaultValue: "Выйти" })}
                     </button>
                   </>
-                ) : (
-                  <NextLink
-                    href="/auth/signin"
-                    onClick={onClose}
-                    className="flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm hover:bg-surface-2 cursor-pointer text-accent-strong font-medium"
-                  >
-                    <FiLogIn /> {t("auth.login", { defaultValue: "Войти" })}
-                  </NextLink>
-                )}
+                ) : null /* гостю «Войти» показываем заметной кнопкой выше, дублировать внизу не нужно */}
               </div>
             </motion.aside>
           </>
         )}
       </AnimatePresence>
 
-      <ConfirmationModal
-        isOpen={logoutOpen}
-        title={t("nav.logOutConfirmTitle", { defaultValue: "Выйти из аккаунта?" })}
-        confirmText={t("common.yes", { defaultValue: "Да" })}
-        cancelText={t("common.no", { defaultValue: "Нет" })}
-        onConfirm={handleLogout}
-        onCancel={() => setLogoutOpen(false)}
-      />
       <ConfirmationModal
         isOpen={clearOpen}
         title={t("chat.clear_history_confirm_title", { defaultValue: "Очистить историю?" })}
@@ -466,6 +639,15 @@ export default function ChatSidebar({
         onCancel={() => setDeleteTarget(null)}
         confirmDisabled={deleting}
       />
+      <MemoryModal open={memoryOpen} onClose={() => setMemoryOpen(false)} />
+      <Modal
+        title={t("promo.title", { defaultValue: "Активировать промокод" })}
+        open={promoOpen}
+        onClose={() => setPromoOpen(false)}
+        size="md"
+      >
+        <PromoActivate bare />
+      </Modal>
     </>
   );
 }

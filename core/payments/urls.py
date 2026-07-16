@@ -19,6 +19,7 @@ from .views import (
     FreedomPayTokenPurchaseSuccessView,
     FreedomPayTokenPurchaseFailureView,
     FreedomPayTokenPurchasePostbackView,
+    FreedomPayTokenRefundPostbackView,
 )
 
 app_name = "payments"
@@ -43,4 +44,5 @@ urlpatterns = [
     path('tokens/success/', FreedomPayTokenPurchaseSuccessView.as_view(), name='freedompay-tokens-success'),
     path('tokens/failure/', FreedomPayTokenPurchaseFailureView.as_view(), name='freedompay-tokens-failure'),
     path('tokens/postback/', FreedomPayTokenPurchasePostbackView.as_view(), name='freedompay-tokens-postback'),
+    path('tokens/refund/', FreedomPayTokenRefundPostbackView.as_view(), name='freedompay-tokens-refund'),
 ]

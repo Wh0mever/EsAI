@@ -16,10 +16,12 @@ export default function RootLayout({
 	children: React.ReactNode;
 }>) {
 	return (
-		<>
+		// Тёмная по дизайну маркетинговая страница: фиксируем тёмные токены,
+		// чтобы в светлой теме текст/логотип не пропадали на белом фоне.
+		<div data-theme="dark" className="min-h-[100dvh] bg-background text-foreground">
 			<Header />
 			{children}
 			<Footer />
-		</>
+		</div>
 	);
 }

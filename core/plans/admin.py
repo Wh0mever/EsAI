@@ -177,10 +177,10 @@ class UserSubscriptionAdmin(admin.ModelAdmin):
 class TokenPackageAdmin(admin.ModelAdmin):
     list_display = (
         "id", "name", "tokens", "bonus_tokens", "price", "currency",
-        "is_active", "sort_order",
+        "badge", "featured", "is_active", "sort_order",
     )
-    list_editable = ("tokens", "bonus_tokens", "price", "is_active", "sort_order")
-    list_filter = ("is_active", "currency")
+    list_editable = ("tokens", "bonus_tokens", "price", "badge", "featured", "is_active", "sort_order")
+    list_filter = ("is_active", "featured", "currency")
     search_fields = ("id", "name")
     ordering = ("sort_order", "id")
 

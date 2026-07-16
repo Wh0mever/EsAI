@@ -8,19 +8,13 @@ function readCookie(name: string): string | null {
 
 function currencyFromHost(hostname: string | undefined | null): Currency {
   const h = (hostname || "").toLowerCase();
-  // EsAI hosts
+  // EsAI — единственный домен esai.kg, одна валюта — сом.
   if (h.endsWith("esai.kg")) return "KGS";
-  if (h.endsWith("esai.ru")) return "RUB";
-  if (h.endsWith("esai.online") || h.endsWith("esai.com")) return "USD";
-  // Legacy Vokalo hosts (kept for backward compatibility)
-  if (h.endsWith("vokalo.ru")) return "RUB";
-  if (h.endsWith("vokalo.kg")) return "KGS";
-  if (h.endsWith("vokalo.online")) return "USD";
   return "KGS"; // kg by default (ТЗ)
 }
 
 export function getInitialCurrency(): Currency {
-  if (typeof window === "undefined") return "USD";
+  if (typeof window === "undefined") return "KGS";
   const manualCookie = readCookie("APP_CURRENCY_MANUAL");
   const ls = (() => { try { return window.localStorage.getItem("APP_CURRENCY"); } catch { return null; } })();
   const ck = readCookie("APP_CURRENCY");

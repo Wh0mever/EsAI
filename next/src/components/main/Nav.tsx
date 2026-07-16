@@ -3,20 +3,17 @@
 import Link from "next/link";
 import Cookies from "js-cookie";
 import clsx from "clsx";
-import { useEffect, useMemo, useState, memo } from "react";
+import { memo } from "react";
 import { useTranslation } from "react-i18next";
 import { DropDownHovered } from "@/components/ui/dropDown/DropDownHovered";
 import { Button } from "@/components/ui/buttons/Buttons";
 import { usePathname } from "next/navigation";
-import { fetchData } from "@/tools/fetchData";
-import { getInitialCurrency, persistCurrency } from "@/lib/currency";
 import { setLanguagePreference } from "@/lib/locale";
 
 type Variant = "desktop" | "mobile";
 type Props = { variant?: Variant; className?: string; onNavigate?: () => void };
 
 type Lang = { code: "ru" | "en" | "kg"; icon: string; label: string };
-type Currency = { code: "USD" | "RUB" | "KGS"; symbol: string; label: string };
 
 const LANGUAGES: Lang[] = [
   { code: "ru", icon: "/images/local/ru.webp", label: "Русский" },
@@ -24,16 +21,7 @@ const LANGUAGES: Lang[] = [
   { code: "kg", icon: "/images/local/kg.webp", label: "Кыргызча" },
 ];
 
-const CURRENCIES: Currency[] = [
-  { code: "USD", symbol: "$", label: "$ USD" },
-  { code: "RUB", symbol: "₽", label: "₽ RUB" },
-  { code: "KGS", symbol: "с̲", label: "с̲ KGS" },
-];
-
 const CATEGORIES_ROUTES = ["/about", "/contact-us", "/faq", "/terms-conditions"];
-
-const CURRENCY_KEY = "APP_CURRENCY";
-const CURRENCY_CHANGED_EVENT = "app:currency-changed";
 
 function useLocale() {
   const { i18n } = useTranslation();
@@ -48,41 +36,6 @@ function useLocale() {
     }
   };
   return { currentLang: current, changeLanguage: change };
-}
-
-function useCurrency() {
-  const [currency, setCurrency] = useState<Currency["code"]>(() => (typeof window !== 'undefined' ? getInitialCurrency() : "USD"));
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const init = getInitialCurrency();
-    setCurrency(init);
-    // Ensure persistence on first run
-    if (!window.localStorage.getItem(CURRENCY_KEY)) window.localStorage.setItem(CURRENCY_KEY, init);
-  }, []);
-
-  const changeCurrency = (code: Currency["code"]) => {
-    setCurrency(code);
-    if (typeof window === "undefined") return;
-
-    persistCurrency(code, true);
-    window.dispatchEvent(new CustomEvent(CURRENCY_CHANGED_EVENT, { detail: { code } }));
-
-    const reload = () => window.location.reload();
-    const hasAccessToken = Boolean(Cookies.get("access"));
-    if (hasAccessToken) {
-      fetchData("users/currency/", "POST", { currency: code }, true).finally(reload);
-      return;
-    }
-    reload();
-  };
-
-  const display = useMemo(() => {
-    const found = CURRENCIES.find(c => c.code === currency) || CURRENCIES[2];
-    return `${found.symbol} ${found.code}`;
-  }, [currency]);
-
-  return { currency, changeCurrency, currencyDisplay: display };
 }
 
 const LanguageMenu = memo(function LanguageMenu({
@@ -112,32 +65,6 @@ const LanguageMenu = memo(function LanguageMenu({
   );
 });
 
-const CurrencyMenu = memo(function CurrencyMenu({
-  current,
-  onChange,
-}: {
-  current: Currency["code"];
-  onChange: (c: Currency["code"]) => void;
-}) {
-  return (
-    <ul className="flex flex-col py-2 text-sm">
-      {CURRENCIES.map(({ code, label }) => (
-        <li key={code} className="border-b border-neutral-700 last:border-b-0">
-          <Button
-            onClick={() => onChange(code)}
-            className={clsx(
-              "py-4 px-8 w-full text-left transition-all duration-300 hover:bg-neutral-800",
-              current === code && "bg-neutral-700"
-            )}
-          >
-            {label}
-          </Button>
-        </li>
-      ))}
-    </ul>
-  );
-});
-
 /* ---------- Active helpers ---------- */
 function useActive() {
   const pathname = usePathname() || "/";
@@ -148,26 +75,17 @@ function useActive() {
 }
 
 /* ---------- Mobile ---------- */
-function MobileNav({
-  className,
-  onNavigate,
-  changeLanguage,
-  currentLang,
-  currency,
-  changeCurrency,
-}: any) {
+// Только навигация: валюта убрана (одна валюта — сом), язык вынесен в шапку
+// (LangSwitch), чтобы не нагружать меню (запрос клиента).
+function MobileNav({ className, onNavigate }: any) {
   const { isActive, anyActive } = useActive();
   const { t } = useTranslation('home');
 
-  
   const linkCls = (href: string, exact = false) =>
     clsx(
       "block rounded-xl px-4 py-3 hover:bg-neutral-800 transition-colors",
       isActive(href, exact) ? "bg-neutral-700 text-white" : "text-neutral-200"
     );
-
-  const btnCls = (active: boolean) =>
-    clsx("text-left block px-4 py-3 hover:bg-neutral-800 rounded-xl", active && "bg-neutral-700");
 
   return (
     <nav className={clsx("text-white", className)}>
@@ -220,52 +138,14 @@ function MobileNav({
             </Link>
           </div>
         </li>
-
-        <li className="mt-2">
-          <div className="px-4 pb-1 text-xs uppercase tracking-wide text-neutral-400">{t("nav.currency")}</div>
-          <div className="flex flex-col">
-            {CURRENCIES.map(({ code, label }) => (
-              <button key={code} onClick={() => changeCurrency(code)} className={btnCls(currency === code)}>
-                {label}
-              </button>
-            ))}
-          </div>
-        </li>
-
-        <li className="mt-2">
-          <div className="px-4 pb-1 text-xs uppercase tracking-wide text-neutral-400">{t('nav.language')}</div>
-          <div className="flex flex-col">
-            {LANGUAGES.map(({ code, label, icon }) => (
-              <button
-                key={code}
-                onClick={() => changeLanguage(code)}
-                className={clsx(
-                  "flex items-center gap-2 text-left px-4 py-3 hover:bg-neutral-800 rounded-xl",
-                  currentLang === code && "bg-neutral-700"
-                )}
-              >
-                <img src={icon} alt={label} className="h-4 w-6 object-cover rounded-[2px]" />
-                <span>{label}</span>
-              </button>
-            ))}
-          </div>
-        </li>
       </ul>
     </nav>
   );
 }
 
 /* ---------- Desktop ---------- */
-function PCNav({
-  className,
-  onNavigate,
-  t,
-  changeLanguage,
-  currentLang,
-  currencyDisplay,
-  currency,
-  changeCurrency,
-}: any) {
+// Валюта убрана; компактный переключатель языка (флаг) оставлен.
+function PCNav({ className, onNavigate, t, changeLanguage, currentLang }: any) {
   const { isActive, anyActive } = useActive();
 
   const linkCls = (href: string, exact = false) =>
@@ -398,12 +278,6 @@ function PCNav({
             <LanguageMenu currentLang={currentLang} changeLanguage={changeLanguage} />
           </DropDownHovered>
         </li>
-
-        <li className="py-3 uppercase font-bold">
-          <DropDownHovered handleText={<span className="flex items-center gap-1">{currencyDisplay}</span>}>
-            <CurrencyMenu current={currency} onChange={changeCurrency} />
-          </DropDownHovered>
-        </li>
       </ul>
     </nav>
   );
@@ -412,20 +286,9 @@ function PCNav({
 export default function Nav({ variant = "desktop", className, onNavigate }: Props) {
   const { t } = useTranslation("home");
   const { currentLang, changeLanguage } = useLocale();
-  const { currency, changeCurrency, currencyDisplay } = useCurrency();
 
   if (variant === "mobile") {
-    return (
-      <MobileNav
-        className={className}
-        onNavigate={onNavigate}
-        t={t}
-        changeLanguage={changeLanguage}
-        currentLang={currentLang}
-        currency={currency}
-        changeCurrency={changeCurrency}
-      />
-    );
+    return <MobileNav className={className} onNavigate={onNavigate} />;
   }
 
   return (
@@ -435,9 +298,6 @@ export default function Nav({ variant = "desktop", className, onNavigate }: Prop
       t={t}
       changeLanguage={changeLanguage}
       currentLang={currentLang}
-      currencyDisplay={currencyDisplay}
-      currency={currency}
-      changeCurrency={changeCurrency}
     />
   );
 }

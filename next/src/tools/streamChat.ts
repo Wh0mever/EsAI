@@ -16,9 +16,16 @@ import { API } from "./fetchData";
 
 export type StreamEvent =
   | { type: "delta"; delta: string }
+  | { type: "reasoning"; delta: string }
   | { type: "sources"; sources: Array<{ title?: string; url: string }> }
+  /** backend готовит КАРТИНКУ (image-gen) — фронт рисует серый плейсхолдер */
+  | { type: "image_pending" }
+  /** backend готовит ВИДЕО (video-gen) — фронт рисует видео-плейсхолдер */
+  | { type: "video_pending"; duration?: number }
+  /** keepalive-кадр во время генерации видео (~каждые 5с) — UI не меняем */
+  | { type: "video_progress" }
   | { type: "done"; payload: any }
-  | { type: "error"; error: string };
+  | { type: "error"; error: string; error_code?: string; payload?: any };
 
 export type StreamResult = {
   /** true when the response is a real SSE stream we consumed */
@@ -74,9 +81,22 @@ function dispatchRecord(record: string, onEvent: (ev: StreamEvent) => void) {
     return; // ignore malformed chunk
   }
   if (typeof obj?.delta === "string") onEvent({ type: "delta", delta: obj.delta });
+  if (typeof obj?.reasoning === "string") onEvent({ type: "reasoning", delta: obj.reasoning });
   if (Array.isArray(obj?.sources)) onEvent({ type: "sources", sources: obj.sources });
-  if (obj?.error) {
-    onEvent({ type: "error", error: String(obj.error) });
+  if (obj?.image_pending) onEvent({ type: "image_pending" });
+  if (obj?.video_pending)
+    onEvent({ type: "video_pending", duration: typeof obj.duration === "number" ? obj.duration : undefined });
+  if (obj?.video_progress) onEvent({ type: "video_progress" });
+  // Stream-level error frame: data: {"error":"...","error_code":"...","done":true,...}
+  // We surface error_code (and the whole frame) so the caller can route to the
+  // right paywall/limit modal — same contract as the JSON-fallback path.
+  if (obj?.error || obj?.error_code) {
+    onEvent({
+      type: "error",
+      error: String(obj.error || obj.error_code || ""),
+      error_code: obj.error_code ? String(obj.error_code) : undefined,
+      payload: obj,
+    });
     return;
   }
   if (obj?.done) onEvent({ type: "done", payload: obj });

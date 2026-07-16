@@ -64,20 +64,9 @@ class SignUpSerializer(serializers.Serializer):
             first_name=validated_data["name"],
             ip=validated_data.get("ip")
         )
-        # Handle referral bonus for referrer
-        code = (referral_uid or "").strip().upper()
-        if code:
-            try:
-                referrer = User.objects.filter(referral_uid=code).first()
-                if referrer and referrer.id != user.id:
-                    User.objects.filter(pk=referrer.pk).update(
-                        bonus_texts=(F("bonus_texts") + 5),
-                        bonus_images=(F("bonus_images") + 5),
-                        bonus_songs=(F("bonus_songs") + 5),
-                        bonus_music=(F("bonus_music") + 5),
-                    )
-            except Exception:
-                pass
+        # Реферальный бонус теперь начисляется КРЕДИТАМИ через
+        # services.maybe_grant_referral_bonus (по cookie esai_ref) на активных
+        # путях входа (email-OTP / соц). Старое начисление Vokalo-счётчиков снято.
         return user
 
 
@@ -131,7 +120,41 @@ class ProfileSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        exclude = ["password"]
+        # Явный whitelist безопасных полей. НЕ отдаём приватные/привилегированные:
+        # password, is_staff, is_superuser, user_permissions, groups, last_login.
+        fields = [
+            "id",
+            "email",
+            "username",
+            "first_name",
+            "last_name",
+            "patronymic",
+            "tel",
+            "telegram",
+            "country",
+            "city",
+            "is_active",
+            "is_confirmed",
+            "free_plan_activated",
+            "date_joined",
+            "last_session",
+            "date_of_birth",
+            "selected_currency",
+            "auto_renew",
+            "_2fa",
+            "referral_uid",
+            "bonus_texts",
+            "bonus_images",
+            "bonus_songs",
+            "bonus_music",
+            "token_balance",
+            "is_paid",
+            "first_paid_at",
+            "is_unlimited",
+            "memory_enabled",
+            "avatar_url",
+            "card",
+        ]
 
     def get_card(self, user):
         obj = user.card_binds.order_by("-created_at").first()

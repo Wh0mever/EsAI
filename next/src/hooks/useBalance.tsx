@@ -21,7 +21,7 @@ export function useBalance() {
     try {
       const res = await fetchData<{ balance_tokens?: number }>("plans/balance/", "GET", null, true);
       if (res?.ok && res.data && typeof res.data.balance_tokens === "number") {
-        setBalance(res.data.balance_tokens);
+        setBalance(Math.max(0, res.data.balance_tokens));
       }
     } catch {
       /* keep previous value */

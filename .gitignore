@@ -8,3 +8,4 @@ __pycache__/
 .env
 .env.*
 !.env.example
+db_backup.sql

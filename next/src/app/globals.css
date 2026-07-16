@@ -8,7 +8,8 @@
    script in app/layout.tsx to avoid a flash of wrong theme).
    =========================================================== */
 
-:root {
+:root,
+[data-theme="dark"] {
   /* Brand constants (same in both themes) */
   --esai-ink: #141414;
   --esai-accent: #f5c518;
@@ -54,6 +55,18 @@
   --on-accent: #141414;
 }
 
+/* Тёмная декорация «круга» (AnimatedCircleBg) в светлой теме приглушается:
+   иначе тёмные заголовки страниц (pricing/privacy/profile/referral) нечитаемы
+   поверх тёмно-фиолетового арта. Правило для dark идёт ПОСЛЕ light: на
+   страницах с принудительно тёмным поддеревом (data-theme="dark" на обёртке,
+   напр. /about) при светлой глобальной теме побеждает ближний тёмный скоуп. */
+[data-theme="light"] .esai-breadcrumb-art {
+  opacity: 0.14;
+}
+[data-theme="dark"] .esai-breadcrumb-art {
+  opacity: 1;
+}
+
 /* Map tokens to Tailwind v4 theme so utilities like bg-surface,
    text-accent, border-border etc. are available. */
 @theme inline {
@@ -90,6 +103,7 @@ body {
   max-width: 100vw;
   overflow-x: hidden;
   min-height: 100vh;
+  min-height: 100dvh;
   transition: background-color 0.25s ease, color 0.25s ease;
 }
 
@@ -128,7 +142,7 @@ body {
 /* Offset anchored headings (blog TOC) so they clear the sticky SeoShell header. */
 .esai-md h2[id],
 .esai-md h3[id] {
-  scroll-margin-top: 5rem;
+  scroll-margin-top: 6rem;
 }
 .esai-md h1 { font-size: 1.5em; }
 .esai-md h2 { font-size: 1.3em; }
@@ -208,4 +222,23 @@ body {
 }
 @keyframes esaiBlink {
   to { visibility: hidden; }
+}
+
+/* Мерцающий текст индикатора «Думаю…» (как chain-of-thought у конкурентов) */
+.esai-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--muted-2, #6b7280),
+    var(--foreground, #e5e7eb),
+    var(--muted-2, #6b7280)
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: esaiShimmer 1.6s linear infinite;
+}
+@keyframes esaiShimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
 }

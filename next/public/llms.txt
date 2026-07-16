@@ -1,11 +1,11 @@
 # EsAI
 
-> EsAI — агрегатор нейросетей: ChatGPT, DeepSeek, Gemini, Claude, Grok, Mistral и Perplexity в одном чате. Один интерфейс, оплата в сомах, поддержка русского, кыргызского и английского языков. Можно начать бесплатно и без регистрации.
+> EsAI — агрегатор нейросетей: ChatGPT, DeepSeek (V3 и R1), Gemini, Claude, Grok и Perplexity в одном чате. Один интерфейс, оплата в сомах, поддержка русского, кыргызского и английского языков. Можно начать бесплатно и без регистрации.
 
 EsAI (esai.kg) даёт доступ к лучшим моделям искусственного интеллекта через единый чат. Пользователь выбирает модель и пишет запрос: текст, код, перевод, рефераты, резюме, анализ PDF и Excel, помощь в учёбе, маркетинге и бизнесе. Гость может попробовать чат без входа; вход — через Google или Telegram.
 
 ## Что умеет EsAI
-- Доступ к моделям: ChatGPT (OpenAI), DeepSeek, Gemini (Google), Claude (Anthropic), Grok (xAI), Mistral, Perplexity — в одном окне
+- Доступ к моделям: ChatGPT (OpenAI), DeepSeek V3, DeepSeek R1, Gemini (Google), Claude (Anthropic), Grok (xAI), Perplexity — в одном окне
 - Написание и редактирование текстов, статей, постов
 - Генерация и объяснение кода
 - Перевод между языками
@@ -23,10 +23,10 @@ EsAI (esai.kg) даёт доступ к лучшим моделям искусс
 ## Страницы моделей (/model/<slug>)
 - [ChatGPT](https://esai.kg/model/chatgpt)
 - [DeepSeek](https://esai.kg/model/deepseek)
+- [DeepSeek R1](https://esai.kg/model/deepseek-r1)
 - [Gemini](https://esai.kg/model/gemini)
 - [Claude](https://esai.kg/model/claude)
 - [Grok](https://esai.kg/model/grok)
-- [Mistral](https://esai.kg/model/mistral)
 - [Perplexity](https://esai.kg/model/perplexity)
 
 ## Страницы функций (/ai/<slug>)

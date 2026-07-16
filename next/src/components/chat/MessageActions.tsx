@@ -30,37 +30,41 @@ export default function MessageActions({ content, onRetry, onContinue, onFeedbac
     onFeedback?.(v);
   };
 
-  const btn =
-    "inline-flex items-center justify-center w-8 h-8 rounded-lg text-muted hover:text-foreground hover:bg-surface-2 transition-colors cursor-pointer";
+  // База БЕЗ цвета: цвет задаём отдельно, чтобы активное состояние (accent/rose)
+  // не перебивалось классом text-muted (иначе подсветка лайка/дизлайка не видна).
+  const btn = "inline-flex items-center justify-center w-8 h-8 rounded-lg transition-colors cursor-pointer";
+  const idle = "text-muted hover:text-foreground hover:bg-surface-2";
 
   return (
     <div className="flex items-center gap-1 mt-1.5 -ml-1">
-      <button type="button" className={btn} onClick={copy} title={t("chat.actions.copy", { defaultValue: "Копировать" })}>
+      <button type="button" className={`${btn} ${idle}`} onClick={copy} title={t("chat.actions.copy", { defaultValue: "Копировать" })}>
         {copied ? <FiCheck className="text-accent" /> : <FiCopy />}
       </button>
       {onRetry && (
-        <button type="button" className={btn} onClick={onRetry} title={t("chat.actions.retry", { defaultValue: "Повторить" })}>
+        <button type="button" className={`${btn} ${idle}`} onClick={onRetry} title={t("chat.actions.retry", { defaultValue: "Повторить" })}>
           <FiRefreshCw />
         </button>
       )}
       {onContinue && (
-        <button type="button" className={btn} onClick={onContinue} title={t("chat.actions.continue", { defaultValue: "Продолжить" })}>
+        <button type="button" className={`${btn} ${idle}`} onClick={onContinue} title={t("chat.actions.continue", { defaultValue: "Продолжить" })}>
           <FiCornerDownRight />
         </button>
       )}
       <button
         type="button"
-        className={`${btn} ${feedback === "up" ? "text-accent" : ""}`}
+        className={`${btn} ${feedback === "up" ? "text-accent bg-accent-soft" : idle}`}
         onClick={() => sendFeedback("up")}
         title={t("chat.actions.like", { defaultValue: "Хороший ответ" })}
+        aria-pressed={feedback === "up"}
       >
         <FiThumbsUp />
       </button>
       <button
         type="button"
-        className={`${btn} ${feedback === "down" ? "text-accent" : ""}`}
+        className={`${btn} ${feedback === "down" ? "text-rose-500 bg-rose-500/10" : idle}`}
         onClick={() => sendFeedback("down")}
         title={t("chat.actions.dislike", { defaultValue: "Плохой ответ" })}
+        aria-pressed={feedback === "down"}
       >
         <FiThumbsDown />
       </button>

@@ -4,7 +4,7 @@ export default function GlobalLoading() {
   return (
     <div className="loader">
       <div className="loader-element">
-        <img src="/images/logo/head.svg" alt="" className="" />
+        <img src="/esai-mark.svg" alt="EsAI" className="" />
       </div>
     </div>
   )
