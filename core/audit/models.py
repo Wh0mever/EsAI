@@ -92,6 +92,7 @@ class SignupDevice(models.Model):
     fingerprint = models.CharField(
         max_length=128,
         blank=True,
+        db_index=True,
         verbose_name="Отпечаток устройства",
     )
     created_at = models.DateTimeField(
@@ -103,6 +104,10 @@ class SignupDevice(models.Model):
         indexes = [
             models.Index(fields=["ip"]),
             models.Index(fields=["created_at"]),
+            # Антифрод-проверка (users/antifraud.py::decide_welcome_bonus) фильтрует
+            # именно по этой паре на каждой регистрации — составной индекс покрывает
+            # запрос целиком вместо range-scan по created_at + фильтрации без индекса.
+            models.Index(fields=["fingerprint", "created_at"]),
         ]
         verbose_name = "Слепок устройства (регистрация)"
         verbose_name_plural = "Слепки устройств (регистрация)"

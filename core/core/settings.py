@@ -628,6 +628,13 @@ CONTEXT_MAX_HISTORY_ROWS = env.int("CONTEXT_MAX_HISTORY_ROWS", default=400)
 CONTEXT_SUMMARY_MODEL = env.str("CONTEXT_SUMMARY_MODEL", default="google/gemini-2.5-flash")
 # Потолок длины резюме (символы) — держим его компактным и предсказуемым.
 CONTEXT_SUMMARY_MAX_CHARS = env.int("CONTEXT_SUMMARY_MAX_CHARS", default=4000)
+# Страховка от неограниченного роста несвёрнутого «хвоста» в summarize_session_context
+# (ai/tasks.py): если фоновая задача отстаёт (сбои LLM-вызова, простой celery,
+# временное выключение CONTEXT_SUMMARY_ENABLED), хвост не должен расти без предела —
+# иначе один payload суммаризации рано или поздно превысит контекстное окно модели
+# и вызов начнёт падать на каждом прогоне, навсегда застряв. Обрабатываем backlog
+# порциями (самые старые сообщения сначала) — за несколько прогонов он рассосётся.
+CONTEXT_SUMMARY_MAX_TAIL_ROWS = env.int("CONTEXT_SUMMARY_MAX_TAIL_ROWS", default=500)
 
 # Жёсткий потолок длины ответа (токены) — биллинг чата использует его как
 # верхнюю границу max_output_tokens, чтобы один запрос не выжег баланс.
@@ -643,7 +650,9 @@ FREE_DAILY_REQUESTS = env.int("FREE_DAILY_REQUESTS", default=20)
 PAID_DAILY_REQUESTS = env.int("PAID_DAILY_REQUESTS", default=300)
 
 # Тестовый вход платёжной системы (users/views.py): фикс. email+код без письма.
-# Отключить: TEST_LOGIN_EMAIL="" в env. Срабатывает ТОЛЬКО на точную пару.
+# ВЫКЛЮЧЕН по умолчанию (пустая строка = бэкдор не активен). Включать ТОЛЬКО
+# явно в .env тестового/dev-окружения — никогда не оставлять дефолт непустым,
+# иначе это боевой обход OTP под угадываемой парой email/код.
 TEST_LOGIN_EMAIL = env.str("TEST_LOGIN_EMAIL", default="")
 TEST_LOGIN_CODE = env.str("TEST_LOGIN_CODE", default="")
 

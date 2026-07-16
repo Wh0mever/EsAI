@@ -1,5 +1,7 @@
 {
 	"common": {
+		"success": "Success",
+		"save": "Save",
 		"yes": "Yes",
 		"no": "No",
 		"submit": "Submit",
@@ -20,6 +22,38 @@
 	},
 	"studio": {
 		"badge": "New EsAI section",
+		"hero": {
+			"title": "Create cartoons",
+			"subtitle": "Think of a story, draw the characters and bring them to life in a video — right here, no skills required."
+		},
+		"how": {
+			"title": "How it works",
+			"1": {
+				"title": "Just tell us",
+				"text": "Describe what you want in your own words — like telling a friend."
+			},
+			"2": {
+				"title": "The AI does the rest",
+				"text": "The AI will come up with it, draw it and bring it to life."
+			},
+			"3": {
+				"title": "Done!",
+				"text": "Save the result and show it to your friends and family."
+			}
+		},
+		"soon": {
+			"title": "Coming soon",
+			"badge": "Coming soon",
+			"music": {
+				"title": "Music",
+				"subtitle": "Your own melody and sounds for the cartoon"
+			},
+			"voice": {
+				"title": "Voice-over",
+				"subtitle": "Voices for the characters — they'll read the lines out loud"
+			}
+		},
+		"cta_final": "Start with the first step",
 		"step": {
 			"choose": "What to use",
 			"no_models": "Options coming soon",
@@ -277,6 +311,9 @@
 		"new_password": "New password",
 		"referral_code": "Referral code",
 		"enter_referral_code": "Enter referral code (optional)",
+		"promo_label": "Promo code (optional)",
+		"promo_ph": "Enter promo code",
+		"telegram": "Sign in with Telegram",
 		"get_code": "Get code",
 		"cta_part1": "🎁 Sign in with 1 click and get 5 free credits.",
 		"cta_credits": "3,000 credits",
@@ -509,6 +546,14 @@
 		"delete_chat_confirmation": "Are you sure you want to delete this chat?",
 		"delete_chat_success": "Chat deleted successfully",
 		"delete_chat_error": "Error deleting chat",
+		"delete": "Delete",
+		"delete_confirm_title": "Delete chat?",
+		"delete_confirm_desc": "The chat and all its messages will be permanently deleted.",
+		"rename": "Rename",
+		"memory": "Memory",
+		"promo": "🎟 Promo code",
+		"partnership": "🤝 Partnership",
+		"transfer_credits": "💸 Transfer credits",
 		"ask_something": "Ask something...",
 		"music_ask_something": "Describe your composition or song lyrics...",
 		"music_empty_hint": "Describe your composition or song lyrics below. No lyrics yet? No worries, just create them in our",
@@ -527,11 +572,17 @@
 		"title_error_unknown": "Failed to save title",
 		"thinking": "Thinking",
 		"thinking_ellipsis": "Thinking…",
+		"reasoning": "Chain of reasoning",
 		"sources": "Sources",
 		"web_search_short": "Search",
 		"voice_enter": "Voice Enter",
 		"attachments": "Attachments",
 		"attachment_upload_error": "Upload error",
+		"ask_about_document": "Ask a question about the document",
+		"doc_parsing": "Processing…",
+		"doc_ready": "Document",
+		"doc_error": "Error",
+		"image_no_vision": "The selected model can't see images. Choose ChatGPT, Gemini or Claude (marked \"Photo\").",
 		"error_generic": "Something went wrong. Please try again later.",
 		"error_network": "Network error. Check your connection and try again.",
 		"error_unauthorized": "Authentication required. Please sign in and try again.",
@@ -597,6 +648,18 @@
 			"select": "Select model",
 			"premium_badge": "Premium",
 			"locked_hint": "Available only on paid packages. Top up your balance by 190 som to unlock all premium AI models on the planet",
+			"search": "Search models...",
+			"nothing": "Nothing found",
+			"cap_image": "Generates images",
+			"cap_image_short": "Images",
+			"cap_reasoning": "Reasoning model",
+			"cap_reasoning_short": "Reasoning",
+			"cap_video": "Generates video",
+			"cap_video_short": "Video",
+			"cap_vision": "Understands images",
+			"cap_vision_short": "Vision",
+			"cap_web": "Web search",
+			"cap_web_short": "Web",
 			"category": {
 				"recommended": "Recommended",
 				"chat": "For conversations",
@@ -689,6 +752,14 @@
 	},
 	"profile": {
 		"profile": "Profile",
+		"balance_title": "Balance",
+		"balance_hint": "Pay as you go. Top up your balance with credit packages — no subscriptions, no extra costs.",
+		"open_chat": "Open chat",
+		"tier": {
+			"free": "Free",
+			"paid": "Paid",
+			"unlimited": "Unlimited (test)"
+		},
 		"fullname": "Full name",
 		"email": "Email",
 		"phone": "Phone",
@@ -978,6 +1049,20 @@
 		"ios_hint": "Tap Share, then “Add to Home Screen”.",
 		"dismiss": "Not now"
 	},
+	"push": {
+		"enable": "🔔 Bonus notifications",
+		"enabled": "🔔 Notifications enabled",
+		"denied": "Notifications are blocked in your browser settings. Enable them for this site.",
+		"error": "Couldn't enable notifications."
+	},
+	"promo": {
+		"title": "Redeem a promo code",
+		"hint": "Enter a promo code to get bonus credits added to your balance.",
+		"placeholder": "Promo code",
+		"activate": "Redeem",
+		"credited": "{{count}} credits added",
+		"error": "Couldn't redeem the promo code."
+	},
 	"guest": {
 		"limit_title": "Continue? 🎁",
 		"limit_desc": "Get 5 free credits when you sign up. No card, no subscriptions.",
@@ -1061,7 +1146,30 @@
 	},
 	"transfer": {
 		"seo_title": "Transfer credits",
-		"seo_description": "Transfer credits to other EsAI users and view your transfer history."
+		"seo_description": "Transfer credits to other EsAI users and view your transfer history.",
+		"title": "Transfer credits",
+		"subtitle": "Share credits with other EsAI users.",
+		"hint": "Send credits to another user — by email, username or ID.",
+		"card_hint": "Send credits to another user",
+		"guest_hint": "Sign in to transfer credits.",
+		"recipient": "Recipient (email / username / ID)",
+		"recipient_ph": "user@example.com",
+		"amount": "Amount (credits)",
+		"comment": "Comment (optional)",
+		"comment_ph": "For your help",
+		"submit": "Transfer",
+		"success": "Transferred. New balance: {{balance}} credits",
+		"error": "Couldn't complete the transfer.",
+		"invalid": "Specify a recipient and an amount greater than zero.",
+		"history_title": "Transfer history",
+		"history_empty": "No transfers yet.",
+		"col_date": "Date",
+		"col_direction": "Type",
+		"col_counterparty": "Counterparty",
+		"col_amount": "Amount",
+		"col_comment": "Comment",
+		"received": "Received",
+		"sent": "Sent"
 	},
 	"exitDiscount": {
 		"title": "Don't leave without a bonus! 🎁",
@@ -1072,7 +1180,54 @@
 	},
 	"partner": {
 		"seo_title": "Partnership",
-		"seo_description": "EsAI partner program: invite friends and earn credits from their top-ups — for life."
+		"seo_description": "EsAI partner program: invite friends and earn credits from their top-ups — for life.",
+		"title": "Partnership",
+		"subtitle": "Invite friends and earn credits from their top-ups — for life.",
+		"card_hint": "Invite friends and earn credits",
+		"your_link": "Your partner link",
+		"guest_hint": "Sign in to get your partner link.",
+		"invited": "Invited",
+		"total_earned": "Total earned",
+		"history_title": "Earnings history",
+		"history_empty": "No earnings yet. Invite friends and they'll show up here.",
+		"col_date": "Date",
+		"col_amount": "Amount",
+		"how_title": "How it works",
+		"step1": {
+			"title": "Share your link",
+			"text": "Send your partner link to friends and on social media."
+		},
+		"step2": {
+			"title": "Friends top up their balance",
+			"text": "Invited users sign up via your link and add funds."
+		},
+		"step3": {
+			"title": "You earn credits",
+			"text": "You get a percentage of every top-up from those you invited — for life."
+		}
+	},
+	"memory": {
+		"title": "Memory",
+		"subtitle": "EsAI remembers important details from your conversations to answer more accurately.",
+		"enabled_label": "Memory enabled",
+		"enabled_hint": "When off, new facts aren't saved.",
+		"facts_title": "What I remember",
+		"empty": "Memory is empty. Tell me about yourself in the chat, or write \"Remember …\".",
+		"cat_identity": "About you",
+		"cat_preference": "Preferences",
+		"cat_project": "Project",
+		"cat_work": "Work",
+		"cat_other": "Other",
+		"source_auto": "auto",
+		"source_manual": "manual",
+		"delete": "Delete",
+		"delete_error": "Couldn't delete the fact",
+		"clear_all": "Clear all",
+		"clear_confirm_title": "Clear all memory?",
+		"clear_confirm_desc": "All saved facts will be permanently deleted.",
+		"clear_error": "Couldn't clear memory",
+		"toggle_error": "Couldn't change the setting",
+		"load_error": "Couldn't load memory"
 	},
 	"home": {
 		"hero": {

@@ -102,9 +102,14 @@ def summarize_session_context(session_id: int) -> dict:
             # Несвёрнутый «хвост» (id > upto). Сворачиваем, только когда он перерос
             # бюджет окна: самые старые сообщения хвоста уходят в резюме, а в
             # дословном окне остаётся ровно бюджет (см. _build_openai_messages).
+            # Хвост ограничен CONTEXT_SUMMARY_MAX_TAIL_ROWS (берём самые СТАРЫЕ —
+            # ascending order + срез), иначе при отставании задачи он мог бы расти
+            # без предела и разово выжечь контекстное окно модели суммаризации;
+            # при большом backlog он рассасывается за несколько прогонов подряд.
+            max_tail_rows = int(getattr(settings, "CONTEXT_SUMMARY_MAX_TAIL_ROWS", 500) or 500)
             tail = list(
                 session.messages.only("id", "role", "content", "created_at")
-                .filter(id__gt=upto).order_by("created_at")
+                .filter(id__gt=upto).order_by("created_at")[:max_tail_rows]
             )
             kept = _select_recent_window_rows(tail, budget)
             new_old = tail[: len(tail) - len(kept)]
