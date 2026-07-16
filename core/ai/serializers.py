@@ -111,10 +111,18 @@ class AiModelSerializer(serializers.ModelSerializer):
     def get_locked(self, obj) -> bool:
         # locked = модель недоступна текущему пользователю по его тиру (ТЗ 4.1).
         # Гость (или отсутствующий request) → тир guest → премиум заблокированы.
+        # Обёрнуто в try/except как и get_estimated_usage: публичный список
+        # моделей не должен падать целиком (many=True сериализует все объекты
+        # одним проходом без изоляции) из-за ошибки тарификации для одной модели.
         from plans.tiers import can_use_model
-        request = self.context.get("request")
-        user = getattr(request, "user", None)
-        return not can_use_model(user, obj)
+        try:
+            request = self.context.get("request")
+            user = getattr(request, "user", None)
+            return not can_use_model(user, obj)
+        except Exception:
+            # Фейлимся в сторону "заблокировано" — безопаснее, чем случайно
+            # открыть премиум-модель при сбое проверки тира.
+            return True
 
     def get_estimated_usage(self, obj) -> dict | None:
         # Каталог AI-моделей (Этап 4): "что получит пользователь за один пакет

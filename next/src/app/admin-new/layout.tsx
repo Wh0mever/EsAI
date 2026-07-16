@@ -43,8 +43,12 @@ export default function AdminNewLayout({ children }: { children: ReactNode }) {
     (async () => {
       const res = await fetchData("manage/config/", "GET", null, true);
       if (!alive) return;
-      if (res.status === 401 || res.status === 403) setGate("denied");
-      else setGate("ok");
+      // Fail CLOSED: только явный 2xx открывает админку. Сетевые ошибки
+      // (fetchData отдаёт status:0), временные 5xx и любой другой не-2xx
+      // статус должны блокировать доступ, а не открывать его — иначе сбой
+      // бэкенда во время проверки временно снимает авторизацию для всех.
+      if (res.status >= 200 && res.status < 300) setGate("ok");
+      else setGate("denied");
     })();
     return () => {
       alive = false;

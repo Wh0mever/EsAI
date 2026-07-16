@@ -251,18 +251,25 @@ def _video_credits(model) -> Decimal | None:
     return max(Decimal(1), raw)
 
 
-def credits_per_unit(category: str) -> Decimal | None:
+def credits_per_unit(category: str, model=None) -> Decimal | None:
     """Сколько кредитов стоит ОДНА единица результата данной категории.
 
     text/document — кредитов за "типичное сообщение"/"страницу" (токенная формула).
     image — кредитов за картинку (формула зависит от механизма биллинга модели).
     video — кредитов за ролик (по РЕАЛЬНОЙ длительности эталонной модели).
     Возвращает None, если эталонная модель не настроена/не активна.
+
+    model — опционально, уже полученная эталонная модель категории (избегает
+    повторного get_reference_model(category), если вызывающий код её уже
+    зафетчил, например compute_package_value() в цикле по пакетам). Если не
+    передан — модель получается внутри, как раньше.
     """
-    if category in ("text", "document"):
+    if model is None:
         model = get_reference_model(category)
-        if model is None:
-            return None
+    if model is None:
+        return None
+
+    if category in ("text", "document"):
         coeff = model.markup_coefficient
         if coeff is None:
             return None
@@ -272,19 +279,17 @@ def credits_per_unit(category: str) -> Decimal | None:
         return _credits_for_tokens(_document_tokens_per_page(), coeff)
 
     if category == "image":
-        model = get_reference_model("image")
-        if model is None:
-            return None
         return _image_credits(model)
 
     if category == "video":
-        model = get_reference_model("video")
-        if model is None:
-            return None
         return _video_credits(model)
 
     logger.warning("credit_value: неизвестная категория %r", category)
     return None
+
+
+_ACTIVE_PACKAGES_CACHE_KEY = "credit_value:active_packages_by_price"
+_ACTIVE_PACKAGES_CACHE_TTL = 30  # секунд — коротко, чтобы правки пакетов из админки подхватывались быстро.
 
 
 def _active_packages_by_price() -> list:
@@ -294,13 +299,31 @@ def _active_packages_by_price() -> list:
     дороже целого "Старта" (например, Veo 3.1/coeff=83, Sora 2 Pro/coeff=62,
     Seedance 2.0/coeff=32 — per_unit кредитов больше, чем total_credits
     "Старта"), пробуем следующий по цене пакет, пока не наберётся count >= 1
-    хотя бы у одного активного пакета."""
+    хотя бы у одного активного пакета.
+
+    Кэшируется на _ACTIVE_PACKAGES_CACHE_TTL секунд (django cache): без этого
+    get_estimated_usage() в AiModelSerializer вызывает это на КАЖДУЮ модель в
+    списке (N+1 на публичном GET /api/ai/models/, ~N одинаковых запросов ради
+    одной и той же таблицы из нескольких строк). Список пакетов меняется редко
+    и не денежно-чувствителен здесь (только для оценки "на что хватит", не для
+    реального списания), поэтому короткий TTL — безопасный компромисс.
+    """
+    from django.core.cache import cache
     from .models import TokenPackage
 
-    return list(
+    cached = cache.get(_ACTIVE_PACKAGES_CACHE_KEY)
+    if cached is not None:
+        return cached
+
+    packages = list(
         TokenPackage.objects.filter(is_active=True)
         .order_by("price", "sort_order", "id")
     )
+    try:
+        cache.set(_ACTIVE_PACKAGES_CACHE_KEY, packages, _ACTIVE_PACKAGES_CACHE_TTL)
+    except Exception:
+        logger.exception("credit_value: не удалось закэшировать active_packages_by_price")
+    return packages
 
 
 # category (GPTModels.CATEGORY_CHOICES) -> русская подпись единицы измерения
@@ -417,14 +440,21 @@ def compute_package_value(package) -> dict:
         model = get_reference_model(category)
         if model is None:
             continue
-        per_unit = credits_per_unit(category)
+        per_unit = credits_per_unit(category, model=model)
         if not per_unit or per_unit <= 0:
             continue
         count = int(
             (Decimal(total_credits) / per_unit).to_integral_value(rounding=ROUND_FLOOR)
         )
+        if count < 1:
+            # Пакет не даёт НИ ОДНОЙ целой единицы этой категории на эталонной
+            # модели (см. docstring estimate_model_usage_cost про Veo 3.1/Sora 2
+            # Pro и т.п.) — как "нет данных" для этой категории у этого пакета,
+            # а не карточка "До 0 видео/картинок". Симметрично с пропуском
+            # категорий без эталонной модели/тарифа выше.
+            continue
         result[category] = {
-            "count": max(0, count),
+            "count": count,
             "unit_model_name": model.name,
         }
     return result

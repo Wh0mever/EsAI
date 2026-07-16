@@ -109,12 +109,17 @@ def _verify_and_credit(payment) -> str:
 
     pkg_id = _package_id_from_order(order_id)
     info = (payment.request or {}).get("token_purchase") or {}
-    total = 0
-    try:
-        pkg = TokenPackage.objects.get(pk=int(pkg_id))
-        total = int(pkg.tokens or 0) + int(pkg.bonus_tokens or 0)
-    except Exception:
-        total = int(info.get("tokens") or 0) + int(info.get("bonus_tokens") or 0)
+    # Начисляем по снапшоту, зафиксированному в момент покупки (см. комментарий
+    # в payments/views.py::_credit_token_package_for_payment) — а не по текущей
+    # живой конфигурации TokenPackage, которая могла измениться за время между
+    # инициацией оплаты и этим reconcile-проходом.
+    total = int(info.get("tokens") or 0) + int(info.get("bonus_tokens") or 0)
+    if total <= 0:
+        try:
+            pkg = TokenPackage.objects.get(pk=int(pkg_id))
+            total = int(pkg.tokens or 0) + int(pkg.bonus_tokens or 0)
+        except Exception:
+            total = 0
     if total <= 0:
         return "zero_amount"
 

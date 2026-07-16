@@ -116,6 +116,12 @@ export function useExitDiscount(paymentInProgress: boolean = false) {
     if (res.ok && res.data) {
       setPopupOffer({ percent: res.data.percent, expires_at: res.data.expires_at });
       setShowPopup(true);
+    } else {
+      // Сетевой сбой/таймаут/не-2xx — попап так и не показан пользователю.
+      // Не оставляем triggeredRef навсегда "true": следующая попытка выхода
+      // (повторный mouseleave/back) должна суметь повторить запрос, а не
+      // молча ничего не делать до конца жизни компонента.
+      triggeredRef.current = false;
     }
   }, [deviceKey]);
 
@@ -128,9 +134,11 @@ export function useExitDiscount(paymentInProgress: boolean = false) {
 
     if (!touch) {
       const onMouseLeave = (e: MouseEvent) => {
+        // Не отписываемся сразу: onExitTrigger сам гейтится triggeredRef и
+        // сбрасывает его при сетевом сбое — так следующий mouseleave может
+        // повторить попытку вместо того, чтобы навсегда остаться без попапа.
         if (e.clientY <= 0) {
           onExitTrigger();
-          document.removeEventListener("mouseleave", onMouseLeave);
         }
       };
       document.addEventListener("mouseleave", onMouseLeave);
@@ -150,8 +158,9 @@ export function useExitDiscount(paymentInProgress: boolean = false) {
       try {
         window.history.pushState(null, "", window.location.href);
       } catch {}
+      // Не отписываемся сразу — см. комментарий у onMouseLeave: даёт шанс на
+      // повторную попытку после сетевого сбоя вместо permanent-latch.
       onExitTrigger();
-      window.removeEventListener("popstate", onPopState);
     };
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);

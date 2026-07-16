@@ -966,12 +966,23 @@ def _credit_token_package_for_payment(payment: "Payment", order_id: str) -> None
         payment.response = response
         return
 
-    try:
-        package = TokenPackage.objects.get(pk=int(package_id))
-        total = int(package.tokens or 0) + int(package.bonus_tokens or 0)
-    except (TokenPackage.DoesNotExist, TypeError, ValueError):
-        # Пакет мог быть удалён — fallback на снапшот из request.
-        total = int(info.get("tokens") or 0) + int(info.get("bonus_tokens") or 0)
+    # Начисляем по снапшоту цены/объёма, зафиксированному в момент ПОКУПКИ
+    # (info.tokens/bonus_tokens — то, что пользователь видел и оплатил), а не
+    # по текущей конфигурации TokenPackage: если админ поменяет объём пакета
+    # между инициацией оплаты и её подтверждением (постбэк может не прийти
+    # вовсе — основной путь начисления — периодический reconcile), пользователь
+    # должен получить ровно то, что было продано за уплаченную сумму.
+    snapshot_total = int(info.get("tokens") or 0) + int(info.get("bonus_tokens") or 0)
+    if snapshot_total > 0:
+        total = snapshot_total
+    else:
+        # Старые платежи без снапшота (до введения этого поля) — fallback
+        # на текущий TokenPackage, если он ещё существует.
+        try:
+            package = TokenPackage.objects.get(pk=int(package_id))
+            total = int(package.tokens or 0) + int(package.bonus_tokens or 0)
+        except (TokenPackage.DoesNotExist, TypeError, ValueError):
+            total = 0
 
     if total <= 0:
         raise ValueError("token_package_zero_amount")
