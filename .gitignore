@@ -9,3 +9,8 @@ __pycache__/
 .env.*
 !.env.example
 db_backup.sql
+.env.bak.*
+_deploy_backup*/
+backups/
+*.tgz
+*.testcopy
