@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import { SITE_NAME } from "@/lib/seo/site";
 import type { SiteSettings } from "@/lib/content";
+import EsaiLogo from "@/components/brand/EsaiLogo";
 
 /**
  * SeoShell — lightweight, server-rendered wrapper for SEO landing pages
@@ -23,10 +24,10 @@ export default function SeoShell({
   const year = new Date().getFullYear();
   return (
     <div className="min-h-[100dvh] flex flex-col bg-background text-foreground">
-      <header className="sticky top-0 z-30 border-b border-border bg-background/80 backdrop-blur">
+      <header className="sticky top-0 z-30 border-b border-border bg-background/80 backdrop-blur pt-[env(safe-area-inset-top,0px)]">
         <div className="mx-auto max-w-4xl w-full px-4 h-14 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2" aria-label={SITE_NAME}>
-            <img src="/esai-logo.svg" alt={SITE_NAME} className="h-6" />
+            <EsaiLogo className="h-6 w-auto" />
           </Link>
           <Link
             href="/"

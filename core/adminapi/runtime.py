@@ -1,0 +1,100 @@
+"""Чтение/запись runtime-настроек (adminapi.AppSetting) поверх env/settings.
+
+Паттерн подключения в чужом коде — ЛЕНИВО и безопасно:
+
+    value = <прежний источник>
+    try:
+        from adminapi.runtime import get_runtime
+        value = get_runtime("KEY", value)
+    except Exception:
+        pass
+
+get_runtime НИКОГДА не бросает исключений: пока миграция adminapi.0001 не
+накатана (или БД недоступна), тихо возвращается default — прод не падает.
+"""
+from django.core.cache import cache
+
+CACHE_TTL = 30  # секунд
+CACHE_PREFIX = "appset:"
+
+# Ключи, управляемые из админки (/api/manage/settings/).
+KEYS = (
+    "OPENROUTER_API_KEY",
+    "WELCOME_BONUS_TOKENS",
+    "REFERRAL_BONUS_TOKENS",
+    "DAILY_RETENTION_TARGET",
+    "WEB_SEARCH_SURCHARGE_CREDITS",
+    "FREE_DAILY_REQUESTS",
+    "PAID_DAILY_REQUESTS",
+    "IMAGE_GEN_AUTO_ROUTE",
+    # Калькулятор ценности кредитов (plans/credit_value.py): эталонные модели
+    # по категориям (строка — openrouter_id) + размер "страницы" в токенах +
+    # "типичный" размер текстового сообщения в токенах.
+    "credit_calc_text_model",
+    "credit_calc_image_model",
+    "credit_calc_video_model",
+    "credit_calc_document_model",
+    "credit_calc_document_tokens_per_page",
+    "credit_calc_text_tokens_per_reply",
+    # Калькулятор "На что хватит?" (Этап 3, п.14): пороги "разумно полезного
+    # объёма" за категорию — ниже порога пакет не считается "рекомендованным"
+    # под сценарий использования (plans/credit_value.py _mark_recommended).
+    "credit_calc_text_min_count",
+    "credit_calc_image_min_count",
+    "credit_calc_video_min_count",
+    "credit_calc_document_min_count",
+)
+
+# Сентинел «в кэше пусто» — None невалиден: мы кэшируем и None («ключа нет в БД»).
+_MISSING = object()
+
+
+def get_runtime(key: str, default):
+    """Значение настройки из БД с кэшем 30с; тип приводится по типу default.
+
+    bool-default: строка из ("1", "true", "True") -> True, иначе False.
+    int-default: int(value). Остальное — str(value).
+    При ЛЮБОЙ ошибке (нет таблицы, нет БД, кривое значение) -> default.
+    """
+    try:
+        cache_key = CACHE_PREFIX + key
+        raw = cache.get(cache_key, _MISSING)
+        if raw is _MISSING:
+            from .models import AppSetting
+            row = AppSetting.objects.filter(key=key).only("value").first()
+            raw = row.value if row is not None else None
+            cache.set(cache_key, raw, CACHE_TTL)
+        if raw is None:
+            return default
+        # ВАЖНО: bool раньше int (bool — подкласс int).
+        if isinstance(default, bool):
+            return raw in ("1", "true", "True")
+        if isinstance(default, int):
+            return int(raw)
+        return str(raw)
+    except Exception:
+        return default
+
+
+def set_runtime(key: str, value) -> None:
+    """Upsert настройки + сброс кэша. bool сериализуем как "1"/"0"."""
+    from .models import AppSetting
+
+    if isinstance(value, bool):
+        value = "1" if value else "0"
+    AppSetting.objects.update_or_create(key=key, defaults={"value": str(value)})
+    cache.delete(CACHE_PREFIX + key)
+
+
+def delete_runtime(key: str) -> None:
+    """Удалить override настройки (строку AppSetting) + сбросить кэш.
+
+    После вызова get_runtime(key, default) снова начнёт возвращать default —
+    это единственный способ вернуть runtime-настройку в состояние "не задано"
+    (set_runtime может только ПЕРЕЗАПИСАТЬ значение, не стереть его). Безопасно
+    вызывать для ключа, которого и так нет в БД (просто ничего не удалит).
+    """
+    from .models import AppSetting
+
+    AppSetting.objects.filter(key=key).delete()
+    cache.delete(CACHE_PREFIX + key)

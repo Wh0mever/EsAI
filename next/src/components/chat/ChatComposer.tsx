@@ -1,24 +1,42 @@
 "use client";
 
-import React, { useEffect, useRef, type FormEvent, type KeyboardEvent } from "react";
+import React, { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { IoIosSend, IoIosAttach } from "react-icons/io";
 import { IoDocumentTextOutline, IoGlobeOutline } from "react-icons/io5";
-import { FiFileText } from "react-icons/fi";
+import { FiMic, FiSquare } from "react-icons/fi";
 import { fetchData, BACKEND } from "@/tools/fetchData";
 import ModelSelector, { type AiModel } from "./ModelSelector";
 
-/** Accepted document types for the RAG document picker (ТЗ 2.12). */
-const DOC_ACCEPT =
-  ".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt," +
-  "application/pdf," +
-  "application/msword," +
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document," +
-  "application/vnd.ms-excel," +
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet," +
-  "application/vnd.ms-powerpoint," +
-  "application/vnd.openxmlformats-officedocument.presentationml.presentation," +
-  "text/plain";
+/**
+ * Минимальные типы Web Speech API: их нет в lib.dom для всех таргетов,
+ * поэтому объявляем локально ровно то, что используем (голосовой ввод v1,
+ * распознавание целиком в браузере, без запросов на бэкенд).
+ */
+type SpeechRecognitionLike = {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  onresult: ((event: any) => void) | null;
+  onend: (() => void) | null;
+  onerror: ((event: any) => void) | null;
+  start: () => void;
+  stop: () => void;
+};
+
+/** Конструктор SpeechRecognition с учётом webkit-префикса; null, если API нет. */
+const getSpeechRecognitionCtor = (): (new () => SpeechRecognitionLike) | null => {
+  if (typeof window === "undefined") return null;
+  return (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition || null;
+};
+
+/** Язык распознавания из языка интерфейса (i18n). */
+const speechLangFor = (uiLang: string | undefined): string => {
+  const l = (uiLang || "").toLowerCase();
+  if (l.startsWith("en")) return "en-US";
+  if (l.startsWith("kg") || l.startsWith("ky")) return "ky-KG";
+  return "ru-RU";
+};
 
 type Props = {
   input: string;
@@ -32,6 +50,14 @@ type Props = {
   autoFocus?: boolean;
   webSearch?: boolean;
   onToggleWebSearch?: (v: boolean) => void;
+  /** Направление меню моделей: "down" на стартовом экране, "up" в диалоге. */
+  menuDirection?: "up" | "down";
+  /** Поддерживает ли выбранная модель изображения. false → блокируем отправку картинки. */
+  modelSupportsVision?: boolean;
+  /** Модель генерации картинок (FLUX/Nano Banana): фото разрешено для РЕДАКТИРОВАНИЯ. */
+  modelIsImageEdit?: boolean;
+  /** Видео-модель (image-to-video): фото разрешено как первый кадр, даже без vision. */
+  modelIsVideo?: boolean;
 };
 
 /**
@@ -51,12 +77,114 @@ export default function ChatComposer({
   autoFocus,
   webSearch = false,
   onToggleWebSearch,
+  menuDirection = "up",
+  modelSupportsVision,
+  modelIsVideo = false,
+  modelIsImageEdit = false,
 }: Props) {
-  const { t } = useTranslation("common");
+  const { t, i18n } = useTranslation("common");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const docInputRef = useRef<HTMLInputElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
+
+  // --- Голосовой ввод (Web Speech API, целиком в браузере) ---
+  // Кнопка микрофона рендерится только там, где API есть (Chrome/Edge/Safari).
+  // Feature-detect в useEffect, а не при рендере: компонент "use client", но
+  // первый рендер идёт и на сервере, где window нет.
+  const [speechSupported, setSpeechSupported] = useState(false);
+  const [recording, setRecording] = useState(false);
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  // Текст, который был в поле до начала записи, — не затираем его.
+  const baseTextRef = useRef("");
+
+  useEffect(() => {
+    setSpeechSupported(!!getSpeechRecognitionCtor());
+  }, []);
+
+  const stopRecognition = () => {
+    const rec = recognitionRef.current;
+    recognitionRef.current = null;
+    if (rec) {
+      rec.onresult = null;
+      rec.onend = null;
+      rec.onerror = null;
+      try { rec.stop(); } catch {}
+    }
+    setRecording(false);
+  };
+
+  const startRecognition = () => {
+    const Ctor = getSpeechRecognitionCtor();
+    if (!Ctor || recognitionRef.current) return;
+    let rec: SpeechRecognitionLike;
+    try {
+      rec = new Ctor();
+    } catch {
+      return;
+    }
+    rec.lang = speechLangFor(i18n?.language);
+    rec.continuous = true;
+    rec.interimResults = true;
+    baseTextRef.current = input ? input.replace(/\s+$/, "") + " " : "";
+    rec.onresult = (event: any) => {
+      // При continuous результаты накапливаются: собираем финальные и
+      // промежуточные куски из всего списка и показываем их живьём.
+      let finalText = "";
+      let interimText = "";
+      try {
+        for (let i = 0; i < event.results.length; i++) {
+          const r = event.results[i];
+          const chunk = r?.[0]?.transcript || "";
+          if (r?.isFinal) finalText += chunk;
+          else interimText += chunk;
+        }
+      } catch {
+        return;
+      }
+      setInput(baseTextRef.current + finalText + interimText);
+    };
+    rec.onend = () => {
+      // Браузер сам останавливает распознавание (тишина/таймаут) — сбрасываем.
+      if (recognitionRef.current === rec) {
+        recognitionRef.current = null;
+        setRecording(false);
+      }
+    };
+    rec.onerror = () => {
+      // not-allowed / no-speech / network — тихо выходим из режима записи.
+      if (recognitionRef.current === rec) {
+        recognitionRef.current = null;
+        setRecording(false);
+      }
+    };
+    recognitionRef.current = rec;
+    try {
+      rec.start();
+      setRecording(true);
+    } catch {
+      recognitionRef.current = null;
+      setRecording(false);
+    }
+  };
+
+  const toggleRecording = () => {
+    if (recording) stopRecognition();
+    else startRecognition();
+  };
+
+  // На размонтировании гасим активное распознавание, чтобы микрофон не висел.
+  useEffect(() => {
+    return () => {
+      const rec = recognitionRef.current;
+      recognitionRef.current = null;
+      if (rec) {
+        rec.onresult = null;
+        rec.onend = null;
+        rec.onerror = null;
+        try { rec.stop(); } catch {}
+      }
+    };
+  }, []);
 
   const autoGrow = () => {
     const el = textareaRef.current;
@@ -71,32 +199,41 @@ export default function ChatComposer({
     if (autoFocus) textareaRef.current?.focus();
   }, [autoFocus]);
 
-  // Keep composer pinned above the on-screen keyboard on mobile.
+  // Возвращаем фокус в поле ввода после ответа ИИ (disabled/loading → false) и
+  // при монтировании, чтобы пользователь продолжал печатать, не кликая по чату
+  // каждый раз (частая жалоба). Срабатывает только на смене disabled.
   useEffect(() => {
-    const vv = typeof window !== "undefined" ? window.visualViewport : null;
-    if (!vv) return;
-    const onResize = () => {
-      const overlap = Math.max(0, window.innerHeight - (vv.height + vv.offsetTop));
-      if (wrapRef.current) wrapRef.current.style.transform = overlap > 0 ? `translateY(-${overlap}px)` : "";
-    };
-    vv.addEventListener("resize", onResize);
-    vv.addEventListener("scroll", onResize);
-    return () => {
-      vv.removeEventListener("resize", onResize);
-      vv.removeEventListener("scroll", onResize);
-    };
-  }, []);
+    if (!disabled) textareaRef.current?.focus();
+  }, [disabled]);
+
+  // Удержание поля над клавиатурой на мобайле теперь делает родитель
+  // (ChatWorkspace) через высоту контейнера = visualViewport.height. Прежний
+  // translateY-хак здесь конфликтовал (на стартовом экране поле уезжало за верх).
 
   const uploading = Array.isArray(attachments) && attachments.some((a: any) => a?.status === "uploading");
   const hasDocument =
     Array.isArray(attachments) &&
     attachments.some((a: any) => a?.type === "document" || a?.type === "file");
+  const hasImage =
+    Array.isArray(attachments) && attachments.some((a: any) => a?.type === "image");
+  // Картинка прикреплена, но выбранная модель без зрения → отправку блокируем
+  // (иначе провайдер вернёт ошибку). undefined = ещё не знаем → не блокируем.
+  // Видео-модели — исключение: фото для них это первый кадр (image-to-video),
+  // поэтому картинку разрешаем, несмотря на supports_vision=false.
+  const imageNeedsVision =
+    hasImage && modelSupportsVision === false && !modelIsVideo && !modelIsImageEdit;
+
+  // Перед отправкой останавливаем голосовую запись (если шла), затем штатный onSubmit.
+  const handleSubmit = (e: FormEvent) => {
+    if (recording) stopRecognition();
+    onSubmit(e);
+  };
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (uploading) return;
+    if (uploading || imageNeedsVision) return;
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      onSubmit(e as any);
+      handleSubmit(e as any);
     }
   };
 
@@ -106,12 +243,15 @@ export default function ChatComposer({
    * response (which carries the authoritative `type`, e.g. "document", plus
    * `url`, `name`, `text`) overwrites it once parsing finishes.
    */
-  const uploadFiles = async (files: File[], kind: "media" | "document") => {
+  const uploadFiles = async (files: File[], _kind: "media" | "document" = "media") => {
     if (!files.length) return;
+    // Тип чипа определяем ПО ФАЙЛУ: единая скрепка принимает и фото, и документы
+    // (отдельная кнопка документов убрана по просьбе клиента). Сервер всё равно
+    // отдаёт authoritative type после парсинга.
     const pending = files.map((f) => ({
       name: f.name,
-      type: kind === "document" ? "document" : f.type?.startsWith("image/") ? "image" : "file",
-      preview: kind === "media" ? URL.createObjectURL(f) : undefined,
+      type: f.type?.startsWith("image/") ? "image" : "document",
+      preview: f.type?.startsWith("image/") ? URL.createObjectURL(f) : undefined,
       status: "uploading",
     }));
     setAttachments((prev) => [...prev, ...pending]);
@@ -154,13 +294,31 @@ export default function ChatComposer({
     }
   };
 
-  const onDocsPicked = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []);
-    try {
-      await uploadFiles(files, "document");
-    } finally {
-      if (docInputRef.current) docInputRef.current.value = "";
+  // Вставка из буфера обмена (Ctrl+V): скриншоты (image/*) и файлы, скопированные
+  // из проводника, грузим как вложения. Обычный текст вставляется штатно.
+  const onPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const dt = e.clipboardData;
+    if (!dt) return;
+    const collected: File[] = [];
+    if (dt.files && dt.files.length) {
+      for (const f of Array.from(dt.files)) collected.push(f);
+    } else if (dt.items && dt.items.length) {
+      for (const it of Array.from(dt.items)) {
+        if (it.kind === "file") {
+          const f = it.getAsFile();
+          if (f) collected.push(f);
+        }
+      }
     }
+    if (!collected.length) return; // обычный текст — штатное поведение
+    e.preventDefault();
+    const isDoc = (f: File) =>
+      /\.(pdf|docx?|xlsx?|pptx?|txt)$/i.test(f.name || "") ||
+      /(pdf|msword|wordprocessing|ms-excel|spreadsheet|ms-powerpoint|presentation|text\/plain)/i.test(f.type || "");
+    const docs = collected.filter(isDoc);
+    const media = collected.filter((f) => !isDoc(f));
+    if (media.length) uploadFiles(media, "media");
+    if (docs.length) uploadFiles(docs, "document");
   };
 
   return (
@@ -214,7 +372,7 @@ export default function ChatComposer({
       )}
 
       <form
-        onSubmit={onSubmit}
+        onSubmit={handleSubmit}
         className="bg-surface border border-border rounded-3xl px-3 py-2.5 shadow-lg focus-within:border-accent/60 transition-colors"
       >
         <textarea
@@ -223,6 +381,7 @@ export default function ChatComposer({
           onChange={(e) => setInput(e.target.value)}
           onInput={autoGrow}
           onKeyDown={onKeyDown}
+          onPaste={onPaste}
           rows={1}
           placeholder={
             hasDocument
@@ -233,7 +392,7 @@ export default function ChatComposer({
         />
         <div className="flex items-center justify-between gap-2 mt-1.5">
           <div className="flex items-center gap-1.5">
-            <ModelSelector value={model} onChange={onModelChange} />
+            <ModelSelector value={model} onChange={onModelChange} menuDirection={menuDirection} />
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
@@ -242,23 +401,34 @@ export default function ChatComposer({
             >
               <IoIosAttach className="text-xl" />
             </button>
+            {/* Единственная скрепка: и фото, и документы (кнопку документов убрали —
+                просьба клиента; на мобиле ряд кнопок вытеснял «Отправить»). */}
             <input ref={fileInputRef} type="file" multiple className="hidden" onChange={onFilesPicked} />
-            <button
-              type="button"
-              onClick={() => docInputRef.current?.click()}
-              className="w-9 h-9 grid place-items-center rounded-full text-muted hover:text-foreground hover:bg-surface-2 transition-colors cursor-pointer"
-              title={t("chat.attach_document", { defaultValue: "Прикрепить документ" })}
-            >
-              <FiFileText className="text-xl" />
-            </button>
-            <input
-              ref={docInputRef}
-              type="file"
-              multiple
-              accept={DOC_ACCEPT}
-              className="hidden"
-              onChange={onDocsPicked}
-            />
+            {speechSupported && (
+              <button
+                type="button"
+                onClick={toggleRecording}
+                aria-pressed={recording}
+                className={
+                  "w-9 h-9 grid place-items-center rounded-full transition-colors cursor-pointer " +
+                  (recording
+                    ? "text-rose-500 bg-rose-500/10 animate-pulse"
+                    : "text-muted hover:text-foreground hover:bg-surface-2")
+                }
+                title={
+                  recording
+                    ? t("chat.voice_stop", { defaultValue: "Остановить запись" })
+                    : t("chat.voice_input", { defaultValue: "Голосовой ввод" })
+                }
+                aria-label={
+                  recording
+                    ? t("chat.voice_stop", { defaultValue: "Остановить запись" })
+                    : t("chat.voice_input", { defaultValue: "Голосовой ввод" })
+                }
+              >
+                {recording ? <FiSquare className="text-lg" /> : <FiMic className="text-lg" />}
+              </button>
+            )}
             {onToggleWebSearch && (
               <button
                 type="button"
@@ -279,7 +449,7 @@ export default function ChatComposer({
           </div>
           <button
             type="submit"
-            disabled={disabled || uploading || !input.trim()}
+            disabled={disabled || uploading || imageNeedsVision || !input.trim()}
             className="w-10 h-10 grid place-items-center rounded-full bg-accent text-on-accent hover:bg-accent-strong transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
             title={t("chat.send", { defaultValue: "Отправить" })}
           >
@@ -287,6 +457,30 @@ export default function ChatComposer({
           </button>
         </div>
       </form>
+
+      {imageNeedsVision && (
+        <p className="mt-2 text-center text-xs text-amber-400">
+          {t("chat.image_no_vision", {
+            defaultValue:
+              "Выбранная модель не понимает изображения. Выберите ChatGPT, Gemini или Claude (с пометкой «Фото»).",
+          })}
+        </p>
+      )}
+
+      {/* Модель картинок (FLUX) + фото: подсказка про редактирование. */}
+      {!imageNeedsVision && hasImage && modelIsImageEdit && !modelIsVideo && (
+        <p className="mt-2 text-center text-xs text-muted-2">
+          {t("chat.image_edit_hint", { defaultValue: "ИИ отредактирует ваше фото по описанию" })}
+        </p>
+      )}
+
+      {/* Видео-модель + фото: мягкая подсказка (не блокирует отправку).
+          Показываем только когда предупреждение о vision НЕ активно. */}
+      {!imageNeedsVision && hasImage && modelIsVideo && (
+        <p className="mt-2 text-center text-xs text-muted-2">
+          {t("chat.image_to_video_hint", { defaultValue: "Фото станет первым кадром видео" })}
+        </p>
+      )}
     </div>
   );
 }

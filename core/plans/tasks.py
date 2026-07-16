@@ -4,12 +4,14 @@ from datetime import timedelta
 import os
 from decimal import Decimal
 from celery import shared_task
+from django.conf import settings
 from django.core.cache import cache
 from django.utils import timezone
 from django.db import transaction
 
 from plans.services import update_currency_rates, plan_cycle_days
 from plans.services import BILLING_ISSUE_CARD_MISSING, BILLING_ISSUE_CHARGE_FAILED
+from plans.wallet import set_balance_to
 from .models import UserSubscription, SubscriptionStatus, GenerationUsage, Plan
 from users.models import User, UserCardBind
 from payments.freedompay import FreedomPay, FreedomPayError
@@ -19,6 +21,7 @@ logger = logging.getLogger(__name__)
 _LOCK_KEY = "plans:currency_update:lock"
 _RENEW_GLOBAL_LOCK = "plans:renewal:lock"
 _SUNDAY_BONUS_LOCK = "plans:sunday_bonus:lock"
+_DAILY_RETENTION_LOCK = "plans:daily_retention:lock"
 _RENEW_GRACE_DAYS = 3
 
 @shared_task(
@@ -166,7 +169,8 @@ def _renew_one_subscription(sub: UserSubscription) -> bool:
 
         # Paid plan: require token
         card = UserCardBind.objects.filter(user=user).order_by("-created_at").first()
-        if not (card.card_token or "").strip():
+        card_token = (getattr(card, "card_token", "") or "").strip()
+        if not card_token:
             # No token — start/keep grace window, then disable when grace expires.
             sub.payment_status = "unpaid"
             sub.status = SubscriptionStatus.ACTIVE
@@ -281,6 +285,10 @@ def process_due_subscriptions(self) -> dict:
 
     Runs frequently (e.g., every 10 minutes) and is idempotent per sub via cache locks.
     """
+    # Легаси-подписки Vokalo сняты: вырубаем рекуррентные авто-списания,
+    # даже если beat-строка где-то осталась.
+    if not getattr(settings, "SUBSCRIPTIONS_ENABLED", False):
+        return {"status": "disabled"}
     if not cache.add(_RENEW_GLOBAL_LOCK, "1", timeout=60):
         return {"status": "busy"}
     try:
@@ -379,3 +387,89 @@ def apply_sunday_bonuses(self) -> dict:
         }
     finally:
         cache.delete(_SUNDAY_BONUS_LOCK)
+
+
+@shared_task(
+    name="plans.tasks.apply_daily_retention_bonus",
+    bind=True,
+    autoretry_for=(RuntimeError,),
+    retry_backoff=30,
+    retry_jitter=True,
+    retry_kwargs={"max_retries": 3},
+)
+def apply_daily_retention_bonus(self) -> dict:
+    """Ежедневный retention-бонус для бесплатных пользователей (ТЗ 3.3/3.4).
+
+    Кому: только бесплатным (is_paid=False), у кого баланс ниже порога
+    DAILY_RETENTION_THRESHOLD (по умолчанию 300). Платным НЕ начисляем (ТЗ 3.4).
+
+    Что делаем: ДОВОДИМ баланс до DAILY_RETENTION_TARGET (800) через
+    set_balance_to (не суммируем; no-op если уже >= target). Каждое движение
+    фиксируется в леджере TokenTransaction (reason='daily_bonus').
+
+    Идемпотентно в рамках суток на уровне эффекта: повторный запуск ничего не
+    добавит тем, кто уже доведён до target.
+    """
+    if not cache.add(_DAILY_RETENTION_LOCK, "1", timeout=60):
+        return {"status": "busy"}
+    try:
+        threshold = int(getattr(settings, "DAILY_RETENTION_THRESHOLD", 300) or 300)
+        target = int(getattr(settings, "DAILY_RETENTION_TARGET", 800) or 800)
+        try:
+            # Runtime-оверрайд из админки; при любой ошибке остаётся settings-значение.
+            from adminapi.runtime import get_runtime
+            target = int(get_runtime("DAILY_RETENTION_TARGET", target))
+        except Exception:
+            pass
+
+        qs = (
+            User.objects
+            .filter(is_paid=False, token_balance__lt=threshold)
+            .only("id", "token_balance", "is_paid")
+        )
+
+        processed = 0
+        failed = 0
+        for user in qs.iterator():
+            try:
+                set_balance_to(
+                    user,
+                    target,
+                    reason="daily_bonus",
+                    meta={"task": "daily_retention"},
+                )
+                processed += 1
+                # Web-push «зачислен бонус». Ленивый импорт + мягкая обработка:
+                # сбой пуша НЕ должен ронять задачу начисления.
+                try:
+                    from users.webpush import notify_user
+                    notify_user(
+                        user,
+                        "🎁 Ежедневный бонус зачислён!",
+                        "Время воспользоваться EsAI ✨ Кредиты уже на балансе.",
+                        url="/",
+                    )
+                except Exception:
+                    logger.exception(
+                        "daily_retention_push_failed user=%s", getattr(user, "id", None)
+                    )
+            except Exception as exc:
+                failed += 1
+                logger.exception(
+                    "daily_retention_bonus_failed user=%s: %s", getattr(user, "id", None), exc
+                )
+                continue
+
+        logger.info(
+            "daily_retention_bonus done processed=%s failed=%s threshold=%s target=%s",
+            processed, failed, threshold, target,
+        )
+        return {
+            "processed": processed,
+            "failed": failed,
+            "threshold": threshold,
+            "target": target,
+            "ts": int(timezone.now().timestamp()),
+        }
+    finally:
+        cache.delete(_DAILY_RETENTION_LOCK)

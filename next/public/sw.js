@@ -5,7 +5,7 @@
  *   - /api/* (incl. streaming chat): always network, never cached
  * Bump CACHE_VERSION to invalidate old caches on deploy.
  */
-const CACHE_VERSION = "esai-v1";
+const CACHE_VERSION = "esai-v4";
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const OFFLINE_URL = "/offline.html";
@@ -128,4 +128,44 @@ self.addEventListener("fetch", (event) => {
 // Allow the page to trigger an immediate activation after an update.
 self.addEventListener("message", (event) => {
   if (event.data === "SKIP_WAITING") self.skipWaiting();
+});
+
+/* ---------- Web Push ---------- */
+
+// Push received: show a notification. Payload is JSON when the backend sends
+// structured data; fall back to plain text / defaults so nothing is silent.
+self.addEventListener("push", (event) => {
+  let d = {};
+  try {
+    d = event.data.json();
+  } catch (e) {
+    d = { title: "EsAI", body: event.data && event.data.text ? event.data.text() : "" };
+  }
+  event.waitUntil(
+    self.registration.showNotification(d.title || "EsAI", {
+      body: d.body || "",
+      icon: d.icon || "/icon-192.png",
+      badge: d.badge || "/icon-192.png",
+      tag: d.tag || "esai",
+      data: { url: d.url || "/" },
+    })
+  );
+});
+
+// Notification click: focus an existing window (navigating it to the target
+// URL) or open a new one.
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const url = (event.notification.data && event.notification.data.url) || "/";
+  event.waitUntil(
+    clients.matchAll({ type: "window", includeUncontrolled: true }).then((list) => {
+      for (const c of list) {
+        if ("focus" in c) {
+          c.navigate && c.navigate(url);
+          return c.focus();
+        }
+      }
+      if (clients.openWindow) return clients.openWindow(url);
+    })
+  );
 });

@@ -20,7 +20,7 @@ export default function Questions() {
 
 			<div className="flex flex-col gap-5 max-w-[500px]">
 				<h3 className="text-3xl font-bold lg:text-center text-start">{t("faq.title")} 👍</h3>
-				<p className="text-gray-400">
+				<p className="text-muted">
 					{t("faq.text")}{" "}
 					<a
 						href={`mailto:${t("contact_us.write_email")}`}
@@ -32,7 +32,7 @@ export default function Questions() {
 
 				<Button
 					onClick={() => setOpen(true)}
-					className="rounded-3xl w-fit mt-5 bg-neutral-800 hover:bg-accent hover:text-on-accent duration-300 px-4 py-3"
+					className="rounded-3xl w-fit mt-5 bg-surface-2 hover:bg-accent hover:text-on-accent duration-300 px-4 py-3"
 				>
 					{t("faq.button")}
 				</Button>
@@ -69,7 +69,7 @@ export default function Questions() {
 					<Field
 						type="text"
 						name="name"
-						className="px-3 py-2 border w-full border-neutral-600 rounded-md"
+						className="px-3 py-2 border w-full border-border-strong rounded-md"
 						placeholder={t("contact_us.name_placeholder") || "Name"}
 						label={t("contact_us.name_label") || "Name"}
 					/>
@@ -78,7 +78,7 @@ export default function Questions() {
 					<Field
 						type="tel"
 						name="tel"
-						className="px-3 py-2 border w-full border-neutral-600 rounded-md"
+						className="px-3 py-2 border w-full border-border-strong rounded-md"
 						placeholder={t("contact_us.phone_placeholder") || "+996..."}
 						label={t("contact_us.phone_label") || "Phone"}
 					/>
@@ -86,7 +86,7 @@ export default function Questions() {
 					<Field
 						type="email"
 						name="email"
-						className="px-3 py-2 border w-full border-neutral-600 rounded-md"
+						className="px-3 py-2 border w-full border-border-strong rounded-md"
 						placeholder="Email"
 						label="Email"
 						required
@@ -97,7 +97,7 @@ export default function Questions() {
 						label={t("faq.questionDescription")}
 						placeholder={t("faq.questionDescriptionPlaceholder")}
 						required
-						className="px-3 py-2 border w-full border-neutral-600 rounded-md"
+						className="px-3 py-2 border w-full border-border-strong rounded-md"
 					/>
 				</SmartForm>
 			</Modal>

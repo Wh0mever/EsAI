@@ -100,6 +100,21 @@ export async function getArticle(slug: string): Promise<Article | null> {
   return article && (article.slug || article.title) ? article : null;
 }
 
+/**
+ * Fetch the flagship article for the home page WITH its full body.
+ *
+ * The list serializer (`getArticles`) omits `content`, so we take the newest
+ * published article from the list (it is already ordered newest-first) and then
+ * re-fetch its detail by slug to obtain the full markdown body. Returns null
+ * when there is no published article or the detail fetch fails.
+ */
+export async function getHomeArticle(): Promise<Article | null> {
+  const list = await getArticles();
+  const latest = list.find((a) => a && a.slug);
+  if (!latest?.slug) return null;
+  return getArticle(latest.slug);
+}
+
 /** Fetch dynamic site settings (best-effort, returns null on any failure). */
 export async function getSiteSettings(): Promise<SiteSettings | null> {
   const data = await getJson<any>(apiUrl("content/site-settings/"));
@@ -119,10 +134,20 @@ export function articleDate(a: Article): string {
   return (a.date || a.published_at || a.created_at || "").toString();
 }
 
+/** Best available display title (handles per-language API fields title_ru/en/kg). */
+export function articleTitle(a: Article): string {
+  return (a.title || a.title_ru || a.title_en || a.title_kg || "").toString();
+}
+
+/** Best available article body Markdown (handles per-language content_ru/en/kg). */
+export function articleBody(a: Article): string {
+  return (a.content || a.content_ru || a.content_en || a.content_kg || "").toString();
+}
+
 /** Best available SEO title / description with sensible fallbacks. */
 export function articleMeta(a: Article): { title: string; description: string } {
   return {
-    title: (a.meta_title || a.title || "").toString(),
+    title: (a.meta_title || articleTitle(a)).toString(),
     description: (a.meta_description || a.excerpt || "").toString(),
   };
 }

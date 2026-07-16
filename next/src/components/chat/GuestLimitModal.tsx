@@ -1,6 +1,7 @@
 "use client";
 
 import { useTranslation } from "react-i18next";
+import Link from "next/link";
 import { Modal } from "@/components/dialog/Dialog";
 import { FiLock } from "react-icons/fi";
 import SocialAuthButtons from "@/components/auth/SocialAuthButtons";
@@ -19,7 +20,7 @@ export default function GuestLimitModal({ open, onClose }: Props) {
   const { t } = useTranslation("common");
   return (
     <Modal
-      title={t("guest.limit_title", { defaultValue: "Бесплатный лимит исчерпан" })}
+      title={t("guest.limit_title", { defaultValue: "Продолжим? 🎁" })}
       open={open}
       onClose={onClose}
       size="sm"
@@ -31,11 +32,18 @@ export default function GuestLimitModal({ open, onClose }: Props) {
         <p className="text-sm text-muted mb-5">
           {t("guest.limit_desc", {
             defaultValue:
-              "Вы использовали бесплатный лимит. Войдите через Google или Telegram, чтобы продолжить.",
+              "Получите 5 кредитов в подарок за регистрацию. Без карты, без подписок.",
           })}
         </p>
 
         <SocialAuthButtons />
+
+        <Link
+          href="/auth/signin?next=/"
+          className="mt-4 inline-block text-sm text-accent-strong hover:text-accent transition-colors"
+        >
+          {t("guest.more_login_options", { defaultValue: "Все способы входа (Email)" })}
+        </Link>
       </div>
     </Modal>
   );

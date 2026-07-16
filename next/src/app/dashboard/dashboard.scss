@@ -11,13 +11,13 @@
     }
 
     &::-webkit-scrollbar {
-        background-color: #313131;
+        background-color: var(--surface-3);
         width: 8px;
         border-radius: 4px;
     }
 
     &::-webkit-scrollbar-thumb {
-         background-color: #575757;
+         background-color: var(--muted-2);
          border-radius: 4px;
     }
 

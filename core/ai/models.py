@@ -28,12 +28,58 @@ class GPTModels(models.Model):
         help_text="Top-p (0..1). Пусто — использовать значение по умолчанию")
     markup_coefficient = models.DecimalField(
         max_digits=6, decimal_places=3, default=1.0,
-        help_text="Коэффициент наценки для списания токенов")
+        help_text="ТАРИФ: сколько кредитов списывать за 1000 токенов "
+                  "(списание = total_tokens × тариф ÷ 1000). Напр. 17 = 17 кр/1000 токенов.")
+    free_tier = models.BooleanField(
+        default=False,
+        help_text="Доступна гостям и бесплатным пользователям. НЕ зависит от тарифа: "
+                  "бесплатная модель тоже списывает кредиты, просто не заблокирована пэйволом.")
+    CATEGORY_CHOICES = [
+        ("chat", "💬 Для общения"),
+        ("writing", "✍️ Тексты и SEO"),
+        ("coding", "💻 Программирование"),
+        ("reasoning", "🧠 Анализ и рассуждения"),
+        ("search", "🌐 Поиск в интернете"),
+        ("image", "🖼️ Изображения"),
+        ("fast", "⚡️ Быстрые"),
+        ("budget", "💰 Экономичные"),
+        ("video", "🎬 Видео"),
+    ]
+    category = models.CharField(
+        max_length=20, choices=CATEGORY_CHOICES, default="chat",
+        help_text="Группа в списке моделей на сайте (по назначению, не по вендору).")
+    recommended = models.BooleanField(
+        default=False,
+        help_text="Показывать также в группе «⭐ Рекомендуемые» наверху списка.")
     sort_order = models.PositiveIntegerField(default=100)
     is_active = models.BooleanField(default=True)
+    supports_vision = models.BooleanField(
+        default=False,
+        help_text="Модель принимает изображения (vision). Если выкл — отправка картинки вернёт понятную ошибку, без вызова провайдера.")
+    CARTOON_STAGE_CHOICES = [
+        ("", "—"),
+        ("script", "Сценарий"),
+        ("image", "Изображения"),
+        ("video", "Видео"),
+    ]
+    cartoon_stage = models.CharField(
+        max_length=10, blank=True, default="", choices=CARTOON_STAGE_CHOICES,
+        help_text="Этап в студии мультфильмов. Пусто — модель не участвует в студии.")
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    @property
+    def is_free(self) -> bool:
+        """Доступна ли модель на бесплатном тарифе.
+
+        Теперь определяется ЯВНЫМ флагом free_tier (а не коэффициентом), т.к.
+        после нормализации тариф бесплатной модели может быть >1 (напр. Gemini=11).
+        Гость и free-пользователь могут использовать только такие модели; остальные —
+        только платным (ТЗ 4.1). Реализация в plans/tiers.py (единый источник правды).
+        """
+        from plans.tiers import model_is_free
+        return model_is_free(self)
 
     def __str__(self):
         return self.name
@@ -134,6 +180,15 @@ class AiChatSession(models.Model):
     title = models.CharField(max_length=255, blank=True,
                              help_text="Название чата (можно генерировать по первому сообщению)")
     chat_mode = models.CharField(max_length=20, default='text-chat')
+    # Rolling-резюме более ранней части диалога. Свежие сообщения уходят в модель
+    # дословно (по токен-бюджету), а всё, что вышло за окно, сворачивается сюда
+    # фоновой задачей ai.tasks.summarize_session_context. Позволяет вести очень
+    # длинные чаты (сотни/тысячи сообщений) без потери фактов/решений и без роста
+    # стоимости запроса. БД/UI по-прежнему хранят всю переписку.
+    context_summary = models.TextField(blank=True, default="")
+    # id последнего сообщения, уже учтённого в context_summary (инкрементальная
+    # суммаризация: сворачиваем только то, что появилось после этой отметки).
+    summary_upto_message_id = models.BigIntegerField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     is_active = models.BooleanField(default=True)
@@ -172,6 +227,11 @@ class AiChatMessage(models.Model):
         ordering = ["created_at"]
         verbose_name = "AI сообщение чата"
         verbose_name_plural = "AI сообщения чата"
+        indexes = [
+            # Горячий путь: история чата грузится фильтром по session с
+            # сортировкой по created_at. Составной индекс убирает full scan.
+            models.Index(fields=["session", "created_at"], name="ai_msg_session_created_idx"),
+        ]
 
 
 class AiMessageFeedback(models.Model):

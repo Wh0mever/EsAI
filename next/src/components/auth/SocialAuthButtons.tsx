@@ -23,9 +23,7 @@ export default function SocialAuthButtons() {
         <span>{t("auth.google", { defaultValue: "Войти через Google" })}</span>
       </a>
 
-      <div className="flex justify-center min-h-[40px]">
-        <TelegramLoginButton size="large" cornerRadius={20} />
-      </div>
+      <TelegramLoginButton />
     </div>
   );
 }

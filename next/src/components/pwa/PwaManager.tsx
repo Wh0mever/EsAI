@@ -2,6 +2,8 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useTranslation } from "react-i18next";
+import Cookies from "js-cookie";
+import { autoResubscribe } from "@/tools/webPush";
 
 /** beforeinstallprompt event (not in TS DOM lib). */
 type BeforeInstallPromptEvent = Event & {
@@ -49,10 +51,29 @@ export default function PwaManager() {
       return;
     }
     const onLoad = () => {
-      navigator.serviceWorker.register("/sw.js").catch((err) => {
-        // Non-fatal: app works without SW.
-        console.warn("[PWA] SW registration failed", err);
-      });
+      navigator.serviceWorker
+        .register("/sw.js")
+        .then(() => {
+          // Only for users who already opted in (cookie access) AND already
+          // granted notifications — silently refresh their push subscription
+          // (endpoint can rotate). NEVER request permission here: iOS requires
+          // a user gesture, so the actual opt-in lives on a button in the UI.
+          try {
+            if (
+              Cookies.get("access") &&
+              "Notification" in window &&
+              Notification.permission === "granted"
+            ) {
+              autoResubscribe();
+            }
+          } catch {
+            /* non-fatal */
+          }
+        })
+        .catch((err) => {
+          // Non-fatal: app works without SW.
+          console.warn("[PWA] SW registration failed", err);
+        });
     };
     if (document.readyState === "complete") onLoad();
     else window.addEventListener("load", onLoad, { once: true });
@@ -131,7 +152,8 @@ export default function PwaManager() {
   return (
     <div className="fixed inset-x-0 bottom-0 z-[1100] px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pointer-events-none">
       <div className="pointer-events-auto mx-auto max-w-md rounded-2xl border border-border bg-surface shadow-lg p-3.5 flex items-start gap-3">
-        <img src="/esai-mark.svg" alt="EsAI" className="w-10 h-10 rounded-xl shrink-0" />
+        {/* ring: тёмный квадрат метки не сливается с bg-surface в тёмной теме */}
+        <img src="/esai-mark.svg" alt="EsAI" className="w-10 h-10 rounded-xl ring-1 ring-border shrink-0" />
         <div className="min-w-0 flex-1">
           <p className="text-foreground font-semibold text-sm">
             {t("pwa.install_title", { defaultValue: "Установить приложение EsAI" })}

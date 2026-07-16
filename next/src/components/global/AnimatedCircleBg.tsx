@@ -1,7 +1,9 @@
 export default function Breadcrumb() {
     return (
         <div
-            className="absolute top-0 w-full overflow-hidden -z-1"
+            // esai-breadcrumb-art: в светлой теме декорация приглушается (globals.css),
+            // иначе тёмный «круг» убивает контраст тёмных заголовков поверх него.
+            className="esai-breadcrumb-art absolute top-0 w-full overflow-hidden -z-1"
             style={{
                 WebkitMaskImage:
                     "linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,1) 82%, rgba(0,0,0,0) 100%)",

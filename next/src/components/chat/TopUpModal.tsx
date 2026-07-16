@@ -13,6 +13,9 @@ type Pkg = {
   bonus_tokens?: number;
   price: number;
   currency: string;
+  sort_order?: number;
+  badge?: string;
+  featured?: boolean;
 };
 
 type Props = {
@@ -42,8 +45,9 @@ export default function TopUpModal({ open, onClose }: Props) {
       try {
         const res = await fetchData<Pkg[]>("plans/packages/", "GET", null, false);
         if (cancelled) return;
-        if (res?.ok && Array.isArray(res.data)) setPackages(res.data);
-        else setError(t("topup.load_error", { defaultValue: "Не удалось загрузить пакеты" }));
+        if (res?.ok && Array.isArray(res.data)) {
+          setPackages([...res.data].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)));
+        } else setError(t("topup.load_error", { defaultValue: "Не удалось загрузить пакеты" }));
       } catch {
         if (!cancelled) setError(t("topup.load_error", { defaultValue: "Не удалось загрузить пакеты" }));
       } finally {
@@ -80,7 +84,7 @@ export default function TopUpModal({ open, onClose }: Props) {
   };
 
   return (
-    <Modal title={t("topup.title", { defaultValue: "Пополнить баланс" })} open={open} onClose={onClose} size="lg">
+    <Modal title={t("topup.title", { defaultValue: "Выберите пакет кредитов" })} open={open} onClose={onClose} size="lg">
       <div className="p-1 sm:p-2">
         {loading && (
           <div className="py-10 text-center text-muted">{t("common.loading", { defaultValue: "Загрузка..." })}</div>
@@ -97,12 +101,23 @@ export default function TopUpModal({ open, onClose }: Props) {
           {packages.map((p) => (
             <div
               key={p.id}
-              className="rounded-2xl border border-border bg-surface hover:border-accent/60 transition-colors p-4 flex flex-col"
+              className={`rounded-2xl bg-surface transition-colors p-4 flex flex-col ${
+                p.featured
+                  ? "border-2 border-accent shadow-md shadow-accent/10"
+                  : "border border-border hover:border-accent/60"
+              }`}
             >
-              <div className="text-sm font-semibold text-foreground">{p.name}</div>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-sm font-semibold text-foreground">{p.name}</span>
+                {p.badge && p.badge.trim() && (
+                  <span className="shrink-0 rounded-full bg-accent/15 text-accent-strong text-[11px] font-medium px-2 py-0.5 whitespace-nowrap">
+                    {p.badge}
+                  </span>
+                )}
+              </div>
               <div className="mt-2 flex items-baseline gap-1">
                 <span className="text-2xl font-bold text-foreground">{p.tokens.toLocaleString()}</span>
-                <span className="text-xs text-muted">{t("topup.tokens", { defaultValue: "токенов" })}</span>
+                <span className="text-xs text-muted">{t("topup.credits", { defaultValue: "кредитов" })}</span>
               </div>
               {!!p.bonus_tokens && p.bonus_tokens > 0 && (
                 <div className="mt-1 inline-flex items-center gap-1 text-xs text-accent">
@@ -110,7 +125,7 @@ export default function TopUpModal({ open, onClose }: Props) {
                 </div>
               )}
               <div className="mt-3 text-lg font-semibold text-foreground">
-                {p.price.toLocaleString()} {p.currency}
+                {p.price.toLocaleString()} {p.currency === "KGS" ? t("topup.som", { defaultValue: "сом" }) : p.currency}
               </div>
               <button
                 type="button"

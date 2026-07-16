@@ -3,7 +3,7 @@ import type { MetadataRoute } from "next";
 // PWA manifest (ТЗ 2.14). Served at /manifest.webmanifest by Next.
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "EsAI — Все AI в одном месте",
+    name: "EsAI",
     short_name: "EsAI",
     description:
       "EsAI — все нейросети в одном чате: ChatGPT, DeepSeek, Claude, Gemini. На русском, кыргызском и английском.",

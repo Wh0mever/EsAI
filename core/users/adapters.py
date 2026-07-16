@@ -6,6 +6,32 @@ from django.conf import settings
 from django.http import HttpResponseRedirect
 
 
+def _allowed_frontend_hosts() -> set:
+    """Allowlist разрешённых хостов для редиректа с JWT.
+
+    Собираем из доверенных настроек (SITE_BASE_URL, CSRF_TRUSTED_ORIGINS,
+    ALLOWED_HOSTS). Хост из запроса (в т.ч. x-forwarded-host) принимается
+    ТОЛЬКО если он есть в этом списке — иначе защита от host-poisoning.
+    """
+    from urllib.parse import urlsplit
+
+    hosts = set()
+    configured = (getattr(settings, "SITE_BASE_URL", "") or "").strip().rstrip("/")
+    if configured:
+        netloc = urlsplit(configured).netloc
+        if netloc:
+            hosts.add(netloc.lower())
+    for origin in (getattr(settings, "CSRF_TRUSTED_ORIGINS", []) or []):
+        netloc = urlsplit(origin).netloc
+        if netloc:
+            hosts.add(netloc.lower())
+    for h in (getattr(settings, "ALLOWED_HOSTS", []) or []):
+        h = (h or "").strip().lower().lstrip("*.")
+        if h and h != "*":
+            hosts.add(h)
+    return hosts
+
+
 def _frontend_base_from_request(request) -> str:
     configured = (getattr(settings, "SITE_BASE_URL", "") or "").strip().rstrip("/")
     raw_host = (
@@ -16,7 +42,9 @@ def _frontend_base_from_request(request) -> str:
     host = (raw_host or "").split(",")[0].strip()
     proto_raw = request.headers.get("x-forwarded-proto") or ""
     proto = (proto_raw.split(",")[0].strip().lower() or ("https" if request.is_secure() else "http"))
-    if host:
+    # Защита от host-poisoning: доверяем присланному хосту ТОЛЬКО если он
+    # в allowlist. Иначе JWT-редирект мог бы уйти на домен атакующего (ATO).
+    if host and host.split(":")[0].lower() in _allowed_frontend_hosts():
         return f"{proto}://{host}"
     return configured or "http://127.0.0.1:3000"
 
@@ -80,9 +108,24 @@ class SocialAccountAdapter(DefaultSocialAccountAdapter):
         if provider == "telegram" and telegram_username and not getattr(user, "telegram", None):
             user.telegram = str(telegram_username).strip().lstrip("@")[:30]
 
+        # Аватар из соц-входа: Telegram → photo_url, Google → picture.
+        avatar = (extra.get("photo_url") or extra.get("picture") or "").strip()
+        if avatar and not getattr(user, "avatar_url", ""):
+            user.avatar_url = avatar[:512]
+
         user.is_confirmed = True
 
         return user
+
+    def is_auto_signup_allowed(self, request, sociallogin):
+        """Всегда авто-создаём аккаунт соц-входа БЕЗ промежуточной формы allauth.
+
+        Telegram не отдаёт email → allauth по умолчанию показывает свою страшную
+        форму «Зарегистрируйтесь / укажите email». Нам это не нужно: email-фолбэк
+        проставляется в populate_user, аккаунт создаётся при первом входе сам
+        (как у Google). Возвращаем True → форма пропускается, юзер логинится сразу.
+        """
+        return True
 
     def pre_social_login(self, request, sociallogin):
         """Auto-link social account to existing user by email.
@@ -90,11 +133,23 @@ class SocialAccountAdapter(DefaultSocialAccountAdapter):
         Prevents IntegrityError(UNIQUE email) when provider returns an email
         that already exists in our DB from classic (password/code) signup.
         """
+        # Аватар: обновляем на КАЖДОМ входе (фото в Telegram/Google могло
+        # смениться). Для нового юзера (ещё без pk) аватар проставит populate_user.
+        extra = getattr(sociallogin.account, "extra_data", {}) or {}
+        avatar = (extra.get("photo_url") or extra.get("picture") or "").strip()[:512]
+        if avatar:
+            u = getattr(sociallogin, "user", None)
+            if u is not None and getattr(u, "pk", None) and getattr(u, "avatar_url", "") != avatar:
+                u.avatar_url = avatar
+                try:
+                    u.save(update_fields=["avatar_url"])
+                except Exception:
+                    pass
+
         # If account already linked or no email — nothing to do
         if sociallogin.is_existing:
             return
 
-        extra = getattr(sociallogin.account, "extra_data", {}) or {}
         email = (
             extra.get("email")
             or getattr(sociallogin.user, "email", None)
@@ -154,11 +209,33 @@ class SocialAccountAdapter(DefaultSocialAccountAdapter):
             except Exception:
                 pass
         # Приветственный бонус (3000 токенов) новым пользователям соц-входа.
+        # Антифрод v1: approve → начислить сразу, delay → отложить на 24ч.
         # Идемпотентно (по reason='welcome'), повторно не начислит.
         if user:
             try:
-                from plans.wallet import grant_welcome_bonus
-                grant_welcome_bonus(user)
+                from .antifraud import maybe_grant_welcome_bonus
+                maybe_grant_welcome_bonus(user, request)
+            except Exception:
+                pass
+            try:
+                # Привязка реферера (код в cookie esai_ref). Кредиты НЕ начисляются
+                # тут — реферер получает % при каждом пополнении приглашённого.
+                from .services import maybe_link_referrer
+                maybe_link_referrer(request, user)
+            except Exception:
+                pass
+            try:
+                # Промокод при регистрации (cookie esai_promo или поле promo) — тихо.
+                from .services import maybe_activate_promo_on_signup
+                maybe_activate_promo_on_signup(request, user)
+            except Exception:
+                pass
+            # Пометка «новый пользователь» для приветственного окна на фронте.
+            # save_user вызывается только при СОЗДАНИИ соц-аккаунта; auth_complete
+            # прочитает флаг и допишет welcome=1 в редирект на /auth/callback.
+            try:
+                from django.core.cache import cache
+                cache.set(f"welcome_show:{user.pk}", "1", 600)
             except Exception:
                 pass
         return user

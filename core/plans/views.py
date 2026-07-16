@@ -8,7 +8,7 @@ from rest_framework.exceptions import NotFound
 
 from .models import (
     Plan, UserSubscription, AddonPurchase, SubscriptionStatus, PaymentStatus,
-    TokenPackage, TokenTransaction,
+    TokenPackage, TokenTransaction, ExitDiscountOffer,
 )
 from .serializers import (
     PlanSerializer, UserSubscriptionSerializer,
@@ -83,93 +83,58 @@ class MeSubscriptionView(generics.GenericAPIView):
         return Response(self.get_serializer(sub).data)
 
 
-class MeUsageView(generics.GenericAPIView):
-    """Only usage counters for the current active subscription."""
+class MeUsageView(APIView):
+    """Легаси-эндпоинт подписочного usage снят (Vokalo). Отвечает 410."""
+    authentication_classes = [JWTAuthentication]
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request, *args, **kwargs):
-        sub = (UserSubscription.objects
-               .select_related("plan", "usage")
-               .filter(user=request.user, status=SubscriptionStatus.ACTIVE)
-               .order_by("-start_date")
-               .first())
-        if not sub or not hasattr(sub, "usage"):
-            raise NotFound("Usage not found.")
-        return Response(GenerationUsageSerializer(sub.usage).data)
+        return Response({"detail": "subscriptions_deprecated"}, status=410)
 
 
-class MeAddonsView(generics.ListAPIView):
-    """Add-on purchases of the current user profile."""
+class MeAddonsView(APIView):
+    """Легаси-эндпоинт подписочных аддонов снят (Vokalo). Отвечает 410."""
+    authentication_classes = [JWTAuthentication]
     permission_classes = [permissions.IsAuthenticated]
-    serializer_class = AddonPurchaseSerializer
 
-    def get_queryset(self):
-        return (AddonPurchase.objects
-                .filter(user=self.request.user)
-                .order_by("-purchase_date"))
+    def get(self, request, *args, **kwargs):
+        return Response({"detail": "subscriptions_deprecated"}, status=410)
 
 
 class UnsubscribeView(APIView):
-    """Disable auto-renew for the current active subscription."""
+    """Легаси-отписка снята (Vokalo). Отвечает 410."""
 
     authentication_classes = [JWTAuthentication]
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, *args, **kwargs):
-        sub = (UserSubscription.objects
-               .select_related("plan", "usage", "user")
-               .filter(user=request.user, status=SubscriptionStatus.ACTIVE)
-               .order_by("-start_date")
-               .first())
-        if not sub:
-            raise NotFound("Active subscription not found.")
-        if sub.auto_renew:
-            sub.auto_renew = False
-            sub.save(update_fields=["auto_renew"])
-        if getattr(request.user, "auto_renew", True):
-            request.user.auto_renew = False
-            request.user.save(update_fields=["auto_renew"])
-        return Response(UserSubscriptionSerializer(sub).data, status=200)
+        return Response({"detail": "subscriptions_deprecated"}, status=410)
 
 
 class ResumeSubscriptionView(APIView):
-    """Re-enable auto-renew for the current active subscription."""
+    """Легаси-возобновление подписки снято (Vokalo). Отвечает 410."""
 
     authentication_classes = [JWTAuthentication]
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, *args, **kwargs):
-        sub = (UserSubscription.objects
-               .select_related("plan", "usage", "user")
-               .filter(user=request.user, status=SubscriptionStatus.ACTIVE)
-               .order_by("-start_date")
-               .first())
-        if not sub:
-            raise NotFound("Active subscription not found.")
-        if not sub.auto_renew:
-            sub.auto_renew = True
-            sub.save(update_fields=["auto_renew"])
-        if not getattr(request.user, "auto_renew", True):
-            request.user.auto_renew = True
-            request.user.save(update_fields=["auto_renew"])
-        return Response(UserSubscriptionSerializer(sub).data, status=200)
+        return Response({"detail": "subscriptions_deprecated"}, status=410)
 
 
 class ActivatePlanView(APIView):
-    """Activate a plan for the current user if prerequisites are met.
+    """Легаси-активация подписок Vokalo снята.
 
-    Conditions:
-    - User must be authenticated
-    - Plan must exist and be active
-    - User must NOT have an active subscription
-
-    On success, creates an ACTIVE subscription with UNPAID status and initializes usage.
+    Подписочная модель заменена на pay-as-you-go токены, поэтому эндпоинт
+    больше не создаёт подписку и не списывает деньги — он отвечает 410 Gone.
     """
 
     authentication_classes = [JWTAuthentication]
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request, plan_id: int):
+        return Response({"detail": "subscriptions_deprecated"}, status=410)
+
+    def _legacy_post(self, request, plan_id: int):
         # Current active subscription (may be for a different plan)
         existing = (UserSubscription.objects
                     .select_related("plan")
@@ -305,13 +270,26 @@ class ActivatePlanView(APIView):
 
 
 class TokenBalanceView(APIView):
-    """GET /api/plans/balance/ — текущий баланс токенов пользователя."""
+    """GET /api/plans/balance/ — текущий баланс токенов пользователя.
+
+    Помимо баланса возвращает тир (`tier`) и флаг `is_paid`, чтобы фронт знал,
+    показывать ли пэйвол/замочки на премиум-моделях (ТЗ 4.1).
+    """
     authentication_classes = [JWTAuthentication]
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
+        from .tiers import user_tier
+
         balance = int(getattr(request.user, "token_balance", 0) or 0)
-        return Response({"balance_tokens": balance}, status=200)
+        return Response(
+            {
+                "balance_tokens": balance,
+                "tier": user_tier(request.user),
+                "is_paid": bool(getattr(request.user, "is_paid", False)),
+            },
+            status=200,
+        )
 
 
 class TokenPackageListView(generics.ListAPIView):
@@ -321,6 +299,30 @@ class TokenPackageListView(generics.ListAPIView):
 
     def get_queryset(self):
         return TokenPackage.objects.filter(is_active=True).order_by("sort_order", "id")
+
+
+class TokenPackageValueListView(APIView):
+    """GET /api/plans/packages/value/ — публичный расчёт "на что хватит" пакета.
+
+    Фундамент для калькулятора на сайте: для каждого активного пакета
+    возвращает базовые поля + оценку количества единиц результата
+    (сообщений/картинок/видео/страниц) на эталонных моделях
+    (plans/credit_value.py). Если для какой-то категории эталонная модель не
+    настроена/неактивна — категория просто отсутствует в value у ВСЕХ
+    пакетов (см. логи WARNING), но ответ всё равно 200 с остальными данными.
+    """
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        from .credit_value import compute_all_packages_value
+
+        try:
+            packages = compute_all_packages_value()
+        except Exception:
+            logging.getLogger(__name__).exception(
+                "TokenPackageValueListView: compute_all_packages_value failed")
+            packages = []
+        return Response({"packages": packages})
 
 
 class TokenTransactionListView(generics.ListAPIView):
@@ -351,6 +353,7 @@ class TokenPurchaseView(APIView):
         from payments.views import _parse_fp_response
         from payments.models import Payment
         from django.urls import reverse
+        from .exit_discount import _resolve_identity
 
         package_id = (request.data or {}).get("package_id")
         try:
@@ -358,8 +361,8 @@ class TokenPurchaseView(APIView):
         except (TokenPackage.DoesNotExist, TypeError, ValueError):
             return Response({"message": "package_not_found"}, status=drf_status.HTTP_404_NOT_FOUND)
 
-        amount = Decimal(str(package.price or 0)).quantize(Decimal("0.01"))
-        if amount <= 0:
+        base_amount = Decimal(str(package.price or 0)).quantize(Decimal("0.01"))
+        if base_amount <= 0:
             return Response({"message": "package_not_payable"}, status=drf_status.HTTP_400_BAD_REQUEST)
         currency = (package.currency or "KGS").strip().upper()
 
@@ -369,39 +372,90 @@ class TokenPurchaseView(APIView):
         if not (merchant_id and secret and init_url):
             return Response({"detail": "freedompay_config_missing"}, status=drf_status.HTTP_502_BAD_GATEWAY)
 
-        order_id = f"tokpkg-{request.user.id}-{package.id}-{uuid.uuid4().hex[:10]}"
-        payload = {
-            "pg_merchant_id": merchant_id,
-            "pg_amount": format(amount, "f"),
-            "pg_currency": currency,
-            "pg_order_id": order_id,
-            "pg_user_id": str(request.user.id),
-            "pg_description": f"Token package #{package.id} for user #{request.user.id}",
-            "pg_salt": uuid.uuid4().hex,
-            "pg_success_url": request.build_absolute_uri(reverse("payments:freedompay-tokens-success")),
-            "pg_failure_url": request.build_absolute_uri(reverse("payments:freedompay-tokens-failure")),
-            "pg_post_link": request.build_absolute_uri(reverse("payments:freedompay-tokens-postback")),
-            "pg_testing_mode": int(settings.DEBUG),
-        }
-        payload["pg_sig"] = make_api_signature("init_payment", payload, secret)
+        # Exit-intent скидка (see plans/exit_discount.py): если у пользователя/устройства
+        # есть подтверждённый (claimed_at) и ещё не погашенный/не истёкший оффер — платим
+        # меньше за ТОТ ЖЕ пакет (то же количество tokens+bonus_tokens). Лок + бронирование
+        # оффера конкретным платежом (applied_to_payment) делаются в одной короткой
+        # atomic-транзакции вместе с созданием Payment, ДО любого сетевого вызова к
+        # FreedomPay — чтобы 2 параллельных клика "Купить" не могли оба получить скидку.
+        identity = _resolve_identity(request)
+        ident_user, device_key = identity["user"], identity["device_key"]
+        now = timezone.now()
 
-        payment = Payment.objects.create(
-            user=request.user,
-            amount=amount,
-            currency=currency,
-            order_id=order_id,
-            description=f"Token package purchase #{package.id}",
-            is_test=settings.DEBUG,
-            request={
+        with transaction.atomic():
+            discount_offer = None
+            offer = None
+            if ident_user is not None:
+                offer = ExitDiscountOffer.objects.select_for_update().filter(user=ident_user).first()
+            if offer is None and device_key:
+                offer = ExitDiscountOffer.objects.select_for_update().filter(device_key=device_key).first()
+
+            if (
+                offer is not None
+                and offer.claimed_at is not None
+                and offer.redeemed_at is None
+                and offer.applied_to_payment_id is None
+                and offer.expires_at is not None
+                and now <= offer.expires_at
+                and offer.percent
+            ):
+                discount_offer = offer
+
+            if discount_offer is not None:
+                percent = Decimal(int(discount_offer.percent))
+                amount = (base_amount * (Decimal(100) - percent) / Decimal(100)).quantize(Decimal("0.01"))
+                if amount <= 0 or amount >= base_amount:
+                    # Защита от бракованной конфигурации (0% или >=100%) — не применяем скидку.
+                    discount_offer = None
+                    amount = base_amount
+            else:
+                amount = base_amount
+
+            order_id = f"tokpkg-{request.user.id}-{package.id}-{uuid.uuid4().hex[:10]}"
+            payload = {
+                "pg_merchant_id": merchant_id,
+                "pg_amount": format(amount, "f"),
+                "pg_currency": currency,
+                "pg_order_id": order_id,
+                "pg_user_id": str(request.user.id),
+                "pg_description": f"Token package #{package.id} for user #{request.user.id}",
+                "pg_salt": uuid.uuid4().hex,
+                "pg_success_url": request.build_absolute_uri(reverse("payments:freedompay-tokens-success")),
+                "pg_failure_url": request.build_absolute_uri(reverse("payments:freedompay-tokens-failure")),
+                "pg_post_link": request.build_absolute_uri(reverse("payments:freedompay-tokens-postback")),
+                "pg_testing_mode": int(settings.DEBUG),
+            }
+            payload["pg_sig"] = make_api_signature("init_payment", payload, secret)
+
+            request_payload = {
                 "token_purchase": {
                     "package_id": package.id,
                     "tokens": int(package.tokens or 0),
                     "bonus_tokens": int(package.bonus_tokens or 0),
                     "payload": payload,
                 }
-            },
-            response={},
-        )
+            }
+            if discount_offer is not None:
+                request_payload["exit_discount"] = {
+                    "offer_id": discount_offer.id,
+                    "percent": int(discount_offer.percent),
+                    "original_amount": str(base_amount),
+                }
+
+            payment = Payment.objects.create(
+                user=request.user,
+                amount=amount,
+                currency=currency,
+                order_id=order_id,
+                description=f"Token package purchase #{package.id}",
+                is_test=settings.DEBUG,
+                request=request_payload,
+                response={},
+            )
+
+            if discount_offer is not None:
+                discount_offer.applied_to_payment = payment
+                discount_offer.save(update_fields=["applied_to_payment"])
 
         try:
             response = requests.post(init_url, data=payload, timeout=30)

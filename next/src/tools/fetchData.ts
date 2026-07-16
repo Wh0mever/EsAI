@@ -106,8 +106,9 @@ async function refreshAuth(): Promise<boolean> {
 		const newAccess = data?.access;
 		const newRefresh = data?.refresh;
 
-        if (newAccess) Cookies.set("access", newAccess, { expires: 7 });
-        if (newRefresh) Cookies.set("refresh", newRefresh, { expires: 15 });
+        // Cookie-хардненинг: secure + sameSite lax (lax переживает возврат из OAuth); access короткоживущий.
+        if (newAccess) Cookies.set("access", newAccess, { expires: 0.5, secure: true, sameSite: "lax" });
+        if (newRefresh) Cookies.set("refresh", newRefresh, { expires: 15, secure: true, sameSite: "lax" });
         return Boolean(newAccess);
     } catch {
         return false;

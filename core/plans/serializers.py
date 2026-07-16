@@ -182,7 +182,10 @@ class AddonPurchaseSerializer(serializers.ModelSerializer):
 class TokenPackageSerializer(serializers.ModelSerializer):
     class Meta:
         model = TokenPackage
-        fields = ("id", "name", "tokens", "bonus_tokens", "price", "currency")
+        fields = (
+            "id", "name", "tokens", "bonus_tokens", "price", "currency",
+            "description", "badge", "featured", "sort_order",
+        )
 
 
 class TokenTransactionSerializer(serializers.ModelSerializer):

@@ -11,7 +11,52 @@
 		"notifications": "Notifications",
 		"prev": "Prev",
 		"next": "Next",
-		"close": "Close"
+		"close": "Close",
+		"new_badge": "New",
+		"continue": "Continue",
+		"open_menu": "Open menu",
+		"close_menu": "Close menu",
+		"back_to_top": "Back to top"
+	},
+	"studio": {
+		"badge": "New EsAI section",
+		"step": {
+			"choose": "What to use",
+			"no_models": "Options coming soon",
+			"locked": "Available on a paid package",
+			"examples": "For example, try"
+		},
+		"step1": {
+			"name": "Script",
+			"title": "Script",
+			"subtitle": "Describe an idea — the AI will write the script and scenes.",
+			"result": "You get a ready story with characters and scenes",
+			"cta": "Start the script",
+			"ex1": "A cartoon about a brave kitten who saves his friends",
+			"ex2": "A fun story about a robot and his dog in space"
+		},
+		"step2": {
+			"name": "Characters",
+			"title": "Characters and images",
+			"subtitle": "Describe a character or scene — the AI will draw it.",
+			"result": "You get beautiful pictures of characters and places",
+			"cta": "Draw",
+			"ex1": "A cute ginger kitten in a blue superhero cape",
+			"ex2": "A kind robot with big eyes against a backdrop of planets"
+		},
+		"step3": {
+			"name": "Video",
+			"title": "Video and animation",
+			"subtitle": "Bring a picture to life or describe a scene — get a video.",
+			"result": "You get a short video where everything moves",
+			"cta": "Create video",
+			"ex1": "A kitten runs across a field of flowers, the camera follows it",
+			"ex2": "A robot waves its hand and smiles, stars flying around"
+		},
+		"seo_title": "Create cartoons — EsAI studio: script, characters, video",
+		"seo_description": "Think of a story, draw characters and bring them to life in a video — right in EsAI, no skills required. Step-by-step studio: AI writes scripts, draws characters and creates videos.",
+		"og_title": "Create cartoons — EsAI studio",
+		"og_description": "From idea to finished cartoon: AI will write the script, draw the characters and bring them to life in video. No skills required."
 	},
 	"compass": {
 		"1": "Songs",
@@ -93,13 +138,28 @@
 		"questions": "Still have questions?",
 		"questionsText": "Didn't find the answer here? You can contact us at",
 		"questionsLink": "Go to FAQ",
-		"all": "All"
+		"all": "All",
+		"whatsEnough": {
+			"title": "What's it enough for?",
+			"subtitle": "Choose what you'll use most often — we'll show real numbers for each package.",
+			"scenario_text": "Chatting with AI",
+			"scenario_image": "Image generation",
+			"scenario_video": "Video generation",
+			"scenario_document": "Working with documents",
+			"row_text": "Up to {{count}} requests to {{model}}",
+			"row_image": "Up to {{count}} images with {{model}}",
+			"row_video": "Up to {{count}} videos with {{model}}",
+			"row_document": "Up to {{count}} translated pages with {{model}}",
+			"recommended_badge": "Recommended for this task",
+			"load_error": "Could not load the calculation. Try refreshing the page.",
+			"no_data": "No data available for this scenario yet."
+		}
 	},
 	"pricing_referral": {
 		"referral_title": "EsAI Referral Program",
 		"referral_subtitle": "Expand your limits with our referral program.",
 		"referral_line": "A friend of my friend is my friend 🙂",
-		"referral_desc": "Increase your limits for each new user registered with your unique referral code.",
+		"referral_desc": "Earn bonus credits for every new user registered with your referral code.",
 		"referral_more": "Learn more"
 	},
 	"date": {
@@ -196,11 +256,11 @@
 		"tel": "Phone",
 		"have_account": "Already have an account?",
 		"start_here": "starts here!",
-		"welcome": "EsAI.kg — все флагманские нейросети в одном месте.",
+		"welcome": "EsAI.kg — all flagship AI models in one place.",
 		"create_music": "Access top AI models in seconds",
 		"create_pictures": "Generate text, code and images with neural networks",
-		"gpt": "ChatGPT, DeepSeek, Claude, Gemini, Grok, Mistral и Perplexity для учебы, работы и бизнеса.",
-		"you_can": "Молниеносная скорость работы и удобная оплата в кыргызских сомах.",
+		"gpt": "ChatGPT, DeepSeek, Claude, Gemini, Grok and Perplexity for study, work and business.",
+		"you_can": "Lightning-fast performance and convenient payment in Kyrgyz som.",
 		"signin_with_phone": "Sign in with phone number",
 		"signin_with_email": "Sign in with email",
 		"dont_have_account": "Don't have an account?",
@@ -218,11 +278,13 @@
 		"referral_code": "Referral code",
 		"enter_referral_code": "Enter referral code (optional)",
 		"get_code": "Get code",
-		"cta_part1": "Sign in with 1 click and get",
+		"cta_part1": "🎁 Sign in with 1 click and get 5 free credits.",
 		"cta_credits": "3,000 credits",
 		"cta_part2": "No card. No subscriptions.",
 		"code_sent_to": "Code sent to email",
-		"auto_create_hint": "First time? An account will be created automatically."
+		"auto_create_hint": "First time? An account will be created automatically.",
+		"hero_title": "EsAI — All AI models in one place.",
+		"hero_subtitle": "No unnecessary spending or subscriptions."
 	},
 	"auth_extra": {},
 	"pages_titles": {
@@ -268,48 +330,93 @@
 		"message_sended": "Your message was sent",
 		"questions": {
 			"0": {
-				"q": "How do I start using AI in EsAI?",
-				"a": "Open the chat, pick a model (ChatGPT, Claude, Gemini, DeepSeek and more), type your request — and get an answer in seconds. No registration required to try."
+				"q": "What is EsAI?",
+				"a": [
+					"EsAI is a single platform that brings together the most popular AI models.",
+					"In one place you can use ChatGPT, Claude, Gemini, DeepSeek, DeepSeek R1, Grok and Perplexity — without switching between different services."
+				]
 			},
 			"1": {
-				"q": "How many generations are available in my plan?",
+				"q": "How do I get started?",
 				"a": [
-					"Free — 1 generation per day for 7 days",
-					"Basic — 50 generations per month",
-					"Standard — 100 generations + bonuses",
-					"Pro, Premium, Enterprise — extended limits and discounts"
+					"Pick the AI model you need, ask your question and get an answer in seconds.",
+					"After signing up you receive welcome bonus credits and can start using EsAI right away."
 				]
 			},
 			"2": {
-				"q": "What if generation fails?",
-				"a": "If you see an error or strange result, just try again — generations are only deducted on success. If the problem persists, contact support."
+				"q": "Do I need a subscription?",
+				"a": [
+					"No. EsAI has no mandatory subscription.",
+					"You top up your balance with credits yourself and use them whenever you actually need them."
+				]
 			},
 			"3": {
-				"q": "How to activate the trial?",
-				"a": "After registration, you’ll immediately get 5 free generations without linking a card. Want full 7-day trial access? Simply link your bank card — this helps us prevent spam. Everything is secure: no charges will be made without your confirmation."
+				"q": "What are credits?",
+				"a": [
+					"Credits are EsAI's internal currency.",
+					"They are spent on every request to an AI model.",
+					"The more powerful the chosen model and the longer the request and response, the more credits are needed."
+				]
 			},
 			"4": {
-				"q": "How to pay for a subscription?",
+				"q": "Why do different AI models use different amounts of credits?",
 				"a": [
-					"Freedom Pay (Kyrgyzstan)",
-					"YuMoney (Russia & CIS)",
-					"USDT TRC20 (Payment receipt required)",
-					"Bank cards and e-wallets",
-					"All payments are secure"
+					"The cost of running AI models varies.",
+					"That's why each model spends credits at its own rate.",
+					"After every answer EsAI immediately shows how many credits were charged for that specific request."
 				]
 			},
 			"5": {
-				"q": "How does the referral program work?",
-				"a": "Invite friends using your referral link and get bonus generations. +5 free generations for each active user."
+				"q": "Do credits expire?",
+				"a": [
+					"No. Credits never expire and stay on your balance until you use them."
+				]
 			},
 			"6": {
-				"q": "How to change or cancel my plan?",
-				"a": "Go to your account, select a plan and click \"Switch\". You can cancel anytime — access stays until the end of the paid period."
+				"q": "How do I top up my balance?",
+				"a": [
+					"You can top up your balance via Freedom Pay.",
+					"At checkout you can choose the most convenient payment method:",
+					"• Bank card (Visa, Mastercard, Elkart)",
+					"• Internet banking",
+					"• E-wallets",
+					"• Mobile phone balance",
+					"• Payment terminals",
+					"All payments go through the secure Freedom Pay payment system."
+				]
 			},
 			"7": {
-				"q": "How to contact support?",
-				"a": "Write to support@esai.kg or Telegram: @EsaiSupportBot"
+				"q": "Is payment secure?",
+				"a": [
+					"Yes. All payments are processed by the Freedom Pay payment system.",
+					"EsAI does not store users' bank card details."
+				]
+			},
+			"8": {
+				"q": "How does the referral program work?",
+				"a": [
+					"Invite friends with your referral link and earn bonus credits for every new user.",
+					"The bonus amount may change as part of promotions and special offers."
+				]
+			},
+			"9": {
+				"q": "What if an AI model didn't respond?",
+				"a": [
+					"Try sending your request again.",
+					"If the problem persists, contact our support team — we'll be glad to help."
+				]
+			},
+			"10": {
+				"q": "How do I contact support?",
+				"a": [
+					"📧 E-mail: support@esai.kg",
+					"💬 Telegram: @EsAI_support"
+				]
 			}
+		},
+		"team": {
+			"title": "💛 Our mission is to make the world's best AI accessible to everyone.",
+			"text": "If you have ideas, feedback or suggestions to improve EsAI — we're always happy to hear from you."
 		},
 		"modalTitle": "Ask a Question",
 		"questionDescription": "Your Question",
@@ -328,19 +435,31 @@
 		"footer": "We publish only useful, inspiring, and relevant content. Stay tuned — and keep up with the future of AI!"
 	},
 	"about": {
-		"title": "🟡 About Us",
-		"subtitle": "EsAI is an aggregator of flagship neural networks in one place: ChatGPT, DeepSeek, Claude, Gemini, Grok, Mistral and Perplexity. One access to all models for study, work and business — without extra costs or subscriptions.",
-		"points": [
-			"🔹 All top neural networks in one chat",
-			"🔹 Write text and code, translate, analyze documents",
-			"🔹 Lightning-fast speed and convenient payment in soms",
-			"🔹 One token balance across all models"
+		"title": "About us",
+		"thanks": "Thank you for choosing EsAI.",
+		"intro": [
+			"We built EsAI to make using the world's best neural networks truly simple.",
+			"No multiple accounts. No separate subscriptions. No constant switching between services.",
+			"EsAI brings together dozens of the world's best AI models — ChatGPT, Claude, Gemini, DeepSeek, Grok, Perplexity and many more. Each model has its own strengths, so you can always pick the one that fits your task best."
 		],
-		"footer": "We believe AI is a partner in work and study. EsAI is built to give simple, affordable access to the best neural networks."
+		"features_title": "What do you get?",
+		"features": [
+			"Dozens of top AI models in one service.",
+			"One credit balance for all neural networks.",
+			"Simple and secure payments.",
+			"Continuous development and new features."
+		],
+		"daily": [
+			"We use EsAI ourselves every day. That's why we notice even the small things that are easy to miss during development.",
+			"If while using EsAI you catch yourself thinking:"
+		],
+		"cta_quote": "“It would be more convenient if…”",
+		"cta_after": "— just write to us. We read every message. Many improvements in EsAI appear thanks to your ideas.",
+		"welcome": "Welcome to EsAI. We hope this service becomes as useful for you as it already is for us."
 	},
 	"referral": {
 		"title": "🟡 Referral Program",
-		"subtitle": "After completing registration, your unique referral code appears in your profile. Share your link when friends sign up — and earn bonus tokens.",
+		"subtitle": "After completing registration, your unique referral code appears in your profile. Share your link when friends sign up — and earn bonus credits.",
 		"how_title": "How it works",
 		"step1": {
 			"title": "Get your UID",
@@ -351,13 +470,13 @@
 			"text": "They enter your referral code on the signup page."
 		},
 		"step3": {
-			"title": "Bonus tokens",
-			"text": "You receive bonus tokens to your balance for each invited friend."
+			"title": "Earn bonus credits",
+			"text": "Invite friends and earn bonus credits for every new user."
 		},
 		"usage_title": "How bonuses are used",
-		"usage1": "Bonus tokens are credited to your balance.",
-		"usage2": "They are spent the same way as purchased tokens.",
-		"usage3": "The more friends you invite, the more bonus tokens you get.",
+		"usage1": "Bonus credits are credited to your balance.",
+		"usage2": "They are spent the same way as purchased credits.",
+		"usage3": "The more friends you invite, the more bonus credits you get.",
 		"your_link": "Your referral link",
 		"copy": "Copy",
 		"copied": "Copied",
@@ -422,6 +541,12 @@
 		"error_music_generation": "Failed to generate music.",
 		"error_request_failed": "Request failed.",
 		"go_to_pricing": "Go to pricing",
+		"open_image": "Open image",
+		"credits_charged_title": "Credits charged for this answer (tokens × model rate ÷ 1000)",
+		"credits_unit_one": "credit",
+		"credits_unit_few": "credits",
+		"credits_unit_many": "credits",
+		"credits_unit_other": "credits",
 		"chats_list_empty": "Chats list is empty",
 		"empty_text_title": "Ready to create text with EsAI?",
 		"empty_text_subtitle": "Let’s get started!",
@@ -469,11 +594,35 @@
 		"menu": "Menu",
 		"profile": "Profile",
 		"model": {
-			"select": "Select model"
+			"select": "Select model",
+			"premium_badge": "Premium",
+			"locked_hint": "Available only on paid packages. Top up your balance by 190 som to unlock all premium AI models on the planet",
+			"category": {
+				"recommended": "Recommended",
+				"chat": "For conversations",
+				"writing": "Texts and SEO",
+				"coding": "Programming",
+				"reasoning": "Analysis and reasoning",
+				"search": "Web search",
+				"image": "Images",
+				"video": "Video",
+				"fast": "Fast",
+				"budget": "Budget"
+			},
+			"video_quality": {
+				"fast": "Fast generation",
+				"balanced": "Best balance",
+				"realistic": "Realistic video",
+				"max": "Maximum quality",
+				"social": "For social media"
+			}
 		},
 		"start": {
-			"greeting": "How can I help?"
+			"greeting": "How can I help?",
+			"studio_title": "Cartoon creation",
+			"studio_desc": "Come up with a story, draw the heroes and bring them to life in video — no skills needed."
 		},
+		"studio": "Cartoon creation",
 		"actions": {
 			"copy": "Copy",
 			"copied": "Copied",
@@ -481,7 +630,9 @@
 			"continue": "Continue",
 			"continue_prompt": "Continue.",
 			"like": "Good answer",
-			"dislike": "Bad answer"
+			"dislike": "Bad answer",
+			"download_image": "Download image",
+			"download_video": "Download video"
 		},
 		"quick": {
 			"upload_doc": "Upload document",
@@ -526,7 +677,15 @@
 			"learning": "Learning help",
 			"learning_desc": "Explain a topic in simple words",
 			"learning_prompt": "Explain in simple words the topic: "
-		}
+		},
+		"voice_input": "Voice input",
+		"voice_stop": "Stop recording",
+		"invite_friend": "Invite a friend",
+		"image_to_video_hint": "Your photo becomes the first frame",
+		"image_edit_hint": "AI will edit your photo per your prompt",
+		"video_generating": "Video is being generated… usually takes 1–2 minutes",
+		"image_generating": "Image is being generated",
+		"video_generating_short": "Video is being generated"
 	},
 	"profile": {
 		"profile": "Profile",
@@ -657,7 +816,9 @@
 		},
 		"no_plan_attach_or_choose_notice": "You do not have an active plan yet. To enable test mode, link a card in your profile. Or choose a plan in pricing.",
 		"unpaid_and_generations_exhausted_notice": "Payment is not completed and generations are exhausted. Pay your subscription or activate a new plan.",
-		"generations_exhausted_notice": "Generations are exhausted. You can top up in profile or choose a new plan."
+		"generations_exhausted_notice": "Generations are exhausted. You can top up in profile or choose a new plan.",
+		"seo_title": "Profile",
+		"seo_description": "EsAI personal account: plan, tokens, payments and account settings."
 	},
 	"nav": {
 		"dashboard": "Dashboard",
@@ -818,9 +979,11 @@
 		"dismiss": "Not now"
 	},
 	"guest": {
-		"limit_title": "Free limit reached",
-		"limit_desc": "You have used your free limit. Sign in with Google or Telegram to continue.",
-		"free_remaining": "{{count}} of {{limit}} free messages left"
+		"limit_title": "Continue? 🎁",
+		"limit_desc": "Get 5 free credits when you sign up. No card, no subscriptions.",
+		"free_remaining": "{{count}} of {{limit}} free messages left",
+		"sidebar_bonus": "5 free credits when you sign up",
+		"more_login_options": "All login options (Email)"
 	},
 	"theme": {
 		"title": "Theme",
@@ -833,7 +996,7 @@
 		"topup": "Top up"
 	},
 	"topup": {
-		"title": "Top up balance",
+		"title": "Choose a credit package",
 		"tokens": "tokens",
 		"bonus": "bonus",
 		"buy": "Buy",
@@ -841,15 +1004,199 @@
 		"purchase_error": "Failed to start payment",
 		"empty": "No packages available yet",
 		"insufficient_title": "Not enough tokens",
-		"insufficient_desc": "You have run out of tokens. Top up your balance to continue."
+		"insufficient_desc": "You have run out of tokens. Top up your balance to continue.",
+		"credits": "credits",
+		"som": "som"
+	},
+	"welcome": {
+		"title": "🎉 Welcome to EsAI!",
+		"body": "Your welcome bonus credits have already been added to your balance. Start using EsAI right now!",
+		"cta": "Get started"
 	},
 	"packages": {
-		"title": "Top up balance",
+		"title": "Choose a credit package",
 		"subtitle": "EsAI | Pay as you go",
-		"lead": "Pay only for what you use. Pick a token package and top up your balance — no subscriptions.",
+		"lead": "Pay only for what you use. Pick a credit package and top up your balance — no subscriptions.",
 		"topup": "Top up",
 		"login_to_topup": "Sign in to top up",
+		"no_expiry_highlight": "Credits never expire",
+		"no_expiry_rest": "Use them whenever you like.",
 		"questions": "Have questions?",
-		"questions_link": "Go to FAQ"
+		"questions_link": "Go to FAQ",
+		"badge_bestseller": "Bestseller",
+		"tagline_start": "For students and quick tasks",
+		"tagline_pro": "For copywriters, SMM, marketers, lawyers",
+		"tagline_business": "Programmers, teams, heavy PDF/Excel",
+		"value_title": "Roughly enough for",
+		"value_text": "💬 Up to {{count}} regular requests",
+		"value_image": "🎨 Up to {{count}} images",
+		"value_video": "🎬 Up to {{count}} videos",
+		"value_document": "📄 Up to {{count}} document pages",
+		"credits_teaser": "The cost of a request depends on the model: some are more economical, others are more powerful and use more credits for the same amount of text.",
+		"credits_hide": "Hide the cost of all models",
+		"credits_show": "Show the cost of all models",
+		"credits_explainer_title": "How are credits charged?",
+		"credits_explainer_p1": "Each AI model spends credits differently. The more powerful the model, the more credits it uses for the same amount of text.",
+		"credits_explainer_p2": "For example, if you ask the same question to different models, the credit cost will differ.",
+		"credits_explainer_p3": "The exact number of credits charged depends on the length of your request and the model's response.",
+		"credits_explainer_p4": "After every answer you immediately see how many credits were charged for that specific request.",
+		"credits_table_model": "Model",
+		"credits_table_rate": "Credits per 1,000 tokens",
+		"credits_free_badge": "free",
+		"credits_free_note": "\"Free\" means the model is available at no cost on the starting balance; credits for the answer are still charged at its rate. Premium models become available after you top up your balance."
+	},
+	"paywall": {
+		"title_generic": "Top up your balance",
+		"premium_title": "Premium model is available on a paid plan",
+		"premium_desc": "Top up your balance by {{kgs}} som to unlock all premium AI models on the planet.",
+		"insufficient_title": "Not enough credits",
+		"insufficient_have": "You have {{have}} credits.",
+		"insufficient_need": "The request needs about {{need}}.",
+		"insufficient_cta_desc": "Top up your balance to continue.",
+		"zero_desc": "You have run out of credits. Top up your balance to continue.",
+		"daily_title": "Daily request limit reached",
+		"daily_count": "Today you have used all {{limit}} free requests.",
+		"daily_desc": "Upgrade to a paid package to remove the daily limit and get more requests.",
+		"cta_upgrade": "Upgrade to a paid package"
+	},
+	"transfer": {
+		"seo_title": "Transfer credits",
+		"seo_description": "Transfer credits to other EsAI users and view your transfer history."
+	},
+	"exitDiscount": {
+		"title": "Don't leave without a bonus! 🎁",
+		"text": "A special {{percent}}% discount on any package is waiting for you — claim it within {{minutes}} minutes.",
+		"claim": "Claim discount",
+		"decline": "No, thanks",
+		"banner": "{{percent}}% discount active for {{time}}"
+	},
+	"partner": {
+		"seo_title": "Partnership",
+		"seo_description": "EsAI partner program: invite friends and earn credits from their top-ups — for life."
+	},
+	"home": {
+		"hero": {
+			"title": "All the world's best AI models in one place",
+			"subtitle": "Use ChatGPT, Claude, Gemini, Grok, DeepSeek, Veo, Sora, FLUX, Kling and dozens of other models in a single account.",
+			"cta": "Start for free",
+			"chips": {
+				"chatgpt": "ChatGPT",
+				"claude": "Claude",
+				"gemini": "Gemini",
+				"grok": "Grok",
+				"deepseek": "DeepSeek",
+				"veo": "Veo",
+				"sora": "Sora",
+				"flux": "FLUX",
+				"kling": "Kling"
+			}
+		},
+		"why": {
+			"title": "Why EsAI",
+			"items": {
+				"1": {
+					"title": "50+ of the best AI models",
+					"desc": "Use the best models without being limited to a single neural network."
+				},
+				"2": {
+					"title": "One account",
+					"desc": "All models work from a single interface."
+				},
+				"3": {
+					"title": "One balance",
+					"desc": "No need to pay for ChatGPT, Claude, Gemini and other services separately."
+				},
+				"4": {
+					"title": "The best model for every task",
+					"desc": "EsAI helps you pick the model that fits your task best."
+				},
+				"5": {
+					"title": "New models appear right away",
+					"desc": "The latest neural networks become available with no waiting."
+				},
+				"6": {
+					"title": "Convenient payment",
+					"desc": "Pay however is convenient for you: Visa and Mastercard bank cards, plus all popular online wallets and payment services in Kyrgyzstan."
+				}
+			}
+		},
+		"popularModels": {
+			"title": "Popular models",
+			"subtitle": "Every neural network is best at something — see the full list in the model catalog.",
+			"callout_q": "Not sure which model to choose?",
+			"callout_a": "EsAI will suggest the best fit.",
+			"cta": "See all models"
+		},
+		"comparison": {
+			"title": "EsAI vs ChatGPT",
+			"col_chatgpt": "ChatGPT",
+			"col_esai": "EsAI",
+			"rows": {
+				"1": {
+					"chatgpt": "One model",
+					"esai": "50+ models"
+				},
+				"2": {
+					"chatgpt": "GPT only",
+					"esai": "GPT, Claude, Gemini, Grok, DeepSeek, Veo, FLUX, Kling and more"
+				},
+				"3": {
+					"chatgpt": "One subscription",
+					"esai": "One balance for all models"
+				},
+				"4": {
+					"chatgpt": "You have to pick a service",
+					"esai": "Everything in one place"
+				}
+			}
+		},
+		"pricingPreview": {
+			"title": "What a package covers",
+			"subtitle": "One balance — for requests, images, videos and document translations.",
+			"stat_text": "💬 Up to {{count}} regular requests",
+			"stat_image": "🎨 Up to {{count}} images",
+			"stat_video": "🎬 Up to {{count}} videos",
+			"stat_document": "📄 Up to {{count}} translated pages",
+			"cta": "See all plans"
+		},
+		"credits": {
+			"title": "How credits work",
+			"body": "Credits are EsAI's single internal currency. Different models use a different number of credits. After every request you always see exactly how many credits were spent.",
+			"hide": "Hide the cost of all models",
+			"show": "Show the cost of all models"
+		},
+		"faq": {
+			"title": "Frequently asked questions",
+			"subtitle": "The essentials in short. More questions are answered in the full FAQ.",
+			"cta": "See all questions"
+		},
+		"finalCta": {
+			"aria": "Get started with EsAI",
+			"title": "Start for free, right now",
+			"subtitle": "One account, one balance — and dozens of the world's best neural networks. No switching between services.",
+			"cta": "Start for free"
+		}
+	},
+	"models_catalog": {
+		"title": "AI models catalog",
+		"subtitle": "All EsAI neural networks in one place — compare capabilities and pick the right one for your task.",
+		"search_placeholder": "Search models...",
+		"category_all": "All",
+		"category": {
+			"text": "Text",
+			"code": "Code",
+			"image": "Images",
+			"video": "Video"
+		},
+		"badge_recommended": "Recommended",
+		"badge_free": "Free",
+		"cap_vision": "Understands images",
+		"cap_reasoning": "Reasoning model",
+		"cap_web": "Web search",
+		"cost_from": "From about {{count}} {{unit}}",
+		"cost_from_package": "On the \"{{name}}\" plan",
+		"try_button": "Try it",
+		"empty_hint": "Nothing found. Try a different search or category.",
+		"load_error": "Couldn't load the model catalog. Please refresh the page."
 	}
 }

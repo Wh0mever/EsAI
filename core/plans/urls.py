@@ -3,7 +3,11 @@ from .views import (
     PlanListView, PlanRetrieveView,
     MeSubscriptionView, MeUsageView, MeAddonsView,
     ActivatePlanView, UnsubscribeView, ResumeSubscriptionView,
-    TokenBalanceView, TokenPackageListView, TokenTransactionListView, TokenPurchaseView,
+    TokenBalanceView, TokenPackageListView, TokenPackageValueListView,
+    TokenTransactionListView, TokenPurchaseView,
+)
+from .exit_discount import (
+    ExitDiscountStatusView, ExitDiscountShowView, ExitDiscountClaimView, ExitDiscountDismissView,
 )
 
 
@@ -13,8 +17,14 @@ urlpatterns = [
     # Token system (pay-as-you-go). Объявлены ДО "<int:pk>/", чтобы не перехватывались.
     path("balance/", TokenBalanceView.as_view(), name="token-balance"),
     path("packages/", TokenPackageListView.as_view(), name="token-packages"),
+    path("packages/value/", TokenPackageValueListView.as_view(), name="token-packages-value"),
     path("transactions/", TokenTransactionListView.as_view(), name="token-transactions"),
     path("purchase/", TokenPurchaseView.as_view(), name="token-purchase"),
+    # Exit-intent скидка на pricing. Объявлены ДО "<int:pk>/", чтобы не перехватывались.
+    path("exit-discount/status/", ExitDiscountStatusView.as_view(), name="exit-discount-status"),
+    path("exit-discount/show/", ExitDiscountShowView.as_view(), name="exit-discount-show"),
+    path("exit-discount/claim/", ExitDiscountClaimView.as_view(), name="exit-discount-claim"),
+    path("exit-discount/dismiss/", ExitDiscountDismissView.as_view(), name="exit-discount-dismiss"),
     path("<int:pk>/", PlanRetrieveView.as_view(), name="plan-detail"),
     path("activate/<int:plan_id>/", ActivatePlanView.as_view(), name="plan-activate"),
     path("me/subscription/", MeSubscriptionView.as_view(), name="me-subscription"),

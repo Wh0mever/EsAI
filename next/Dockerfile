@@ -50,6 +50,10 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 ENV PORT=3000
+# Без этого Next standalone слушает на хостнейме контейнера, и docker-healthcheck
+# по localhost:3000 падает (контейнер виснет в unhealthy, хотя nginx ходит по DNS).
+# Биндим на все интерфейсы — отвечают и nginx, и healthcheck.
+ENV HOSTNAME=0.0.0.0
 
 RUN addgroup -g 1001 -S nodejs \
  && adduser -S nextjs -u 1001 -G nodejs

@@ -83,7 +83,7 @@ export const SEO_MODELS: SeoModel[] = [
     slug: "gemini",
     name: "Gemini",
     vendor: "Google",
-    openrouter_id: "google/gemini-2.0-flash-001",
+    openrouter_id: "google/gemini-2.5-flash",
     metaDescription:
       "Gemini от Google онлайн в EsAI на русском и кыргызском. Тексты, анализ документов, мультимодальные задачи. Без VPN, оплата в сомах.",
     intro:
@@ -110,7 +110,7 @@ export const SEO_MODELS: SeoModel[] = [
     slug: "claude",
     name: "Claude",
     vendor: "Anthropic",
-    openrouter_id: "anthropic/claude-3.5-sonnet",
+    openrouter_id: "anthropic/claude-sonnet-4.5",
     metaDescription:
       "Claude от Anthropic онлайн в EsAI. Длинные тексты, аккуратные рассуждения и код на русском и кыргызском. Без VPN, оплата в сомах.",
     intro:
@@ -137,7 +137,7 @@ export const SEO_MODELS: SeoModel[] = [
     slug: "grok",
     name: "Grok",
     vendor: "xAI",
-    openrouter_id: "x-ai/grok-2-1212",
+    openrouter_id: "x-ai/grok-4.3",
     metaDescription:
       "Grok от xAI онлайн в EsAI на русском и кыргызском. Живые ответы, тексты и код. Без VPN, оплата в сомах, можно начать бесплатно.",
     intro:
@@ -161,37 +161,37 @@ export const SEO_MODELS: SeoModel[] = [
     ],
   },
   {
-    slug: "mistral",
-    name: "Mistral",
-    vendor: "Mistral AI",
-    openrouter_id: "mistralai/mistral-large",
+    slug: "deepseek-r1",
+    name: "DeepSeek R1",
+    vendor: "DeepSeek",
+    openrouter_id: "deepseek/deepseek-r1",
     metaDescription:
-      "Mistral онлайн в EsAI: быстрая европейская нейросеть для текстов и кода на русском и кыргызском. Без VPN, оплата в сомах.",
+      "DeepSeek R1 онлайн в EsAI: рассуждающая нейросеть для сложной логики, математики и кода на русском и кыргызском. Без VPN, оплата в сомах.",
     intro:
-      "Mistral — быстрая европейская нейросеть. В EsAI подойдёт для текстов, кода и повседневных задач на русском и кыргызском, без VPN.",
+      "DeepSeek R1 — рассуждающая модель, которая разбирает задачу по шагам перед ответом. В EsAI она доступна без VPN для сложной логики, математики и кода на русском и кыргызском.",
     advantages: [
-      "Высокая скорость ответов",
-      "Хорошее качество текста и кода",
+      "Пошаговые рассуждения над сложными задачами",
+      "Сильна в математике, логике и алгоритмах",
       "Доступ без VPN, оплата в сомах",
-      "Работает в одном чате с другими моделями",
+      "Работает в одном чате с другими нейросетями EsAI",
     ],
     examples: [
-      "Быстро написать письмо или пост",
-      "Сгенерировать код",
-      "Перевести текст",
-      "Ответить на повседневный вопрос",
+      "Решить сложную математическую задачу с разбором",
+      "Разобрать алгоритм и доказать его корректность",
+      "Найти ошибку в логике рассуждения",
+      "Спланировать решение многошаговой задачи",
     ],
     faq: [
-      { q: "Mistral быстрый?", a: "Да, Mistral известен высокой скоростью ответов." },
-      { q: "Mistral работает на русском?", a: "Да, в EsAI Mistral понимает русский, кыргызский и английский." },
-      { q: "Нужна ли карта из-за рубежа?", a: "Нет, оплата идёт в сомах в EsAI." },
+      { q: "Чем DeepSeek R1 отличается от DeepSeek V3?", a: "R1 — рассуждающая модель: она думает по шагам перед ответом и лучше подходит для сложной логики и математики." },
+      { q: "DeepSeek R1 работает на русском?", a: "Да, DeepSeek R1 в EsAI понимает русский, кыргызский и английский." },
+      { q: "Нужен ли VPN?", a: "Нет, EsAI открывает DeepSeek R1 без VPN." },
     ],
   },
   {
     slug: "perplexity",
     name: "Perplexity",
     vendor: "Perplexity",
-    openrouter_id: "perplexity/llama-3.1-sonar-large-128k-online",
+    openrouter_id: "perplexity/sonar",
     metaDescription:
       "Perplexity онлайн в EsAI: нейросеть с поиском по интернету и ссылками на источники. На русском и кыргызском, без VPN, оплата в сомах.",
     intro:

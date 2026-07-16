@@ -125,16 +125,36 @@ def collect_dashboard_metrics() -> dict:
     # ---- Популярные модели + запросы по модели (из AiChatMessage.meta -> model) ----
     # meta хранит model на сообщениях ассистента; считаем в Python, т.к.
     # извлечение JSON-ключа разнится по БД, а тут надёжнее и переносимо.
+    #
+    # Оптимизация (без изменения смысла метрик): раньше дашборд сканировал ВСЮ
+    # таблицу AiChatMessage на каждый просмотр. Теперь ограничиваем выборку:
+    #   1) role="assistant" — meta с model/total_tokens/latency живёт только там;
+    #   2) скользящее окно AUDIT_METRICS_WINDOW_DAYS (по умолчанию 90 дней);
+    #   3) жёсткий потолок AUDIT_METRICS_MAX_ROWS на число строк.
+    # Это убирает unbounded full scan на горячем пути дашборда.
     try:
         from ai.models import AiChatMessage
+
+        window_days = _safe_int(
+            getattr(settings, "AUDIT_METRICS_WINDOW_DAYS", 90), 90) or 90
+        max_rows = _safe_int(
+            getattr(settings, "AUDIT_METRICS_MAX_ROWS", 50000), 50000) or 50000
+        window_start = now - timedelta(days=window_days)
 
         model_counter: dict[str, int] = {}
         total_tokens_sum = 0
         latencies: list[float] = []
         qs = (
-            AiChatMessage.objects.exclude(meta__isnull=True)
-            .values_list("meta", flat=True)
+            AiChatMessage.objects.filter(role="assistant", created_at__gte=window_start)
+            .exclude(meta__isnull=True)
+            .order_by("-created_at")
+            .values_list("meta", flat=True)[:max_rows]
             .iterator(chunk_size=2000)
+        )
+        # Пометим метрики как оценку по окну, чтобы шаблон не выдавал их за all-time.
+        data["estimates"]["top_models"] = (
+            f"Подсчёт по сообщениям ассистента за последние {window_days} дн. "
+            f"(не более {max_rows} записей) — для скорости дашборда."
         )
         for meta in qs:
             if not isinstance(meta, dict):

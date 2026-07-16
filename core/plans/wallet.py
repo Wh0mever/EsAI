@@ -108,16 +108,143 @@ def has_tokens(user) -> bool:
 def grant_welcome_bonus(user) -> int:
     """Начислить приветственный бонус новому пользователю ОДИН раз.
 
-    Сумма — settings.WELCOME_BONUS_TOKENS (по умолчанию 3000). Идемпотентно:
-    повторно не начисляет (по наличию TokenTransaction reason='welcome').
+    Сумма — settings.WELCOME_BONUS_TOKENS (по умолчанию 3000). Идемпотентно
+    И атомарно: проверка «существует ли welcome-транзакция» и само начисление
+    выполняются в ОДНОЙ transaction.atomic() под select_for_update по строке
+    пользователя. Это сериализует параллельные вызовы (двойной клик/гонка
+    сигналов): второй вызов дождётся блокировки и уже УВИДИТ welcome-транзакцию
+    первого, поэтому бонус не задвоится.
     """
     from django.conf import settings as dj_settings
 
     if not user or not getattr(user, "pk", None):
         return 0
     amount = int(getattr(dj_settings, "WELCOME_BONUS_TOKENS", 3000) or 0)
+    try:
+        # Runtime-оверрайд из админки; при любой ошибке остаётся settings-значение.
+        from adminapi.runtime import get_runtime
+        amount = int(get_runtime("WELCOME_BONUS_TOKENS", amount))
+    except Exception:
+        pass
     if amount <= 0:
         return int(getattr(user, "token_balance", 0) or 0)
-    if TokenTransaction.objects.filter(user=user, reason="welcome").exists():
-        return int(getattr(user, "token_balance", 0) or 0)
-    return credit_tokens(user, amount, "welcome", meta={"source": "signup"})
+
+    User = _user_model()
+    with transaction.atomic():
+        # Лочим строку пользователя ДО проверки exists — так параллельные вызовы
+        # сериализуются, и второй увидит welcome-транзакцию, созданную первым.
+        locked = User.objects.select_for_update().get(pk=user.pk)
+        if TokenTransaction.objects.filter(user=locked, reason="welcome").exists():
+            return int(locked.token_balance or 0)
+        # credit_tokens возьмёт select_for_update по тому же пользователю в этой же
+        # транзакции (повторный лок той же строки безопасен) и зафиксирует леджер.
+        new_balance = credit_tokens(locked, amount, "welcome", meta={"source": "signup"})
+
+    # Синхронизируем in-memory баланс переданного экземпляра для вызывающего.
+    try:
+        user.token_balance = new_balance
+    except Exception:
+        pass
+    return new_balance
+
+
+def set_balance_to(user, target: int, reason: str, meta=None) -> int:
+    """Атомарно ДОВЕСТИ баланс пользователя до `target` (не суммирует).
+
+    Используется для Daily Retention Bonus (ТЗ 3.3): если баланс ниже порога,
+    он доводится до фикс. уровня (а НЕ прибавляется). Если текущий баланс уже
+    >= target — ничего не делает и возвращает текущий баланс. Движение
+    фиксируется в леджере (delta = target - current).
+    """
+    target = int(target or 0)
+    if not user or not getattr(user, "pk", None):
+        return 0
+
+    User = _user_model()
+    with transaction.atomic():
+        locked = User.objects.select_for_update().get(pk=user.pk)
+        current = int(locked.token_balance or 0)
+        if current >= target:
+            return current
+        delta = target - current
+        locked.token_balance = target
+        locked.save(update_fields=["token_balance"])
+
+        TokenTransaction.objects.create(
+            user=locked,
+            delta=delta,
+            reason=reason,
+            balance_after=target,
+            meta=meta,
+        )
+
+    try:
+        user.token_balance = target
+    except Exception:
+        pass
+    return target
+
+
+def estimated_min_charge(model_obj) -> int:
+    """Минимальная пред-оценка списания за ОДИН запрос к модели (ТЗ 1.3).
+
+    estimate = settings.MIN_REQUEST_ESTIMATE_TOKENS * markup_coefficient (>=1).
+    Используется для блокировки запроса ДО обращения к OpenRouter, если баланса
+    заведомо не хватит даже на минимальный ответ (анти-«кассовый разрыв»).
+    """
+    import math
+    from django.conf import settings as dj_settings
+
+    base = int(getattr(dj_settings, "MIN_REQUEST_ESTIMATE_TOKENS", 600) or 600)
+    coeff = getattr(model_obj, "markup_coefficient", None)
+    try:
+        coeff_f = float(coeff) if coeff is not None else 1.0
+    except Exception:
+        coeff_f = 1.0
+    # coeff = тариф за 1000 токенов → /TOKEN_CREDIT_DIVISOR (нормализация биллинга,
+    # тот же делитель, что в ai.handlers — гейт обязан совпадать со списанием).
+    try:
+        divisor = float(getattr(dj_settings, "TOKEN_CREDIT_DIVISOR", 1000) or 1000)
+    except Exception:
+        divisor = 1000.0
+    if divisor <= 0:
+        divisor = 1000.0
+    return max(1, math.ceil(base * coeff_f / divisor))
+
+
+def clawback_tokens(user, amount: int, reason: str = "refund", meta=None) -> int:
+    """Атомарно ИЗЪЯТЬ до `amount` токенов (возврат/chargeback).
+
+    Списывает min(amount, текущий баланс) — НИКОГДА не уводит баланс ниже 0
+    (если кредиты уже частично потрачены — изымаем сколько осталось). Возвращает
+    ФАКТИЧЕСКИ изъятое количество. Движение фиксируется в леджере.
+    Используется при реверсе платежа FreedomPay, чтобы не терять и деньги, и токены.
+    """
+    amount = int(amount or 0)
+    if amount <= 0 or not user or not getattr(user, "pk", None):
+        return 0
+
+    User = _user_model()
+    with transaction.atomic():
+        locked = User.objects.select_for_update().get(pk=user.pk)
+        current = int(locked.token_balance or 0)
+        debited = min(amount, current)
+        if debited <= 0:
+            return 0
+        new_balance = current - debited
+        locked.token_balance = new_balance
+        locked.save(update_fields=["token_balance"])
+
+        TokenTransaction.objects.create(
+            user=locked,
+            delta=-debited,
+            reason=reason,
+            balance_after=new_balance,
+            meta=meta,
+        )
+
+    try:
+        user.token_balance = new_balance
+    except Exception:
+        pass
+    return debited

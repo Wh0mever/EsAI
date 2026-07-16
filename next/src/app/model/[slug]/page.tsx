@@ -8,6 +8,10 @@ import { SEO_MODELS, getModel, getRelatedModels } from "@/lib/seo/models";
 
 type Params = { slug: string };
 
+// Только слаги из SEO_MODELS валидны; любой другой (напр. удалённый /model/mistral)
+// → настоящий 404, а не 200 (важно для SEO: не плодить пустые страницы).
+export const dynamicParams = false;
+
 export function generateStaticParams() {
   return SEO_MODELS.map((m) => ({ slug: m.slug }));
 }

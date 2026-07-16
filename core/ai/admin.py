@@ -31,10 +31,10 @@ class JSONTextarea(forms.Textarea):
 
 @admin.register(GPTModels)
 class GPTModelsAdmin(admin.ModelAdmin):
-    list_display = ('name', 'openrouter_id', 'markup_coefficient', 'is_active', 'sort_order', 'max_tokens', 'updated_at')
-    list_editable = ('markup_coefficient', 'is_active', 'sort_order')
+    list_display = ('name', 'openrouter_id', 'markup_coefficient', 'free_tier', 'supports_vision', 'is_active', 'sort_order', 'max_tokens', 'updated_at')
+    list_editable = ('markup_coefficient', 'free_tier', 'is_active', 'sort_order')
     search_fields = ('name', 'openrouter_id')
-    list_filter = ('is_active',)
+    list_filter = ('is_active', 'free_tier', 'supports_vision')
     ordering = ('sort_order', 'id')
     readonly_fields = ('created_at', 'updated_at')
     fieldsets = (
@@ -46,8 +46,14 @@ class GPTModelsAdmin(admin.ModelAdmin):
             'description': 'Эти параметры читает обработчик ИИ. Пустые temperature/top_p — '
                            'использовать значения по умолчанию провайдера.',
         }),
-        ('Биллинг', {
-            'fields': ('markup_coefficient',),
+        ('Биллинг и доступ', {
+            'fields': ('markup_coefficient', 'free_tier', 'supports_vision'),
+            'description': 'markup_coefficient — тариф (кредитов за 1000 токенов). '
+                           'free_tier — доступна гостям/бесплатным (тариф при этом всё '
+                           'равно списывается). supports_vision — принимает изображения.',
+        }),
+        ('Категоризация и студия', {
+            'fields': ('category', 'recommended', 'cartoon_stage'),
         }),
         ('Служебное', {
             'fields': ('created_at', 'updated_at'),
