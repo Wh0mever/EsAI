@@ -325,6 +325,51 @@ class TokenPackageValueListView(APIView):
         return Response({"packages": packages})
 
 
+class CurrencyRateView(APIView):
+    """GET /api/plans/currency-rate/ — публично, без авторизации.
+
+    Витринный курс KGS -> RUB для переключателя валют (задача клиента: ЮKassa
+    попросила показывать цены и в рублях, next/src/lib/currency.ts) + подсказка
+    валюты по геолокации IP запроса (RU -> RUB, иначе KGS).
+
+    ⚠️ НЕ платёжный эндпоинт и НЕ связан со старой Plan/CurrencyRate/
+    selected_currency инфраструктурой (мёртвый остаток подписочной модели
+    Vokalo, USD-базис) — курс отсюда ТОЛЬКО пересчитывает ОТОБРАЖАЕМУЮ цену.
+    Реальная оплата всегда идёт через FreedomPay в сомах независимо от того,
+    какая валюта выбрана для отображения (см. TokenPurchaseView ниже).
+
+    Намеренно без cache_page (в отличие от PlanListView) — ответ зависит от IP
+    запроса; сама гео-подсказка кэшируется по IP отдельно (plans/geo.py).
+    """
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        try:
+            from adminapi.runtime import get_runtime
+
+            rate = float(get_runtime("currency_kgs_to_rub_rate", settings.CURRENCY_KGS_TO_RUB_RATE))
+        except Exception:  # noqa: BLE001 — курс не должен ронять эндпоинт
+            rate = float(settings.CURRENCY_KGS_TO_RUB_RATE)
+
+        suggested_currency = "KGS"
+        try:
+            from users.antifraud import get_client_ip
+            from .geo import detect_country_code
+
+            ip = get_client_ip(request)
+            country = detect_country_code(ip)
+            if country == "RU":
+                suggested_currency = "RUB"
+        except Exception:  # noqa: BLE001 — гео-подсказка не должна ронять эндпоинт
+            suggested_currency = "KGS"
+
+        return Response({
+            "base_currency": "KGS",
+            "rate_kgs_to_rub": rate,
+            "suggested_currency": suggested_currency,
+        })
+
+
 class TokenTransactionListView(generics.ListAPIView):
     """GET /api/plans/transactions/ — последние ~50 транзакций токенов юзера."""
     authentication_classes = [JWTAuthentication]

@@ -3,13 +3,16 @@
 import "@/assets/style.scss";
 import { useMemo, useState } from "react";
 import TokenPackages from "@/components/pricing/TokenPackages";
+import PayAsYouGoBanner from "@/components/pricing/PayAsYouGoBanner";
 import WhatsEnoughCalculator from "@/components/pricing/WhatsEnoughCalculator";
 import CollapsibleCreditsExplainer from "@/components/pricing/CollapsibleCreditsExplainer";
 import ExitDiscountPopup from "@/components/pricing/ExitDiscountPopup";
+import CurrencySwitch from "@/components/pricing/CurrencySwitch";
 import Breadcrumb from "@/components/global/AnimatedCircleBg";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { useExitDiscount } from "@/hooks/useExitDiscount";
+import { useCurrency } from "@/hooks/useCurrency";
 
 function formatMMSS(totalSeconds: number): string {
 	const s = Math.max(0, totalSeconds);
@@ -24,6 +27,11 @@ export default function Pricing() {
 	const [claiming, setClaiming] = useState(false);
 	const { active, showPopup, popupOffer, deviceKey, claim, dismiss, secondsLeft } =
 		useExitDiscount(paymentInProgress);
+	// Переключатель валют KGS/RUB (задача клиента: показ цен для ЮKassa) —
+	// приоритет: ручной выбор > авто-детект по геолокации IP > KGS. См.
+	// next/src/hooks/useCurrency.ts. currency/convert прокидываются в
+	// TokenPackages — единственное место на /pricing, где показывается цена.
+	const { currency, setCurrency, convert } = useCurrency();
 
 	const popupMinutesLeft = useMemo(() => {
 		if (!popupOffer?.expires_at) return null;
@@ -49,6 +57,8 @@ export default function Pricing() {
 		<main className="pt-80 overflow-hidden relative">
 			<Breadcrumb />
 
+			<PayAsYouGoBanner />
+
 			{active && secondsLeft > 0 && (
 				<div className="sticky top-0 z-50 w-full bg-accent text-on-accent text-center text-sm font-semibold py-2 px-4">
 					{t("exitDiscount.banner", {
@@ -69,24 +79,13 @@ export default function Pricing() {
 			/>
 
 			<div className="flex flex-col items-center gap-3">
-				<span className="px-3 py-2 bg-surface-2 border border-border rounded-lg text-sm text-muted">
-					{t("packages.subtitle", { defaultValue: "EsAI | Оплата по факту использования" })}
-				</span>
-				<h1 className="text-3xl sm:text-4xl font-bold text-center">
-					{t("packages.title", {
-						defaultValue: "Тарифы EsAI — оплата в сомах, без подписок",
-					})}
-				</h1>
-				<p className="text-muted text-center max-w-xl px-4">
-					{t("packages.lead", {
-						defaultValue:
-							"Платите только за то, что используете. Выберите пакет кредитов и пополните баланс — без подписок.",
-					})}
-				</p>
+				<CurrencySwitch value={currency} onChange={setCurrency} className="mb-1" />
 
 				<TokenPackages
 					discountPercent={active && secondsLeft > 0 ? active.percent : null}
 					deviceKey={deviceKey}
+					currency={currency}
+					convert={convert}
 					onPurchaseStart={() => setPaymentInProgress(true)}
 					onPurchaseEnd={() => setPaymentInProgress(false)}
 				/>

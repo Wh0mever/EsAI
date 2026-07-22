@@ -43,6 +43,9 @@ KEYS = (
     "credit_calc_image_min_count",
     "credit_calc_video_min_count",
     "credit_calc_document_min_count",
+    # Витринный курс пересчёта цен KGS -> RUB (задача клиента: ЮKassa/показ цен
+    # в рублях). НЕ платёжный курс — см. комментарий у settings.CURRENCY_KGS_TO_RUB_RATE.
+    "currency_kgs_to_rub_rate",
 )
 
 # Сентинел «в кэше пусто» — None невалиден: мы кэшируем и None («ключа нет в БД»).
@@ -53,7 +56,7 @@ def get_runtime(key: str, default):
     """Значение настройки из БД с кэшем 30с; тип приводится по типу default.
 
     bool-default: строка из ("1", "true", "True") -> True, иначе False.
-    int-default: int(value). Остальное — str(value).
+    int-default: int(value). float-default: float(value). Остальное — str(value).
     При ЛЮБОЙ ошибке (нет таблицы, нет БД, кривое значение) -> default.
     """
     try:
@@ -71,6 +74,8 @@ def get_runtime(key: str, default):
             return raw in ("1", "true", "True")
         if isinstance(default, int):
             return int(raw)
+        if isinstance(default, float):
+            return float(raw)
         return str(raw)
     except Exception:
         return default

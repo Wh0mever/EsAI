@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import Link from "next/link";
 import { FiArrowRight } from "react-icons/fi";
-import { fetchData } from "@/tools/fetchData";
+import { usePackagesValue } from "@/hooks/usePackagesValue";
+import { useCurrency } from "@/hooks/useCurrency";
 
 /**
  * HomePricingPreview — компактное превью тарифов для главной страницы
@@ -23,67 +23,14 @@ import { fetchData } from "@/tools/fetchData";
  * показываем её ни как активную, ни как "скоро".
  */
 
-type ValueCategory = {
-  count: number;
-  unit_model_name?: string;
-};
-
-type PackageValue = {
-  text?: ValueCategory;
-  image?: ValueCategory;
-  video?: ValueCategory;
-  document?: ValueCategory;
-};
-
-type PkgWithValue = {
-  id: number | string;
-  name: string;
-  tokens: number;
-  bonus_tokens?: number;
-  price: number | string;
-  currency: string;
-  badge?: string;
-  featured?: boolean;
-  sort_order?: number;
-  value?: PackageValue;
-};
-
 export default function HomePricingPreview() {
   const { t } = useTranslation("common");
-  const [packages, setPackages] = useState<PkgWithValue[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [errored, setErrored] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setErrored(false);
-    (async () => {
-      try {
-        const res = await fetchData<{ packages: PkgWithValue[] }>(
-          "plans/packages/value/",
-          "GET",
-          null,
-          false
-        );
-        if (cancelled) return;
-        const list = Array.isArray(res?.data?.packages) ? res.data!.packages : [];
-        if (res?.ok && list.length) {
-          const sorted = [...list].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
-          setPackages(sorted);
-        } else {
-          setErrored(true);
-        }
-      } catch {
-        if (!cancelled) setErrored(true);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const { data: packages, loading, error: errored } = usePackagesValue();
+  // Переключатель KGS/RUB живёт на /pricing (CurrencySwitch); здесь просто
+  // подхватываем уже выбранную/определённую валюту (localStorage/cookie,
+  // см. next/src/hooks/useCurrency.ts), чтобы превью не расходилось с
+  // полной страницей тарифов.
+  const { currency, convert } = useCurrency();
 
   // Ничего не показываем без падения страницы, если данных нет (сеть/ошибка/пустой каталог).
   const nothingToShow = !loading && (errored || packages.length === 0);
@@ -170,19 +117,19 @@ export default function HomePricingPreview() {
                   p.featured ? "border-2 border-accent shadow-lg shadow-accent/10" : "border border-border"
                 }`}
               >
-                <div className="flex items-center justify-between gap-2">
-                  <span className="font-semibold text-foreground truncate">{p.name}</span>
+                <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between sm:gap-2">
+                  <span className="font-semibold text-foreground">{p.name}</span>
                   {p.badge && p.badge.trim() && (
-                    <span className="shrink-0 rounded-full bg-accent/15 px-2 py-0.5 text-[11px] font-medium text-accent-strong">
+                    <span className="shrink-0 self-start rounded-full bg-accent/15 px-2 py-0.5 text-[11px] font-medium text-accent-strong sm:self-auto">
                       {p.badge}
                     </span>
                   )}
                 </div>
 
                 <div className="text-lg font-bold text-foreground">
-                  {Number(p.price).toLocaleString()}{" "}
+                  {convert(Number(p.price)).toLocaleString()}{" "}
                   <span className="text-sm font-normal text-muted">
-                    {p.currency === "KGS" ? t("topup.som", { defaultValue: "сом" }) : p.currency}
+                    {currency === "RUB" ? "₽" : p.currency === "KGS" ? t("topup.som", { defaultValue: "сом" }) : p.currency}
                   </span>
                 </div>
 

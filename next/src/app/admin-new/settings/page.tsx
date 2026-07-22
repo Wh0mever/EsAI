@@ -10,6 +10,7 @@ import {
   FiEye,
   FiEyeOff,
   FiCheck,
+  FiDollarSign,
 } from "react-icons/fi";
 
 type SiteContacts = {
@@ -32,6 +33,7 @@ type Settings = {
   free_daily_requests: number;
   paid_daily_requests: number;
   image_auto_route: boolean;
+  currency_kgs_to_rub_rate: number;
   site: SiteContacts;
 };
 
@@ -139,6 +141,12 @@ export default function AdminSettingsPage() {
   const [bonusError, setBonusError] = useState<string | null>(null);
   const [bonusFlash, setBonusFlash] = useState(false);
 
+  // --- Секция: курс KGS -> RUB (переключатель валют на /pricing) ---
+  const [rateDraft, setRateDraft] = useState("");
+  const [rateSaving, setRateSaving] = useState(false);
+  const [rateError, setRateError] = useState<string | null>(null);
+  const [rateFlash, setRateFlash] = useState(false);
+
   // --- Секция 4: контакты сайта ---
   const [siteDraft, setSiteDraft] = useState<SiteContacts>({
     email: "",
@@ -165,6 +173,7 @@ export default function AdminSettingsPage() {
       paid_daily_requests: String(s.paid_daily_requests ?? 0),
     });
     setImageAutoRoute(Boolean(s.image_auto_route));
+    setRateDraft(String(s.currency_kgs_to_rub_rate ?? ""));
     setSiteDraft({
       email: s.site?.email ?? "",
       phone: s.site?.phone ?? "",
@@ -285,6 +294,40 @@ export default function AdminSettingsPage() {
       setTimeout(() => setBonusFlash(false), 2000);
     } else {
       setBonusError(res.error || "Не удалось сохранить");
+    }
+  };
+
+  // ---------- Курс KGS -> RUB ----------
+
+  const rateDirty =
+    settings !== null &&
+    (() => {
+      const n = Number(rateDraft.replace(",", "."));
+      return Number.isFinite(n) && n > 0 && n !== settings.currency_kgs_to_rub_rate;
+    })();
+
+  const saveRate = async () => {
+    if (!settings) return;
+    const n = Number(rateDraft.replace(",", "."));
+    if (!Number.isFinite(n) || n <= 0) {
+      setRateError("Введите положительное число, например 0.95");
+      return;
+    }
+    setRateSaving(true);
+    setRateError(null);
+    const res = await fetchData<Settings>(
+      "manage/settings/",
+      "PATCH",
+      { currency_kgs_to_rub_rate: n },
+      true
+    );
+    setRateSaving(false);
+    if (res.ok && res.data) {
+      applySnapshot(res.data);
+      setRateFlash(true);
+      setTimeout(() => setRateFlash(false), 2000);
+    } else {
+      setRateError(res.error || "Не удалось сохранить курс");
     }
   };
 
@@ -483,6 +526,45 @@ export default function AdminSettingsPage() {
         </div>
 
         {bonusError && <div className="mt-3 text-sm text-red-400">{bonusError}</div>}
+      </section>
+
+      {/* 3.5 Курс валют: KGS -> RUB (переключатель на /pricing, задача ЮKassa) */}
+      <section className="rounded-2xl border border-border bg-surface p-5">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <FiDollarSign className="h-4 w-4 text-accent" />
+            <h2 className="text-base font-semibold">Курс валют (KGS → RUB)</h2>
+          </div>
+          <div className="flex items-center gap-3">
+            {rateFlash && <SavedFlash />}
+            {rateDirty && (
+              <button
+                onClick={saveRate}
+                disabled={rateSaving}
+                className="rounded-lg bg-accent px-4 py-2 text-xs font-semibold text-on-accent transition-opacity hover:opacity-90 disabled:opacity-50"
+              >
+                {rateSaving ? "Сохранение…" : "Сохранить"}
+              </button>
+            )}
+          </div>
+        </div>
+        <p className="mt-1 text-xs text-muted-2">
+          Витринный курс для переключателя валют на /pricing (клиент показывает цены и в рублях
+          для ЮKassa). Реальная оплата всегда идёт через FreedomPay в сомах — этот курс ТОЛЬКО
+          пересчитывает отображаемую цену. Проверяйте и обновляйте под актуальный рыночный курс.
+        </p>
+        <div className="mt-4 flex flex-col gap-1 max-w-xs">
+          <label className="text-xs text-muted">1 сом = ? рублей</label>
+          <input
+            type="text"
+            inputMode="decimal"
+            value={rateDraft}
+            onChange={(e) => setRateDraft(e.target.value)}
+            placeholder="0.95"
+            className={INPUT}
+          />
+        </div>
+        {rateError && <div className="mt-3 text-sm text-red-400">{rateError}</div>}
       </section>
 
       {/* 4. Контакты сайта */}

@@ -392,6 +392,13 @@ def _settings_snapshot() -> dict:
         "EXIT_DISCOUNT_ENABLED",
         bool(getattr(settings, "EXIT_DISCOUNT_ENABLED", True)),
     ))
+    # currency_kgs_to_rub_rate: витринный курс KGS -> RUB для переключателя
+    # валют на /pricing (НЕ платёжный курс, см. plans/views.py CurrencyRateView
+    # и settings.CURRENCY_KGS_TO_RUB_RATE) — админ обязан держать его актуальным.
+    snapshot["currency_kgs_to_rub_rate"] = float(get_runtime(
+        "currency_kgs_to_rub_rate",
+        float(getattr(settings, "CURRENCY_KGS_TO_RUB_RATE", 0.95)),
+    ))
     # Калькулятор ценности кредитов: эталонные модели по категориям (openrouter_id)
     # + размер "страницы" документа в токенах.
     for field, (rt_key, settings_attr, _category) in _CREDIT_CALC_MODEL_FIELDS.items():
@@ -481,6 +488,22 @@ class SettingsView(StaffAPIView):
         # --- тумблер оффера скидки при уходе со страницы pricing ---
         if "exit_discount_enabled" in data:
             set_runtime("EXIT_DISCOUNT_ENABLED", bool(data["exit_discount_enabled"]))
+
+        # --- курс KGS -> RUB для витринного переключателя валют (0.01..100) ---
+        if "currency_kgs_to_rub_rate" in data:
+            try:
+                rate = float(data["currency_kgs_to_rub_rate"])
+            except (TypeError, ValueError):
+                return Response(
+                    {"detail": "currency_kgs_to_rub_rate должен быть числом"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if rate <= 0 or rate > 100:
+                return Response(
+                    {"detail": "currency_kgs_to_rub_rate должен быть в диапазоне 0..100"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            set_runtime("currency_kgs_to_rub_rate", rate)
 
         # --- калькулятор ценности кредитов: эталонные модели по категориям ---
         for field, (rt_key, _attr, required_category) in _CREDIT_CALC_MODEL_FIELDS.items():
