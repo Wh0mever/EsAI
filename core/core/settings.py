@@ -48,6 +48,18 @@ EXIT_DISCOUNT_PERCENT = env.int("EXIT_DISCOUNT_PERCENT", default=20)
 EXIT_DISCOUNT_MINUTES = env.int("EXIT_DISCOUNT_MINUTES", default=15)
 EXIT_DISCOUNT_ENABLED = env.bool("EXIT_DISCOUNT_ENABLED", default=True)
 
+# Курс для ВИТРИННОГО пересчёта цен KGS -> RUB (задача клиента: ЮKassa попросила
+# показывать цены и в рублях; реальная оплата пока всё равно идёт через
+# FreedomPay в сомах — см. plans/views.py CurrencyRateView и next/src/lib/currency.ts).
+# Это НЕ платёжный курс и НЕ связан со старой CurrencyRate/selected_currency
+# моделью (та — мёртвый остаток подписочной модели Vokalo, USD-базис). Значение
+# переопределяемо в рантайме через админку (AppSetting "currency_kgs_to_rub_rate",
+# см. adminapi.runtime) — env/это значение здесь лишь дефолт-фолбэк.
+# ⚠️ ПРИМЕРНОЕ значение на момент внедрения (лето 2026, ~1 сом ≈ 0.95 руб. по
+# кросс-курсу через USD) — АДМИН ОБЯЗАН проверить и обновить его под актуальный
+# рыночный курс перед тем, как показывать рублёвые цены реальным пользователям.
+CURRENCY_KGS_TO_RUB_RATE = env.float("CURRENCY_KGS_TO_RUB_RATE", default=0.95)
+
 # CSRF trusted origins
 _DEFAULT_CSRF_TRUSTED = [
     "https://esai.kg",

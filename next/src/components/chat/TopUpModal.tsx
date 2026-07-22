@@ -1,10 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Modal } from "@/components/dialog/Dialog";
 import { fetchData } from "@/tools/fetchData";
 import { FiZap, FiGift } from "react-icons/fi";
+import { usePackagesValue } from "@/hooks/usePackagesValue";
+import { useCurrency } from "@/hooks/useCurrency";
+import type { PackageValue } from "@/types/pricing";
 
 type Pkg = {
   id: number | string;
@@ -28,6 +31,16 @@ type Props = {
  * purchase (POST /api/plans/purchase/). Purchase response is expected to carry
  * a payment URL/params (FreedomPay); we redirect to it when present and degrade
  * gracefully otherwise.
+ *
+ * Additionally shows a compact "Примерно хватит на" block per card, backed
+ * by the shared usePackagesValue() hook (public GET /api/plans/packages/value/,
+ * same contract/wording as TokenPackages on /pricing and HomePricingPreview).
+ * This is purely additive/informational — merged by id, never gates or
+ * touches the purchase flow (price/tokens/buy button) above. TopUpModal is
+ * mounted permanently in ChatWorkspace (Modal just renders null while
+ * closed), so the hook is gated with usePackagesValue(open) to avoid
+ * hitting the endpoint on every chat load — the fetch fires once, the
+ * first time the modal is opened.
  */
 export default function TopUpModal({ open, onClose }: Props) {
   const { t } = useTranslation("common");
@@ -35,6 +48,17 @@ export default function TopUpModal({ open, onClose }: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [buyingId, setBuyingId] = useState<string | number | null>(null);
+  const { data: valuePackages } = usePackagesValue(open);
+  // Валюта общая с /pricing (переключатель там, см. CurrencySwitch) —
+  // TopUpModal только подхватывает уже выбранную (localStorage/cookie).
+  const { currency, convert } = useCurrency();
+  const valueById = useMemo(() => {
+    const map: Record<string, PackageValue> = {};
+    for (const item of valuePackages) {
+      if (item && item.value) map[String(item.id)] = item.value;
+    }
+    return map;
+  }, [valuePackages]);
 
   useEffect(() => {
     if (!open) return;
@@ -98,48 +122,117 @@ export default function TopUpModal({ open, onClose }: Props) {
           <div className="py-10 text-center text-muted">{t("topup.empty", { defaultValue: "Пакеты пока недоступны" })}</div>
         )}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {packages.map((p) => (
-            <div
-              key={p.id}
-              className={`rounded-2xl bg-surface transition-colors p-4 flex flex-col ${
-                p.featured
-                  ? "border-2 border-accent shadow-md shadow-accent/10"
-                  : "border border-border hover:border-accent/60"
-              }`}
-            >
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-sm font-semibold text-foreground">{p.name}</span>
-                {p.badge && p.badge.trim() && (
-                  <span className="shrink-0 rounded-full bg-accent/15 text-accent-strong text-[11px] font-medium px-2 py-0.5 whitespace-nowrap">
-                    {p.badge}
-                  </span>
+          {packages.map((p) => {
+            const v = valueById[String(p.id)] || {};
+            const valueRows: { key: string; node: string }[] = [];
+            if (v.text) {
+              valueRows.push({
+                key: "text",
+                node: t("packages.value_text", {
+                  count: v.text.count,
+                  defaultValue: "💬 До {{count}} обычных запросов",
+                }),
+              });
+            }
+            if (v.image) {
+              valueRows.push({
+                key: "image",
+                node: t("packages.value_image", {
+                  count: v.image.count,
+                  defaultValue: "🎨 До {{count}} изображений",
+                }),
+              });
+            }
+            if (v.video) {
+              valueRows.push({
+                key: "video",
+                node: t("packages.value_video", {
+                  count: v.video.count,
+                  defaultValue: "🎬 До {{count}} видео",
+                }),
+              });
+            }
+            if (v.document) {
+              valueRows.push({
+                key: "document",
+                node: t("packages.value_document", {
+                  count: v.document.count,
+                  defaultValue: "📄 До {{count}} страниц перевода",
+                }),
+              });
+            }
+            return (
+              <div
+                key={p.id}
+                className={`rounded-2xl bg-surface transition-colors p-4 flex flex-col ${
+                  p.featured
+                    ? "border-2 border-accent shadow-md shadow-accent/10"
+                    : "border border-border hover:border-accent/60"
+                }`}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-semibold text-foreground">{p.name}</span>
+                  {p.badge && p.badge.trim() && (
+                    <span className="shrink-0 rounded-full bg-accent/15 text-accent-strong text-[11px] font-medium px-2 py-0.5 whitespace-nowrap">
+                      {p.badge}
+                    </span>
+                  )}
+                </div>
+                <div className="mt-2 flex items-baseline gap-1">
+                  <span className="text-2xl font-bold text-foreground">{p.tokens.toLocaleString()}</span>
+                  <span className="text-xs text-muted">{t("topup.credits", { defaultValue: "кредитов" })}</span>
+                </div>
+                {!!p.bonus_tokens && p.bonus_tokens > 0 && (
+                  <div className="mt-1 inline-flex items-center gap-1 text-xs text-accent">
+                    <FiGift /> +{p.bonus_tokens.toLocaleString()} {t("topup.bonus", { defaultValue: "бонус" })}
+                  </div>
+                )}
+                <div className="mt-3 text-lg font-semibold text-foreground">
+                  {convert(p.price).toLocaleString()}{" "}
+                  {currency === "RUB" ? "₽" : p.currency === "KGS" ? t("topup.som", { defaultValue: "сом" }) : p.currency}
+                </div>
+                {valueRows.length > 0 && (
+                  <div className="mt-3 rounded-xl bg-surface-2 border border-border px-3 py-2.5 flex flex-col gap-1">
+                    <div className="text-[11px] font-semibold text-muted uppercase tracking-wide">
+                      {t("packages.value_title", { defaultValue: "Примерно хватит на" })}
+                    </div>
+                    <ul className="flex flex-col gap-0.5 text-xs text-foreground">
+                      {valueRows.map((r) => (
+                        <li key={r.key}>{r.node}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={() => purchase(p)}
+                  disabled={buyingId != null || currency === "RUB"}
+                  title={
+                    currency === "RUB"
+                      ? t("packages.rub_payment_soon_hint", {
+                          defaultValue: "Переключитесь на KGS, чтобы оплатить пакет",
+                        })
+                      : undefined
+                  }
+                  className="mt-4 inline-flex items-center justify-center gap-2 rounded-xl bg-accent text-on-accent font-semibold text-sm py-2.5 hover:bg-accent-strong transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
+                >
+                  <FiZap />
+                  {currency === "RUB"
+                    ? t("packages.rub_payment_soon", { defaultValue: "Оплата в рублях скоро" })
+                    : buyingId === p.id
+                    ? t("common.processing", { defaultValue: "Обработка..." })
+                    : t("topup.buy", { defaultValue: "Купить" })}
+                </button>
+                {currency === "RUB" && (
+                  <p className="mt-1.5 text-center text-[11px] text-muted">
+                    {t("packages.rub_payment_soon_note", {
+                      defaultValue: "Оплата картой в рублях появится позже. Переключите валюту на KGS, чтобы купить сейчас.",
+                    })}
+                  </p>
                 )}
               </div>
-              <div className="mt-2 flex items-baseline gap-1">
-                <span className="text-2xl font-bold text-foreground">{p.tokens.toLocaleString()}</span>
-                <span className="text-xs text-muted">{t("topup.credits", { defaultValue: "кредитов" })}</span>
-              </div>
-              {!!p.bonus_tokens && p.bonus_tokens > 0 && (
-                <div className="mt-1 inline-flex items-center gap-1 text-xs text-accent">
-                  <FiGift /> +{p.bonus_tokens.toLocaleString()} {t("topup.bonus", { defaultValue: "бонус" })}
-                </div>
-              )}
-              <div className="mt-3 text-lg font-semibold text-foreground">
-                {p.price.toLocaleString()} {p.currency === "KGS" ? t("topup.som", { defaultValue: "сом" }) : p.currency}
-              </div>
-              <button
-                type="button"
-                onClick={() => purchase(p)}
-                disabled={buyingId != null}
-                className="mt-4 inline-flex items-center justify-center gap-2 rounded-xl bg-accent text-on-accent font-semibold text-sm py-2.5 hover:bg-accent-strong transition-colors cursor-pointer disabled:opacity-60"
-              >
-                <FiZap />
-                {buyingId === p.id
-                  ? t("common.processing", { defaultValue: "Обработка..." })
-                  : t("topup.buy", { defaultValue: "Купить" })}
-              </button>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
     </Modal>

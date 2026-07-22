@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { fetchData } from "@/tools/fetchData";
 import { FiZap, FiGift } from "react-icons/fi";
 import Cookies from "js-cookie";
+import type { Currency } from "@/lib/currency";
 
 type Pkg = {
   id: number | string;
@@ -50,6 +51,15 @@ type TokenPackagesProps = {
   discountPercent?: number | null;
   /** заголовок X-Device-Key — прокидывается в purchase/, чтобы бэк мог смёрджить гостевой claim */
   deviceKey?: string;
+  /**
+   * Отображаемая валюта (переключатель KGS/RUB на /pricing, см.
+   * next/src/hooks/useCurrency.ts) — ТОЛЬКО для показа цены, TokenPackage.price
+   * на бэкенде всегда в сомах. По умолчанию "KGS" (без пересчёта), если
+   * родитель не подключил переключатель валют.
+   */
+  currency?: Currency;
+  /** Пересчёт цены из сомов в currency по курсу с бэкенда — identity по умолчанию. */
+  convert?: (priceKgs: number) => number;
   /** вызывается сразу при клике "Купить", до похода на бэк — сигнал для useExitDiscount не показывать попап во время оплаты */
   onPurchaseStart?: () => void;
   /** вызывается после ответа/редиректа покупки (успех или ошибка) */
@@ -73,6 +83,8 @@ type TokenPackagesProps = {
 export default function TokenPackages({
   discountPercent = null,
   deviceKey,
+  currency = "KGS",
+  convert = (priceKgs: number) => priceKgs,
   onPurchaseStart,
   onPurchaseEnd,
 }: TokenPackagesProps = {}) {
@@ -297,16 +309,18 @@ export default function TokenPackages({
                   {discountPercent ? (
                     <>
                       <span className="text-base text-muted line-through mr-2">
-                        {p.price.toLocaleString()}
+                        {convert(p.price).toLocaleString()}
                       </span>
                       <span className="text-2xl font-bold text-accent">
-                        {(Math.round(p.price * (1 - discountPercent / 100) * 100) / 100).toLocaleString()}
+                        {convert(Math.round(p.price * (1 - discountPercent / 100) * 100) / 100).toLocaleString()}
                       </span>
                     </>
                   ) : (
-                    <span className="text-2xl font-bold text-foreground">{p.price.toLocaleString()}</span>
+                    <span className="text-2xl font-bold text-foreground">{convert(p.price).toLocaleString()}</span>
                   )}{" "}
-                  <span className="text-base text-muted">{p.currency === "KGS" ? t("topup.som", { defaultValue: "сом" }) : p.currency}</span>
+                  <span className="text-base text-muted">
+                    {currency === "RUB" ? "₽" : p.currency === "KGS" ? t("topup.som", { defaultValue: "сом" }) : p.currency}
+                  </span>
                 </div>
 
                 {/* Сырой счётчик кредитов — вторично, мелким текстом (п.8 ТЗ:
@@ -344,20 +358,40 @@ export default function TokenPackages({
                 <button
                   type="button"
                   onClick={() => onBuy(p)}
-                  disabled={buyingId != null}
-                  className={`mt-auto inline-flex items-center justify-center gap-2 rounded-xl font-semibold text-sm py-3 transition-colors cursor-pointer disabled:opacity-60 ${
+                  disabled={buyingId != null || currency === "RUB"}
+                  title={
+                    currency === "RUB"
+                      ? t("packages.rub_payment_soon_hint", {
+                          defaultValue: "Переключитесь на KGS, чтобы оплатить пакет",
+                        })
+                      : undefined
+                  }
+                  className={`mt-auto inline-flex items-center justify-center gap-2 rounded-xl font-semibold text-sm py-3 transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed ${
                     featured
                       ? "bg-accent text-on-accent hover:bg-accent-strong"
                       : "bg-accent/90 text-on-accent hover:bg-accent-strong"
                   }`}
                 >
                   <FiZap />
-                  {!authed
+                  {currency === "RUB"
+                    ? t("packages.rub_payment_soon", { defaultValue: "Оплата в рублях скоро" })
+                    : !authed
                     ? t("packages.login_to_topup", { defaultValue: "Войдите, чтобы пополнить" })
                     : buyingId === p.id
                     ? t("common.processing", { defaultValue: "Обработка..." })
                     : t("packages.topup", { defaultValue: "Пополнить" })}
                 </button>
+
+                {/* Оплата пока идёт только в сомах (FreedomPay) — при выбранной RUB
+                    кнопка выше намеренно недоступна (см. отчёт: п.4 задачи по валютам),
+                    чтобы никого не списало в другой валюте, чем видно на экране. */}
+                {currency === "RUB" && (
+                  <p className="text-center text-xs text-muted -mt-2">
+                    {t("packages.rub_payment_soon_note", {
+                      defaultValue: "Оплата картой в рублях появится позже. Переключите валюту на KGS, чтобы купить сейчас.",
+                    })}
+                  </p>
+                )}
               </div>
             );
           })}

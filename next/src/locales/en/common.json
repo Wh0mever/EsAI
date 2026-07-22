@@ -1101,6 +1101,15 @@
 	"packages": {
 		"title": "Choose a credit package",
 		"subtitle": "EsAI | Pay as you go",
+		"payg_badge": "PAY-AS-YOU-GO",
+		"payg_title": "No subscriptions. Pay only for what you use.",
+		"payg_subtitle": "Top up your balance and spend it only on real AI usage. Not using it? We don't charge you anything.",
+		"payg_check_no_subscription": "No subscriptions",
+		"payg_check_no_hidden_fees": "No hidden fees",
+		"payg_check_starts_from": "From 190 som",
+		"rub_payment_soon": "RUB payment coming soon",
+		"rub_payment_soon_hint": "Switch to KGS to pay for this package",
+		"rub_payment_soon_note": "Card payment in rubles is coming soon. Switch the currency to KGS to buy right now.",
 		"lead": "Pay only for what you use. Pick a credit package and top up your balance — no subscriptions.",
 		"topup": "Top up",
 		"login_to_topup": "Sign in to top up",
@@ -1250,28 +1259,28 @@
 			"title": "Why EsAI",
 			"items": {
 				"1": {
-					"title": "50+ of the best AI models",
-					"desc": "Use the best models without being limited to a single neural network."
+					"title": "50+ AI models",
+					"desc": "Not tied to one model"
 				},
 				"2": {
 					"title": "One account",
-					"desc": "All models work from a single interface."
+					"desc": "One interface for everything"
 				},
 				"3": {
 					"title": "One balance",
-					"desc": "No need to pay for ChatGPT, Claude, Gemini and other services separately."
+					"desc": "Don't pay for each service"
 				},
 				"4": {
-					"title": "The best model for every task",
-					"desc": "EsAI helps you pick the model that fits your task best."
+					"title": "Model for your task",
+					"desc": "We'll suggest the best pick"
 				},
 				"5": {
-					"title": "New models appear right away",
-					"desc": "The latest neural networks become available with no waiting."
+					"title": "New models fast",
+					"desc": "No waiting, no updates"
 				},
 				"6": {
 					"title": "Convenient payment",
-					"desc": "Pay however is convenient for you: Visa and Mastercard bank cards, plus all popular online wallets and payment services in Kyrgyzstan."
+					"desc": "Visa, Mastercard and local wallets"
 				}
 			}
 		},
@@ -1293,14 +1302,14 @@
 				},
 				"2": {
 					"chatgpt": "GPT only",
-					"esai": "GPT, Claude, Gemini, Grok, DeepSeek, Veo, FLUX, Kling and more"
+					"esai": "GPT, Claude and more"
 				},
 				"3": {
 					"chatgpt": "One subscription",
-					"esai": "One balance for all models"
+					"esai": "One balance for all"
 				},
 				"4": {
-					"chatgpt": "You have to pick a service",
+					"chatgpt": "Have to pick a service",
 					"esai": "Everything in one place"
 				}
 			}

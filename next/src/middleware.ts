@@ -77,7 +77,6 @@ export function middleware(request: NextRequest) {
   const haveLocale = request.cookies.get('NEXT_LOCALE')?.value;
   const haveCurrency = request.cookies.get('APP_CURRENCY')?.value;
   const manualLocale = request.cookies.get('NEXT_LOCALE_MANUAL')?.value === '1';
-  const manualCurrency = request.cookies.get('APP_CURRENCY_MANUAL')?.value === '1';
 
   let res: NextResponse;
   if (isProtected && !accessToken) {
@@ -95,7 +94,15 @@ export function middleware(request: NextRequest) {
   if (!manualLocale && (!haveLocale || !['ru', 'en', 'kg'].includes(haveLocale) || haveLocale !== browserLocale)) {
     res.cookies.set('NEXT_LOCALE', browserLocale, { path: '/', maxAge: 60 * 60 * 24 * 365 });
   }
-  if ((!haveCurrency || !['USD', 'RUB', 'KGS'].includes(haveCurrency) || (!manualCurrency && haveCurrency !== desired.currency))) {
+  // Валюта: cookie отсутствует/битая -> дефолт KGS (первый визит, до того как
+  // клиентский геодетект (useCurrency(), GET /api/plans/currency-rate/) успеет
+  // отработать). ВАЖНО: домен больше НЕ перетирает cookie при каждой навигации
+  // (defaultsByHost всегда возвращает "KGS" — домен один, esai.kg, ветвления
+  // никогда не было) — раньше это стирало non-manual RUB, определённый по
+  // геолокации IP из России, обратно на KGS на следующей же странице. И ручной,
+  // и авто (гео) выбор валюты теперь одинаково залипают до явной смены
+  // пользователем — только по-настоящему пустая/невалидная cookie заменяется.
+  if (!haveCurrency || !['USD', 'RUB', 'KGS'].includes(haveCurrency)) {
     res.cookies.set('APP_CURRENCY', desired.currency, { path: '/', maxAge: 60 * 60 * 24 * 365 });
   }
 
