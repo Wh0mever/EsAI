@@ -48,6 +48,12 @@ type Props = {
   model: string;
   onModelChange: (id: string, m: AiModel) => void;
   autoFocus?: boolean;
+  /**
+   * Счётчик: при каждом изменении — фокус в поле + курсор в конец текста.
+   * Используется, когда текст подставляется программно (быстрые промпты,
+   * каталог задач), не только на монтировании (в отличие от autoFocus).
+   */
+  focusSignal?: number;
   webSearch?: boolean;
   onToggleWebSearch?: (v: boolean) => void;
   /** Направление меню моделей: "down" на стартовом экране, "up" в диалоге. */
@@ -75,6 +81,7 @@ export default function ChatComposer({
   model,
   onModelChange,
   autoFocus,
+  focusSignal,
   webSearch = false,
   onToggleWebSearch,
   menuDirection = "up",
@@ -198,6 +205,24 @@ export default function ChatComposer({
   useEffect(() => {
     if (autoFocus) textareaRef.current?.focus();
   }, [autoFocus]);
+
+  // Подстановка промпта извне (быстрые действия, каталог задач) — фокус +
+  // курсор в конец, чтобы пользователь мог сразу дописать без лишнего клика.
+  // Пропускаем самый первый рендер (focusSignal стартует с 0 — не должно
+  // конкурировать с autoFocus выше).
+  const skipFirstFocusSignal = useRef(true);
+  useEffect(() => {
+    if (skipFirstFocusSignal.current) {
+      skipFirstFocusSignal.current = false;
+      return;
+    }
+    if (focusSignal === undefined) return;
+    const el = textareaRef.current;
+    if (!el) return;
+    el.focus();
+    const len = el.value.length;
+    el.setSelectionRange(len, len);
+  }, [focusSignal]);
 
   // Возвращаем фокус в поле ввода после ответа ИИ (disabled/loading → false) и
   // при монтировании, чтобы пользователь продолжал печатать, не кликая по чату

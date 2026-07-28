@@ -27,7 +27,6 @@
 			"subtitle": "Think of a story, draw the characters and bring them to life in a video — right here, no skills required."
 		},
 		"how": {
-			"title": "How it works",
 			"1": {
 				"title": "Just tell us",
 				"text": "Describe what you want in your own words — like telling a friend."
@@ -39,7 +38,8 @@
 			"3": {
 				"title": "Done!",
 				"text": "Save the result and show it to your friends and family."
-			}
+			},
+			"title": "How it works"
 		},
 		"soon": {
 			"title": "Coming soon",
@@ -683,7 +683,299 @@
 		"start": {
 			"greeting": "How can I help?",
 			"studio_title": "Cartoon creation",
-			"studio_desc": "Come up with a story, draw the heroes and bring them to life in video — no skills needed."
+			"studio_desc": "Come up with a story, draw the heroes and bring them to life in video — no skills needed.",
+			"quick": {
+				"article": "Write an article",
+				"article_prompt": "Write an article about: ",
+				"image": "Create an image",
+				"image_prompt": "Draw an image: ",
+				"translate": "Translate text",
+				"translate_prompt": "Translate this text into English: ",
+				"summarize": "Summarize a document",
+				"summarize_prompt": "Briefly summarize the document I'll attach",
+				"code": "Write code",
+				"code_prompt": "Write Python code that ",
+				"study": "Help with studying",
+				"study_prompt": "Help me understand this topic: ",
+				"travel": "Plan a trip",
+				"travel_prompt": "Help me plan a trip to ",
+				"business": "Come up with a business idea",
+				"business_prompt": "Suggest a business idea for ",
+				"all_tasks": "All capabilities"
+			}
+		},
+		"catalog": {
+			"title": "Choose a task",
+			"search_placeholder": "Search for a task...",
+			"no_results": "Nothing found",
+			"categories": {
+				"texts": {
+					"label": "Writing",
+					"tasks": {
+						"article": {
+							"label": "Write an Article",
+							"prompt": "Write an article about: "
+						},
+						"letter": {
+							"label": "Write a Letter",
+							"prompt": "Write a letter about: "
+						},
+						"seoArticle": {
+							"label": "Write an SEO Article",
+							"prompt": "Write an SEO article about: "
+						},
+						"commercialProposal": {
+							"label": "Write a Commercial Proposal",
+							"prompt": "Write a commercial proposal about: "
+						},
+						"instruction": {
+							"label": "Write Instructions",
+							"prompt": "Write instructions about: "
+						},
+						"adText": {
+							"label": "Write an Ad",
+							"prompt": "Write an ad about: "
+						},
+						"paraphrase": {
+							"label": "Paraphrase Text",
+							"prompt": "Paraphrase this text: "
+						},
+						"fixErrors": {
+							"label": "Fix Errors",
+							"prompt": "Fix the errors in this text: "
+						},
+						"shorten": {
+							"label": "Shorten Text",
+							"prompt": "Shorten this text: "
+						},
+						"continueText": {
+							"label": "Continue Text",
+							"prompt": "Continue this text: "
+						}
+					}
+				},
+				"documents": {
+					"label": "Documents",
+					"tasks": {
+						"summarizeDoc": {
+							"label": "Summarize a document",
+							"prompt": "Briefly summarize the document I'll attach"
+						},
+						"analyzeDoc": {
+							"label": "Analyze a document",
+							"prompt": "Analyze the document I'll attach"
+						},
+						"reviewContract": {
+							"label": "Review a contract",
+							"prompt": "Review the contract I'll attach for risks and pitfalls"
+						},
+						"findErrorsDoc": {
+							"label": "Find errors",
+							"prompt": "Find errors in the document I'll attach"
+						},
+						"highlightMain": {
+							"label": "Highlight the key points",
+							"prompt": "Highlight the key points in the document I'll attach"
+						},
+						"explainSimply": {
+							"label": "Explain in simple terms",
+							"prompt": "Explain the document I'll attach in simple terms"
+						}
+					}
+				},
+				"social": {
+					"label": "Social Media",
+					"tasks": {
+						"createPost": {
+							"label": "Create a Post",
+							"prompt": "Write a social media post about: "
+						},
+						"adCopy": {
+							"label": "Create Ad Copy",
+							"prompt": "Write ad copy for "
+						},
+						"productDescription": {
+							"label": "Write a Product Description",
+							"prompt": "Write a compelling product description: "
+						},
+						"contentPlan": {
+							"label": "Create a Content Plan",
+							"prompt": "Create a social media content plan about: "
+						},
+						"reelsIdeas": {
+							"label": "Brainstorm Reels Ideas",
+							"prompt": "Brainstorm Reels ideas about: "
+						},
+						"catchyHeadline": {
+							"label": "Write a Catchy Headline",
+							"prompt": "Write a catchy headline about: "
+						}
+					}
+				},
+				"images": {
+					"label": "Images",
+					"tasks": {
+						"createImage": {
+							"label": "Create Image",
+							"prompt": "Create a realistic image: "
+						},
+						"createLogo": {
+							"label": "Create Logo",
+							"prompt": "Create a logo for a company: "
+						},
+						"createBanner": {
+							"label": "Create Banner",
+							"prompt": "Create a banner on the theme: "
+						},
+						"createCover": {
+							"label": "Create Cover",
+							"prompt": "Create a cover on the theme: "
+						},
+						"enhancePhoto": {
+							"label": "Enhance Photo",
+							"prompt": "Enhance the quality of the photo I'll attach"
+						},
+						"removeBackground": {
+							"label": "Remove Background",
+							"prompt": "Remove the background from the photo I'll attach"
+						}
+					}
+				},
+				"video": {
+					"label": "Video",
+					"tasks": {
+						"createVideo": {
+							"label": "Create a video",
+							"prompt": "Create a short video about: "
+						},
+						"writeScript": {
+							"label": "Write a script",
+							"prompt": "Write a video script about: "
+						},
+						"storyboard": {
+							"label": "Create a storyboard",
+							"prompt": "Create a storyboard for a video about: "
+						},
+						"shortsIdeas": {
+							"label": "Come up with Shorts ideas",
+							"prompt": "Come up with Shorts ideas about: "
+						}
+					}
+				},
+				"code": {
+					"label": "Programming",
+					"tasks": {
+						"writeCode": {
+							"label": "Write Code",
+							"prompt": "Write Python code that "
+						},
+						"fixBug": {
+							"label": "Fix a Bug",
+							"prompt": "Fix the error in this code: "
+						},
+						"explainCode": {
+							"label": "Explain Code",
+							"prompt": "Explain what this code does: "
+						},
+						"optimizeCode": {
+							"label": "Optimize Code",
+							"prompt": "Optimize and speed up this code: "
+						},
+						"sqlQuery": {
+							"label": "Write a SQL Query",
+							"prompt": "Write a SQL query that "
+						}
+					}
+				},
+				"work": {
+					"label": "Work",
+					"tasks": {
+						"presentation": {
+							"label": "Create Presentation",
+							"prompt": "Create a presentation outline on: "
+						},
+						"table": {
+							"label": "Create Table",
+							"prompt": "Create a table on: "
+						},
+						"resume": {
+							"label": "Write Resume",
+							"prompt": "Write a resume for the position: "
+						},
+						"coverLetter": {
+							"label": "Write Cover Letter",
+							"prompt": "Write a cover letter for the job: "
+						},
+						"interviewPrep": {
+							"label": "Prepare for Interview",
+							"prompt": "Help me prepare for an interview for the position: "
+						}
+					}
+				},
+				"business": {
+					"label": "Business",
+					"tasks": {
+						"businessIdea": {
+							"label": "Come up with a business idea",
+							"prompt": "Suggest a business idea for "
+						},
+						"businessPlan": {
+							"label": "Write a business plan",
+							"prompt": "Create a business plan for the project: "
+						},
+						"competitorAnalysis": {
+							"label": "Analyze competitors",
+							"prompt": "Analyze competitors in the field of: "
+						},
+						"marketingPlan": {
+							"label": "Create a marketing plan",
+							"prompt": "Create a marketing plan for the product: "
+						},
+						"projectEconomics": {
+							"label": "Calculate project economics",
+							"prompt": "Calculate the economics of the project: "
+						}
+					}
+				},
+				"translate": {
+					"label": "Translation",
+					"tasks": {
+						"translateText": {
+							"label": "Translate text",
+							"prompt": "Translate this text: "
+						},
+						"translateDocument": {
+							"label": "Translate document",
+							"prompt": "Translate the document I'll attach"
+						},
+						"translateWebsite": {
+							"label": "Translate website",
+							"prompt": "Translate the website at this link: "
+						}
+					}
+				},
+				"study": {
+					"label": "Study",
+					"tasks": {
+						"solveProblem": {
+							"label": "Solve a Problem",
+							"prompt": "Solve this problem in detail: "
+						},
+						"explainTopic": {
+							"label": "Explain a Topic",
+							"prompt": "Explain this topic in simple terms: "
+						},
+						"examPrep": {
+							"label": "Prepare for an Exam",
+							"prompt": "Help me prepare for an exam on: "
+						},
+						"notes": {
+							"label": "Create Study Notes",
+							"prompt": "Create a concise summary on: "
+						}
+					}
+				}
+			}
 		},
 		"studio": "Cartoon creation",
 		"actions": {
@@ -1241,6 +1533,7 @@
 	"home": {
 		"hero": {
 			"title": "All the world's best AI models in one place",
+			"tagline": "No unnecessary spending or subscriptions.",
 			"subtitle": "Use ChatGPT, Claude, Gemini, Grok, DeepSeek, Veo, Sora, FLUX, Kling and dozens of other models in a single account.",
 			"cta": "Start for free",
 			"chips": {

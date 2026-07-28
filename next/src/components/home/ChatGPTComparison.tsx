@@ -5,18 +5,21 @@ import { FiCheck, FiX } from "react-icons/fi";
 
 /**
  * ChatGPTComparison — секция «Сравнение EsAI и ChatGPT» для главной страницы
- * (блок 4 из 8 в новой структуре лендинга). 4 строки, текст ДОСЛОВНО из ТЗ
- * клиента. Наглядно в пользу EsAI: колонка ChatGPT — приглушённая, с крестиком;
- * колонка EsAI — акцентная, с чекмарком.
+ * (блок 4 из 8 в новой структуре лендинга). 4 пункта сравнения, текст
+ * ДОСЛОВНО из ТЗ клиента (кроме esai-значения строки 2 — намеренно сокращено,
+ * см. комментарий у ROWS). Наглядно в пользу EsAI: в каждой плитке сверху
+ * приглушённое зачёркнутое значение ChatGPT с крестиком, снизу акцентное
+ * значение EsAI с чекмарком.
  *
  * Статична (кроме i18n), поэтому не тянет данные с бэка — но помечена
  * "use client", потому что useTranslation требует клиентского рендера
  * (см. Footer.tsx / WhyEsAI.tsx — тот же паттерн в этом кодбейзе).
  *
- * Адаптив: на sm+ — классическая двухколоночная таблица с общим заголовком
- * колонок сверху. На мобиле заголовок колонок скрывается, каждая строка
- * превращается в карточку, где ячейки ChatGPT/EsAI стоят друг под другом со
- * своей мини-подписью (grid-cols-1 sm:grid-cols-2 на каждой строке).
+ * Плотность по референсу клиента (старый грид быстрых действий чата):
+ * ровно 2 колонки даже на узком мобильном (375px), компактный p-3,
+ * умеренный gap. Раньше это была таблица из 2 колонок с общим заголовком
+ * ("ChatGPT" / "EsAI"), которая на мобиле разваливалась в 8 стековых блоков
+ * подряд — клиент попросил собрать всё в квадратики.
  *
  * Визуальный язык — как в pricing/CreditsExplainer.tsx и home/WhyEsAI.tsx:
  * rounded-2xl, border-border, bg-surface-2, text-muted, text-accent-strong.
@@ -34,33 +37,38 @@ const ROWS: Row[] = [
     chatgptKey: "home.comparison.rows.1.chatgpt",
     chatgptDefault: "Одна модель",
     esaiKey: "home.comparison.rows.1.esai",
-    esaiDefault: "Более 50 моделей",
+    esaiDefault: "50+ моделей",
   },
   {
     chatgptKey: "home.comparison.rows.2.chatgpt",
     chatgptDefault: "Только GPT",
     esaiKey: "home.comparison.rows.2.esai",
-    esaiDefault: "GPT, Claude, Gemini, Grok, DeepSeek, Veo, FLUX, Kling и другие",
+    // Сокращено с полного списка ("...Gemini, Grok, DeepSeek, Veo, FLUX,
+    // Kling и другие") — в узкой плитке 2-колоночной сетки (375px, колонка
+    // ~167px) даже "GPT, Claude, Gemini и другие" уже давал 3 строки в
+    // строке EsAI (префикс "EsAI: " + font-semibold text-sm). Смысл ("много
+    // моделей от разных провайдеров") сохранён.
+    esaiDefault: "GPT, Claude и другие",
   },
   {
     chatgptKey: "home.comparison.rows.3.chatgpt",
     chatgptDefault: "Одна подписка",
     esaiKey: "home.comparison.rows.3.esai",
-    esaiDefault: "Один баланс для всех моделей",
+    esaiDefault: "Один баланс на всё",
   },
   {
     chatgptKey: "home.comparison.rows.4.chatgpt",
     chatgptDefault: "Нужно выбирать сервис",
     esaiKey: "home.comparison.rows.4.esai",
-    esaiDefault: "Всё собрано в одном месте",
+    esaiDefault: "Всё в одном месте",
   },
 ];
 
 export default function ChatGPTComparison() {
   const { t } = useTranslation("common");
 
-  const colChatgpt = t("home.comparison.col_chatgpt", { defaultValue: "ChatGPT" });
-  const colEsai = t("home.comparison.col_esai", { defaultValue: "EsAI" });
+  const labelChatgpt = t("home.comparison.col_chatgpt", { defaultValue: "ChatGPT" });
+  const labelEsai = t("home.comparison.col_esai", { defaultValue: "EsAI" });
 
   return (
     <section
@@ -72,48 +80,29 @@ export default function ChatGPTComparison() {
           {t("home.comparison.title", { defaultValue: "Сравнение EsAI и ChatGPT" })}
         </h2>
 
-        <div className="rounded-2xl border border-border bg-surface-2 overflow-hidden">
-          {/* Column headers — visible from sm up, each row repeats them inline on mobile. */}
-          <div className="hidden sm:grid grid-cols-2 border-b border-border">
-            <div className="px-4 py-2 text-center text-sm font-semibold uppercase tracking-wide text-muted-2">
-              {colChatgpt}
-            </div>
-            <div className="px-4 py-2 text-center text-sm font-semibold uppercase tracking-wide text-accent-strong bg-accent/10">
-              {colEsai}
-            </div>
-          </div>
+        <div className="grid grid-cols-2 gap-2 sm:gap-3">
+          {ROWS.map((row) => (
+            <div
+              key={row.chatgptKey}
+              className="rounded-2xl border border-border bg-surface-2 p-3 flex flex-col gap-1.5"
+            >
+              {/* ChatGPT — приглушённо, зачёркнуто. */}
+              <div className="flex items-start gap-1.5">
+                <FiX className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-2" aria-hidden />
+                <span className="text-xs text-muted line-through decoration-muted-2/60 leading-snug">
+                  {labelChatgpt}: {t(row.chatgptKey, { defaultValue: row.chatgptDefault })}
+                </span>
+              </div>
 
-          <ul className="divide-y divide-border">
-            {ROWS.map((row) => (
-              <li key={row.chatgptKey} className="grid grid-cols-1 sm:grid-cols-2">
-                {/* ChatGPT cell — muted, crossed out. */}
-                <div className="flex items-start gap-3 px-4 py-2 sm:border-r border-border">
-                  <FiX className="mt-0.5 h-4 w-4 shrink-0 text-muted-2" aria-hidden />
-                  <div className="min-w-0">
-                    <span className="sm:hidden block text-xs font-semibold uppercase tracking-wide text-muted-2 mb-1">
-                      {colChatgpt}
-                    </span>
-                    <span className="text-muted line-through decoration-muted-2/60">
-                      {t(row.chatgptKey, { defaultValue: row.chatgptDefault })}
-                    </span>
-                  </div>
-                </div>
-
-                {/* EsAI cell — accented, checked. */}
-                <div className="flex items-start gap-3 px-4 py-2 bg-accent/[0.06]">
-                  <FiCheck className="mt-0.5 h-4 w-4 shrink-0 text-accent-strong" aria-hidden />
-                  <div className="min-w-0">
-                    <span className="sm:hidden block text-xs font-semibold uppercase tracking-wide text-accent-strong mb-1">
-                      {colEsai}
-                    </span>
-                    <span className="text-foreground font-medium">
-                      {t(row.esaiKey, { defaultValue: row.esaiDefault })}
-                    </span>
-                  </div>
-                </div>
-              </li>
-            ))}
-          </ul>
+              {/* EsAI — акцентно, крупнее и жирнее ChatGPT-строки. */}
+              <div className="flex items-start gap-1.5">
+                <FiCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-accent-strong" aria-hidden />
+                <span className="text-sm font-semibold text-accent-strong leading-snug">
+                  {labelEsai}: {t(row.esaiKey, { defaultValue: row.esaiDefault })}
+                </span>
+              </div>
+            </div>
+          ))}
         </div>
       </div>
     </section>

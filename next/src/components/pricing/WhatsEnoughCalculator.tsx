@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { fetchData } from "@/tools/fetchData";
+import { usePackagesValue } from "@/hooks/usePackagesValue";
 
 /**
  * WhatsEnoughCalculator — блок «На что хватит?» (ТЗ Этап 3, п.14).
@@ -25,29 +25,6 @@ import { fetchData } from "@/tools/fetchData";
  * уже загруженным данным, без повторных запросов к бэку.
  */
 
-type ValueCategory = {
-  count: number;
-  unit_model_name?: string;
-  recommended?: boolean;
-};
-
-type PackageValue = {
-  text?: ValueCategory;
-  image?: ValueCategory;
-  video?: ValueCategory;
-  document?: ValueCategory;
-};
-
-type PkgWithValue = {
-  id: number | string;
-  name: string;
-  price: number | string;
-  currency: string;
-  badge?: string;
-  sort_order?: number;
-  value?: PackageValue;
-};
-
 type ScenarioKey = "text" | "image" | "video" | "document";
 
 const SCENARIOS: { key: ScenarioKey; emoji: string }[] = [
@@ -59,41 +36,8 @@ const SCENARIOS: { key: ScenarioKey; emoji: string }[] = [
 
 export default function WhatsEnoughCalculator() {
   const { t } = useTranslation("common");
-  const [packages, setPackages] = useState<PkgWithValue[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [errored, setErrored] = useState(false);
+  const { data: packages, loading, error: errored } = usePackagesValue();
   const [scenario, setScenario] = useState<ScenarioKey>("text");
-
-  useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    setErrored(false);
-    (async () => {
-      try {
-        const res = await fetchData<{ packages: PkgWithValue[] }>(
-          "plans/packages/value/",
-          "GET",
-          null,
-          false
-        );
-        if (cancelled) return;
-        const list = Array.isArray(res?.data?.packages) ? res.data!.packages : [];
-        if (res?.ok && list.length) {
-          const sorted = [...list].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
-          setPackages(sorted);
-        } else {
-          setErrored(true);
-        }
-      } catch {
-        if (!cancelled) setErrored(true);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
 
   const scenarioLabels: Record<ScenarioKey, string> = {
     text: t("pricing.whatsEnough.scenario_text", { defaultValue: "Общение с AI" }),
@@ -226,9 +170,7 @@ export default function WhatsEnoughCalculator() {
                   )}
 
                   <div className="flex items-center justify-between gap-2 mt-1">
-                    <span className="font-semibold text-foreground truncate">
-                      {p.badge && p.badge.trim() ? p.badge : p.name}
-                    </span>
+                    <span className="text-lg font-semibold text-foreground truncate">{p.name}</span>
                   </div>
 
                   <p className="text-sm text-muted leading-snug">{rowTemplate(scenario, v.count, model)}</p>

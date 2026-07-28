@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import Cookies from "js-cookie";
@@ -26,6 +26,28 @@ type Props = {
   chatId?: string;
   /** chat mode kept for routing parity with the dashboard */
   mode?: string;
+  /**
+   * Контент, который рисуется СРАЗУ ПОД шапкой чата (меню/лого/баланс) и НАД
+   * стартовым экраном — используется главной страницей для HomeHero (клиент
+   * попросил шапку чата первым элементом на экране, Hero сразу под ней, см.
+   * app/(home)/page.tsx). Показывается только на стартовом экране: как
+   * только пользователь начинает переписку, чат занимает всю высоту вьюпорта
+   * (см. style ниже) — держать там ещё и Hero было бы тесно/лишне.
+   */
+  heroSlot?: ReactNode;
+  /**
+   * Контент между композером и баннером «Создание мультфильмов» на стартовом
+   * экране — главная страница передаёт сюда WhyEsAI (клиент попросил: сразу
+   * после чата «Почему EsAI», потом уже мультфильмы, см. StartScreen.tsx и
+   * app/(home)/page.tsx).
+   */
+  belowComposerSlot?: ReactNode;
+  /**
+   * Чипы готовых промптов на стартовом экране (см. StartScreen.tsx) — ТОЛЬКО
+   * на /dashboard/text-chat (клиент явно попросил их НЕ показывать на
+   * главной, см. ClientDashboard.tsx).
+   */
+  showQuickPrompts?: boolean;
 };
 
 const MODE = "text-chat";
@@ -42,7 +64,7 @@ const PAYWALL_CODES: PaywallReason[] = [
  * ChatWorkspace — the full EsAI chat experience used by both `/` and the
  * dashboard. First screen is the chat itself (start screen → conversation).
  */
-export default function ChatWorkspace({ chatId, mode = MODE }: Props) {
+export default function ChatWorkspace({ chatId, mode = MODE, heroSlot, belowComposerSlot, showQuickPrompts }: Props) {
   const router = useRouter();
   const { t, i18n } = useTranslation("common");
 
@@ -93,6 +115,9 @@ export default function ChatWorkspace({ chatId, mode = MODE }: Props) {
   }, []);
   const [animateIndex, setAnimateIndex] = useState<number | null>(null);
   const [webSearch, setWebSearch] = useState(false);
+  // Растёт при программной подстановке промпта (быстрые действия, каталог
+  // задач) — сигнал для ChatComposer поставить фокус и курсор в конец текста.
+  const [focusSignal, setFocusSignal] = useState(0);
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [topUpOpen, setTopUpOpen] = useState(false);
@@ -587,6 +612,7 @@ export default function ChatWorkspace({ chatId, mode = MODE }: Props) {
         model={model}
         onModelChange={(id, m) => { setModel(id); setModelVision(m?.supports_vision); setModelIsVideo((m?.category || "") === "video"); setModelIsImageEdit((m?.category || "") === "image"); }}
         autoFocus={!started}
+        focusSignal={focusSignal}
         webSearch={webSearch}
         onToggleWebSearch={setWebSearch}
         menuDirection={started ? "up" : "down"}
@@ -606,8 +632,24 @@ export default function ChatWorkspace({ chatId, mode = MODE }: Props) {
     </>
   );
 
+  // На /dashboard/text-chat (heroSlot не передают — см. ClientDashboard.tsx)
+  // держим чат на полную высоту экрана ВСЕГДА, даже до первого сообщения —
+  // это воссоздаёт эффект «две страницы в одной» (просьба клиента,
+  // 24.07.2026 вечером): статья+футер полностью под первым экраном, их
+  // открывает только осознанный скролл вниз. На главной (heroSlot есть —
+  // Hero уже занимает верх экрана) это НЕ нужно и раньше давало пустой
+  // чёрный провал под коротким контентом — там высота остаётся
+  // content-driven (min-h вместо жёсткого height).
+  const forceFullHeight = started || hydrating || !heroSlot;
+
   return (
-    <div className="flex flex-col bg-background text-foreground" style={{ height: viewportH }}>
+    <div
+      className={
+        "flex flex-col bg-background text-foreground" +
+        (forceFullHeight ? "" : " min-h-[60vh] sm:min-h-[70vh]")
+      }
+      style={forceFullHeight ? { height: viewportH } : undefined}
+    >
       {/* Top bar. pt = safe-area-inset-top: в установленном PWA (statusBarStyle
           black-translucent) контент рисуется ПОД системной строкой iOS — без
           этого отступа лого/баланс налезали на время и зарядку. Высота = ряд
@@ -657,6 +699,8 @@ export default function ChatWorkspace({ chatId, mode = MODE }: Props) {
         </div>
       </header>
 
+      {!started && !hydrating && heroSlot}
+
       {/* Body */}
       <main className="flex-1 min-h-0 flex flex-col px-3 sm:px-4">
         {started ? (
@@ -682,8 +726,10 @@ export default function ChatWorkspace({ chatId, mode = MODE }: Props) {
           // Стартовый экран: композер сразу под слоганом (виден без прокрутки),
           // быстрые действия и сценарии — ниже (ТЗ клиента: «чат вверх»).
           <StartScreen
-            onUsePrompt={(text) => setInput(text)}
+            onUsePrompt={(text) => { setInput(text); setFocusSignal((n) => n + 1); }}
             composerSlot={composerNode}
+            belowComposerSlot={belowComposerSlot}
+            showQuickPrompts={showQuickPrompts}
             keyboardOpen={keyboardOpen}
           />
         )}
