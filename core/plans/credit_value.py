@@ -19,10 +19,12 @@ ai/handlers.py (переиспользуя её функции, где это в
   сообщение. Вместо этого используем settings.CREDIT_CALC_TEXT_TOKENS_PER_REPLY
   (ОЦЕНКА "типичного" сообщения с историей чата, см. комментарий в settings.py)
   для text, и settings.CREDIT_CALC_DOCUMENT_TOKENS_PER_PAGE для document.
-- image: механизм биллинга зависит от КОНКРЕТНОЙ выбранной модели (та же
-  проверка, что в ai/handlers.py _is_flux_image_model):
+- image: механизм биллинга зависит от КОНКРЕТНОЙ выбранной модели. Детекция
+  FLUX и формула списания живут в ai/model_billing.py — ЕДИНЫЙ источник истины,
+  импортируемый и отсюда (оценка), и из ai/handlers.py (реальное списание);
+  дублирования кода между ними нет:
     * FLUX (black-forest-labs/*, *flux.2*) — плоское списание/картинку
-      max(1, int(markup_coefficient)) — переиспользуем ai.handlers._flux_charge_credits.
+      max(1, int(markup_coefficient)) — ai.model_billing.flux_charge_credits.
     * НЕ-FLUX (Nano Banana family: google/gemini-2.5-flash-image,
       google/gemini-3-pro-image) — билится КАК ТЕКСТ, токенной формулой, см.
       settings.CREDIT_CALC_IMAGE_*_TOKENS_ESTIMATE.
@@ -186,30 +188,15 @@ def _image_credits(model) -> Decimal | None:
     токены) — см. docstring модуля. Возвращает None, если coeff отсутствует.
     """
     from django.conf import settings as dj_settings
+    from ai.model_billing import is_flux_image_model, flux_charge_credits
 
     coeff = model.markup_coefficient
     if coeff is None:
         return None
     openrouter_id = str(getattr(model, "openrouter_id", "") or "")
 
-    is_flux = None
-    try:
-        from ai.handlers import _is_flux_image_model, _flux_charge_credits
-        is_flux = _is_flux_image_model(openrouter_id)
-        if is_flux:
-            return Decimal(_flux_charge_credits(model))
-    except Exception:
-        # ai.handlers недоступен по какой-то причине (не должно происходить в
-        # норме) — держим локальную копию ТОГО ЖЕ паттерна синхронно с
-        # ai/handlers.py._is_flux_image_model, чтобы не остаться без оценки.
-        logger.exception(
-            "credit_value: не удалось переиспользовать ai.handlers для image-биллинга, "
-            "используется локальный фолбэк-паттерн")
-        name = openrouter_id.lower().split(":")[0]
-        is_flux = name.startswith("black-forest-labs/") or ("flux.2" in name)
-        if is_flux:
-            flat = max(1, int(coeff))
-            return Decimal(flat)
+    if is_flux_image_model(openrouter_id):
+        return Decimal(flux_charge_credits(model))
 
     # НЕ-FLUX (Nano Banana family) — билится КАК ТЕКСТ токенной формулой.
     prompt_tokens = int(

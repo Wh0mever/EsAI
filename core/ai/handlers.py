@@ -28,6 +28,14 @@ from .serializers import AiChatMessageSerializer
 # Память пользователя (как у ChatGPT/Anthropic): инъекция блока фактов в системный
 # промпт + обработка явных команд «запомни/забудь». Только авторизованные пути.
 from users.memory import get_memory_block, parse_explicit_commands
+# FLUX-детекция и формула списания — единый источник истины, переиспользуемый
+# и здесь (реальное списание), и в plans/credit_value.py (оценка "на что
+# хватит"). model_billing.py намеренно ничего не импортирует из plans, поэтому
+# безопасен для импорта с обеих сторон без риска цикла (см. его docstring).
+from .model_billing import (
+    is_flux_image_model as _is_flux_image_model,
+    flux_charge_credits as _flux_charge_credits,
+)
 
 # No hard message count limit; we'll include full history.
 HISTORY_LIMIT = None
@@ -177,16 +185,8 @@ def _is_image_gen_model(model_ref) -> bool:
     return "image" in tail
 
 
-def _is_flux_image_model(model_ref) -> bool:
-    """FLUX (Black Forest Labs) image-модель — доступна ТОЛЬКО через images-API
-    (POST /api/v1/images), в /v1/models и chat-modalities её нет.
-
-    Определяем по openrouter_id: вендор 'black-forest-labs/' ИЛИ содержит 'flux.2'
-    (black-forest-labs/flux.2-{klein-4b,pro,flex,max}). Такие модели идут отдельным
-    путём генерации (см. _flux_generate_image), а не через chat-completions.
-    """
-    name = str(model_ref or "").lower().split(":")[0]
-    return name.startswith("black-forest-labs/") or ("flux.2" in name)
+# _is_flux_image_model / _flux_charge_credits: см. импорт из .model_billing
+# в начале файла (единый источник истины, общий с plans/credit_value.py).
 
 
 def _flux_generate_image(
@@ -252,20 +252,6 @@ def _flux_generate_image(
     except Exception:
         provider_cost = None
     return atts, provider_cost
-
-
-def _flux_charge_credits(model_obj) -> int:
-    """Плоское списание за ОДНУ FLUX-картинку = max(1, int(markup_coefficient)).
-
-    У image-моделей markup_coefficient задан как КРЕДИТОВ ЗА КАРТИНКУ (в сиде),
-    поэтому за генерацию списываем ровно столько (минимум 1). Токенов у images-API
-    нет — токенный биллинг тут неприменим.
-    """
-    try:
-        coeff = float(getattr(model_obj, "markup_coefficient", 1) or 1)
-    except Exception:
-        coeff = 1.0
-    return max(1, int(coeff))
 
 
 def _save_generated_images(images) -> List[dict]:
