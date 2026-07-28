@@ -5,6 +5,8 @@ import Link from "next/link";
 import { FiArrowRight } from "react-icons/fi";
 import { usePackagesValue } from "@/hooks/usePackagesValue";
 import { useCurrency } from "@/hooks/useCurrency";
+import PayAsYouGoBanner from "@/components/pricing/PayAsYouGoBanner";
+import CurrencySwitch from "@/components/pricing/CurrencySwitch";
 
 /**
  * HomePricingPreview — компактное превью тарифов для главной страницы
@@ -26,21 +28,27 @@ import { useCurrency } from "@/hooks/useCurrency";
 export default function HomePricingPreview() {
   const { t } = useTranslation("common");
   const { data: packages, loading, error: errored } = usePackagesValue();
-  // Переключатель KGS/RUB живёт на /pricing (CurrencySwitch); здесь просто
-  // подхватываем уже выбранную/определённую валюту (localStorage/cookie,
-  // см. next/src/hooks/useCurrency.ts), чтобы превью не расходилось с
-  // полной страницей тарифов.
-  const { currency, convert } = useCurrency();
+  // Переключатель KGS/RUB — общее состояние с /pricing (localStorage/cookie,
+  // см. next/src/hooks/useCurrency.ts); здесь он тоже отрисовывается (не
+  // только читается), чтобы валюту можно было переключить и не заходя на
+  // /pricing (жалоба клиента: «не везде рубли есть»).
+  const { currency, setCurrency, convert } = useCurrency();
 
   // Ничего не показываем без падения страницы, если данных нет (сеть/ошибка/пустой каталог).
   const nothingToShow = !loading && (errored || packages.length === 0);
 
   return (
     <section className="w-full px-4 sm:px-8 lg:px-16 xl:px-24 2xl:px-40 py-6">
+      <PayAsYouGoBanner headingLevel="h2" />
+
+      <div className="flex justify-center mb-4">
+        <CurrencySwitch value={currency} onChange={setCurrency} />
+      </div>
+
       <div className="flex flex-col items-center gap-2 text-center mb-3">
-        <h2 className="text-2xl sm:text-3xl font-semibold text-foreground">
+        <h3 className="text-2xl sm:text-3xl font-semibold text-foreground">
           {t("home.pricingPreview.title", { defaultValue: "На что хватит пакета" })}
-        </h2>
+        </h3>
         <p className="text-muted max-w-xl">
           {t("home.pricingPreview.subtitle", {
             defaultValue: "Один баланс — и запросы, и изображения, и видео, и переводы документов.",

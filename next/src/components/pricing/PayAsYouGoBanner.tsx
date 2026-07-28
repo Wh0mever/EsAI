@@ -5,14 +5,30 @@ import { FiCheck } from "react-icons/fi";
 
 /**
  * PAY-AS-YOU-GO banner — клиентский референс (скрин с другого сайта),
- * адаптированный под тёмную палитру EsAI. Ставится в самом начале /pricing,
- * ДО карточек пакетов (TokenPackages) — так просил клиент.
- *
- * Это единственный <h1> страницы /pricing — старую отдельную плашку
- * packages.subtitle/title/lead убрали из page.tsx как дублирующую по смыслу.
+ * адаптированный под тёмную палитру EsAI. Используется в местах, где виден
+ * баланс/пополнение (клиент явно попросил именно это — «где пополнять
+ * баланс... добавь ещё тоже»):
+ *  - /pricing, ДО карточек пакетов (TokenPackages) — так просил клиент;
+ *    здесь это единственный <h1> страницы (старую плашку
+ *    packages.subtitle/title/lead убрали из page.tsx как дублирующую).
+ *  - главная страница, над превью тарифов (HomePricingPreview) — клиент
+ *    попросил закрыть жалобу «не везде рубли есть» (валюту без /pricing
+ *    было не переключить). На главной уже есть свой <h1> в HomeHero,
+ *    поэтому здесь заголовок рендерится как <h2> (headingLevel="h2").
+ *  - TopUpModal (клик по балансу ⚡ в шапке чата) и UserBalanceCard
+ *    (баланс в /profile) — compact=true, тем же текстом, но «мелким
+ *    шрифтом» (дословная просьба клиента), без бейджа-эйброу и без
+ *    заголовка h1/h2 (там уже есть свой заголовок карточки/модалки).
  */
-export default function PayAsYouGoBanner() {
+type Props = {
+  headingLevel?: "h1" | "h2";
+  /** Мелкий текстовый вариант для тесных мест (TopUpModal, UserBalanceCard) — без бейджа и без h1/h2. */
+  compact?: boolean;
+};
+
+export default function PayAsYouGoBanner({ headingLevel = "h1", compact = false }: Props) {
   const { t } = useTranslation("common");
+  const Heading = headingLevel;
 
   const checks = [
     t("packages.payg_check_no_subscription", { defaultValue: "Без подписок" }),
@@ -20,17 +36,38 @@ export default function PayAsYouGoBanner() {
     t("packages.payg_check_starts_from", { defaultValue: "Старт от 190 сом" }),
   ];
 
+  if (compact) {
+    // Без text-center/items-center — наследует выравнивание родителя
+    // (лево в UserBalanceCard, центр — заворачивается снаружи в TopUpModal).
+    return (
+      <div className="flex flex-col gap-1">
+        <p className="text-xs font-semibold text-foreground">
+          {t("packages.payg_title", {
+            defaultValue: "Никаких подписок. Платите только за то, что используете.",
+          })}
+        </p>
+        <p className="text-[11px] text-muted leading-snug">
+          {t("packages.payg_subtitle", {
+            defaultValue:
+              "Пополняете баланс — и тратите его только на реальное использование нейросетей. Не пользуетесь — ничего не списываем.",
+          })}
+        </p>
+        <p className="text-[11px] text-muted">{checks.join(" · ")}</p>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col items-center gap-2 text-center px-4 pb-2">
       <span className="px-3 py-1 rounded-full bg-accent/15 border border-accent/30 text-[11px] font-bold tracking-wider text-accent-strong uppercase">
         {t("packages.payg_badge", { defaultValue: "PAY-AS-YOU-GO" })}
       </span>
 
-      <h1 className="text-2xl sm:text-3xl font-bold max-w-2xl">
+      <Heading className="text-2xl sm:text-3xl font-bold max-w-2xl">
         {t("packages.payg_title", {
           defaultValue: "Никаких подписок. Платите только за то, что используете.",
         })}
-      </h1>
+      </Heading>
 
       <p className="text-muted text-sm sm:text-base max-w-xl">
         {t("packages.payg_subtitle", {

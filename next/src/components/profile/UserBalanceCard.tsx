@@ -3,6 +3,7 @@
 import React from "react";
 import Link from "next/link";
 import { Card } from "@/components/ui/cards/Cards";
+import PayAsYouGoBanner from "@/components/pricing/PayAsYouGoBanner";
 
 type Props = {
 	t: (k: string, options?: Record<string, unknown>) => string;
@@ -47,12 +48,7 @@ export default function UserBalanceCard({ t, data }: Props) {
 					</span>
 				</div>
 
-				<p className="text-muted text-sm leading-relaxed">
-					{t("profile.balance_hint", {
-						defaultValue:
-							"Оплата по факту использования. Пополняйте баланс пакетами кредитов — без подписок и лишних трат.",
-					})}
-				</p>
+				<PayAsYouGoBanner compact />
 
 				<div className="flex flex-wrap gap-2">
 					<Link

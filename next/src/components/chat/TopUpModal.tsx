@@ -8,6 +8,8 @@ import { FiZap, FiGift } from "react-icons/fi";
 import { usePackagesValue } from "@/hooks/usePackagesValue";
 import { useCurrency } from "@/hooks/useCurrency";
 import type { PackageValue } from "@/types/pricing";
+import CurrencySwitch from "@/components/pricing/CurrencySwitch";
+import PayAsYouGoBanner from "@/components/pricing/PayAsYouGoBanner";
 
 type Pkg = {
   id: number | string;
@@ -49,9 +51,12 @@ export default function TopUpModal({ open, onClose }: Props) {
   const [error, setError] = useState("");
   const [buyingId, setBuyingId] = useState<string | number | null>(null);
   const { data: valuePackages } = usePackagesValue(open);
-  // Валюта общая с /pricing (переключатель там, см. CurrencySwitch) —
-  // TopUpModal только подхватывает уже выбранную (localStorage/cookie).
-  const { currency, convert } = useCurrency();
+  // Валюта — общее состояние с /pricing и главной (localStorage/cookie, см.
+  // useCurrency.ts); переключатель отрисовывается и здесь тоже (жалоба
+  // клиента: при клике на баланс в чате открывалось без рублей — раньше
+  // тут читалась только уже выбранная валюта, сменить её можно было лишь
+  // на /pricing).
+  const { currency, setCurrency, convert } = useCurrency();
   const valueById = useMemo(() => {
     const map: Record<string, PackageValue> = {};
     for (const item of valuePackages) {
@@ -110,6 +115,14 @@ export default function TopUpModal({ open, onClose }: Props) {
   return (
     <Modal title={t("topup.title", { defaultValue: "Выберите пакет кредитов" })} open={open} onClose={onClose} size="lg">
       <div className="p-1 sm:p-2">
+        <div className="text-center mb-3">
+          <PayAsYouGoBanner compact />
+        </div>
+
+        <div className="flex justify-center mb-3">
+          <CurrencySwitch value={currency} onChange={setCurrency} />
+        </div>
+
         {loading && (
           <div className="py-10 text-center text-muted">{t("common.loading", { defaultValue: "Загрузка..." })}</div>
         )}

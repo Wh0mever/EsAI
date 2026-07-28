@@ -31,6 +31,11 @@ import { vendorColor } from "@/lib/vendorColors";
  *
  * Визуальный язык — как в остальных home/* блоках и pricing/CreditsExplainer.tsx:
  * rounded-2xl/full, border-border, bg-surface-2, text-muted, bg-accent/text-on-accent.
+ *
+ * HomeHero рендерится ВНУТРИ ChatWorkspace (через heroSlot, см.
+ * app/(home)/page.tsx и ChatWorkspace.tsx) — сразу под шапкой чата, которая
+ * уже сама учитывает safe-area-inset-top (статус-бар iOS PWA), поэтому здесь
+ * доп. safe-area отступ не нужен (не первая секция экрана).
  */
 
 type VendorChip = {
@@ -65,9 +70,13 @@ export default function HomeHero() {
         <div className="h-56 w-[34rem] rounded-full bg-accent/20 blur-3xl" />
       </div>
 
-      <div className="relative mx-auto flex max-w-4xl flex-col items-center gap-3 px-4 py-6 text-center sm:gap-4 sm:px-6 sm:py-8 lg:py-10">
+      <div className="relative mx-auto flex max-w-4xl flex-col items-center gap-3 px-4 pt-6 pb-6 text-center sm:gap-4 sm:px-6 sm:pt-8 sm:pb-8 lg:pt-10 lg:pb-10">
         <h1 className="max-w-3xl text-2xl font-bold leading-[1.15] tracking-tight text-foreground sm:text-3xl lg:text-4xl">
           {t("home.hero.title", { defaultValue: "Все лучшие нейросети мира в одном месте" })}
+          <br />
+          <span className="text-accent">
+            {t("home.hero.tagline", { defaultValue: "Без лишних трат и подписок." })}
+          </span>
         </h1>
 
         <p className="max-w-2xl text-xs leading-snug text-muted sm:text-sm lg:text-base">

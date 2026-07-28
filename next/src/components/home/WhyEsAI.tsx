@@ -28,45 +28,44 @@ const CARDS: WhyCard[] = [
   {
     icon: FiGrid,
     titleKey: "home.why.items.1.title",
-    titleDefault: "Более 50 лучших AI-моделей",
+    titleDefault: "50+ AI-моделей",
     descKey: "home.why.items.1.desc",
-    descDefault: "Используйте лучшие модели без ограничений одной нейросетью.",
+    descDefault: "Без ограничений одной нейросетью",
   },
   {
     icon: FiUser,
     titleKey: "home.why.items.2.title",
     titleDefault: "Один аккаунт",
     descKey: "home.why.items.2.desc",
-    descDefault: "Все модели работают из одного интерфейса.",
+    descDefault: "Один интерфейс для всех",
   },
   {
     icon: FiCreditCard,
     titleKey: "home.why.items.3.title",
     titleDefault: "Один баланс",
     descKey: "home.why.items.3.desc",
-    descDefault: "Не нужно оплачивать ChatGPT, Claude, Gemini и другие сервисы отдельно.",
+    descDefault: "Не платите за каждый сервис отдельно",
   },
   {
     icon: FiTarget,
     titleKey: "home.why.items.4.title",
-    titleDefault: "Лучшая модель под каждую задачу",
+    titleDefault: "Модель под задачу",
     descKey: "home.why.items.4.desc",
-    descDefault: "EsAI помогает подобрать наиболее подходящую модель.",
+    descDefault: "Мы подскажем, какую выбрать",
   },
   {
     icon: FiZap,
     titleKey: "home.why.items.5.title",
-    titleDefault: "Новые модели появляются сразу",
+    titleDefault: "Новинки сразу",
     descKey: "home.why.items.5.desc",
-    descDefault: "Самые современные нейросети становятся доступны без ожидания.",
+    descDefault: "Без ожидания и обновлений",
   },
   {
     icon: FiSmartphone,
     titleKey: "home.why.items.6.title",
     titleDefault: "Удобная оплата",
     descKey: "home.why.items.6.desc",
-    descDefault:
-      "Оплачивайте так, как вам удобно: банковскими картами Visa и Mastercard, а также всеми популярными онлайн-кошельками и платежными сервисами Кыргызстана.",
+    descDefault: "Visa, Mastercard и кошельки Кыргызстана",
   },
 ];
 
@@ -80,21 +79,21 @@ export default function WhyEsAI() {
           {t("home.why.title", { defaultValue: "Почему EsAI" })}
         </h2>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-3">
           {CARDS.map((card) => {
             const Icon = card.icon;
             return (
               <div
                 key={card.titleKey}
-                className="rounded-2xl border border-border bg-surface-2 p-4 flex flex-col gap-2"
+                className="rounded-2xl border border-border bg-surface-2 p-3 flex flex-col gap-1.5"
               >
-                <div className="h-9 w-9 rounded-xl bg-accent/15 text-accent-strong flex items-center justify-center">
+                <div className="h-8 w-8 sm:h-9 sm:w-9 rounded-xl bg-accent/15 text-accent-strong flex items-center justify-center">
                   <Icon size={16} aria-hidden />
                 </div>
-                <h3 className="text-lg font-semibold text-foreground">
+                <h3 className="text-sm sm:text-base font-bold text-foreground leading-snug">
                   {t(card.titleKey, { defaultValue: card.titleDefault })}
                 </h3>
-                <p className="text-sm text-muted leading-snug">
+                <p className="text-xs sm:text-sm text-muted leading-snug">
                   {t(card.descKey, { defaultValue: card.descDefault })}
                 </p>
               </div>
