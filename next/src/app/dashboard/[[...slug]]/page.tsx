@@ -1,8 +1,6 @@
 import { notFound } from "next/navigation";
 import ClientDashboard from "./ClientDashboard";
-import HomeArticleSection from "@/components/home/HomeArticleSection";
 import Footer from "@/components/main/Footer";
-import { getHomeArticle, articleTitle, articleBody } from "@/lib/content";
 import { CHAT_MODES, type ChatMode } from "@/types/chat";
 
 export const dynamicParams = true;
@@ -20,24 +18,12 @@ export default async function Page({ params }: { params: Promise<Params> }) {
   const [slug, chatId] = parts;
   if (!CHAT_MODES.includes(slug as ChatMode)) notFound();
 
-  // Как на главной: под чатом (100dvh) — SEO-статья + футер, скролл вниз их
-  // открывает (просьба клиента: на /dashboard/text-chat их не было видно).
-  const article = await getHomeArticle();
-
+  // SEO-статья убрана отсюда: клиент попросил, чтобы статьи жили ТОЛЬКО в
+  // блоге (/blog). Под чатом остаётся один футер.
   return (
     <>
       <ClientDashboard slug={slug as ChatMode} chatId={chatId ?? null} />
-      {/* Принудительно тёмная палитра под чатом (см. app/(home)/page.tsx). */}
-      <div data-theme="dark" className="bg-background text-foreground">
-        {article && (
-          <HomeArticleSection
-            title={articleTitle(article)}
-            body={articleBody(article)}
-            slug={article.slug}
-          />
-        )}
-        <Footer />
-      </div>
+      <Footer />
     </>
   );
 }

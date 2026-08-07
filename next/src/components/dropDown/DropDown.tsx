@@ -53,7 +53,7 @@ export default function Dropdown<T extends BaseItem>({
 			{renderButton(selected || null, isOpen, () => (isOpen ? close() : null))}
 
 			<div
-				className={`absolute right-0 mt-2 ${widthClass} rounded-md shadow-lg bg-neutral-900 transform transition-all duration-300 origin-top z-10 ${
+				className={`absolute right-0 mt-2 ${widthClass} rounded-md shadow-lg bg-surface transform transition-all duration-300 origin-top z-10 ${
 					isOpen ? "scale-100 opacity-100" : "scale-95 opacity-0 pointer-events-none"
 				}`}
 			>
@@ -62,7 +62,7 @@ export default function Dropdown<T extends BaseItem>({
 						<li
 							key={item.value || item.label}
 							onClick={() => handleSelect(item)}
-							className="cursor-pointer hover:bg-neutral-700 px-4 py-2 duration-300 text-white"
+							className="cursor-pointer hover:bg-surface-2 px-4 py-2 duration-300 text-foreground"
 						>
 							{renderItem(item)}
 						</li>

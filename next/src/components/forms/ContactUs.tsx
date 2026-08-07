@@ -35,7 +35,7 @@ export default function ContactUsForm() {
 				submitLabel={t("contact_us.submit_button")}
 			>
 				<h2 className="text-2xl">{t("contact_us.form_title")}</h2>
-				<p className="text-gray-400">{t("contact_us.form_subtitle")}</p>
+				<p className="text-muted">{t("contact_us.form_subtitle")}</p>
 
 				<Field
 					name="name"

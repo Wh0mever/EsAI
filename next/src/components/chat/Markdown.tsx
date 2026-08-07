@@ -41,7 +41,13 @@ function CodeBlock({ children }: { children: ReactNode }) {
         {copied ? <FiCheck /> : <FiCopy />}
         <span>{copied ? t("chat.actions.copied", { defaultValue: "Скопировано" }) : t("chat.actions.copy", { defaultValue: "Копировать" })}</span>
       </button>
-      <pre>{children}</pre>
+      {/* text-neutral-200 обязателен: фон .esai-md pre всегда тёмный (#0d1117,
+          globals.css), но у фенса БЕЗ языка rehype-highlight не вешает класс
+          .hljs, и цвет текста наследуется от пузыря — в светлой теме это почти
+          чёрный #141414 на почти чёрном фоне (контраст ~1.1:1, код не виден).
+          Для блоков с языком .hljs на <code> перебивает это правило, так что
+          подсветка синтаксиса не ломается. */}
+      <pre className="text-neutral-200">{children}</pre>
     </div>
   );
 }

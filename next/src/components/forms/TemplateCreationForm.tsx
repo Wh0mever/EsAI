@@ -74,7 +74,7 @@ export default function TemplatesCreationForm() {
                 name="name"
                 required
                 placeholder={t("templates.placeholders.name")}
-                className="w-full border border-neutral-600 py-3 px-4"
+                className="w-full border border-border-strong py-3 px-4"
             />
 
             <Field
@@ -82,7 +82,7 @@ export default function TemplatesCreationForm() {
                 name="purpose"
                 required
                 placeholder={t("templates.placeholders.purpose")}
-                className="w-full border border-neutral-600 py-3 px-4"
+                className="w-full border border-border-strong py-3 px-4"
             />
 
 			{/* provider (required) */}
@@ -91,15 +91,15 @@ export default function TemplatesCreationForm() {
                 <select
                     name="provider"
                     required
-                    className="w-full bg-transparent border border-neutral-600 rounded-md py-3 px-4 outline-none"
+                    className="w-full bg-transparent border border-border-strong rounded-md py-3 px-4 outline-none"
 					defaultValue=""
 					disabled={loadingProviders}
 				>
-					<option value="" disabled className="bg-neutral-900">
+					<option value="" disabled className="bg-surface text-foreground">
 						{loadingProviders ? t("common.loading") : t("templates.placeholders.provider")}
 					</option>
 					{providers.map((p) => (
-						<option key={p.id} value={p.id} className="bg-neutral-900">
+						<option key={p.id} value={p.id} className="bg-surface text-foreground">
 							{p.name}
 						</option>
 					))}
@@ -110,7 +110,7 @@ export default function TemplatesCreationForm() {
                 label={t("templates.fields.description")}
                 name="description"
                 placeholder={t("templates.placeholders.description")}
-                className="w-full border border-neutral-600 py-3 px-4"
+                className="w-full border border-border-strong py-3 px-4"
             />
 
             <TextArea
@@ -118,7 +118,7 @@ export default function TemplatesCreationForm() {
                 name="template"
                 required
                 placeholder={t("templates.placeholders.template")}
-                className="w-full border border-neutral-600 py-3 px-4"
+                className="w-full border border-border-strong py-3 px-4"
             />
 
 			{error && <div className="text-red-400 text-sm">{error}</div>}

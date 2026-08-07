@@ -147,7 +147,7 @@ export function TabsList({ children, className }: TabsListProps) {
   const listCls = clsx(
     "relative flex gap-1",
     ctx.orientation === "horizontal" ? "flex-row" : "flex-col",
-    ctx.variant === "underline" && "border-b border-white/10",
+    ctx.variant === "underline" && "border-b border-border",
     className
   );
 
@@ -186,9 +186,9 @@ export function TabsTrigger({ value, disabled, leading, trailing, className, ...
     ctx.size === "sm" && "px-3 py-1 rounded-4xl",
     ctx.size === "md" && "px-4 py-2 text-base rounded-lg",
     ctx.size === "lg" && "px-5 py-3 text-lg rounded-xl",
-    ctx.variant === "underline" && "border-b-2 border-transparent data-[state=active]:border-white",
-    ctx.variant === "soft" && "data-[state=active]:bg-white/10 hover:bg-white/5",
-    ctx.variant === "solid" && "data-[state=active]:bg-accent data-[state=active]:text-on-accent text-white bg-neutral-800 hover:bg-accent-strong/90 z",
+    ctx.variant === "underline" && "border-b-2 border-transparent data-[state=active]:border-foreground",
+    ctx.variant === "soft" && "data-[state=active]:bg-surface-3 hover:bg-surface-2",
+    ctx.variant === "solid" && "data-[state=active]:bg-accent data-[state=active]:text-on-accent text-foreground bg-surface-2 hover:bg-accent-strong/90 z",
     disabled && "opacity-50 cursor-not-allowed",
     className
   );

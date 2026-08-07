@@ -52,7 +52,7 @@ const LanguageMenu = memo(function LanguageMenu({
           <Button
             onClick={() => changeLanguage(code)}
             className={clsx(
-              "py-4 px-8 w-full text-left flex items-center gap-2 transition-all duration-300 hover:bg-neutral-800",
+              "py-4 px-8 w-full text-left flex items-center gap-2 transition-all duration-300 hover:bg-surface-2",
               currentLang === code && "bg-neutral-700"
             )}
           >
@@ -83,12 +83,12 @@ function MobileNav({ className, onNavigate }: any) {
 
   const linkCls = (href: string, exact = false) =>
     clsx(
-      "block rounded-xl px-4 py-3 hover:bg-neutral-800 transition-colors",
-      isActive(href, exact) ? "bg-neutral-700 text-white" : "text-neutral-200"
+      "block rounded-xl px-4 py-3 hover:bg-surface-2 transition-colors",
+      isActive(href, exact) ? "bg-surface-3 text-foreground" : "text-muted"
     );
 
   return (
-    <nav className={clsx("text-white", className)}>
+    <nav className={clsx("text-foreground", className)}>
       <ul className="flex flex-col gap-2">
         <li>
           <Link href="/" onClick={onNavigate} className={linkCls("/", true)} aria-current={isActive("/", true) ? "page" : undefined}>
@@ -110,7 +110,7 @@ function MobileNav({ className, onNavigate }: any) {
           <div
             className={clsx(
               "px-4 pb-1 text-xs uppercase tracking-wide",
-              anyActive(CATEGORIES_ROUTES) ? "text-rose-400" : "text-neutral-400"
+              anyActive(CATEGORIES_ROUTES) ? "text-rose-400" : "text-muted-2"
             )}
           >
             {t("nav.categories")}
@@ -151,8 +151,8 @@ function PCNav({ className, onNavigate, t, changeLanguage, currentLang }: any) {
   const linkCls = (href: string, exact = false) =>
     clsx(
       "py-3 relative",
-      isActive(href, exact) ? "text-white" : "text-neutral-300",
-      "hover:text-white"
+      isActive(href, exact) ? "text-foreground" : "text-muted",
+      "hover:text-foreground"
     );
 
   const linkInner = (active: boolean) =>
@@ -162,7 +162,7 @@ function PCNav({ className, onNavigate, t, changeLanguage, currentLang }: any) {
     );
 
   return (
-    <nav className={clsx("bg-neutral-900 px-6 rounded-4xl flex items-center shadow-md", className)}>
+    <nav className={clsx("bg-surface px-6 rounded-4xl flex items-center shadow-md", className)}>
       <ul className="flex items-center gap-10 text-md">
         <li className={linkCls("/", true)}>
           <Link href="/" onClick={onNavigate} className={linkInner(isActive("/", true))} aria-current={isActive("/", true) ? "page" : undefined}>
@@ -183,8 +183,8 @@ function PCNav({ className, onNavigate, t, changeLanguage, currentLang }: any) {
         <li
           className={clsx(
             "py-3",
-            anyActive(CATEGORIES_ROUTES) ? "text-white" : "text-neutral-300",
-            "hover:text-white"
+            anyActive(CATEGORIES_ROUTES) ? "text-foreground" : "text-muted",
+            "hover:text-foreground"
           )}
         >
           <DropDownHovered
@@ -203,8 +203,8 @@ function PCNav({ className, onNavigate, t, changeLanguage, currentLang }: any) {
                   href="/about"
                   onClick={onNavigate}
                   className={clsx(
-                    "py-4 px-8 hover:bg-neutral-800 transition-all duration-300 flex w-full",
-                    isActive("/about") && "bg-neutral-800"
+                    "py-4 px-8 hover:bg-surface-2 transition-all duration-300 flex w-full",
+                    isActive("/about") && "bg-surface-2"
                   )}
                   aria-current={isActive("/about") ? "page" : undefined}
                 >
@@ -216,8 +216,8 @@ function PCNav({ className, onNavigate, t, changeLanguage, currentLang }: any) {
                   href="/referral"
                   onClick={onNavigate}
                   className={clsx(
-                    "py-4 px-8 hover:bg-neutral-800 transition-all duration-300 flex w-full",
-                    isActive("/referral") && "bg-neutral-800"
+                    "py-4 px-8 hover:bg-surface-2 transition-all duration-300 flex w-full",
+                    isActive("/referral") && "bg-surface-2"
                   )}
                   aria-current={isActive("/referral") ? "page" : undefined}
                 >
@@ -229,8 +229,8 @@ function PCNav({ className, onNavigate, t, changeLanguage, currentLang }: any) {
                   href="/contact-us"
                   onClick={onNavigate}
                   className={clsx(
-                    "py-4 px-8 hover:bg-neutral-800 transition-all duration-300 flex w-full",
-                    isActive("/contact-us") && "bg-neutral-800"
+                    "py-4 px-8 hover:bg-surface-2 transition-all duration-300 flex w-full",
+                    isActive("/contact-us") && "bg-surface-2"
                   )}
                   aria-current={isActive("/contact-us") ? "page" : undefined}
                 >
@@ -242,8 +242,8 @@ function PCNav({ className, onNavigate, t, changeLanguage, currentLang }: any) {
                   href="/faq"
                   onClick={onNavigate}
                   className={clsx(
-                    "py-4 px-8 hover:bg-neutral-800 transition-all duration-300 flex w-full",
-                    isActive("/faq") && "bg-neutral-800"
+                    "py-4 px-8 hover:bg-surface-2 transition-all duration-300 flex w-full",
+                    isActive("/faq") && "bg-surface-2"
                   )}
                   aria-current={isActive("/faq") ? "page" : undefined}
                 >
@@ -255,8 +255,8 @@ function PCNav({ className, onNavigate, t, changeLanguage, currentLang }: any) {
                   href="/terms-conditions"
                   onClick={onNavigate}
                   className={clsx(
-                    "py-4 px-8 hover:bg-neutral-800 transition-all duration-300 flex w-full",
-                    isActive("/terms-conditions") && "bg-neutral-800"
+                    "py-4 px-8 hover:bg-surface-2 transition-all duration-300 flex w-full",
+                    isActive("/terms-conditions") && "bg-surface-2"
                   )}
                   aria-current={isActive("/terms-conditions") ? "page" : undefined}
                 >

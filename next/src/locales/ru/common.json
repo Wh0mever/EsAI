@@ -660,6 +660,7 @@
 			"cap_web": "Поиск в интернете",
 			"cap_web_short": "Веб",
 			"category": {
+				"free": "Бесплатные",
 				"recommended": "Рекомендуемые",
 				"chat": "Для общения",
 				"writing": "Тексты и SEO",

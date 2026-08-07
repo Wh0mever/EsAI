@@ -15,9 +15,8 @@ export default function RootLayout({
 	children: React.ReactNode;
 }>) {
 	return (
-		// Тёмная по дизайну страница с маркетинговой шапкой: фиксируем тёмные
-		// токены, чтобы в светлой теме шапка/логотип не пропадали на белом.
-		<div data-theme="dark" className="min-h-[100dvh] bg-background text-foreground">
+		// Страница следует выбранной пользователем теме: цвета внутри — на токенах.
+		<div className="min-h-[100dvh] bg-background text-foreground">
 			<Header />
 			{children}
 		</div>

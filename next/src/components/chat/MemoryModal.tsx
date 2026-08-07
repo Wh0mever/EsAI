@@ -205,7 +205,7 @@ export default function MemoryModal({ open, onClose }: Props) {
 
           {/* Ошибка */}
           {error && (
-            <div className="mb-3 rounded-lg border border-rose-500/40 bg-rose-500/10 text-rose-300 text-sm px-3 py-2">
+            <div className="mb-3 rounded-lg border border-rose-500/40 bg-rose-500/10 text-rose-500 text-sm px-3 py-2">
               {error}
             </div>
           )}
@@ -228,7 +228,7 @@ export default function MemoryModal({ open, onClose }: Props) {
                   <button
                     type="button"
                     onClick={() => setClearOpen(true)}
-                    className="inline-flex items-center gap-1.5 text-xs text-rose-400 hover:text-rose-300 transition-colors cursor-pointer"
+                    className="inline-flex items-center gap-1.5 text-xs text-rose-500 hover:text-rose-600 transition-colors cursor-pointer"
                   >
                     <FiTrash2 className="text-sm" />
                     {t("memory.clear_all", { defaultValue: "Очистить всё" })}
@@ -271,7 +271,7 @@ export default function MemoryModal({ open, onClose }: Props) {
                         type="button"
                         onClick={() => deleteItem(it.id)}
                         disabled={deletingId != null}
-                        className="shrink-0 p-1.5 rounded-md text-muted hover:text-rose-400 hover:bg-surface transition-colors cursor-pointer disabled:opacity-60"
+                        className="shrink-0 p-1.5 rounded-md text-muted hover:text-rose-500 hover:bg-surface-2 transition-colors cursor-pointer disabled:opacity-60"
                         title={t("memory.delete", { defaultValue: "Удалить" })}
                         aria-label={t("memory.delete", { defaultValue: "Удалить" })}
                       >

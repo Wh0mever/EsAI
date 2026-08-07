@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import {
   FiChevronDown, FiCheck, FiLock, FiSearch, FiX, FiEye, FiCpu, FiGlobe, FiImage,
-  FiStar, FiMessageCircle, FiEdit3, FiCode, FiZap, FiDollarSign,
+  FiStar, FiMessageCircle, FiEdit3, FiCode, FiZap, FiDollarSign, FiGift,
   FiVideo, FiFilm, FiAward, FiSmartphone,
 } from "react-icons/fi";
 import { fetchData } from "@/tools/fetchData";
@@ -76,7 +76,13 @@ function providerColor(m: AiModel): string {
 // Иконки — SVG из react-icons (по просьбе клиента вместо эмодзи), каждой — свой цвет.
 // label теперь резолвится через t() в компоненте (см. groups useMemo); здесь
 // оставлены defaultValue-строки как fallback для порядка/иконок.
+// Виртуальные группы — не приходят из админки как category, а собираются по
+// флагам модели (см. groups useMemo). categoryKey() их игнорирует, иначе
+// модель с такой category попала бы в группу дважды.
+const VIRTUAL_CATEGORY_KEYS = ["free", "recommended"];
+
 const CATEGORIES: Array<{ key: string; label: string; icon: React.ReactNode }> = [
+  { key: "free", label: "Бесплатные", icon: <FiGift className="text-emerald-400" /> }, // виртуальная (is_free=true), просьба клиента — в самом верху
   { key: "recommended", label: "Рекомендуемые", icon: <FiStar className="text-amber-400" /> }, // виртуальная (recommended=true)
   { key: "chat", label: "Для общения", icon: <FiMessageCircle className="text-sky-400" /> },
   { key: "writing", label: "Тексты и SEO", icon: <FiEdit3 className="text-teal-400" /> },
@@ -91,7 +97,7 @@ const CATEGORIES: Array<{ key: string; label: string; icon: React.ReactNode }> =
 
 function categoryKey(m: AiModel): string {
   const c = (m.category || "").toLowerCase();
-  if (CATEGORIES.some((x) => x.key === c && c !== "recommended")) return c;
+  if (CATEGORIES.some((x) => x.key === c && !VIRTUAL_CATEGORY_KEYS.includes(c))) return c;
   // Фолбэк для моделей без категории: image-генераторы → image, остальные → chat.
   return isImageGen(m) ? "image" : "chat";
 }
@@ -217,8 +223,10 @@ export default function ModelSelector({ value, onChange, className }: Props) {
     for (const m of filtered) {
       const k = categoryKey(m);
       (byKey[k] = byKey[k] || []).push(m);
-      // Рекомендуемые дублируются в верхней группе (как у ChatGPT) — при поиске
-      // верхнюю группу не показываем, чтобы не было двойных результатов.
+      // Бесплатные и рекомендуемые дублируются в верхних группах (как у ChatGPT)
+      // — при поиске верхние группы не показываем, чтобы не было двойных
+      // результатов. «Бесплатные» идут первыми (просьба клиента).
+      if (m.is_free && !q) (byKey.free = byKey.free || []).push(m);
       if (m.recommended && !q) (byKey.recommended = byKey.recommended || []).push(m);
     }
     return CATEGORIES

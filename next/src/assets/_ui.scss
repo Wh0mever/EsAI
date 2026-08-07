@@ -16,20 +16,20 @@
 }
 
 .dark-field {
-    background: #111111;
-    border: 1px solid #2f2f38;
-    color: #ffffff;
+    background: var(--surface-2);
+    border: 1px solid var(--border-strong);
+    color: var(--foreground);
     transition: all 0.3s ease-in-out;
     padding: 1rem;
     width: 100%;
 
     &::placeholder {
-        color: #909090 !important;
+        color: var(--muted-2) !important;
         transition: all 0.3s ease-in-out;
     }
 
     &:focus {
-        background-color: #111111;
+        background-color: var(--surface-2);
 
         &::placeholder {
             color: #ffffff00 !important;
@@ -73,8 +73,8 @@ button {
     padding: 0.5rem;
     border-radius: 0.4rem;
     font-size: 0.5rem;
-    background-color: #111111;
-    color: #11111100;
+    background-color: var(--surface-2);
+    color: transparent;
     border: 1px solid oklch(.551 .027 264.364);
     cursor: pointer;
     transition: color 0.3s ease-in-out, background-color 0.3s ease-in-out;

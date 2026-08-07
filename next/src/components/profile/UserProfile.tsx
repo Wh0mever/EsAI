@@ -181,7 +181,9 @@ export default function UserProfile({ t, data }: { t: any; data: any }) {
 					</div>
 					{userChange.show && (
 						<div
-							className={`${userChange.type === "warning" && "text-amber-400"} ${
+							// amber-600, а не amber-400: карточка в светлой теме белая,
+							// светлый янтарь на ней давал ~1.7:1 и текст пропадал.
+							className={`${userChange.type === "warning" && "text-amber-600"} ${
 								userChange.type === "success" && "text-green-600"
 							}`}
 						>
@@ -334,7 +336,9 @@ export default function UserProfile({ t, data }: { t: any; data: any }) {
 					</Button>
 
 					<Button
-						className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700"
+						// text-white явно: Button своего цвета не задаёт, и в светлой
+						// теме текст унаследовал бы тёмный --foreground на красном фоне.
+						className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white"
 						onClick={() => setLogoutConfirmModalOpen(true)}
 					>
 						{t("nav.logout")}

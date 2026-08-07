@@ -15,9 +15,10 @@ export function DropDownHovered({ children, handleText }: DropDownHoveredProps) 
                 {handleText} <FaAngleDown />
             </a>
             <div className="drop-down-menu py-5">
-                {/* Меню всегда тёмное — текст пунктов принудительно светлый,
-                    иначе в светлой теме унаследованный цвет тёмный на тёмном. */}
-                <div className="flex column rounded-lg bg-neutral-900 text-neutral-200 drop-down-menu-wrapper">
+                {/* Панель следует теме: на светлой странице тёмное выпадающее меню
+                    выглядело чужеродно. Рамка нужна, чтобы в светлой теме панель
+                    отделялась от фона страницы. */}
+                <div className="flex column rounded-lg bg-surface border border-border text-foreground shadow-lg drop-down-menu-wrapper">
                     {children}
                 </div>
             </div>
