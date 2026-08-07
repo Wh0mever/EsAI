@@ -27,7 +27,7 @@ export default function AuthButtons() {
       <div className="flex items-center gap-2">
         <Link
           href="/profile"
-          className="hidden lg:inline-flex border border-neutral-700 px-4 py-2 rounded-3xl hover:bg-neutral-800 hover:text-white text-nowrap duration-300"
+          className="hidden lg:inline-flex border border-border-strong px-4 py-2 rounded-3xl hover:bg-surface-2 hover:text-foreground text-nowrap duration-300"
         >
           {t("nav.profile")}
         </Link>
@@ -41,7 +41,7 @@ export default function AuthButtons() {
         {/* Mobile icons */}
         <Link
           href="/profile"
-          className="lg:hidden border border-neutral-700 p-3 rounded-3xl hover:bg-neutral-800 hover:text-white duration-300"
+          className="lg:hidden border border-border-strong p-3 rounded-3xl hover:bg-surface-2 hover:text-foreground duration-300"
         >
           <FiUser className="text-xl" />
         </Link>
@@ -58,7 +58,7 @@ export default function AuthButtons() {
 	// Единая авторизация «Войти» — отдельной регистрации нет, аккаунт создаётся
 	// автоматически при первом входе на /auth/signin.
 	return (
-		<div className="flex items-center gap-2 bg-neutral-900 rounded-4xl px-3 py-2">
+		<div className="flex items-center gap-2 bg-surface-2 rounded-4xl px-3 py-2">
 			{/* Войти (десктоп) — золотая CTA */}
 			<Link
 				href="/auth/signin"

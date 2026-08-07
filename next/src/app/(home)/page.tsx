@@ -8,9 +8,7 @@ import HomePricingPreview from "@/components/home/HomePricingPreview";
 import HomeCreditsExplainer from "@/components/home/HomeCreditsExplainer";
 import HomeFAQ from "@/components/home/HomeFAQ";
 import HomeFinalCTA from "@/components/home/HomeFinalCTA";
-import HomeArticleSection from "@/components/home/HomeArticleSection";
 import Footer from "@/components/main/Footer";
-import { getHomeArticle, articleTitle, articleBody } from "@/lib/content";
 
 // Root page = the working chat, with HomeHero pitching the product right
 // under the chat's own top bar (no separate landing route). Client wanted
@@ -24,52 +22,31 @@ import { getHomeArticle, articleTitle, articleBody } from "@/lib/content";
 // WhyEsAI is ALSO relocated up into the start screen (via
 // belowComposerSlot, rendered between the composer and the /studio banner)
 // — client explicitly asked for "Почему EsAI" right after the chat, before
-// the cartoons banner, instead of further down the page. It's therefore
-// removed from its old spot in the marketing block below.
-// Scrolling down past the chat reveals the remaining 6-section marketing
-// landing (Popular models → Comparison → Pricing preview → Credits
-// explainer → FAQ → Final CTA), then the flagship SEO article + footer
-// (ai-flip.ru-style), with the same reveal/progress/outline animations.
+// the cartoons banner.
+// Scrolling down past the chat reveals the marketing landing (Popular
+// models → Comparison → Pricing preview → Credits explainer → FAQ → Final
+// CTA), then the footer.
 //
-// data-theme="dark" is forced on HomeHero and WhyEsAI (wrapped where each
-// is passed into its slot below) and on the marketing/article/footer
-// subtree because those sections are visually designed only for the dark
-// palette (decorative glows, vendor-chip colors over a dark surface) — the
-// page's actual theme can be "light" via THEME_BOOTSTRAP (lib/theme.ts)
-// reacting to system/localStorage preference. ChatWorkspace itself is NOT
-// wrapped: it manages its own theme-independent dark styling.
-export default async function Home() {
-  const article = await getHomeArticle();
+// Раньше эти секции жили в принудительных data-theme="dark" обёртках, из-за
+// чего светлая тема была нерабочей: <html data-theme="light">, а почти вся
+// страница всё равно оставалась тёмной. Обёртки убраны — все блоки следуют
+// выбранной пользователем теме (см. lib/theme.ts, переключатель в
+// ChatSidebar). Секции используют только токены (bg-surface/-2, text-muted,
+// border-border, accent), поэтому корректно читаются в обеих темах.
+//
+// SEO-статья убрана с главной: клиент попросил, чтобы статьи были ТОЛЬКО в
+// блоге (/blog).
+export default function Home() {
   return (
     <>
-      <ChatWorkspace
-        heroSlot={
-          <div data-theme="dark" className="bg-background text-foreground">
-            <HomeHero />
-          </div>
-        }
-        belowComposerSlot={
-          <div data-theme="dark" className="bg-background text-foreground">
-            <WhyEsAI />
-          </div>
-        }
-      />
-      <div data-theme="dark" className="bg-background text-foreground">
-        <PopularModels />
-        <ChatGPTComparison />
-        <HomePricingPreview />
-        <HomeCreditsExplainer />
-        <HomeFAQ />
-        <HomeFinalCTA />
-        {article && (
-          <HomeArticleSection
-            title={articleTitle(article)}
-            body={articleBody(article)}
-            slug={article.slug}
-          />
-        )}
-        <Footer />
-      </div>
+      <ChatWorkspace heroSlot={<HomeHero />} belowComposerSlot={<WhyEsAI />} />
+      <PopularModels />
+      <ChatGPTComparison />
+      <HomePricingPreview />
+      <HomeCreditsExplainer />
+      <HomeFAQ />
+      <HomeFinalCTA />
+      <Footer />
     </>
   );
 }

@@ -17,6 +17,10 @@ export default function AuthLayout({
         // Панель всегда тёмная (#0b0b0b) независимо от темы, поэтому текст внутри
         // принудительно светлый: токены (text-foreground/muted) в светлой теме
         // давали бы тёмный текст на тёмном фоне.
+        // data-theme="dark" помечает её как «тёмный остров»: в светлой теме это
+        // возвращает акцентному тексту внутри яркое золото (см. --accent-text
+        // в globals.css), иначе он потемнел бы и пропал на чёрном фоне.
+        data-theme="dark"
         className="relative hidden lg:flex flex-col justify-between w-[46%] xl:w-[42%] p-12 overflow-hidden text-white"
         style={{
           background:

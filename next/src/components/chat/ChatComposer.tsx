@@ -484,7 +484,7 @@ export default function ChatComposer({
       </form>
 
       {imageNeedsVision && (
-        <p className="mt-2 text-center text-xs text-amber-400">
+        <p className="mt-2 text-center text-xs text-amber-700 dark:text-amber-500">
           {t("chat.image_no_vision", {
             defaultValue:
               "Выбранная модель не понимает изображения. Выберите ChatGPT, Gemini или Claude (с пометкой «Фото»).",

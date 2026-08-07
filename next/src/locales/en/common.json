@@ -661,6 +661,7 @@
 			"cap_web": "Web search",
 			"cap_web_short": "Web",
 			"category": {
+				"free": "Free",
 				"recommended": "Recommended",
 				"chat": "For conversations",
 				"writing": "Texts and SEO",

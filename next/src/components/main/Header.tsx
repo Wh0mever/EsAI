@@ -82,7 +82,7 @@ export default function Header() {
 				"fixed w-full z-[200] select-none transition-transform duration-300",
 				"will-change-transform",
 				hidden ? "-translate-y-full" : "translate-y-0",
-				scrolled ? "bg-black/20 backdrop-blur" : "",
+				scrolled ? "bg-background/20 backdrop-blur" : "",
 				// pt учитывает вырез iOS (safe-area) в установленном PWA, иначе
 				// лого/меню налезали на системную строку (время/сеть/зарядку).
 				"pb-2 pt-[calc(0.5rem_+_env(safe-area-inset-top,0px))]",
@@ -92,7 +92,7 @@ export default function Header() {
 			<div className="flex items-center justify-between gap-5">
 				<div className="flex items-center gap-4">
 					<button
-						className="lg:hidden cursor-pointer inline-flex h-12 w-12 items-center justify-center rounded-xl border border-neutral-800 bg-neutral-900/50 backdrop-blur active:scale-95"
+						className="lg:hidden cursor-pointer inline-flex h-12 w-12 items-center justify-center rounded-xl border border-border bg-surface-2/70 backdrop-blur active:scale-95"
 						aria-label={
 							open
 								? t("common.close_menu", { defaultValue: "Close menu" })
@@ -103,17 +103,17 @@ export default function Header() {
 					>
 						<span className="relative block h-5 w-6">
 							<span
-								className={`absolute left-0 top-0 h-0.5 w-6 bg-white transition-transform ${
+								className={`absolute left-0 top-0 h-0.5 w-6 bg-foreground transition-transform ${
 									open ? "translate-y-2 rotate-45" : ""
 								}`}
 							/>
 							<span
-								className={`absolute left-0 top-2 h-0.5 w-6 bg-white transition-opacity ${
+								className={`absolute left-0 top-2 h-0.5 w-6 bg-foreground transition-opacity ${
 									open ? "opacity-0" : "opacity-100"
 								}`}
 							/>
 							<span
-								className={`absolute left-0 top-4 h-0.5 w-6 bg-white transition-transform ${
+								className={`absolute left-0 top-4 h-0.5 w-6 bg-foreground transition-transform ${
 									open ? "-translate-y-2 -rotate-45" : ""
 								}`}
 							/>
@@ -145,7 +145,7 @@ export default function Header() {
 			{/* mobile drawer */}
 			<aside
 				className={`lg:hidden fixed right-0 top-0 z-[200] h-dvh w-[88%] max-w-[420px]
-	bg-neutral-900/95 text-white backdrop-blur-xl border-l border-neutral-800
+	bg-surface/95 text-foreground backdrop-blur-xl border-l border-border
 	transition-transform will-change-transform
 	${open ? "translate-x-0" : "translate-x-full"} 
 	flex flex-col`} // make column
@@ -156,7 +156,7 @@ export default function Header() {
 						{/* Компактный переключатель языка — вынесен из меню (запрос клиента) */}
 						<LangSwitch />
 						<button
-							className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-neutral-700 bg-neutral-800 active:scale-95 cursor-pointer"
+							className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-border bg-surface-2 active:scale-95 cursor-pointer"
 							onClick={closeMenu}
 							aria-label={t("common.close", { defaultValue: "Close" })}
 						>

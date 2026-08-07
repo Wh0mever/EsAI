@@ -660,6 +660,7 @@
 			"cap_web": "Интернеттен издөө",
 			"cap_web_short": "Веб",
 			"category": {
+				"free": "Акысыз",
 				"recommended": "Сунушталган",
 				"chat": "Сөз кылуу үчүн",
 				"writing": "Тексттер жана SEO",

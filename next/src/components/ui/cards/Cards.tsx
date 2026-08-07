@@ -49,7 +49,7 @@ export function TemplateCard({ template, localTemplates, setLocalTemplates }: an
 
 	return (
 		<div
-			className="flex flex-col gap-3 p-10 card-hover-colored bg-gray-800/5 border border-gray-700 rounded-xl hover:shadow-lg hover:bg-gray-800/10 hover:border-gray-600 colored-center"
+			className="flex flex-col gap-3 p-10 card-hover-colored bg-gray-800/5 border border-border rounded-xl hover:shadow-lg hover:bg-gray-800/10 hover:border-border-strong colored-center"
 			style={{ animation: "showCard 0.5s ease-in-out forwards" }}
 		>
 			<img
@@ -61,22 +61,25 @@ export function TemplateCard({ template, localTemplates, setLocalTemplates }: an
 				<BsStars />
 			</i>
 			<div>
-				<h3 className="text-white font-semibold text-lg">
+				<h3 className="text-foreground font-semibold text-lg">
 					{provider} - {template?.name}
 				</h3>
-				{template?.description && <p className="text-gray-400 text-sm mt-1">{template?.description}</p>}
+				{template?.description && <p className="text-muted text-sm mt-1">{template?.description}</p>}
 			</div>
-			<div className="text-gray-500 flex items-center justify-between mt-3">
+			<div className="text-muted-2 flex items-center justify-between mt-3">
 				<div className="text-sm">
-					<p className="text-gray-300">
+					<p className="text-muted">
 						<span>{t("chat.templates.usage")}: </span>
 						<span>{template?.usage_count}</span>
 					</p>
 					{template?.id && (
 						<Button
 							className={`text-sm ${
+								// Оба состояния через токен accent: хардкодный yellow-500
+								// обходил override --accent-text и в светлой теме давал
+								// нечитаемые ~1.7:1. Различие состояний несёт текст кнопки.
 								isUsed
-									? "text-yellow-500 hover:text-yellow-600"
+									? "text-muted hover:text-accent"
 									: "text-accent hover:text-accent-strong"
 							}`}
 							onClick={handleUseTemplate}
@@ -88,8 +91,8 @@ export function TemplateCard({ template, localTemplates, setLocalTemplates }: an
 				<Button
 					className={`text-2xl cursor-pointer flex items-center justify-center p-3 rounded-full transition-colors ${
 						isFavorite
-							? "text-rose-400 hover:text-rose-600 hover:bg-white/75"
-							: "text-gray-400 hover:text-accent hover:bg-white/75"
+							? "text-rose-400 hover:text-rose-600 hover:bg-surface-3"
+							: "text-muted hover:text-accent hover:bg-surface-3"
 					}`}
 					onClick={() => {
 						handleFavorite();
