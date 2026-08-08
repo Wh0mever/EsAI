@@ -5,6 +5,7 @@ from .views import (
     ActivatePlanView, UnsubscribeView, ResumeSubscriptionView,
     TokenBalanceView, TokenPackageListView, TokenPackageValueListView,
     TokenTransactionListView, TokenPurchaseView, CurrencyRateView,
+    PublicBonusSettingsView,
 )
 from .exit_discount import (
     ExitDiscountStatusView, ExitDiscountShowView, ExitDiscountClaimView, ExitDiscountDismissView,
@@ -19,6 +20,7 @@ urlpatterns = [
     path("packages/", TokenPackageListView.as_view(), name="token-packages"),
     path("packages/value/", TokenPackageValueListView.as_view(), name="token-packages-value"),
     path("currency-rate/", CurrencyRateView.as_view(), name="currency-rate"),
+    path("bonus-settings/", PublicBonusSettingsView.as_view(), name="public-bonus-settings"),
     path("transactions/", TokenTransactionListView.as_view(), name="token-transactions"),
     path("purchase/", TokenPurchaseView.as_view(), name="token-purchase"),
     # Exit-intent скидка на pricing. Объявлены ДО "<int:pk>/", чтобы не перехватывались.

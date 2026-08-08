@@ -23,6 +23,11 @@ KEYS = (
     "WELCOME_BONUS_TOKENS",
     "REFERRAL_BONUS_TOKENS",
     "DAILY_RETENTION_TARGET",
+    # Порог ежедневного бонуса: кому доводим баланс до TARGET. Обязан быть
+    # управляемым из админки вместе с TARGET — иначе рассинхрон убивает всю
+    # механику (реальный инцидент: в .env стоял THRESHOLD=1, админ поднял
+    # TARGET до 10, и бонус получал только тот, кто выжег баланс ровно в ноль).
+    "DAILY_RETENTION_THRESHOLD",
     "WEB_SEARCH_SURCHARGE_CREDITS",
     "FREE_DAILY_REQUESTS",
     "PAID_DAILY_REQUESTS",

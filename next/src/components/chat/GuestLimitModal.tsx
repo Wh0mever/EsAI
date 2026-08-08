@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Modal } from "@/components/dialog/Dialog";
 import { FiLock } from "react-icons/fi";
 import SocialAuthButtons from "@/components/auth/SocialAuthButtons";
+import { useBonusSettings } from "@/hooks/useBonusSettings";
 
 type Props = {
   open: boolean;
@@ -18,6 +19,7 @@ type Props = {
  */
 export default function GuestLimitModal({ open, onClose }: Props) {
   const { t } = useTranslation("common");
+  const bonus = useBonusSettings();
   return (
     <Modal
       title={t("guest.limit_title", { defaultValue: "Продолжим? 🎁" })}
@@ -31,8 +33,9 @@ export default function GuestLimitModal({ open, onClose }: Props) {
         </div>
         <p className="text-sm text-muted mb-5">
           {t("guest.limit_desc", {
+            count: bonus.welcome_bonus,
             defaultValue:
-              "Получите 5 кредитов в подарок за регистрацию. Без карты, без подписок.",
+              "Получите {{count}} кредитов в подарок за регистрацию. Без карты, без подписок.",
           })}
         </p>
 

@@ -11,6 +11,7 @@ import EsaiLogo from "@/components/brand/EsaiLogo";
 import { fetchData } from "@/tools/fetchData";
 import SmartForm from "@/components/forms/SmartForm";
 import SocialAuthButtons from "@/components/auth/SocialAuthButtons";
+import { useBonusSettings } from "@/hooks/useBonusSettings";
 
 const INPUT_CLASS =
 	"w-full rounded-xl bg-surface-2 border border-border text-foreground placeholder:text-muted-2 text-sm px-4 py-3 focus:border-accent focus:outline-none transition-colors";
@@ -59,6 +60,8 @@ function signin(response: any, setResponseData: any, t: any) {
 
 export default function SignIn() {
 	const { t } = useTranslation("common");
+	// Размер приветственного бонуса берём из админки, а не хардкодим в тексте.
+	const bonus = useBonusSettings();
 	// 2-шаговый email-OTP без пароля: request (ввод email) -> verify (ввод кода)
 	const [step, setStep] = useState<"request" | "verify">("request");
 	const [formState, setFormState] = useState<{ email?: string }>({});
@@ -185,7 +188,10 @@ export default function SignIn() {
 			{/* CTA клиента — заметный блок с золотым акцентом на «3 000 кредитов» */}
 			<div className="rounded-2xl border border-accent/40 bg-accent/[0.07] px-5 py-4 text-center">
 				<p className="text-base sm:text-lg font-semibold text-foreground leading-snug">
-					{t("auth.cta_part1", { defaultValue: "🎁 Войдите в 1 клик и получите 5 кредитов в подарок." })}
+					{t("auth.cta_part1", {
+						count: bonus.welcome_bonus,
+						defaultValue: "🎁 Войдите в 1 клик и получите {{count}} кредитов в подарок.",
+					})}
 				</p>
 				<p className="text-sm text-muted mt-1">
 					{t("auth.cta_part2", { defaultValue: "Без карты. Без подписок." })}

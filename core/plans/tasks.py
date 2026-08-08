@@ -419,8 +419,24 @@ def apply_daily_retention_bonus(self) -> dict:
             # Runtime-оверрайд из админки; при любой ошибке остаётся settings-значение.
             from adminapi.runtime import get_runtime
             target = int(get_runtime("DAILY_RETENTION_TARGET", target))
+            # Порог тоже берём из админки. Раньше он читался ТОЛЬКО из .env, где
+            # стоял 1, а админ поднял target до 10 — в результате бонус получал
+            # лишь тот, у кого баланс ровно 0 (1 человек из 355 подходящих), и
+            # вся механика удержания фактически не работала.
+            threshold = int(get_runtime("DAILY_RETENTION_THRESHOLD", threshold))
         except Exception:
             pass
+
+        # Страховка от того же рассинхрона: порог ниже target означает «людей
+        # между threshold и target не пополняем», хотя на сайте им обещано
+        # «каждый день баланс пополняется до target». Если админ явно не задал
+        # больший порог — дотягиваем всех, кто ниже target.
+        if threshold < target:
+            logger.warning(
+                "daily_retention: threshold=%s < target=%s — подтягиваю порог до target",
+                threshold, target,
+            )
+            threshold = target
 
         qs = (
             User.objects
