@@ -370,6 +370,43 @@ class CurrencyRateView(APIView):
         })
 
 
+class PublicBonusSettingsView(APIView):
+    """GET /api/plans/bonus-settings/ — публично, без авторизации.
+
+    Отдаёт фронту РЕАЛЬНЫЕ размеры бонусов, чтобы тексты на сайте
+    («получите N кредитов за регистрацию», «каждый день баланс пополняется
+    до M кредитов») не расходились с тем, что админ выставил в /admin-new.
+
+    Зачем отдельный публичный эндпоинт: числа показываются в том числе
+    НЕавторизованным (страница входа, гостевой сайдбар, лимит гостя), а
+    /api/manage/settings/ доступен только staff. Раньше эти цифры были
+    захардкожены в i18n-строках — классический источник рассинхрона:
+    в админке одно, на сайте другое.
+    """
+    permission_classes = [permissions.AllowAny]
+
+    def get(self, request):
+        def _runtime_int(key: str, default: int) -> int:
+            try:
+                from adminapi.runtime import get_runtime
+
+                return int(get_runtime(key, default))
+            except Exception:  # noqa: BLE001 — настройки не должны ронять эндпоинт
+                return int(default)
+
+        welcome = _runtime_int(
+            "WELCOME_BONUS_TOKENS", getattr(settings, "WELCOME_BONUS_TOKENS", 0) or 0
+        )
+        daily_target = _runtime_int(
+            "DAILY_RETENTION_TARGET", getattr(settings, "DAILY_RETENTION_TARGET", 0) or 0
+        )
+
+        return Response({
+            "welcome_bonus": welcome,
+            "daily_free_credits": daily_target,
+        })
+
+
 class TokenTransactionListView(generics.ListAPIView):
     """GET /api/plans/transactions/ — последние ~50 транзакций токенов юзера."""
     authentication_classes = [JWTAuthentication]

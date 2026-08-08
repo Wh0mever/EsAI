@@ -315,7 +315,7 @@
 		"promo_ph": "Enter promo code",
 		"telegram": "Sign in with Telegram",
 		"get_code": "Get code",
-		"cta_part1": "🎁 Sign in with 1 click and get 5 free credits.",
+		"cta_part1": "🎁 Sign in with 1 click and get {{count}} free credits.",
 		"cta_credits": "3,000 credits",
 		"cta_part2": "No card. No subscriptions.",
 		"code_sent_to": "Code sent to email",
@@ -1182,7 +1182,8 @@
 		"unpaid_and_generations_exhausted_notice": "Payment is not completed and generations are exhausted. Pay your subscription or activate a new plan.",
 		"generations_exhausted_notice": "Generations are exhausted. You can top up in profile or choose a new plan.",
 		"seo_title": "Profile",
-		"seo_description": "EsAI personal account: plan, tokens, payments and account settings."
+		"seo_description": "EsAI personal account: plan, tokens, payments and account settings.",
+		"daily_free_credits": "Your balance is topped up to {{count}} credits free every day"
 	},
 	"nav": {
 		"dashboard": "Dashboard",
@@ -1358,9 +1359,9 @@
 	},
 	"guest": {
 		"limit_title": "Continue? 🎁",
-		"limit_desc": "Get 5 free credits when you sign up. No card, no subscriptions.",
+		"limit_desc": "Get {{count}} free credits for signing up. No card, no subscriptions.",
 		"free_remaining": "{{count}} of {{limit}} free messages left",
-		"sidebar_bonus": "5 free credits when you sign up",
+		"sidebar_bonus": "{{count}} free credits for signing up",
 		"more_login_options": "All login options (Email)"
 	},
 	"theme": {

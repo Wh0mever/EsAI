@@ -4,6 +4,7 @@ import React from "react";
 import Link from "next/link";
 import { Card } from "@/components/ui/cards/Cards";
 import PayAsYouGoBanner from "@/components/pricing/PayAsYouGoBanner";
+import { useBonusSettings } from "@/hooks/useBonusSettings";
 
 type Props = {
 	t: (k: string, options?: Record<string, unknown>) => string;
@@ -20,6 +21,8 @@ export default function UserBalanceCard({ t, data }: Props) {
 	const isUnlimited = Boolean(user?.is_unlimited);
 	const isPaid = Boolean(user?.is_paid);
 	const balance = Number(user?.token_balance ?? 0);
+	// Размер ежедневного бесплатного пополнения — из админки, не хардкод.
+	const bonus = useBonusSettings();
 
 	const tierLabel = isUnlimited
 		? t("profile.tier.unlimited", { defaultValue: "Безлимит (тест)" })
@@ -47,6 +50,24 @@ export default function UserBalanceCard({ t, data }: Props) {
 						{t("topup.credits", { defaultValue: "кредитов" })}
 					</span>
 				</div>
+
+				{/* Ежедневное бесплатное пополнение — заметной плашкой прямо под
+				    балансом (просьба клиента: люди не знали, что кредиты
+				    начисляются каждый день, и не возвращались на сайт).
+				    Не показываем платным: им бонус не начисляется (см.
+				    plans/tasks.py apply_daily_retention_bonus — фильтр is_paid=False). */}
+				{!isPaid && !isUnlimited && bonus.daily_free_credits > 0 && (
+					<div className="flex items-start gap-2.5 rounded-xl border border-accent/40 bg-accent-soft px-4 py-3">
+						<span className="text-lg leading-none shrink-0" aria-hidden>🎁</span>
+						<p className="text-sm font-semibold text-foreground leading-snug">
+							{t("profile.daily_free_credits", {
+								count: bonus.daily_free_credits,
+								defaultValue:
+									"Каждый день баланс пополняется бесплатно до {{count}} кредитов",
+							})}
+						</p>
+					</div>
+				)}
 
 				<PayAsYouGoBanner compact />
 

@@ -319,6 +319,11 @@ _INT_SETTINGS = {
     "welcome_bonus": ("WELCOME_BONUS_TOKENS", "WELCOME_BONUS_TOKENS", 0),
     "referral_bonus": ("REFERRAL_BONUS_TOKENS", "REFERRAL_BONUS_TOKENS", 0),
     "daily_retention_target": ("DAILY_RETENTION_TARGET", "DAILY_RETENTION_TARGET", 0),
+    # Порог: у кого баланс МЕНЬШЕ этого значения — тому ежедневный бонус
+    # доводит баланс до daily_retention_target. Обычно равен target
+    # («каждый день пополняем до N»). Держать рядом с target обязательно:
+    # рассинхрон этих двух чисел уже один раз убил всю механику удержания.
+    "daily_retention_threshold": ("DAILY_RETENTION_THRESHOLD", "DAILY_RETENTION_THRESHOLD", 0),
     "web_search_surcharge": ("WEB_SEARCH_SURCHARGE_CREDITS", "WEB_SEARCH_SURCHARGE_CREDITS", 0),
     "free_daily_requests": ("FREE_DAILY_REQUESTS", "FREE_DAILY_REQUESTS", 0),
     "paid_daily_requests": ("PAID_DAILY_REQUESTS", "PAID_DAILY_REQUESTS", 0),

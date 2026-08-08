@@ -33,6 +33,7 @@ import MemoryModal from "@/components/chat/MemoryModal";
 import PromoActivate from "@/components/cabinet/PromoActivate";
 import { fetchData } from "@/tools/fetchData";
 import { useTheme } from "@/hooks/useTheme";
+import { useBonusSettings } from "@/hooks/useBonusSettings";
 import { pushSupported, pushPermission, enablePush } from "@/tools/webPush";
 
 export type ChatItem = { id: string; uid?: string; title: string; chat_mode?: string };
@@ -63,6 +64,7 @@ export default function ChatSidebar({
   const { t, i18n } = useTranslation("common");
   const router = useRouter();
   const { preference, setPreference } = useTheme();
+  const bonus = useBonusSettings();
   const [clearOpen, setClearOpen] = useState(false);
   const [clearing, setClearing] = useState(false);
   const [memoryOpen, setMemoryOpen] = useState(false);
@@ -506,7 +508,10 @@ export default function ChatSidebar({
                 ) : (
                   <div className="rounded-xl border border-accent/40 bg-accent/[0.07] p-3 text-center">
                     <p className="text-sm text-foreground font-medium mb-2.5">
-                      🎁 {t("guest.sidebar_bonus", { defaultValue: "5 кредитов в подарок за регистрацию" })}
+                      🎁 {t("guest.sidebar_bonus", {
+                        count: bonus.welcome_bonus,
+                        defaultValue: "{{count}} кредитов в подарок за регистрацию",
+                      })}
                     </p>
                     <NextLink
                       href="/auth/signin"
