@@ -30,6 +30,15 @@ type Props = {
    * главной странице — там уже достаточно контента (Hero, «Почему EsAI»).
    */
   showQuickPrompts?: boolean;
+  /**
+   * Прижать содержимое к НИЗУ экрана. Включается там, где чат занимает всю
+   * высоту вьюпорта (/dashboard/text-chat, без heroSlot): иначе под баннером
+   * «Создание мультфильмов» оставалась большая пустая область до футера
+   * (просьба клиента: «сдвинь чат в самый низ, чтобы мультфильмы были прямо
+   * над соцсетями»). На главной НЕ включается — там чат идёт сразу после
+   * Hero и по высоте равен содержимому.
+   */
+  bottomAligned?: boolean;
   /** Открыта экранная клавиатура (мобайл) — прижимаем контент к верху, без провала. */
   keyboardOpen?: boolean;
 };
@@ -74,22 +83,29 @@ const QUICK_PROMPTS: QuickPrompt[] = [
  * behind showQuickPrompts — the product owner then asked (same day) to keep them OFF the
  * home page, where Hero/WhyEsAI already carry the pitch.
  */
-export default function StartScreen({ onUsePrompt, composerSlot, belowComposerSlot, showQuickPrompts, keyboardOpen }: Props) {
+export default function StartScreen({ onUsePrompt, composerSlot, belowComposerSlot, showQuickPrompts, bottomAligned, keyboardOpen }: Props) {
   const { t } = useTranslation("common");
   const [catalogOpen, setCatalogOpen] = useState(false);
+
+  // Прижимаем к низу распоркой, а НЕ justify-end: в прокручиваемом контейнере
+  // justify-end обрезает верх, когда содержимое выше экрана, и до него нельзя
+  // доскроллить. Распорка на flex-1 схлопывается в 0, если места не осталось,
+  // поэтому на маленьких экранах всё остаётся доступным.
+  const pushDown = Boolean(bottomAligned) && !keyboardOpen;
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto w-full">
       <div
         className={
           "max-w-3xl mx-auto w-full min-h-full flex flex-col px-1 " +
-          // Top-aligned always (не center) — иначе на «голом» стартовом
-          // экране без heroSlot (dashboard) композер проваливался в
-          // середину высокого пустого блока (жалоба клиента: «большой
-          // пустой отступ сверху», «поднять поле ввода выше»).
+          // Всегда justify-start: вертикальное положение задаёт распорка выше
+          // (центрирование когда-то роняло композер в середину пустого блока —
+          // жалоба клиента «большой пустой отступ сверху»).
           (keyboardOpen ? "justify-start py-3" : "justify-start py-6 sm:py-8")
         }
       >
+        {pushDown ? <div className="flex-1 min-h-0" aria-hidden /> : null}
+
         {/* Композер — первый элемент экрана, пользователь начинает печатать без прокрутки */}
         {composerSlot ? <div className="w-full">{composerSlot}</div> : null}
 

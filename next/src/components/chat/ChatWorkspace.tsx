@@ -730,6 +730,11 @@ export default function ChatWorkspace({ chatId, mode = MODE, heroSlot, belowComp
             composerSlot={composerNode}
             belowComposerSlot={belowComposerSlot}
             showQuickPrompts={showQuickPrompts}
+            // Прижимаем содержимое к низу ровно там, где чат растянут на весь
+            // экран (нет heroSlot → forceFullHeight выше): иначе под баннером
+            // студии зияла пустота до футера. На главной высота задаётся
+            // содержимым, прижимать нечего.
+            bottomAligned={!heroSlot}
             keyboardOpen={keyboardOpen}
           />
         )}
