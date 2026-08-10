@@ -14,6 +14,7 @@ import type { AiModel } from "./ModelSelector";
 import ChatMessages from "./ChatMessages";
 import ChatComposer from "./ChatComposer";
 import StartScreen from "./StartScreen";
+import PushPromptBanner from "./PushPromptBanner";
 import ChatSidebar, { type ChatItem } from "./ChatSidebar";
 import EsaiLogo from "@/components/brand/EsaiLogo";
 import TopUpModal from "./TopUpModal";
@@ -713,6 +714,16 @@ export default function ChatWorkspace({ chatId, mode = MODE, heroSlot, belowComp
               onContinue={handleContinue}
               onFeedback={handleFeedback}
             />
+            {/* Предложение включить уведомления о ежедневных кредитах —
+                показывается один раз, ПОСЛЕ первого ответа ИИ (см.
+                PushPromptBanner: раньше подписаться можно было только через
+                переключатель в боковом меню, туда доходили единицы). */}
+            <div className="shrink-0">
+              <PushPromptBanner
+                authed={isAuthed}
+                ready={!loading && messages.some((m) => m.role === "assistant")}
+              />
+            </div>
             {/* Composer внизу в режиме диалога */}
             <div className="pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 shrink-0">{composerNode}</div>
           </>

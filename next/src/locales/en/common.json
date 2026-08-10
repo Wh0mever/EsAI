@@ -1347,7 +1347,11 @@
 		"enable": "🔔 Bonus notifications",
 		"enabled": "🔔 Notifications enabled",
 		"denied": "Notifications are blocked in your browser settings. Enable them for this site.",
-		"error": "Couldn't enable notifications."
+		"error": "Couldn't enable notifications.",
+		"prompt_title": "Want a reminder when your free credits arrive? Up to {{count}} every day.",
+		"prompt_enable": "Remind me",
+		"prompt_later": "No thanks",
+		"prompt_done": "Done! We will let you know when credits arrive."
 	},
 	"promo": {
 		"title": "Redeem a promo code",
