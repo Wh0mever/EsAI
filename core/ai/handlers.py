@@ -853,6 +853,40 @@ def _openrouter_config() -> dict:
     }
 
 
+def _read_own_media(url: str) -> bytes | None:
+    """Прочитать НАШ медиафайл по его публичному URL.
+
+    Умышленно НЕ ходим по сети: принимаем только ссылки под MEDIA_URL и
+    читаем файл из default_storage. Иначе параметр extend_video_url
+    превратился бы в SSRF — пользователь прислал бы любой адрес, а сервер
+    послушно его скачал.
+    """
+    from django.core.files.storage import default_storage
+
+    try:
+        media_url = str(getattr(settings, "MEDIA_URL", "/media/") or "/media/")
+        path = str(url or "")
+        # Абсолютную ссылку на свой же домен приводим к пути.
+        if path.startswith("http://") or path.startswith("https://"):
+            from urllib.parse import urlparse
+
+            path = urlparse(path).path
+        if not path.startswith(media_url):
+            logger.warning("read_own_media: url вне MEDIA_URL, отказ: %s", str(url)[:120])
+            return None
+        name = path[len(media_url):].lstrip("/")
+        # Никаких переходов вверх по дереву.
+        if not name or ".." in name:
+            return None
+        if not default_storage.exists(name):
+            return None
+        with default_storage.open(name, "rb") as fh:
+            return fh.read()
+    except Exception:
+        logger.exception("read_own_media failed for %s", str(url)[:120])
+        return None
+
+
 def _openrouter_video_catalog(model_id: str) -> dict:
     """Спека конкретной video-модели из каталога OpenRouter (кэш 1 ч).
 
@@ -2017,6 +2051,12 @@ def _authed_chat_stream(request):
         except Exception:
             req_video_duration = None
 
+        # ПРОДЛЕНИЕ ролика: ссылка на уже сгенерированное нами видео. Новый
+        # сегмент стартует с последнего кадра исходника, затем оба склеиваются
+        # в один файл (см. ai/video_edit.py — в API OpenRouter передать видео
+        # на вход нельзя, только кадр).
+        req_extend_video = (request.data.get("extend_video_url") or "").strip() or None
+
         # Память пользователя: сначала обработать явные команды «запомни/забудь»
         # (мутируют память ДО инъекции), затем подмешать блок фактов в системный
         # промпт. Всё безопасно: get_memory_block вернёт "" при выключенной памяти.
@@ -2190,6 +2230,40 @@ def _authed_chat_stream(request):
                     # origin_base пуст и url относительный → abs_url остаётся None,
                     # image-to-video пропускаем (обычный text-to-video).
 
+                # b.2) ПРОДЛЕНИЕ: исходный ролик → его последний кадр становится
+                #      first_frame нового сегмента. Кадр перебивает картинку из
+                #      вложений: при продлении важна именно склейка «встык».
+                #      Если что-то пошло не так — не падаем, генерируем обычный
+                #      ролик (пользователь получит видео, просто без стыковки).
+                source_video_bytes = None
+                if req_extend_video:
+                    try:
+                        from .video_edit import extract_last_frame
+
+                        source_video_bytes = _read_own_media(req_extend_video)
+                        if source_video_bytes:
+                            frame = extract_last_frame(source_video_bytes)
+                            if frame:
+                                fpath = default_storage.save(
+                                    f"ai_frames/{_uuid.uuid4().hex}.jpg", ContentFile(frame)
+                                )
+                                furl = default_storage.url(fpath)
+                                if furl.startswith("http"):
+                                    first_img_abs_url = furl
+                                elif origin_base:
+                                    first_img_abs_url = origin_base.rstrip("/") + furl
+                                else:
+                                    # Без абсолютного URL OpenRouter кадр не заберёт —
+                                    # склейка «встык» не получится, но сегмент снимем.
+                                    source_video_bytes = None
+                            else:
+                                source_video_bytes = None
+                        else:
+                            logger.warning("extend: исходное видео не прочитано: %s", req_extend_video[:120])
+                    except Exception:
+                        logger.exception("extend: подготовка последнего кадра не удалась")
+                        source_video_bytes = None
+
                 # c) Submit: POST /api/v1/videos → 202 {id, polling_url, status}.
                 auth_headers = {"Authorization": f"Bearer {cfg['api_key']}"}
                 _submit_body = {
@@ -2289,8 +2363,27 @@ def _authed_chat_stream(request):
                             if now - last_beat >= 5:
                                 last_beat = now
                                 yield _sse({"video_progress": "downloading"})
+                    new_bytes = b"".join(chunks)
+
+                    # ПРОДЛЕНИЕ: приклеиваем свежий сегмент к исходному ролику,
+                    # чтобы пользователь получил ОДИН цельный файл, а не два.
+                    # Склейка не удалась — отдаём хотя бы новый сегмент: он
+                    # оплачен и сгенерирован, терять его нельзя.
+                    if source_video_bytes:
+                        yield _sse({"video_progress": "joining"})
+                        try:
+                            from .video_edit import concat_videos
+
+                            joined = concat_videos([source_video_bytes, new_bytes])
+                            if joined:
+                                new_bytes = joined
+                            else:
+                                logger.warning("extend: склейка не удалась, отдаём только новый сегмент")
+                        except Exception:
+                            logger.exception("extend: склейка упала")
+
                     path = default_storage.save(
-                        f"ai_videos/{_uuid.uuid4().hex}.mp4", ContentFile(b"".join(chunks))
+                        f"ai_videos/{_uuid.uuid4().hex}.mp4", ContentFile(new_bytes)
                     )
                     atts = [{"type": "video", "url": default_storage.url(path), "name": "esai-video.mp4"}]
                 except Exception:

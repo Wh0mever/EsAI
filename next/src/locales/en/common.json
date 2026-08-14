@@ -988,7 +988,8 @@
 			"like": "Good answer",
 			"dislike": "Bad answer",
 			"download_image": "Download image",
-			"download_video": "Download video"
+			"download_video": "Download video",
+			"extend_video": "Extend"
 		},
 		"quick": {
 			"upload_doc": "Upload document",
@@ -1045,7 +1046,8 @@
 		"video": {
 			"duration": "Duration",
 			"sec_short": "s",
-			"duration_cost": "{{seconds}} sec — {{credits}} credits"
+			"duration_cost": "{{seconds}} sec — {{credits}} credits",
+			"extend_hint": "Continuing the clip: describe what happens next"
 		}
 	},
 	"profile": {

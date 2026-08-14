@@ -987,7 +987,8 @@
 			"like": "Хороший ответ",
 			"dislike": "Плохой ответ",
 			"download_image": "Скачать изображение",
-			"download_video": "Скачать видео"
+			"download_video": "Скачать видео",
+			"extend_video": "Продлить"
 		},
 		"quick": {
 			"upload_doc": "Загрузить документ",
@@ -1044,7 +1045,8 @@
 		"video": {
 			"duration": "Длительность",
 			"sec_short": "с",
-			"duration_cost": "{{seconds}} сек — {{credits}} кредитов"
+			"duration_cost": "{{seconds}} сек — {{credits}} кредитов",
+			"extend_hint": "Продолжаем ролик: опишите, что происходит дальше"
 		}
 	},
 	"profile": {
