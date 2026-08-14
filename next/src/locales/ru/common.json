@@ -1040,7 +1040,12 @@
 		"image_edit_hint": "ИИ отредактирует ваше фото по описанию",
 		"video_generating": "Видео создаётся… обычно 1–2 минуты",
 		"image_generating": "Изображение создаётся",
-		"video_generating_short": "Видео создаётся"
+		"video_generating_short": "Видео создаётся",
+		"video": {
+			"duration": "Длительность",
+			"sec_short": "с",
+			"duration_cost": "{{seconds}} сек — {{credits}} кредитов"
+		}
 	},
 	"profile": {
 		"profile": "Профиль",

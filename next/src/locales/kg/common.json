@@ -1040,7 +1040,12 @@
 		"image_edit_hint": "ИИ сүрөтүңүздү сүрөттөмө боюнча түзөтөт",
 		"video_generating": "Видео түзүлүүдө… адатта 1–2 минут сунушталат",
 		"image_generating": "Сүрөт түзүлүүдө",
-		"video_generating_short": "Видео түзүлүүдө"
+		"video_generating_short": "Видео түзүлүүдө",
+		"video": {
+			"duration": "Узактыгы",
+			"sec_short": "с",
+			"duration_cost": "{{seconds}} сек — {{credits}} кредит"
+		}
 	},
 	"profile": {
 		"profile": "Профиль",

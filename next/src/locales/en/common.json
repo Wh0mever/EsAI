@@ -1041,7 +1041,12 @@
 		"image_edit_hint": "AI will edit your photo per your prompt",
 		"video_generating": "Video is being generated… usually takes 1–2 minutes",
 		"image_generating": "Image is being generated",
-		"video_generating_short": "Video is being generated"
+		"video_generating_short": "Video is being generated",
+		"video": {
+			"duration": "Duration",
+			"sec_short": "s",
+			"duration_cost": "{{seconds}} sec — {{credits}} credits"
+		}
 	},
 	"profile": {
 		"profile": "Profile",

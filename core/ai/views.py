@@ -26,12 +26,16 @@ from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
 from django.db import transaction, IntegrityError
 
+import logging
+
 from rest_framework import status, permissions
 from rest_framework.throttling import AnonRateThrottle, UserRateThrottle
 from django.core.files.storage import default_storage
 from django.utils.text import get_valid_filename
 import uuid
 import os
+
+logger = logging.getLogger(__name__)
 
 
 # Максимальная длина извлечённого из документа текста (символы), чтобы не
@@ -645,6 +649,58 @@ class AiModelsListAPIView(APIView):
         # текущего пользователя (гость → премиум заблокированы).
         data = AiModelSerializer(qs, many=True, context={"request": request}).data
         return Response(data, status=status.HTTP_200_OK)
+
+
+class VideoModelParamsAPIView(APIView):
+    """GET /api/ai/video-params/?model=<openrouter_id> — что умеет видео-модель.
+
+    Отдаёт список поддерживаемых длительностей (из каталога OpenRouter
+    /videos/models, кэш 1 ч) и цену в кредитах за секунду, чтобы фронт мог
+    показать выбор длительности со стоимостью ДО генерации.
+
+    Зачем понадобилось: длительность была зашита в VIDEO_GEN_DURATION=5, и
+    любая модель выдавала 5-секундный ролик, даже если умеет 30 (жалоба
+    клиента по Seedance 2.5). Теперь длительность выбирает пользователь, а
+    допустимые значения приходят отсюда — фронт не выдумывает их сам.
+    """
+    authentication_classes = [JWTAuthentication]
+    permission_classes = []
+
+    def get(self, request):
+        model_ref = (request.query_params.get("model") or "").strip()
+        if not model_ref:
+            return Response({"error": "model is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        obj = GPTModels.objects.filter(
+            openrouter_id=model_ref, is_active=True, category="video"
+        ).first()
+        if not obj:
+            return Response({"error": "video model not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            coeff = float(obj.markup_coefficient or 0)
+        except Exception:
+            coeff = 0.0
+
+        durations: list[int] = []
+        try:
+            from .handlers import _openrouter_video_catalog
+
+            spec = _openrouter_video_catalog(model_ref)
+            durations = [int(d) for d in (spec.get("supported_durations") or []) if str(d).isdigit()]
+        except Exception:
+            logger.exception("video params lookup failed for %s", model_ref)
+
+        default_duration = int(getattr(settings, "VIDEO_GEN_DURATION", 5) or 5)
+        if durations and default_duration not in durations:
+            default_duration = min(durations, key=lambda d: (abs(d - default_duration), d))
+
+        return Response({
+            "model": model_ref,
+            "durations": sorted(set(durations)),
+            "default_duration": default_duration,
+            "credits_per_second": coeff,
+        }, status=status.HTTP_200_OK)
 
 
 class CartoonModelsListAPIView(APIView):
