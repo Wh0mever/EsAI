@@ -6,6 +6,7 @@ import { SiThreads } from "react-icons/si";
 
 import { useTranslation } from "react-i18next";
 import EsaiLogo from "@/components/brand/EsaiLogo";
+import NetKgCounter from "@/components/main/NetKgCounter";
 
 export default function Footer() {
   const { t } = useTranslation("home");
@@ -68,6 +69,9 @@ export default function Footer() {
 
             <div className="flex items-center gap-4">
               <img src="/images/icons/footer_visa_el.webp" alt="Visa" className="h-9 sm:h-11 w-auto" />
+              {/* Счётчик рейтинга WWW.NET.KG — нужен на каждой странице,
+                  футер как раз общий для всех разделов сайта. */}
+              <NetKgCounter />
             </div>
           </div>
 
