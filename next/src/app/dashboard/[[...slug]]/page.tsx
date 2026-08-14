@@ -1,6 +1,5 @@
 import { notFound } from "next/navigation";
 import ClientDashboard from "./ClientDashboard";
-import Footer from "@/components/main/Footer";
 import { CHAT_MODES, type ChatMode } from "@/types/chat";
 
 export const dynamicParams = true;
@@ -19,11 +18,8 @@ export default async function Page({ params }: { params: Promise<Params> }) {
   if (!CHAT_MODES.includes(slug as ChatMode)) notFound();
 
   // SEO-статья убрана отсюда: клиент попросил, чтобы статьи жили ТОЛЬКО в
-  // блоге (/blog). Под чатом остаётся один футер.
-  return (
-    <>
-      <ClientDashboard slug={slug as ChatMode} chatId={chatId ?? null} />
-      <Footer />
-    </>
-  );
+  // блоге (/blog). Футер рендерит сам ClientDashboard через belowChatSlot —
+  // так он исчезает, когда начинается диалог (чат на весь экран, без
+  // прокрутки вниз).
+  return <ClientDashboard slug={slug as ChatMode} chatId={chatId ?? null} />;
 }

@@ -3,6 +3,7 @@
 import "@/assets/style.scss";
 import "../dashboard.scss";
 import ChatWorkspace from "@/components/chat/ChatWorkspace";
+import Footer from "@/components/main/Footer";
 import type { ChatMode } from "@/types/chat";
 
 type Props = { slug: ChatMode; chatId?: string | null };
@@ -18,6 +19,17 @@ type Props = { slug: ChatMode; chatId?: string | null };
 // nothing but a bare composer, which is why the product owner asked for the quick-prompt
 // chips specifically here (24.07.2026), then asked to keep them off the
 // home page the same day.
+//
+// Футер передаётся через belowChatSlot (а не рендерится страницей рядом),
+// чтобы он исчезал после первого сообщения: в режиме диалога чат занимает
+// весь экран, и прокрутки вниз быть не должно.
 export default function ClientDashboard({ slug, chatId }: Props) {
-	return <ChatWorkspace mode={slug} chatId={chatId ?? undefined} showQuickPrompts />;
+	return (
+		<ChatWorkspace
+			mode={slug}
+			chatId={chatId ?? undefined}
+			showQuickPrompts
+			belowChatSlot={<Footer />}
+		/>
+	);
 }
