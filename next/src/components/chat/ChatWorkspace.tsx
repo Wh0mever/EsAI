@@ -98,6 +98,10 @@ export default function ChatWorkspace({ chatId, mode = MODE, heroSlot, belowComp
   // ней МОЖНО прикрепить фото — для FLUX это редактирование (замена фона/объектов),
   // несмотря на supports_vision=false. Не блокируем прикрепление.
   const [modelIsImageEdit, setModelIsImageEdit] = useState(false);
+  // Длительность ролика для видео-моделей (секунды). null — ещё не выбрана,
+  // тогда бэкенд возьмёт дефолт из настроек. Сбрасывается при смене модели:
+  // у разных моделей разные допустимые значения (Veo — 4/6/8, Seedance — 4…30).
+  const [videoDuration, setVideoDuration] = useState<number | null>(null);
   // Высота вьюпорта с учётом клавиатуры (мобайл): держим контейнер равным
   // visualViewport.height, чтобы при открытии клавиатуры layout СЖИМАЛСЯ и поле
   // ввода/контент оставались в видимой зоне, а не уезжали под клавиатуру.
@@ -347,6 +351,9 @@ export default function ChatWorkspace({ chatId, mode = MODE, heroSlot, belowComp
         const templates = (() => { try { return localStorage.getItem("ai-templates"); } catch { return null; } })();
         const payload: any = { message: content, templates, mode, model, stream: true };
         if (webSearch) payload.web_search = true;
+        // Длительность ролика — только для видео-моделей. Бэкенд всё равно
+        // примагничивает значение к списку, который поддерживает модель.
+        if (modelIsVideo && videoDuration) payload.video_duration = videoDuration;
         if (sessionId) payload.chat_id = sessionId;
         if (readyAttachments.length) payload.attachments = readyAttachments;
         if (i18n?.language) payload.lang = i18n.language;
@@ -562,7 +569,10 @@ export default function ChatWorkspace({ chatId, mode = MODE, heroSlot, belowComp
         setLoading(false);
       }
     },
-    [attachments, sessionId, i18n.language, mode, model, webSearch, refreshBalance, setBalance, t, handleErrorCode]
+    // modelIsVideo/videoDuration ОБЯЗАТЕЛЬНЫ в зависимостях: без них колбэк
+    // замыкается на начальные значения (false/null), и выбранная длительность
+    // не попадала в запрос — видео всегда генерировалось дефолтными 5 секундами.
+    [attachments, sessionId, i18n.language, mode, model, webSearch, modelIsVideo, videoDuration, refreshBalance, setBalance, t, handleErrorCode]
   );
 
   const handleSubmit = (e: FormEvent) => {
@@ -618,7 +628,7 @@ export default function ChatWorkspace({ chatId, mode = MODE, heroSlot, belowComp
         attachments={attachments}
         setAttachments={setAttachments}
         model={model}
-        onModelChange={(id, m) => { setModel(id); setModelVision(m?.supports_vision); setModelIsVideo((m?.category || "") === "video"); setModelIsImageEdit((m?.category || "") === "image"); }}
+        onModelChange={(id, m) => { setModel(id); setModelVision(m?.supports_vision); setModelIsVideo((m?.category || "") === "video"); setModelIsImageEdit((m?.category || "") === "image"); setVideoDuration(null); }}
         autoFocus={!started}
         focusSignal={focusSignal}
         webSearch={webSearch}
@@ -627,6 +637,8 @@ export default function ChatWorkspace({ chatId, mode = MODE, heroSlot, belowComp
         modelSupportsVision={modelVision}
         modelIsVideo={modelIsVideo}
         modelIsImageEdit={modelIsImageEdit}
+        videoDuration={videoDuration}
+        onVideoDurationChange={setVideoDuration}
       />
       {guestFree && guestFree.limit > 0 && (
         <p className="text-center text-xs text-muted-2 mt-2">

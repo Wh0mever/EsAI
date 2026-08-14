@@ -853,6 +853,29 @@ def _openrouter_config() -> dict:
     }
 
 
+def _openrouter_video_catalog(model_id: str) -> dict:
+    """Спека конкретной video-модели из каталога OpenRouter (кэш 1 ч).
+
+    Вынесено отдельно, чтобы тем же кэшем пользовался публичный эндпоинт
+    ai/video-params/ (он показывает пользователю доступные длительности) и не
+    дублировал запрос к каталогу.
+    """
+    import requests as _requests
+    from django.core.cache import cache
+
+    catalog = cache.get("or_video_models")
+    if catalog is None:
+        cfg = _openrouter_config()
+        r = _requests.get(
+            f"{cfg['base_url'].rstrip('/')}/videos/models",
+            headers={"Authorization": f"Bearer {cfg['api_key']}"},
+            timeout=(10, 20),
+        )
+        catalog = (r.json() or {}).get("data") or []
+        cache.set("or_video_models", catalog, 3600)
+    return next((m for m in catalog if m.get("id") == model_id), None) or {}
+
+
 def _video_model_params(model_id: str, cfg: dict, want_duration: int, want_resolution: str) -> dict:
     """Подобрать ДОПУСТИМЫЕ для конкретной video-модели duration и resolution.
 
@@ -1982,6 +2005,18 @@ def _authed_chat_stream(request):
             return ("error", {"error": "No message provided"})
         attachments = request.data.get("attachments")
 
+        # Желаемая длительность видео (секунды) с фронта. Раньше длительность
+        # была намертво зашита в VIDEO_GEN_DURATION=5, поэтому ЛЮБАЯ модель
+        # выдавала ровно 5-секундный ролик, даже если поддерживала 30 (жалоба
+        # клиента по Seedance 2.5). Значение проверяется ниже по списку
+        # supported_durations конкретной модели — «примагничивается» к
+        # ближайшему допустимому, так что подделать длительность нельзя.
+        req_video_duration = request.data.get("video_duration")
+        try:
+            req_video_duration = int(req_video_duration) if req_video_duration is not None else None
+        except Exception:
+            req_video_duration = None
+
         # Память пользователя: сначала обработать явные команды «запомни/забудь»
         # (мутируют память ДО инъекции), затем подмешать блок фактов в системный
         # промпт. Всё безопасно: get_memory_block вернёт "" при выключенной памяти.
@@ -2096,9 +2131,13 @@ def _authed_chat_stream(request):
                 cfg = _openrouter_config()
                 # Подгоняем duration/resolution под КОНКРЕТНУЮ модель (иначе Veo/Hailuo
                 # отбивают submit: 5с/720p им не подходят). need считаем по факту.
+                # Длительность: что попросил пользователь, иначе дефолт из настроек.
+                # _video_model_params всё равно примагнитит к поддерживаемому
+                # моделью значению, поэтому произвольное число с фронта безопасно.
+                _want_dur = req_video_duration or int(getattr(settings, "VIDEO_GEN_DURATION", 5) or 5)
                 _vp = _video_model_params(
                     selected_model_name, cfg,
-                    int(getattr(settings, "VIDEO_GEN_DURATION", 5) or 5),
+                    _want_dur,
                     str(getattr(settings, "VIDEO_GEN_RESOLUTION", "720p") or "720p"),
                 )
                 duration = int(_vp["duration"])

@@ -12,6 +12,7 @@ from .views import (
     ChatAttachmentUploadAPIView,
     AiModelsListAPIView,
     CartoonModelsListAPIView,
+    VideoModelParamsAPIView,
 )
 
 urlpatterns = [
@@ -28,4 +29,5 @@ urlpatterns = [
     path("providers/", AiProvidersApiView.as_view(), name="ai-providers"),
     path("models/", AiModelsListAPIView.as_view(), name="ai-models"),
     path("cartoon/models/", CartoonModelsListAPIView.as_view(), name="ai-cartoon-models"),
+    path("video-params/", VideoModelParamsAPIView.as_view(), name="ai-video-params"),
 ]

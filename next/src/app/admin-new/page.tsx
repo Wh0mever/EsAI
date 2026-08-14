@@ -33,14 +33,22 @@ type Summary = {
   recent_payments: RecentPayment[];
 };
 
-/** Статистика попапа скидки при уходе (exit-intent) — GET manage/exit-discount/stats/. */
+/**
+ * Статистика попапа скидки при уходе (exit-intent) — GET manage/exit-discount/stats/.
+ *
+ * Имена полей ДОЛЖНЫ совпадать с ответом ExitDiscountStatsView
+ * (core/adminapi/views.py). Раньше здесь были shown_count/claimed_count/
+ * paid_count/claim_rate — таких полей бэкенд не отдаёт, они приходили
+ * undefined, и админка вечно показывала 0/0/0, хотя скидка исправно
+ * работала (на момент починки: 54 показа, 12 забрали). Клиент из-за этого
+ * решил, что механика сломана.
+ */
 type ExitDiscountStats = {
-  shown_count: number;
-  claimed_count: number;
-  paid_count: number;
-  claim_rate?: number;
-  paid_rate?: number;
-  avg_percent?: number;
+  shown: number;
+  claimed: number;
+  redeemed: number;
+  claim_rate_pct?: number;
+  redeem_rate_pct?: number;
 };
 
 const nf = (n: number) => (n ?? 0).toLocaleString("ru-RU");
@@ -241,7 +249,7 @@ export default function AdminDashboardPage() {
                 Показано
               </div>
               <div className="mt-2 text-2xl font-semibold tracking-tight">
-                {nf(exitStats.shown_count)}
+                {nf(exitStats.shown)}
               </div>
             </div>
             <div className="rounded-xl border border-border bg-surface-2 p-4">
@@ -250,13 +258,13 @@ export default function AdminDashboardPage() {
                 Забрали
               </div>
               <div className="mt-2 text-2xl font-semibold tracking-tight">
-                {nf(exitStats.claimed_count)}
+                {nf(exitStats.claimed)}
               </div>
               <div className="mt-1 text-xs text-muted-2">
-                {exitStats.claim_rate != null
-                  ? `${exitStats.claim_rate.toLocaleString("ru-RU", { maximumFractionDigits: 1 })}% от показанных`
-                  : exitStats.shown_count
-                  ? `${((exitStats.claimed_count / exitStats.shown_count) * 100).toFixed(1)}% от показанных`
+                {exitStats.claim_rate_pct != null
+                  ? `${exitStats.claim_rate_pct.toLocaleString("ru-RU", { maximumFractionDigits: 1 })}% от показанных`
+                  : exitStats.shown
+                  ? `${((exitStats.claimed / exitStats.shown) * 100).toFixed(1)}% от показанных`
                   : "—"}
               </div>
             </div>
@@ -266,13 +274,13 @@ export default function AdminDashboardPage() {
                 Оплатили
               </div>
               <div className="mt-2 text-2xl font-semibold tracking-tight">
-                {nf(exitStats.paid_count)}
+                {nf(exitStats.redeemed)}
               </div>
               <div className="mt-1 text-xs text-muted-2">
-                {exitStats.paid_rate != null
-                  ? `${exitStats.paid_rate.toLocaleString("ru-RU", { maximumFractionDigits: 1 })}% от забравших`
-                  : exitStats.claimed_count
-                  ? `${((exitStats.paid_count / exitStats.claimed_count) * 100).toFixed(1)}% от забравших`
+                {exitStats.redeem_rate_pct != null
+                  ? `${exitStats.redeem_rate_pct.toLocaleString("ru-RU", { maximumFractionDigits: 1 })}% от забравших`
+                  : exitStats.claimed
+                  ? `${((exitStats.redeemed / exitStats.claimed) * 100).toFixed(1)}% от забравших`
                   : "—"}
               </div>
             </div>
