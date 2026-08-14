@@ -38,15 +38,25 @@ import Footer from "@/components/main/Footer";
 // блоге (/blog).
 export default function Home() {
   return (
-    <>
-      <ChatWorkspace heroSlot={<HomeHero />} belowComposerSlot={<WhyEsAI />} />
-      <PopularModels />
-      <ChatGPTComparison />
-      <HomePricingPreview />
-      <HomeCreditsExplainer />
-      <HomeFAQ />
-      <HomeFinalCTA />
-      <Footer />
-    </>
+    <ChatWorkspace
+      heroSlot={<HomeHero />}
+      belowComposerSlot={<WhyEsAI />}
+      // Витрина под чатом живёт в слоте, а не рядом с ним: как только
+      // пользователь отправил первое сообщение, чат разворачивается на весь
+      // экран, и все эти блоки скрываются. Иначе страница продолжала
+      // прокручиваться вниз к «Популярным моделям» и футеру прямо во время
+      // диалога (просьба клиента: «после первого промта — только чат»).
+      belowChatSlot={
+        <>
+          <PopularModels />
+          <ChatGPTComparison />
+          <HomePricingPreview />
+          <HomeCreditsExplainer />
+          <HomeFAQ />
+          <HomeFinalCTA />
+          <Footer />
+        </>
+      }
+    />
   );
 }

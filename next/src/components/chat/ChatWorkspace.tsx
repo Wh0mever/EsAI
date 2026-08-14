@@ -49,6 +49,13 @@ type Props = {
    * главной, см. ClientDashboard.tsx).
    */
   showQuickPrompts?: boolean;
+  /**
+   * Контент ПОД чатом (маркетинговые секции главной, футер). Показывается
+   * только пока диалог не начат: после первого сообщения чат разворачивается
+   * на весь экран, и всё остальное должно исчезнуть, чтобы страница не
+   * прокручивалась вниз (просьба клиента — «после первого промта только чат»).
+   */
+  belowChatSlot?: ReactNode;
 };
 
 const MODE = "text-chat";
@@ -65,7 +72,7 @@ const PAYWALL_CODES: PaywallReason[] = [
  * ChatWorkspace — the full EsAI chat experience used by both `/` and the
  * dashboard. First screen is the chat itself (start screen → conversation).
  */
-export default function ChatWorkspace({ chatId, mode = MODE, heroSlot, belowComposerSlot, showQuickPrompts }: Props) {
+export default function ChatWorkspace({ chatId, mode = MODE, heroSlot, belowComposerSlot, showQuickPrompts, belowChatSlot }: Props) {
   const router = useRouter();
   const { t, i18n } = useTranslation("common");
 
@@ -644,7 +651,8 @@ export default function ChatWorkspace({ chatId, mode = MODE, heroSlot, belowComp
   const forceFullHeight = started || hydrating || !heroSlot;
 
   return (
-    <div
+    <>
+      <div
       className={
         "flex flex-col bg-background text-foreground" +
         (forceFullHeight ? "" : " min-h-[60vh] sm:min-h-[70vh]")
@@ -768,6 +776,16 @@ export default function ChatWorkspace({ chatId, mode = MODE, heroSlot, belowComp
         onTopUp={() => setTopUpOpen(true)}
       />
       <GuestLimitModal open={guestLimitOpen} onClose={() => setGuestLimitOpen(false)} />
-    </div>
+      </div>
+
+      {/* Всё, что идёт ПОД чатом (маркетинговые блоки, футер), живёт здесь —
+          и скрывается, как только начался диалог. Иначе после первого
+          сообщения чат разворачивался на весь экран, но страница всё равно
+          прокручивалась вниз к «Популярным моделям» и футеру (жалоба
+          клиента: «после первого промта должен быть только чат»).
+          Рендерится СНАРУЖИ контейнера чата: внутри он попал бы в бокс
+          высотой 100dvh и сам стал бы прокручиваемым. */}
+      {!started && !hydrating && belowChatSlot}
+    </>
   );
 }
