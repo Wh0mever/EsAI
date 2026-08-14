@@ -2,7 +2,7 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { FiDownload, FiLoader } from "react-icons/fi";
+import { FiDownload, FiLoader, FiPlusCircle } from "react-icons/fi";
 import { useTranslation } from "react-i18next";
 import Markdown from "./Markdown";
 import MessageActions from "./MessageActions";
@@ -192,7 +192,7 @@ function ImageLightbox({ url, alt, onClose }: { url: string; alt: string; onClos
   );
 }
 
-function Attachments({ atts }: { atts?: any[] }) {
+function Attachments({ atts, onExtendVideo }: { atts?: any[]; onExtendVideo?: (url: string) => void }) {
   const { t } = useTranslation("common");
   const [viewer, setViewer] = useState<{ url: string; alt: string } | null>(null);
   if (!Array.isArray(atts) || atts.length === 0) return null;
@@ -213,15 +213,30 @@ function Attachments({ atts }: { atts?: any[] }) {
                 src={url}
                 className="w-64 sm:w-80 rounded-xl border border-border"
               />
-              <SaveMediaButton
-                url={url}
-                filename={a?.name || "esai-video.mp4"}
-                label={t("chat.actions.download_video", { defaultValue: "Скачать видео" })}
-                iconClassName="text-[13px]"
-                className="inline-flex items-center gap-1 text-xs text-muted-2 hover:text-foreground transition-colors self-start"
-              >
-                Скачать видео
-              </SaveMediaButton>
+              <div className="flex items-center gap-3">
+                <SaveMediaButton
+                  url={url}
+                  filename={a?.name || "esai-video.mp4"}
+                  label={t("chat.actions.download_video", { defaultValue: "Скачать видео" })}
+                  iconClassName="text-[13px]"
+                  className="inline-flex items-center gap-1 text-xs text-muted-2 hover:text-foreground transition-colors self-start"
+                >
+                  Скачать видео
+                </SaveMediaButton>
+
+                {/* Продлить: новый сегмент начнётся с последнего кадра этого
+                    ролика, и оба склеятся в один файл (см. ai/video_edit.py). */}
+                {onExtendVideo && (
+                  <button
+                    type="button"
+                    onClick={() => onExtendVideo(a?.url || "")}
+                    className="inline-flex items-center gap-1 text-xs text-accent-strong hover:text-accent transition-colors cursor-pointer"
+                  >
+                    <FiPlusCircle className="text-[13px]" />
+                    {t("chat.actions.extend_video", { defaultValue: "Продлить" })}
+                  </button>
+                )}
+              </div>
             </div>
           );
         }
@@ -347,6 +362,7 @@ function AssistantBubble({
   onRetry,
   onContinue,
   onFeedback,
+  onExtendVideo,
 }: {
   msg: Message;
   animate: boolean;
@@ -354,6 +370,7 @@ function AssistantBubble({
   onRetry?: () => void;
   onContinue?: () => void;
   onFeedback?: (v: "up" | "down") => void;
+  onExtendVideo?: (url: string) => void;
 }) {
   const { t } = useTranslation("common");
   const content = msg.content || "";
@@ -453,7 +470,7 @@ function AssistantBubble({
         )}
         {!isError && !isWarning && <Sources sources={sources} />}
         {/* Сгенерированные изображения (image-gen модели) — кликабельны в лайтбокс. */}
-        {!isError && !isWarning && <Attachments atts={(msg as any)?.attachments} />}
+        {!isError && !isWarning && <Attachments atts={(msg as any)?.attachments} onExtendVideo={onExtendVideo} />}
       </div>
       {!isError && !isWarning && finished && content && (
         <div className="flex items-center gap-3 flex-wrap">
@@ -496,9 +513,11 @@ type Props = {
   onRetry?: () => void;
   onContinue?: () => void;
   onFeedback?: (index: number, v: "up" | "down") => void;
+  /** Продлить сгенерированный ролик (передаётся url исходного видео). */
+  onExtendVideo?: (url: string) => void;
 };
 
-export default function ChatMessages({ messages, loading, animateIndex, onRetry, onContinue, onFeedback }: Props) {
+export default function ChatMessages({ messages, loading, animateIndex, onRetry, onContinue, onFeedback, onExtendVideo }: Props) {
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const stick = useRef(true);
 
@@ -537,6 +556,7 @@ export default function ChatMessages({ messages, loading, animateIndex, onRetry,
               onRetry={i === messages.length - 1 ? onRetry : undefined}
               onContinue={i === messages.length - 1 ? onContinue : undefined}
               onFeedback={(v) => onFeedback?.(i, v)}
+              onExtendVideo={onExtendVideo}
             />
           )
         )}

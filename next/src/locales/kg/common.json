@@ -987,7 +987,8 @@
 			"like": "Жакшы жооп",
 			"dislike": "Начар жооп",
 			"download_image": "Сүрөттү жүктөө",
-			"download_video": "Видеону жүктөө"
+			"download_video": "Видеону жүктөө",
+			"extend_video": "Улантуу"
 		},
 		"quick": {
 			"upload_doc": "Документ жүктөө",
@@ -1044,7 +1045,8 @@
 		"video": {
 			"duration": "Узактыгы",
 			"sec_short": "с",
-			"duration_cost": "{{seconds}} сек — {{credits}} кредит"
+			"duration_cost": "{{seconds}} сек — {{credits}} кредит",
+			"extend_hint": "Роликти улантабыз: андан ары эмне болорун жазыңыз"
 		}
 	},
 	"profile": {

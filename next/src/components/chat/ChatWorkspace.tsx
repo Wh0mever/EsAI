@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNod
 import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import Cookies from "js-cookie";
-import { FiMenu, FiPlus, FiZap } from "react-icons/fi";
+import { FiMenu, FiPlus, FiZap, FiFilm, FiX } from "react-icons/fi";
 import { fetchData } from "@/tools/fetchData";
 import { streamChat } from "@/tools/streamChat";
 import { getGuestId } from "@/lib/guest";
@@ -102,6 +102,10 @@ export default function ChatWorkspace({ chatId, mode = MODE, heroSlot, belowComp
   // тогда бэкенд возьмёт дефолт из настроек. Сбрасывается при смене модели:
   // у разных моделей разные допустимые значения (Veo — 4/6/8, Seedance — 4…30).
   const [videoDuration, setVideoDuration] = useState<number | null>(null);
+  // Ссылка на ролик, который продлеваем. Пока не пусто — следующее сообщение
+  // уйдёт как продолжение: новый сегмент начнётся с последнего кадра этого
+  // видео, и оба склеятся в один файл (см. core/ai/video_edit.py).
+  const [extendVideoUrl, setExtendVideoUrl] = useState<string | null>(null);
   // Высота вьюпорта с учётом клавиатуры (мобайл): держим контейнер равным
   // visualViewport.height, чтобы при открытии клавиатуры layout СЖИМАЛСЯ и поле
   // ввода/контент оставались в видимой зоне, а не уезжали под клавиатуру.
@@ -354,6 +358,7 @@ export default function ChatWorkspace({ chatId, mode = MODE, heroSlot, belowComp
         // Длительность ролика — только для видео-моделей. Бэкенд всё равно
         // примагничивает значение к списку, который поддерживает модель.
         if (modelIsVideo && videoDuration) payload.video_duration = videoDuration;
+        if (modelIsVideo && extendVideoUrl) payload.extend_video_url = extendVideoUrl;
         if (sessionId) payload.chat_id = sessionId;
         if (readyAttachments.length) payload.attachments = readyAttachments;
         if (i18n?.language) payload.lang = i18n.language;
@@ -572,7 +577,7 @@ export default function ChatWorkspace({ chatId, mode = MODE, heroSlot, belowComp
     // modelIsVideo/videoDuration ОБЯЗАТЕЛЬНЫ в зависимостях: без них колбэк
     // замыкается на начальные значения (false/null), и выбранная длительность
     // не попадала в запрос — видео всегда генерировалось дефолтными 5 секундами.
-    [attachments, sessionId, i18n.language, mode, model, webSearch, modelIsVideo, videoDuration, refreshBalance, setBalance, t, handleErrorCode]
+    [attachments, sessionId, i18n.language, mode, model, webSearch, modelIsVideo, videoDuration, extendVideoUrl, refreshBalance, setBalance, t, handleErrorCode]
   );
 
   const handleSubmit = (e: FormEvent) => {
@@ -620,6 +625,26 @@ export default function ChatWorkspace({ chatId, mode = MODE, heroSlot, belowComp
   // счётчик бесплатных сообщений гостя.
   const composerNode = (
     <>
+      {/* Режим продления: без явной плашки непонятно, почему следующий ролик
+          начнётся с чужого кадра, и как из этого режима выйти. */}
+      {extendVideoUrl && (
+        <div className="mb-2 flex items-center gap-2 rounded-xl border border-accent/40 bg-accent-soft px-3 py-2">
+          <FiFilm className="shrink-0 text-accent-strong" />
+          <p className="min-w-0 flex-1 text-xs text-foreground leading-snug">
+            {t("chat.video.extend_hint", {
+              defaultValue: "Продолжаем ролик: опишите, что происходит дальше",
+            })}
+          </p>
+          <button
+            type="button"
+            onClick={() => setExtendVideoUrl(null)}
+            className="shrink-0 rounded-lg p-1 text-muted hover:text-foreground cursor-pointer"
+            aria-label={t("common.cancel", { defaultValue: "Отмена" })}
+          >
+            <FiX />
+          </button>
+        </div>
+      )}
       <ChatComposer
         input={input}
         setInput={setInput}
@@ -733,6 +758,13 @@ export default function ChatWorkspace({ chatId, mode = MODE, heroSlot, belowComp
               onRetry={handleRetry}
               onContinue={handleContinue}
               onFeedback={handleFeedback}
+              onExtendVideo={(url) => {
+                // Запоминаем исходник и подсказываем, что писать дальше —
+                // сама генерация начнётся после отправки сообщения.
+                setExtendVideoUrl(url);
+                setInput("");
+                setFocusSignal((n) => n + 1);
+              }}
             />
             {/* Предложение включить уведомления о ежедневных кредитах —
                 показывается один раз, ПОСЛЕ первого ответа ИИ (см.
