@@ -61,6 +61,11 @@ export default function AdminUsersPage() {
   const [q, setQ] = useState("");
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [count, setCount] = useState(0);
+  // Бэкенд отдаёт по 50 записей на страницу (_paginate в adminapi/views.py).
+  // Раньше фронт запрашивал только первую и не давал перейти дальше — список
+  // обрывался на 50-м пользователе (жалоба клиента).
+  const [page, setPage] = useState(1);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -81,32 +86,37 @@ export default function AdminUsersPage() {
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const load = useCallback(async (query: string) => {
-    setLoading(true);
+  const load = useCallback(async (query: string, pageNum: number, append: boolean) => {
+    if (append) setLoadingMore(true);
+    else setLoading(true);
     setError(null);
     const res = await fetchData<UsersResponse>(
-      `manage/users/?q=${encodeURIComponent(query)}`,
+      `manage/users/?q=${encodeURIComponent(query)}&page=${pageNum}`,
       "GET",
       null,
       true
     );
     if (res.ok && res.data) {
-      setUsers(res.data.results || []);
+      const rows = res.data.results || [];
+      setUsers((prev) => (append ? [...prev, ...rows] : rows));
       setCount(res.data.count || 0);
+      setPage(pageNum);
     } else {
       setError(res.error || "Не удалось загрузить пользователей");
     }
     setLoading(false);
+    setLoadingMore(false);
   }, []);
 
   useEffect(() => {
-    load("");
+    load("", 1, false);
   }, [load]);
 
   const onSearch = (value: string) => {
     setQ(value);
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => load(value.trim()), 400);
+    // Новый поиск — всегда с первой страницы.
+    debounceRef.current = setTimeout(() => load(value.trim(), 1, false), 400);
   };
 
   const openCredit = (id: number) => {
@@ -236,6 +246,21 @@ export default function AdminUsersPage() {
               })}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Дозагрузка следующей страницы: бэкенд отдаёт по 50 записей. */}
+      {users.length < count && (
+        <div className="flex justify-center">
+          <button
+            onClick={() => load(q.trim(), page + 1, true)}
+            disabled={loadingMore}
+            className="rounded-xl border border-border px-6 py-2.5 text-sm text-muted transition-colors hover:border-accent hover:text-accent disabled:opacity-50"
+          >
+            {loadingMore
+              ? "Загружаю…"
+              : `Ещё (показано ${nf(users.length)} из ${nf(count)})`}
+          </button>
         </div>
       )}
     </div>
