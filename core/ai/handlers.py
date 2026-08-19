@@ -2414,7 +2414,16 @@ def _authed_chat_stream(request):
                     path = default_storage.save(
                         f"ai_videos/{_uuid.uuid4().hex}.mp4", ContentFile(new_bytes)
                     )
-                    atts = [{"type": "video", "url": default_storage.url(path), "name": "esai-video.mp4"}]
+                    # prompt/model едут вместе с вложением: из них потом
+                    # собирается заголовок публичной страницы ролика (/v/<код>),
+                    # когда пользователь нажимает «Поделиться».
+                    atts = [{
+                        "type": "video",
+                        "url": default_storage.url(path),
+                        "name": "esai-video.mp4",
+                        "prompt": (message or "")[:2000],
+                        "model": selected_model_name,
+                    }]
                 except Exception:
                     logger.exception("video download/save failed")
                     _release_daily_request(user)

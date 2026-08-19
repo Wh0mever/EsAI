@@ -1,4 +1,4 @@
-from django.contrib import admin, messages
+﻿from django.contrib import admin, messages
 from django.db import models
 from django import forms
 from django.http import HttpResponse
@@ -15,6 +15,7 @@ from .models import (
     AiChatSession,
     AiChatMessage,
     AiMessageFeedback,
+    SharedVideo,
 )
 
 class JSONTextarea(forms.Textarea):
@@ -242,3 +243,18 @@ class AiMessageFeedbackAdmin(admin.ModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         return request.user.is_superuser
+
+
+@admin.register(SharedVideo)
+class SharedVideoAdmin(admin.ModelAdmin):
+    """Ссылки вида esai.kg/v/<код>, которыми поделились пользователи.
+
+    Ссылку можно закрыть галочкой «Ссылка активна» — файл при этом остаётся,
+    просто страница перестаёт открываться (на случай жалобы на содержимое).
+    """
+    list_display = ("slug", "user", "model_name", "views", "is_active", "created_at")
+    list_filter = ("is_active", "created_at", "model_name")
+    search_fields = ("slug", "prompt", "user__email")
+    readonly_fields = ("slug", "video_path", "poster_path", "width", "height", "duration", "views", "created_at")
+    list_editable = ("is_active",)
+    ordering = ("-created_at",)

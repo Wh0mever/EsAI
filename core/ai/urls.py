@@ -13,6 +13,8 @@ from .views import (
     AiModelsListAPIView,
     CartoonModelsListAPIView,
     VideoModelParamsAPIView,
+    VideoShareCreateAPIView,
+    VideoSharePublicAPIView,
 )
 
 urlpatterns = [
@@ -30,4 +32,7 @@ urlpatterns = [
     path("models/", AiModelsListAPIView.as_view(), name="ai-models"),
     path("cartoon/models/", CartoonModelsListAPIView.as_view(), name="ai-cartoon-models"),
     path("video-params/", VideoModelParamsAPIView.as_view(), name="ai-video-params"),
+    # Публичные ссылки на ролики: создание (свои) и чтение (кто угодно по ссылке).
+    path("video/share/", VideoShareCreateAPIView.as_view(), name="ai-video-share-create"),
+    path("video/share/<slug:slug>/", VideoSharePublicAPIView.as_view(), name="ai-video-share"),
 ]

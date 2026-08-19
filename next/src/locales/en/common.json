@@ -679,7 +679,9 @@
 				"realistic": "Realistic video",
 				"max": "Maximum quality",
 				"social": "For social media"
-			}
+			},
+			"cap_text_short": "Text",
+			"reset_filters": "Reset filters"
 		},
 		"start": {
 			"greeting": "How can I help?",
@@ -989,7 +991,10 @@
 			"dislike": "Bad answer",
 			"download_image": "Download image",
 			"download_video": "Download video",
-			"extend_video": "Extend"
+			"extend_video": "Extend",
+			"play_video": "Play",
+			"share_video": "Share",
+			"link_copied": "Link copied"
 		},
 		"quick": {
 			"upload_doc": "Upload document",

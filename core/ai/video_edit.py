@@ -141,3 +141,76 @@ def concat_videos(parts: list[bytes]) -> bytes | None:
             logger.warning("concat_videos failed rc=%s err=%s", r.returncode, (r.stderr or b"")[:400])
             return None
         return out.read_bytes()
+
+
+def probe_video(video_bytes: bytes) -> dict:
+    """Ширина/высота/длительность ролика. Пустой словарь — если распознать не вышло.
+
+    Нужно для публичной страницы ролика: Telegram и соцсети берут размеры из
+    og:video:width/height и без них показывают превью криво (обрезают или
+    растягивают в 16:9, хотя ролик может быть вертикальным).
+    """
+    with tempfile.TemporaryDirectory() as td:
+        p = Path(td) / "probe.mp4"
+        p.write_bytes(video_bytes)
+        r = _run(
+            [
+                "ffprobe", "-v", "error",
+                "-select_streams", "v:0",
+                "-show_entries", "stream=width,height:format=duration",
+                "-of", "json", str(p),
+            ],
+            _PROBE_TIMEOUT_S,
+        )
+        if r.returncode != 0:
+            return {}
+        try:
+            data = json.loads(r.stdout or b"{}") or {}
+            stream = (data.get("streams") or [{}])[0]
+            out: dict = {}
+            if stream.get("width"):
+                out["width"] = int(stream["width"])
+            if stream.get("height"):
+                out["height"] = int(stream["height"])
+            dur = (data.get("format") or {}).get("duration")
+            if dur:
+                out["duration"] = round(float(dur), 2)
+            return out
+        except Exception:
+            return {}
+
+
+def extract_poster(video_bytes: bytes) -> bytes | None:
+    """Кадр-обложка ролика в JPEG. None — если извлечь не удалось.
+
+    Берём кадр на 0.5 c, а не самый первый: многие генерации начинаются с
+    почти чёрного кадра, и обложка выходила чёрным прямоугольником.
+    """
+    with tempfile.TemporaryDirectory() as td:
+        src = Path(td) / "src.mp4"
+        out = Path(td) / "poster.jpg"
+        src.write_bytes(video_bytes)
+        r = _run(
+            [
+                "ffmpeg", "-hide_banner", "-loglevel", "error",
+                "-ss", "0.5", "-i", str(src),
+                "-update", "1", "-frames:v", "1", "-q:v", "3",
+                "-y", str(out),
+            ],
+            _FRAME_TIMEOUT_S,
+        )
+        if r.returncode != 0 or not out.exists() or out.stat().st_size == 0:
+            # Ролик короче 0.5 c — пробуем самый первый кадр.
+            r = _run(
+                [
+                    "ffmpeg", "-hide_banner", "-loglevel", "error",
+                    "-i", str(src),
+                    "-update", "1", "-frames:v", "1", "-q:v", "3",
+                    "-y", str(out),
+                ],
+                _FRAME_TIMEOUT_S,
+            )
+        if r.returncode != 0 or not out.exists() or out.stat().st_size == 0:
+            logger.warning("extract_poster failed rc=%s err=%s", r.returncode, (r.stderr or b"")[:300])
+            return None
+        return out.read_bytes()
