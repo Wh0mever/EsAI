@@ -2057,6 +2057,12 @@ def _authed_chat_stream(request):
         # на вход нельзя, только кадр).
         req_extend_video = (request.data.get("extend_video_url") or "").strip() or None
 
+        # Панель параметров видео (как в плейграунде OpenRouter): разрешение и
+        # опорные кадры. Значения валидируются ниже по каталогу модели.
+        req_video_resolution = (request.data.get("video_resolution") or "").strip() or None
+        req_first_frame = (request.data.get("video_first_frame") or "").strip() or None
+        req_last_frame = (request.data.get("video_last_frame") or "").strip() or None
+
         # Память пользователя: сначала обработать явные команды «запомни/забудь»
         # (мутируют память ДО инъекции), затем подмешать блок фактов в системный
         # промпт. Всё безопасно: get_memory_block вернёт "" при выключенной памяти.
@@ -2175,11 +2181,10 @@ def _authed_chat_stream(request):
                 # _video_model_params всё равно примагнитит к поддерживаемому
                 # моделью значению, поэтому произвольное число с фронта безопасно.
                 _want_dur = req_video_duration or int(getattr(settings, "VIDEO_GEN_DURATION", 5) or 5)
-                _vp = _video_model_params(
-                    selected_model_name, cfg,
-                    _want_dur,
-                    str(getattr(settings, "VIDEO_GEN_RESOLUTION", "720p") or "720p"),
+                _want_res = req_video_resolution or str(
+                    getattr(settings, "VIDEO_GEN_RESOLUTION", "720p") or "720p"
                 )
+                _vp = _video_model_params(selected_model_name, cfg, _want_dur, _want_res)
                 duration = int(_vp["duration"])
                 resolution = str(_vp["resolution"])
                 coeff = float(getattr(model_obj, "markup_coefficient", 1) or 1)
@@ -2230,6 +2235,21 @@ def _authed_chat_stream(request):
                     # origin_base пуст и url относительный → abs_url остаётся None,
                     # image-to-video пропускаем (обычный text-to-video).
 
+                # b.1.1) Кадры, выбранные в панели параметров, важнее случайной
+                #        картинки из вложений: пользователь указал их явно.
+                last_img_abs_url = None
+                def _abs(u: str | None) -> str | None:
+                    if not u:
+                        return None
+                    if u.startswith("http"):
+                        return u
+                    return (origin_base.rstrip("/") + u) if origin_base else None
+
+                if req_first_frame:
+                    first_img_abs_url = _abs(req_first_frame) or first_img_abs_url
+                if req_last_frame:
+                    last_img_abs_url = _abs(req_last_frame)
+
                 # b.2) ПРОДЛЕНИЕ: исходный ролик → его последний кадр становится
                 #      first_frame нового сегмента. Кадр перебивает картинку из
                 #      вложений: при продлении важна именно склейка «встык».
@@ -2272,12 +2292,21 @@ def _authed_chat_stream(request):
                     "duration": duration,
                     "resolution": resolution,
                 }
+                _frames = []
                 if first_img_abs_url:
-                    _submit_body["frame_images"] = [{
+                    _frames.append({
                         "type": "image_url",
                         "image_url": {"url": first_img_abs_url},
                         "frame_type": "first_frame",
-                    }]
+                    })
+                if last_img_abs_url:
+                    _frames.append({
+                        "type": "image_url",
+                        "image_url": {"url": last_img_abs_url},
+                        "frame_type": "last_frame",
+                    })
+                if _frames:
+                    _submit_body["frame_images"] = _frames
                 try:
                     resp = _requests.post(
                         f"{cfg['base_url'].rstrip('/')}/videos",

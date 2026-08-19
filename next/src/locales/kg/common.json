@@ -1046,7 +1046,12 @@
 			"duration": "Узактыгы",
 			"sec_short": "с",
 			"duration_cost": "{{seconds}} сек — {{credits}} кредит",
-			"extend_hint": "Роликти улантабыз: андан ары эмне болорун жазыңыз"
+			"extend_hint": "Роликти улантабыз: андан ары эмне болорун жазыңыз",
+			"panel_title": "Видео параметрлери",
+			"resolution": "Сапаты",
+			"first_frame": "Биринчи кадр",
+			"last_frame": "Акыркы кадр",
+			"cost_hint": "{{seconds}} сек ролик — {{credits}} кредит алынат"
 		}
 	},
 	"profile": {
