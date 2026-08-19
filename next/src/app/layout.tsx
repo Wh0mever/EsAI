@@ -101,6 +101,16 @@ export default async function RootLayout({ children }: { children: React.ReactNo
 		<html lang={lang === "kg" ? "ky" : lang} className="dark" data-theme="dark" suppressHydrationWarning>
 			<head>
 				<script dangerouslySetInnerHTML={{ __html: THEME_BOOTSTRAP }} />
+				{/* Яндекс.Метрика (id 111652637, запрос клиента). Стоит максимально
+				    рано в <head>, сразу после бутстрапа темы: просмотр засчитается,
+				    даже если посетитель почти сразу закроет страницу. Сам tag.js
+				    грузится асинхронно и рендер не задерживает. */}
+				<script
+					dangerouslySetInnerHTML={{
+						__html:
+							"(function(m,e,t,r,i,k,a){m[i]=m[i]||function(){(m[i].a=m[i].a||[]).push(arguments)};m[i].l=1*new Date();for(var j=0;j<document.scripts.length;j++){if(document.scripts[j].src===r){return;}}k=e.createElement(t),a=e.getElementsByTagName(t)[0],k.async=1,k.src=r,a.parentNode.insertBefore(k,a)})(window,document,'script','https://mc.yandex.ru/metrika/tag.js?id=111652637','ym');ym(111652637,'init',{ssr:true,webvisor:true,clickmap:true,ecommerce:\"dataLayer\",referrer:document.referrer,url:location.href,accurateTrackBounce:true,trackLinks:true});",
+					}}
+				/>
 				<script
 					type="application/ld+json"
 					dangerouslySetInnerHTML={{ __html: JSON.stringify(homeJsonLd()) }}
@@ -125,6 +135,13 @@ export default async function RootLayout({ children }: { children: React.ReactNo
 				/>
 			</head>
 			<body>
+				{/* Запасной пиксель Метрики для браузеров с отключённым JS. */}
+				<noscript>
+					<div>
+						{/* eslint-disable-next-line @next/next/no-img-element */}
+						<img src="https://mc.yandex.ru/watch/111652637" style={{ position: "absolute", left: "-9999px" }} alt="" />
+					</div>
+				</noscript>
 				<DomainDefaults />
 				<div id="alert-root"></div>
 				<script
