@@ -678,7 +678,9 @@
 				"realistic": "Чындыкка окшош видео",
 				"max": "Эң жогорку сапат",
 				"social": "Социалдык тармактар үчүн"
-			}
+			},
+			"cap_text_short": "Текст",
+			"reset_filters": "Чыпкаларды тазалоо"
 		},
 		"start": {
 			"greeting": "Кантип жардам бере алам?",
@@ -988,7 +990,10 @@
 			"dislike": "Начар жооп",
 			"download_image": "Сүрөттү жүктөө",
 			"download_video": "Видеону жүктөө",
-			"extend_video": "Улантуу"
+			"extend_video": "Улантуу",
+			"play_video": "Көрүү",
+			"share_video": "Бөлүшүү",
+			"link_copied": "Шилтеме көчүрүлдү"
 		},
 		"quick": {
 			"upload_doc": "Документ жүктөө",

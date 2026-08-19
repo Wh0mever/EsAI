@@ -31,7 +31,9 @@ import logging
 from rest_framework import status, permissions
 from rest_framework.throttling import AnonRateThrottle, UserRateThrottle
 from django.core.files.storage import default_storage
+from django.core.files.base import ContentFile
 from django.utils.text import get_valid_filename
+import secrets
 import uuid
 import os
 
@@ -836,3 +838,185 @@ class ChatAttachmentUploadAPIView(APIView):
             uploaded.append(item)
 
         return Response({"attachments": uploaded}, status=200)
+
+
+# --------------------------------------------------------------------------
+# Публичные ссылки на сгенерированные ролики (esai.kg/v/<slug>)
+# --------------------------------------------------------------------------
+
+_SHARE_ALPHABET = "abcdefghijkmnopqrstuvwxyz23456789"  # без 0/1/l — их путают в переписке
+
+
+def _media_name_from_url(url: str) -> str | None:
+    """URL нашего медиафайла → путь в хранилище. None — если ссылка чужая.
+
+    Та же защита, что в handlers._read_own_media: наружу принимаем только
+    ссылки под MEDIA_URL, иначе пользователь смог бы «пошарить» произвольный
+    адрес и наша страница стала бы витриной для чужого содержимого.
+    """
+    try:
+        media_url = str(getattr(settings, "MEDIA_URL", "/media/") or "/media/")
+        path = str(url or "")
+        if path.startswith("http://") or path.startswith("https://"):
+            from urllib.parse import urlparse
+
+            path = urlparse(path).path
+        if not path.startswith(media_url):
+            return None
+        name = path[len(media_url):].lstrip("/")
+        if not name or ".." in name:
+            return None
+        return name
+    except Exception:
+        return None
+
+
+class VideoShareCreateAPIView(APIView):
+    """POST /api/ai/video/share/ — получить публичную ссылку на свой ролик.
+
+    Тело: {"url": "/media/ai_videos/xxx.mp4", "prompt": "...", "model": "..."}.
+    Ответ: {"slug": "...", "share_url": "https://esai.kg/v/...", ...}.
+
+    Повторный запрос по тому же файлу отдаёт ТУ ЖЕ ссылку: человек жмёт
+    «Поделиться» по нескольку раз, и плодить десяток адресов на один ролик
+    (а с ними — десяток обложек) незачем.
+
+    Обложку снимаем здесь же, при создании ссылки, а не при генерации ролика:
+    делятся единицы, а генераций сотни — незачем гонять ffmpeg на каждую.
+    """
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [UserRateThrottle]
+
+    def post(self, request):
+        from django.db.models import Q
+
+        from .models import SharedVideo
+        from .video_edit import extract_poster, probe_video
+
+        raw_url = (request.data.get("url") or "").strip()
+        name = _media_name_from_url(raw_url)
+        if not name:
+            return Response(
+                {"error": "url must point to a file under MEDIA_URL"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not default_storage.exists(name):
+            return Response({"error": "video not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        # Делиться можно только СВОИМ роликом. Имена файлов — uuid4 и наружу не
+        # утекают, но проверять принадлежность по «его не угадаешь» нельзя:
+        # достаточно один раз увидеть чужую ссылку, чтобы завести на чужое видео
+        # свою страницу. Ищем вложение среди сообщений в сессиях пользователя.
+        media_ref = default_storage.url(name)
+        owns = AiChatMessage.objects.filter(
+            session__user=request.user,
+        ).filter(
+            Q(attachments__contains=[{"url": media_ref}])
+            | Q(attachments__contains=[{"url": name}])
+        ).exists()
+        if not owns:
+            return Response(
+                {"error": "video does not belong to the current user"},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        existing = SharedVideo.objects.filter(
+            video_path=name, user=request.user, is_active=True
+        ).first()
+        if existing:
+            return Response(self._payload(existing, request))
+
+        prompt = (request.data.get("prompt") or "").strip()[:2000]
+        model_name = (request.data.get("model") or "").strip()[:128]
+
+        # Обложка и размеры — best-effort: без них ссылка всё равно рабочая,
+        # просто превью в мессенджере будет беднее.
+        poster_path, meta = "", {}
+        try:
+            with default_storage.open(name, "rb") as fh:
+                blob = fh.read()
+            meta = probe_video(blob) or {}
+            poster = extract_poster(blob)
+            if poster:
+                poster_path = default_storage.save(
+                    f"ai_videos/posters/{uuid.uuid4().hex}.jpg", ContentFile(poster)
+                )
+        except Exception:
+            logger.exception("video share: poster/probe failed for %s", name)
+
+        for _ in range(6):
+            slug = "".join(secrets.choice(_SHARE_ALPHABET) for _ in range(10))
+            try:
+                share = SharedVideo.objects.create(
+                    slug=slug,
+                    user=request.user,
+                    video_path=name,
+                    poster_path=poster_path,
+                    prompt=prompt,
+                    model_name=model_name,
+                    width=meta.get("width"),
+                    height=meta.get("height"),
+                    duration=meta.get("duration"),
+                )
+                break
+            except IntegrityError:
+                continue  # астрономически редкое совпадение кода — берём новый
+        else:
+            return Response(
+                {"error": "could not allocate share link"},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        return Response(self._payload(share, request), status=status.HTTP_201_CREATED)
+
+    @staticmethod
+    def _payload(share, request) -> dict:
+        # Домен берём из самого запроса, а не из настроек: сайт отвечает и на
+        # esai.kg, и на www.esai.kg — ссылка должна остаться на том домене, где
+        # человек нажал «Поделиться».
+        return {
+            "slug": share.slug,
+            "share_url": request.build_absolute_uri(f"/v/{share.slug}"),
+            "video_url": request.build_absolute_uri(default_storage.url(share.video_path)),
+        }
+
+
+class VideoSharePublicAPIView(APIView):
+    """GET /api/ai/video/share/<slug>/ — данные ролика для публичной страницы.
+
+    Без авторизации: страницу открывают по ссылке из мессенджера, где никакой
+    сессии нет. Отдаём только сам ролик и запрос к модели — ни автора, ни его
+    почты здесь быть не должно.
+    """
+    authentication_classes = []
+    permission_classes = [AllowAny]
+    throttle_classes = [AnonRateThrottle]
+
+    def get(self, request, slug):
+        from .models import SharedVideo
+
+        share = SharedVideo.objects.filter(slug=slug, is_active=True).first()
+        if not share:
+            return Response({"error": "not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        # F() вместо share.views + 1: страницу могут открыть одновременно, а
+        # чтение-запись в питоне потеряет часть просмотров.
+        from django.db.models import F
+
+        SharedVideo.objects.filter(pk=share.pk).update(views=F("views") + 1)
+
+        def abs_media(path: str) -> str:
+            return request.build_absolute_uri(default_storage.url(path)) if path else ""
+
+        return Response({
+            "slug": share.slug,
+            "video_url": abs_media(share.video_path),
+            "poster_url": abs_media(share.poster_path),
+            "prompt": share.prompt,
+            "model": share.model_name,
+            "width": share.width,
+            "height": share.height,
+            "duration": share.duration,
+            "created_at": share.created_at.isoformat(),
+        })

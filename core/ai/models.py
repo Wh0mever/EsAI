@@ -258,3 +258,46 @@ class AiMessageFeedback(models.Model):
         unique_together = ("message", "user")
         verbose_name = "Оценка ответа ИИ"
         verbose_name_plural = "Оценки ответов ИИ"
+
+
+class SharedVideo(models.Model):
+    """Публичная ссылка на сгенерированный ролик (esai.kg/v/<slug>).
+
+    Зачем. Клиент просил «поделиться роликом специальной ссылкой, чтобы
+    смотреть прямо из Telegram». Файл в /media/ и так открыт наружу, но голая
+    ссылка на .mp4 в мессенджере выглядит вложением без превью и без бренда.
+    Поэтому ссылка ведёт на нашу страницу с og:video — Telegram, WhatsApp и
+    соцсети играют ролик прямо в ленте, а человек видит, что он сделан в EsAI.
+
+    Пути к файлам храним ОТНОСИТЕЛЬНЫМИ (ai_videos/xxx.mp4), а не полными
+    URL: домен и MEDIA_URL могут смениться, а ссылка должна пережить переезд.
+    """
+    slug = models.CharField(
+        max_length=24, unique=True, db_index=True,
+        verbose_name="Код ссылки", help_text="Часть адреса esai.kg/v/<код>")
+    user = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="shared_videos", verbose_name="Автор")
+    video_path = models.CharField(
+        max_length=512, verbose_name="Файл ролика",
+        help_text="Путь в хранилище, например ai_videos/abc.mp4")
+    poster_path = models.CharField(
+        max_length=512, blank=True, default="", verbose_name="Обложка")
+    prompt = models.TextField(blank=True, default="", verbose_name="Запрос")
+    model_name = models.CharField(max_length=128, blank=True, default="", verbose_name="Модель")
+    width = models.PositiveIntegerField(null=True, blank=True, verbose_name="Ширина")
+    height = models.PositiveIntegerField(null=True, blank=True, verbose_name="Высота")
+    duration = models.FloatField(null=True, blank=True, verbose_name="Длительность, с")
+    views = models.PositiveIntegerField(default=0, verbose_name="Просмотров")
+    is_active = models.BooleanField(
+        default=True, verbose_name="Ссылка активна",
+        help_text="Снимите галочку, чтобы закрыть доступ по ссылке")
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    def __str__(self):
+        return f"/v/{self.slug}"
+
+    class Meta:
+        ordering = ("-created_at",)
+        verbose_name = "Ссылка на ролик"
+        verbose_name_plural = "Ссылки на ролики"

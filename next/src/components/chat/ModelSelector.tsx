@@ -110,6 +110,11 @@ function isWeb(m: AiModel): boolean {
   return id.includes("perplexity") || id.includes("sonar");
 }
 function isImageGen(m: AiModel): boolean {
+  // Категория из админки — источник истины (как у видео). Раньше смотрели
+  // только на id, и модель, у которой в админке стоит «Изображения», а в id
+  // слова "image" нет, попадала в группу «Изображения», но фильтром «Текст»
+  // при этом считалась текстовой — группа была, а моделей в ней не было.
+  if ((m.category || "").toLowerCase() === "image") return true;
   // google/gemini-2.5-flash-image → второй сегмент содержит "image" = генерация картинок
   const id = (m.openrouter_id || "").toLowerCase();
   const seg = id.split("/")[1] || "";
@@ -118,6 +123,37 @@ function isImageGen(m: AiModel): boolean {
 function isVideoGen(m: AiModel): boolean {
   return (m.category || "").toLowerCase() === "video";
 }
+
+// Текстовая модель = всё, что не рисует картинки и не снимает видео.
+function isTextModel(m: AiModel): boolean {
+  return !isImageGen(m) && !isVideoGen(m);
+}
+
+/**
+ * Фильтры по ВОЗМОЖНОСТЯМ — нижний ряд палитры. Раньше это была просто
+ * легенда-подсказка «что означают значки»; клиент попросил сделать её
+ * кликабельной: нажал «Видео» — в списке остались только видео-модели.
+ *
+ * Несколько фильтров можно держать включёнными одновременно, они работают по
+ * ИЛИ (Картинки + Видео = всё, что генерирует медиа). Иконки и цвета те же,
+ * что у бейджей справа от названия модели, — значок в чипе и значок у модели
+ * читаются как одно и то же.
+ */
+const CAP_FILTERS: Array<{
+  key: string;
+  i18nKey: string;
+  label: string;
+  cls: string;
+  icon: React.ReactNode;
+  match: (m: AiModel) => boolean;
+}> = [
+  { key: "text", i18nKey: "chat.model.cap_text_short", label: "Текст", cls: "text-sky-400", icon: <FiMessageCircle />, match: isTextModel },
+  { key: "vision", i18nKey: "chat.model.cap_vision_short", label: "Фото", cls: "text-blue-400", icon: <FiEye />, match: (m) => !!m.supports_vision },
+  { key: "image", i18nKey: "chat.model.cap_image_short", label: "Картинки", cls: "text-emerald-400", icon: <FiImage />, match: isImageGen },
+  { key: "video", i18nKey: "chat.model.cap_video_short", label: "Видео", cls: "text-rose-400", icon: <FiVideo />, match: isVideoGen },
+  { key: "reasoning", i18nKey: "chat.model.cap_reasoning_short", label: "Рассуждение", cls: "text-purple-400", icon: <FiCpu />, match: isReasoning },
+  { key: "web", i18nKey: "chat.model.cap_web_short", label: "Веб", cls: "text-amber-400", icon: <FiGlobe />, match: isWeb },
+];
 
 // «Качество» video-модели под названием (просьба клиента: SVG вместо эмодзи).
 // Иконка подбирается по ТОЧНОМУ тексту description из админки; неизвестный
@@ -159,7 +195,10 @@ export default function ModelSelector({ value, onChange, className }: Props) {
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
   const [lockedHint, setLockedHint] = useState<string | null>(null);
+  // Включённые фильтры возможностей из нижнего ряда (пусто = показываем всё).
+  const [caps, setCaps] = useState<string[]>([]);
   const searchRef = useRef<HTMLInputElement | null>(null);
+  const listRef = useRef<HTMLDivElement | null>(null);
 
   const modelKey = (m: AiModel) => String(m.openrouter_id || m.id);
 
@@ -195,6 +234,7 @@ export default function ModelSelector({ value, onChange, className }: Props) {
   useEffect(() => {
     if (!open) return;
     setQuery("");
+    setCaps([]);
     setLockedHint(null);
     const tmr = setTimeout(() => searchRef.current?.focus(), 30);
     const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
@@ -216,18 +256,27 @@ export default function ModelSelector({ value, onChange, className }: Props) {
   // фиксированный; внутри группы — sort_order). Точка у модели — цвет вендора.
   const groups = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const filtered = q
-      ? models.filter((m) => (m.name || "").toLowerCase().includes(q) || (m.openrouter_id || "").toLowerCase().includes(q))
+    const active = CAP_FILTERS.filter((f) => caps.includes(f.key));
+    // Фильтры по возможностям работают по ИЛИ: «Картинки + Видео» = всё, что
+    // генерирует медиа, а не пересечение (такого зверя не бывает).
+    const byCaps = active.length
+      ? models.filter((m) => active.some((f) => f.match(m)))
       : models;
+    const filtered = q
+      ? byCaps.filter((m) => (m.name || "").toLowerCase().includes(q) || (m.openrouter_id || "").toLowerCase().includes(q))
+      : byCaps;
+    // Дубли в «Бесплатных»/«Рекомендуемых» уместны только в обычном списке.
+    // Когда пользователь сузил выборку (поиск или фильтр), одна и та же модель
+    // в двух местах читается как «нашлось два раза».
+    const narrowed = Boolean(q) || active.length > 0;
     const byKey: Record<string, AiModel[]> = {};
     for (const m of filtered) {
       const k = categoryKey(m);
       (byKey[k] = byKey[k] || []).push(m);
-      // Бесплатные и рекомендуемые дублируются в верхних группах (как у ChatGPT)
-      // — при поиске верхние группы не показываем, чтобы не было двойных
-      // результатов. «Бесплатные» идут первыми (просьба клиента).
-      if (m.is_free && !q) (byKey.free = byKey.free || []).push(m);
-      if (m.recommended && !q) (byKey.recommended = byKey.recommended || []).push(m);
+      // Бесплатные и рекомендуемые дублируются в верхних группах (как у ChatGPT).
+      // «Бесплатные» идут первыми (просьба клиента).
+      if (m.is_free && !narrowed) (byKey.free = byKey.free || []).push(m);
+      if (m.recommended && !narrowed) (byKey.recommended = byKey.recommended || []).push(m);
     }
     return CATEGORIES
       .filter((c) => (byKey[c.key] || []).length > 0)
@@ -237,7 +286,7 @@ export default function ModelSelector({ value, onChange, className }: Props) {
         icon: c.icon,
         items: byKey[c.key],
       }));
-  }, [models, query, t]);
+  }, [models, query, caps, t]);
 
   const select = (m: AiModel) => {
     if (m.locked) {
@@ -311,10 +360,19 @@ export default function ModelSelector({ value, onChange, className }: Props) {
             </div>
 
             {/* List */}
-            <div className="overflow-y-auto p-1.5">
+            <div ref={listRef} className="overflow-y-auto p-1.5">
               {groups.length === 0 ? (
                 <div className="px-3 py-8 text-center text-sm text-muted-2">
                   {t("chat.model.nothing", { defaultValue: "Ничего не найдено" })}
+                  {caps.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setCaps([])}
+                      className="mt-2 block mx-auto text-xs text-accent hover:text-accent-strong underline underline-offset-2 cursor-pointer"
+                    >
+                      {t("chat.model.reset_filters", { defaultValue: "Сбросить фильтры" })}
+                    </button>
+                  )}
                 </div>
               ) : (
                 groups.map((g) => (
@@ -417,13 +475,47 @@ export default function ModelSelector({ value, onChange, className }: Props) {
               )}
             </div>
 
-            {/* Legend */}
-            <div className="border-t border-border px-3.5 py-2 flex items-center gap-4 text-[11px] text-muted-2 shrink-0">
-              <span className="inline-flex items-center gap-1"><FiEye className="text-blue-400 text-[13px]" /> {t("chat.model.cap_vision_short", { defaultValue: "Фото" })}</span>
-              <span className="inline-flex items-center gap-1"><FiImage className="text-emerald-400 text-[13px]" /> {t("chat.model.cap_image_short", { defaultValue: "Картинки" })}</span>
-              <span className="inline-flex items-center gap-1"><FiVideo className="text-rose-400 text-[13px]" /> {t("chat.model.cap_video_short", { defaultValue: "Видео" })}</span>
-              <span className="inline-flex items-center gap-1"><FiCpu className="text-purple-400 text-[13px]" /> {t("chat.model.cap_reasoning_short", { defaultValue: "Рассуждение" })}</span>
-              <span className="inline-flex items-center gap-1"><FiGlobe className="text-amber-400 text-[13px]" /> {t("chat.model.cap_web_short", { defaultValue: "Веб" })}</span>
+            {/* Фильтры по возможностям. Были подсказкой-легендой, стали кнопками
+                (просьба клиента): нажал «Видео» — остались только видео-модели,
+                нажал ещё раз — фильтр снят. */}
+            <div className="border-t border-border px-2.5 py-2 shrink-0">
+              <div className="flex flex-wrap items-center gap-1.5">
+                {CAP_FILTERS.map((f) => {
+                  const on = caps.includes(f.key);
+                  return (
+                    <button
+                      key={f.key}
+                      type="button"
+                      aria-pressed={on}
+                      onClick={() => {
+                        setCaps((prev) => (on ? prev.filter((k) => k !== f.key) : [...prev, f.key]));
+                        // Выборка сменилась — показываем её с начала, иначе
+                        // список остаётся прокрученным на старое место.
+                        listRef.current?.scrollTo({ top: 0 });
+                      }}
+                      className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[11px] transition-colors cursor-pointer ${
+                        on
+                          ? "border-accent bg-accent-soft text-foreground font-medium"
+                          : "border-border text-muted-2 hover:text-foreground hover:border-accent/50"
+                      }`}
+                    >
+                      <span className={`${f.cls} text-[13px] leading-none`}>{f.icon}</span>
+                      {t(f.i18nKey, { defaultValue: f.label })}
+                    </button>
+                  );
+                })}
+                {caps.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => { setCaps([]); listRef.current?.scrollTo({ top: 0 }); }}
+                    className="inline-flex items-center gap-1 rounded-full px-2 py-1 text-[11px] text-muted-2 hover:text-foreground cursor-pointer"
+                    title={t("chat.model.reset_filters", { defaultValue: "Сбросить фильтры" })}
+                  >
+                    <FiX className="text-[12px]" />
+                    {t("chat.model.reset_filters", { defaultValue: "Сбросить фильтры" })}
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         </div>,

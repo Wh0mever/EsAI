@@ -678,7 +678,9 @@
 				"realistic": "Реалистичное видео",
 				"max": "Максимальное качество",
 				"social": "Для соцсетей"
-			}
+			},
+			"cap_text_short": "Текст",
+			"reset_filters": "Сбросить фильтры"
 		},
 		"start": {
 			"greeting": "Чем могу помочь?",
@@ -988,7 +990,10 @@
 			"dislike": "Плохой ответ",
 			"download_image": "Скачать изображение",
 			"download_video": "Скачать видео",
-			"extend_video": "Продлить"
+			"extend_video": "Продлить",
+			"play_video": "Смотреть",
+			"share_video": "Поделиться",
+			"link_copied": "Ссылка скопирована"
 		},
 		"quick": {
 			"upload_doc": "Загрузить документ",

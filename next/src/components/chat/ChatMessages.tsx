@@ -2,12 +2,13 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { FiDownload, FiLoader, FiPlusCircle } from "react-icons/fi";
+import { FiDownload, FiLoader, FiPlusCircle, FiShare2, FiCheck } from "react-icons/fi";
 import { useTranslation } from "react-i18next";
 import Markdown from "./Markdown";
 import MessageActions from "./MessageActions";
+import VideoPlayer from "@/components/video/VideoPlayer";
 import NextLink from "@/components/ui/nextLink/NextLink";
-import { BACKEND } from "@/tools/fetchData";
+import { BACKEND, fetchData } from "@/tools/fetchData";
 import { saveMedia, prefetchMedia } from "@/tools/saveMedia";
 import type { Message, ChatSource } from "@/types/chat";
 
@@ -192,6 +193,78 @@ function ImageLightbox({ url, alt, onClose }: { url: string; alt: string; onClos
   );
 }
 
+/**
+ * ShareVideoButton — публичная ссылка на ролик (esai.kg/v/<код>).
+ *
+ * Просьба клиента: «возможность поделиться роликом специальной ссылкой, чтобы
+ * смотреть можно было прямо из телеграма». Голая ссылка на .mp4 приходит в
+ * мессенджер безымянным вложением, поэтому делимся адресом нашей страницы —
+ * у неё есть og:video, и Telegram играет ролик прямо в переписке.
+ *
+ * Ссылка запрашивается по нажатию, а не заранее: на сервере при этом ещё
+ * снимается кадр-обложка, и делать это для каждой генерации впустую незачем.
+ */
+function ShareVideoButton({ url, prompt, model }: { url: string; prompt?: string; model?: string }) {
+  const { t } = useTranslation("common");
+  const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const linkRef = useRef<string>("");
+
+  const run = async () => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      let link = linkRef.current;
+      if (!link) {
+        const res = await fetchData<{ share_url?: string }>(
+          "ai/video/share/", "POST", { url, prompt: prompt || "", model: model || "" }, true
+        );
+        link = res?.data?.share_url || "";
+        linkRef.current = link;
+      }
+      if (!link) return;
+      // Нативное «Поделиться» там, где оно есть (телефоны) — сразу в Telegram
+      // и куда угодно ещё. На десктопе такого окна нет, копируем в буфер.
+      if (typeof navigator !== "undefined" && navigator.share) {
+        try {
+          await navigator.share({ title: "EsAI", text: prompt || "", url: link });
+          return;
+        } catch {
+          // Отмена шитшета — не ошибка, просто копируем.
+        }
+      }
+      await navigator.clipboard.writeText(link);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // Молча: ролик уже показан, отсутствие ссылки его не ломает.
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={() => void run()}
+      disabled={busy}
+      className="inline-flex items-center gap-1 text-xs text-muted-2 hover:text-foreground transition-colors cursor-pointer disabled:opacity-70 disabled:cursor-wait"
+      title={t("chat.actions.share_video", { defaultValue: "Поделиться" })}
+    >
+      {busy ? (
+        <FiLoader className="text-[13px] animate-spin" />
+      ) : copied ? (
+        <FiCheck className="text-[13px] text-emerald-400" />
+      ) : (
+        <FiShare2 className="text-[13px]" />
+      )}
+      {copied
+        ? t("chat.actions.link_copied", { defaultValue: "Ссылка скопирована" })
+        : t("chat.actions.share_video", { defaultValue: "Поделиться" })}
+    </button>
+  );
+}
+
 function Attachments({ atts, onExtendVideo }: { atts?: any[]; onExtendVideo?: (url: string) => void }) {
   const { t } = useTranslation("common");
   const [viewer, setViewer] = useState<{ url: string; alt: string } | null>(null);
@@ -206,12 +279,10 @@ function Attachments({ atts, onExtendVideo }: { atts?: any[]; onExtendVideo?: (u
           // Сгенерированное видео (video-gen модели): плеер + ссылка «Скачать».
           return (
             <div key={i} className="flex flex-col gap-1">
-              <video
-                controls
-                playsInline
-                preload="metadata"
+              <VideoPlayer
                 src={url}
-                className="w-64 sm:w-80 rounded-xl border border-border"
+                className="w-64 sm:w-80"
+                playLabel={t("chat.actions.play_video", { defaultValue: "Смотреть" })}
               />
               <div className="flex items-center gap-3">
                 <SaveMediaButton
@@ -223,6 +294,8 @@ function Attachments({ atts, onExtendVideo }: { atts?: any[]; onExtendVideo?: (u
                 >
                   Скачать видео
                 </SaveMediaButton>
+
+                <ShareVideoButton url={a?.url || ""} prompt={a?.prompt} model={a?.model} />
 
                 {/* Продлить: новый сегмент начнётся с последнего кадра этого
                     ролика, и оба склеятся в один файл (см. ai/video_edit.py). */}

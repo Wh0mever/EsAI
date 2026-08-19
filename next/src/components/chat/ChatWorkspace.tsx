@@ -805,7 +805,11 @@ export default function ChatWorkspace({ chatId, mode = MODE, heroSlot, belowComp
             onUsePrompt={(text) => { setInput(text); setFocusSignal((n) => n + 1); }}
             composerSlot={composerNode}
             belowComposerSlot={belowComposerSlot}
-            showQuickPrompts={showQuickPrompts}
+            // На видео- и картиночной модели готовые подсказки прячем: они все
+            // текстовые («Написать статью», «Перевести текст»), выбранной
+            // модели не подходят и только оттесняют вниз панель параметров
+            // ролика и баннер студии (просьба клиента).
+            showQuickPrompts={showQuickPrompts && !modelIsVideo && !modelIsImageEdit}
             // Прижимаем содержимое к низу ровно там, где чат растянут на весь
             // экран (нет heroSlot → forceFullHeight выше): иначе под баннером
             // студии зияла пустота до футера. На главной высота задаётся
