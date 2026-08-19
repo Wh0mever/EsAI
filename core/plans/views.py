@@ -448,6 +448,27 @@ class TokenPurchaseView(APIView):
             return Response({"message": "package_not_payable"}, status=drf_status.HTTP_400_BAD_REQUEST)
         currency = (package.currency or "KGS").strip().upper()
 
+        # Валюта оплаты: пользователь выбирает её переключателем на /pricing.
+        # RUB обслуживает ЮKassa, всё остальное (KGS) — FreedomPay. Цена
+        # пакета хранится в сомах, поэтому для рублей пересчитываем по тому
+        # же курсу, который показан на витрине (CurrencyRateView), — иначе
+        # человек увидел бы одну сумму, а списалось бы другое.
+        pay_currency = str((request.data or {}).get("pay_currency") or "").strip().upper()
+        if pay_currency == "RUB":
+            from payments import yookassa as yk
+
+            if not yk.is_configured():
+                return Response({"detail": "yookassa_config_missing"}, status=drf_status.HTTP_502_BAD_GATEWAY)
+            try:
+                from adminapi.runtime import get_runtime
+
+                rate = Decimal(str(get_runtime("currency_kgs_to_rub_rate", settings.CURRENCY_KGS_TO_RUB_RATE)))
+            except Exception:
+                rate = Decimal(str(settings.CURRENCY_KGS_TO_RUB_RATE))
+            if rate <= 0:
+                return Response({"detail": "currency_rate_invalid"}, status=drf_status.HTTP_502_BAD_GATEWAY)
+            return self._purchase_via_yookassa(request, package, base_amount, rate)
+
         merchant_id = (settings.FREEDOM_PAY_MERCHANT_ID or settings.FP_MERCHANT_ID or "").strip()
         secret = (settings.FREEDOM_PAY_TOKEN or "").strip()
         init_url = (settings.FREEDOM_PAY_INIT_PAYMENT_URL or "").strip()
@@ -571,6 +592,92 @@ class TokenPurchaseView(APIView):
                 "order_id": order_id,
                 "amount": str(amount),
                 "currency": currency,
+                "package_id": package.id,
+            },
+            status=drf_status.HTTP_200_OK,
+        )
+
+    def _purchase_via_yookassa(self, request, package, base_amount, rate):
+        """Оплата пакета в рублях через ЮKassa.
+
+        Считаем сумму в рублях по тому же курсу, что показан на витрине,
+        создаём Payment с currency=RUB и уходим на страницу оплаты ЮKassa.
+        Кредиты начисляются НЕ здесь, а на вебхуке после перезапроса статуса
+        в API (payments.views.YooKassaWebhookView) — тем же идемпотентным
+        механизмом, что и у FreedomPay.
+
+        Скидка exit-intent тут сознательно НЕ применяется: её механика
+        завязана на FreedomPay-путь (бронирование оффера за платежом), и
+        смешивать две валюты в одном оффере — прямой риск неверных сумм.
+        Появится спрос — вынесем расчёт скидки в общий слой.
+        """
+        from payments import yookassa as yk
+        from payments.models import Payment
+
+        amount_rub = (base_amount * rate).quantize(Decimal("0.01"))
+        if amount_rub <= 0:
+            return Response({"detail": "amount_invalid"}, status=drf_status.HTTP_400_BAD_REQUEST)
+
+        order_id = f"tokpkg-{request.user.id}-{package.id}-{uuid.uuid4().hex[:10]}"
+        payment = Payment.objects.create(
+            user=request.user,
+            amount=amount_rub,
+            currency="RUB",
+            order_id=order_id,
+            description=f"Token package purchase #{package.id} (YooKassa)",
+            is_test=settings.DEBUG,
+            request={
+                "provider": "yookassa",
+                "token_purchase": {
+                    "package_id": package.id,
+                    "tokens": int(package.tokens or 0),
+                    "bonus_tokens": int(package.bonus_tokens or 0),
+                },
+                "kgs_price": str(base_amount),
+                "rate_kgs_to_rub": str(rate),
+            },
+            response={},
+        )
+
+        from payments.views import _frontend_absolute_url
+
+        return_url = _frontend_absolute_url(request, "/profile", {"payment": "tokens_success"})
+        try:
+            data = yk.create_payment(
+                amount=format(amount_rub, "f"),
+                currency="RUB",
+                description=f"EsAI: пакет кредитов #{package.id}",
+                return_url=return_url,
+                metadata={"order_id": order_id, "user_id": str(request.user.id)},
+                # Ключ идемпотентности = order_id: повторный клик «Купить»
+                # не создаст второй платёж в ЮKassa.
+                idempotence_key=order_id,
+            )
+        except Exception as exc:
+            payment.error = f"yookassa_create_failed:{exc}"
+            payment.save(update_fields=["error"])
+            return Response({"detail": "yookassa_request_failed"}, status=drf_status.HTTP_502_BAD_GATEWAY)
+
+        confirmation = (data or {}).get("confirmation") or {}
+        redirect_url = confirmation.get("confirmation_url")
+        payment.response = {"yookassa_create": data}
+        if not redirect_url:
+            payment.error = "yookassa_confirmation_url_missing"
+            payment.save(update_fields=["response", "error"])
+            return Response({"detail": payment.error}, status=drf_status.HTTP_502_BAD_GATEWAY)
+
+        # id платежа ЮKassa нужен, чтобы связать вебхук с нашим заказом.
+        req = payment.request or {}
+        req["yookassa_payment_id"] = data.get("id")
+        payment.request = req
+        payment.save(update_fields=["response", "request"])
+
+        return Response(
+            {
+                "redirect_url": redirect_url,
+                "order_id": order_id,
+                "amount": str(amount_rub),
+                "currency": "RUB",
                 "package_id": package.id,
             },
             status=drf_status.HTTP_200_OK,

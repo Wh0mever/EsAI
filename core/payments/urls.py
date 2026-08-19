@@ -19,6 +19,7 @@ from .views import (
     FreedomPayTokenPurchaseSuccessView,
     FreedomPayTokenPurchaseFailureView,
     FreedomPayTokenPurchasePostbackView,
+    YooKassaWebhookView,
     FreedomPayTokenRefundPostbackView,
 )
 
@@ -44,5 +45,8 @@ urlpatterns = [
     path('tokens/success/', FreedomPayTokenPurchaseSuccessView.as_view(), name='freedompay-tokens-success'),
     path('tokens/failure/', FreedomPayTokenPurchaseFailureView.as_view(), name='freedompay-tokens-failure'),
     path('tokens/postback/', FreedomPayTokenPurchasePostbackView.as_view(), name='freedompay-tokens-postback'),
+    # ЮKassa: уведомление об оплате (рублёвые платежи). Подписи у ЮKassa нет,
+    # поэтому вью перезапрашивает статус платежа в их API — см. YooKassaWebhookView.
+    path('yookassa/webhook/', YooKassaWebhookView.as_view(), name='yookassa-webhook'),
     path('tokens/refund/', FreedomPayTokenRefundPostbackView.as_view(), name='freedompay-tokens-refund'),
 ]

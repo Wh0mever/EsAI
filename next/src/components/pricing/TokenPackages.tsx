@@ -170,7 +170,8 @@ export default function TokenPackages({
       const res = await fetchData<any>(
         "plans/purchase/",
         "POST",
-        { package_id: pkg.id },
+        // Валюта решает платёжный путь: RUB -> ЮKassa, KGS -> FreedomPay.
+        { package_id: pkg.id, pay_currency: currency },
         true,
         deviceKey ? { "X-Device-Key": deviceKey } : undefined
       );
@@ -358,14 +359,7 @@ export default function TokenPackages({
                 <button
                   type="button"
                   onClick={() => onBuy(p)}
-                  disabled={buyingId != null || currency === "RUB"}
-                  title={
-                    currency === "RUB"
-                      ? t("packages.rub_payment_soon_hint", {
-                          defaultValue: "Переключитесь на KGS, чтобы оплатить пакет",
-                        })
-                      : undefined
-                  }
+                  disabled={buyingId != null}
                   className={`mt-auto inline-flex items-center justify-center gap-2 rounded-xl font-semibold text-sm py-3 transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed ${
                     featured
                       ? "bg-accent text-on-accent hover:bg-accent-strong"
@@ -373,25 +367,13 @@ export default function TokenPackages({
                   }`}
                 >
                   <FiZap />
-                  {currency === "RUB"
-                    ? t("packages.rub_payment_soon", { defaultValue: "Оплата в рублях скоро" })
-                    : !authed
+                  {!authed
                     ? t("packages.login_to_topup", { defaultValue: "Войдите, чтобы пополнить" })
                     : buyingId === p.id
                     ? t("common.processing", { defaultValue: "Обработка..." })
                     : t("packages.topup", { defaultValue: "Пополнить" })}
                 </button>
 
-                {/* Оплата пока идёт только в сомах (FreedomPay) — при выбранной RUB
-                    кнопка выше намеренно недоступна (см. отчёт: п.4 задачи по валютам),
-                    чтобы никого не списало в другой валюте, чем видно на экране. */}
-                {currency === "RUB" && (
-                  <p className="text-center text-xs text-muted -mt-2">
-                    {t("packages.rub_payment_soon_note", {
-                      defaultValue: "Оплата картой в рублях появится позже. Переключите валюту на KGS, чтобы купить сейчас.",
-                    })}
-                  </p>
-                )}
               </div>
             );
           })}
