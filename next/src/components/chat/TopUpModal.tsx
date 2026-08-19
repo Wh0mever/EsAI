@@ -91,7 +91,7 @@ export default function TopUpModal({ open, onClose }: Props) {
     setBuyingId(pkg.id);
     setError("");
     try {
-      const res = await fetchData<any>("plans/purchase/", "POST", { package_id: pkg.id }, true);
+      const res = await fetchData<any>("plans/purchase/", "POST", { package_id: pkg.id, pay_currency: currency }, true);
       if (!res?.ok) {
         setError(res?.error || t("topup.purchase_error", { defaultValue: "Не удалось начать оплату" }));
         return;
@@ -219,30 +219,14 @@ export default function TopUpModal({ open, onClose }: Props) {
                 <button
                   type="button"
                   onClick={() => purchase(p)}
-                  disabled={buyingId != null || currency === "RUB"}
-                  title={
-                    currency === "RUB"
-                      ? t("packages.rub_payment_soon_hint", {
-                          defaultValue: "Переключитесь на KGS, чтобы оплатить пакет",
-                        })
-                      : undefined
-                  }
+                  disabled={buyingId != null}
                   className="mt-4 inline-flex items-center justify-center gap-2 rounded-xl bg-accent text-on-accent font-semibold text-sm py-2.5 hover:bg-accent-strong transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
                 >
                   <FiZap />
-                  {currency === "RUB"
-                    ? t("packages.rub_payment_soon", { defaultValue: "Оплата в рублях скоро" })
-                    : buyingId === p.id
+                  {buyingId === p.id
                     ? t("common.processing", { defaultValue: "Обработка..." })
                     : t("topup.buy", { defaultValue: "Купить" })}
                 </button>
-                {currency === "RUB" && (
-                  <p className="mt-1.5 text-center text-[11px] text-muted">
-                    {t("packages.rub_payment_soon_note", {
-                      defaultValue: "Оплата картой в рублях появится позже. Переключите валюту на KGS, чтобы купить сейчас.",
-                    })}
-                  </p>
-                )}
               </div>
             );
           })}

@@ -707,3 +707,11 @@ FREEDOM_PAY_INIT_PAYMENT_URL = env.str(
 )
 FP_API_BASE = env.str("FP_API_BASE", default=FREEDOM_PAY_API_BASE)
 FP_MERCHANT_ID = env.str("FP_MERCHANT_ID", default=FREEDOM_PAY_MERCHANT_ID)
+
+# --- ЮKassa (оплата в рублях) -------------------------------------------------
+# FreedomPay принимает сомы (KGS) — для рублёвых платежей клиент подключил
+# ЮKassa. Валюта выбирается пользователем на /pricing: KGS -> FreedomPay,
+# RUB -> ЮKassa. Ключ ТОЛЬКО из окружения, в репозиторий не попадает.
+YOOKASSA_SHOP_ID = env.str("YOOKASSA_SHOP_ID", default="")
+YOOKASSA_SECRET_KEY = env.str("YOOKASSA_SECRET_KEY", default="")
+YOOKASSA_API_URL = env.str("YOOKASSA_API_URL", default="https://api.yookassa.ru/v3")

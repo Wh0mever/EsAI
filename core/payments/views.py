@@ -1340,3 +1340,86 @@ class FreedomPayChargeFailureView(FreedomPayChargeResultView):
 
 class FreedomPayChargePostbackView(FreedomPayChargeResultView):
     result_type = "post"
+
+
+class YooKassaWebhookView(APIView):
+    """POST /api/payments/yookassa/webhook/ — уведомление ЮKassa об оплате.
+
+    Тело уведомления НЕ является доверенным: подписи у ЮKassa нет, поэтому
+    из него берём ТОЛЬКО идентификатор платежа, а статус и сумму читаем
+    перезапросом в API по HTTP Basic. Прислать нам «оплачено» и получить
+    кредиты бесплатно так нельзя.
+
+    Начисление идёт через тот же _credit_token_package_for_payment, что и у
+    FreedomPay: идемпотентность по order_id гарантирует ровно одно
+    зачисление, сколько бы ретраев ни прислала ЮKassa.
+    """
+
+    authentication_classes = []
+    permission_classes = []
+
+    def post(self, request, *args, **kwargs):
+        from . import yookassa as yk
+
+        body = request.data if isinstance(request.data, dict) else {}
+        obj = (body.get("object") or {}) if isinstance(body.get("object"), dict) else {}
+        yk_payment_id = str(obj.get("id") or "").strip()
+        if not yk_payment_id:
+            return Response({"status": "ignored"}, status=status.HTTP_200_OK)
+
+        # Единственный доверенный источник — ответ API ЮKassa.
+        try:
+            fresh = yk.fetch_payment(yk_payment_id)
+        except Exception as exc:
+            logger.warning("yookassa webhook: fetch failed id=%s err=%s", yk_payment_id, exc)
+            # 200, чтобы ЮKassa не считала эндпоинт нерабочим; повторит сама.
+            return Response({"status": "retry_later"}, status=status.HTTP_200_OK)
+
+        order_id = str(((fresh.get("metadata") or {}).get("order_id") or "")).strip()
+        payment = Payment.objects.filter(order_id=order_id).order_by("-id").first() if order_id else None
+        if not payment:
+            logger.warning("yookassa webhook: заказ не найден order_id=%s", order_id)
+            return Response({"status": "ok"}, status=status.HTTP_200_OK)
+
+        paid = bool(fresh.get("paid")) and str(fresh.get("status") or "").lower() == "succeeded"
+
+        with transaction.atomic():
+            payment = Payment.objects.select_for_update().get(pk=payment.pk)
+            response = payment.response or {}
+            callbacks = list(response.get("callbacks") or [])
+            callbacks.append({"type": "yookassa_webhook", "payload": fresh})
+            response["callbacks"] = callbacks
+            payment.response = response
+
+            if not paid:
+                payment.success = False
+                payment.error = f"yookassa_status:{fresh.get('status') or 'unknown'}"
+                payment.save(update_fields=["response", "success", "error"])
+                _log_payment_event(payment, "yookassa_not_paid")
+                return Response({"status": "ok"}, status=status.HTTP_200_OK)
+
+            # Сверка суммы и валюты с нашим заказом до начисления.
+            amt = (fresh.get("amount") or {})
+            try:
+                amount_ok = Decimal(str(amt.get("value") or "0")) == (payment.amount or 0)
+            except Exception:
+                amount_ok = False
+            currency_ok = str(amt.get("currency") or "").upper() == (payment.currency or "").upper()
+            if not (amount_ok and currency_ok):
+                payment.success = False
+                payment.error = "amount_mismatch"
+                payment.save(update_fields=["response", "success", "error"])
+                _log_payment_event(payment, "yookassa_amount_mismatch")
+                return Response({"status": "ok"}, status=status.HTTP_200_OK)
+
+            payment.success = True
+            payment.error = ""
+            try:
+                _credit_token_package_for_payment(payment, order_id)
+            except Exception as exc:
+                payment.success = False
+                payment.error = f"token_purchase_apply_failed:{exc}"
+            payment.save(update_fields=["response", "success", "error"])
+
+        _log_payment_event(payment, "yookassa_webhook")
+        return Response({"status": "ok"}, status=status.HTTP_200_OK)
