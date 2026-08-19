@@ -1046,7 +1046,12 @@
 			"duration": "Длительность",
 			"sec_short": "с",
 			"duration_cost": "{{seconds}} сек — {{credits}} кредитов",
-			"extend_hint": "Продолжаем ролик: опишите, что происходит дальше"
+			"extend_hint": "Продолжаем ролик: опишите, что происходит дальше",
+			"panel_title": "Параметры видео",
+			"resolution": "Качество",
+			"first_frame": "Первый кадр",
+			"last_frame": "Последний кадр",
+			"cost_hint": "Ролик {{seconds}} сек — спишется {{credits}} кредитов"
 		}
 	},
 	"profile": {

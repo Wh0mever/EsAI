@@ -683,11 +683,21 @@ class VideoModelParamsAPIView(APIView):
             coeff = 0.0
 
         durations: list[int] = []
+        resolutions: list[str] = []
+        aspect_ratios: list[str] = []
+        sizes: list[str] = []
+        frames: list[str] = []
+        generate_audio = False
         try:
             from .handlers import _openrouter_video_catalog
 
             spec = _openrouter_video_catalog(model_ref)
             durations = [int(d) for d in (spec.get("supported_durations") or []) if str(d).isdigit()]
+            resolutions = [str(x) for x in (spec.get("supported_resolutions") or []) if x]
+            aspect_ratios = [str(x) for x in (spec.get("supported_aspect_ratios") or []) if x]
+            sizes = [str(x) for x in (spec.get("supported_sizes") or []) if x]
+            frames = [str(x) for x in (spec.get("supported_frame_images") or []) if x]
+            generate_audio = bool(spec.get("generate_audio"))
         except Exception:
             logger.exception("video params lookup failed for %s", model_ref)
 
@@ -695,10 +705,22 @@ class VideoModelParamsAPIView(APIView):
         if durations and default_duration not in durations:
             default_duration = min(durations, key=lambda d: (abs(d - default_duration), d))
 
+        default_resolution = str(getattr(settings, "VIDEO_GEN_RESOLUTION", "720p") or "720p")
+        if resolutions and default_resolution not in resolutions:
+            low = {r.lower(): r for r in resolutions}
+            default_resolution = low.get(default_resolution.lower()) or resolutions[0]
+
         return Response({
             "model": model_ref,
             "durations": sorted(set(durations)),
             "default_duration": default_duration,
+            "resolutions": resolutions,
+            "default_resolution": default_resolution,
+            "aspect_ratios": aspect_ratios,
+            "sizes": sizes,
+            # Какие кадры принимает модель: first_frame / last_frame.
+            "frame_images": frames,
+            "generate_audio": generate_audio,
             "credits_per_second": coeff,
         }, status=status.HTTP_200_OK)
 

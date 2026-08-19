@@ -7,7 +7,7 @@ import { IoDocumentTextOutline, IoGlobeOutline } from "react-icons/io5";
 import { FiMic, FiSquare } from "react-icons/fi";
 import { fetchData, BACKEND } from "@/tools/fetchData";
 import ModelSelector, { type AiModel } from "./ModelSelector";
-import VideoDurationSelect from "./VideoDurationSelect";
+import VideoParamsPanel, { type VideoSettings } from "./VideoParamsPanel";
 
 /**
  * Минимальные типы Web Speech API: их нет в lib.dom для всех таргетов,
@@ -65,9 +65,9 @@ type Props = {
   modelIsImageEdit?: boolean;
   /** Видео-модель (image-to-video): фото разрешено как первый кадр, даже без vision. */
   modelIsVideo?: boolean;
-  /** Выбранная длительность ролика в секундах (только для видео-моделей). */
-  videoDuration?: number | null;
-  onVideoDurationChange?: (seconds: number) => void;
+  /** Параметры генерации видео (длительность, качество, опорные кадры). */
+  videoSettings?: VideoSettings;
+  onVideoSettingsChange?: (patch: Partial<VideoSettings>) => void;
 };
 
 /**
@@ -92,8 +92,8 @@ export default function ChatComposer({
   modelSupportsVision,
   modelIsVideo = false,
   modelIsImageEdit = false,
-  videoDuration,
-  onVideoDurationChange,
+  videoSettings,
+  onVideoSettingsChange,
 }: Props) {
   const { t, i18n } = useTranslation("common");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -513,14 +513,14 @@ export default function ChatComposer({
         </p>
       )}
 
-      {/* Выбор длительности ролика — только для видео-моделей. Список секунд
-          и цену тянет с бэкенда по конкретной модели. */}
-      {modelIsVideo && model && (
-        <div className="mt-2 flex justify-center">
-          <VideoDurationSelect
+      {/* Панель параметров видео — только для видео-моделей. Допустимые
+          значения приходят с бэкенда по конкретной модели. */}
+      {modelIsVideo && model && videoSettings && (
+        <div className="mt-2">
+          <VideoParamsPanel
             model={model}
-            value={videoDuration ?? null}
-            onChange={onVideoDurationChange || (() => {})}
+            value={videoSettings}
+            onChange={onVideoSettingsChange || (() => {})}
           />
         </div>
       )}

@@ -1047,7 +1047,12 @@
 			"duration": "Duration",
 			"sec_short": "s",
 			"duration_cost": "{{seconds}} sec — {{credits}} credits",
-			"extend_hint": "Continuing the clip: describe what happens next"
+			"extend_hint": "Continuing the clip: describe what happens next",
+			"panel_title": "Video settings",
+			"resolution": "Quality",
+			"first_frame": "First frame",
+			"last_frame": "Last frame",
+			"cost_hint": "{{seconds}} sec clip — {{credits}} credits will be charged"
 		}
 	},
 	"profile": {

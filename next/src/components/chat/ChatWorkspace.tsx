@@ -15,6 +15,7 @@ import ChatMessages from "./ChatMessages";
 import ChatComposer from "./ChatComposer";
 import StartScreen from "./StartScreen";
 import PushPromptBanner from "./PushPromptBanner";
+import type { VideoSettings } from "./VideoParamsPanel";
 import ChatSidebar, { type ChatItem } from "./ChatSidebar";
 import EsaiLogo from "@/components/brand/EsaiLogo";
 import TopUpModal from "./TopUpModal";
@@ -101,7 +102,16 @@ export default function ChatWorkspace({ chatId, mode = MODE, heroSlot, belowComp
   // Длительность ролика для видео-моделей (секунды). null — ещё не выбрана,
   // тогда бэкенд возьмёт дефолт из настроек. Сбрасывается при смене модели:
   // у разных моделей разные допустимые значения (Veo — 4/6/8, Seedance — 4…30).
-  const [videoDuration, setVideoDuration] = useState<number | null>(null);
+  const [videoSettings, setVideoSettings] = useState<VideoSettings>({
+    duration: null,
+    resolution: null,
+    firstFrame: null,
+    lastFrame: null,
+  });
+  const patchVideoSettings = useCallback(
+    (patch: Partial<VideoSettings>) => setVideoSettings((prev) => ({ ...prev, ...patch })),
+    []
+  );
   // Ссылка на ролик, который продлеваем. Пока не пусто — следующее сообщение
   // уйдёт как продолжение: новый сегмент начнётся с последнего кадра этого
   // видео, и оба склеятся в один файл (см. core/ai/video_edit.py).
@@ -357,7 +367,10 @@ export default function ChatWorkspace({ chatId, mode = MODE, heroSlot, belowComp
         if (webSearch) payload.web_search = true;
         // Длительность ролика — только для видео-моделей. Бэкенд всё равно
         // примагничивает значение к списку, который поддерживает модель.
-        if (modelIsVideo && videoDuration) payload.video_duration = videoDuration;
+        if (modelIsVideo && videoSettings.duration) payload.video_duration = videoSettings.duration;
+        if (modelIsVideo && videoSettings.resolution) payload.video_resolution = videoSettings.resolution;
+        if (modelIsVideo && videoSettings.firstFrame) payload.video_first_frame = videoSettings.firstFrame;
+        if (modelIsVideo && videoSettings.lastFrame) payload.video_last_frame = videoSettings.lastFrame;
         if (modelIsVideo && extendVideoUrl) payload.extend_video_url = extendVideoUrl;
         if (sessionId) payload.chat_id = sessionId;
         if (readyAttachments.length) payload.attachments = readyAttachments;
@@ -577,7 +590,7 @@ export default function ChatWorkspace({ chatId, mode = MODE, heroSlot, belowComp
     // modelIsVideo/videoDuration ОБЯЗАТЕЛЬНЫ в зависимостях: без них колбэк
     // замыкается на начальные значения (false/null), и выбранная длительность
     // не попадала в запрос — видео всегда генерировалось дефолтными 5 секундами.
-    [attachments, sessionId, i18n.language, mode, model, webSearch, modelIsVideo, videoDuration, extendVideoUrl, refreshBalance, setBalance, t, handleErrorCode]
+    [attachments, sessionId, i18n.language, mode, model, webSearch, modelIsVideo, videoSettings, extendVideoUrl, refreshBalance, setBalance, t, handleErrorCode]
   );
 
   const handleSubmit = (e: FormEvent) => {
@@ -653,7 +666,7 @@ export default function ChatWorkspace({ chatId, mode = MODE, heroSlot, belowComp
         attachments={attachments}
         setAttachments={setAttachments}
         model={model}
-        onModelChange={(id, m) => { setModel(id); setModelVision(m?.supports_vision); setModelIsVideo((m?.category || "") === "video"); setModelIsImageEdit((m?.category || "") === "image"); setVideoDuration(null); }}
+        onModelChange={(id, m) => { setModel(id); setModelVision(m?.supports_vision); setModelIsVideo((m?.category || "") === "video"); setModelIsImageEdit((m?.category || "") === "image"); setVideoSettings({ duration: null, resolution: null, firstFrame: null, lastFrame: null }); }}
         autoFocus={!started}
         focusSignal={focusSignal}
         webSearch={webSearch}
@@ -662,8 +675,8 @@ export default function ChatWorkspace({ chatId, mode = MODE, heroSlot, belowComp
         modelSupportsVision={modelVision}
         modelIsVideo={modelIsVideo}
         modelIsImageEdit={modelIsImageEdit}
-        videoDuration={videoDuration}
-        onVideoDurationChange={setVideoDuration}
+        videoSettings={videoSettings}
+        onVideoSettingsChange={patchVideoSettings}
       />
       {guestFree && guestFree.limit > 0 && (
         <p className="text-center text-xs text-muted-2 mt-2">
