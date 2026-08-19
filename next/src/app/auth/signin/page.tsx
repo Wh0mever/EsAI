@@ -12,6 +12,7 @@ import { fetchData } from "@/tools/fetchData";
 import SmartForm from "@/components/forms/SmartForm";
 import SocialAuthButtons from "@/components/auth/SocialAuthButtons";
 import { useBonusSettings } from "@/hooks/useBonusSettings";
+import { trackRegistration } from "@/tools/analytics";
 
 const INPUT_CLASS =
 	"w-full rounded-xl bg-surface-2 border border-border text-foreground placeholder:text-muted-2 text-sm px-4 py-3 focus:border-accent focus:outline-none transition-colors";
@@ -42,12 +43,16 @@ function signin(response: any, setResponseData: any, t: any) {
 	}
 
 	// Новый пользователь → показать приветственное окно + засчитать конверсию
-	// «Регистрация» в Google Ads (ТОЛЬКО для нового аккаунта, после подтверждения
-	// сервером — здесь уже есть JWT, значит аккаунт создан).
+	// «Регистрация» в Google Ads и цель «registration» в Яндекс.Метрике (ТОЛЬКО
+	// для нового аккаунта, после подтверждения сервером — здесь уже есть JWT,
+	// значит аккаунт действительно создан).
 	try {
 		if (payload.is_new) {
 			localStorage.setItem("esai-show-welcome", "1");
 			try { (window as any).gtag_report_conversion?.(); } catch {}
+			// Уход отсюда происходит через 1.5 с (см. useEffect по responseData),
+			// так что ждать отправки не нужно — успевает.
+			trackRegistration();
 		}
 	} catch {}
 

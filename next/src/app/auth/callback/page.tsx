@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Cookies from "js-cookie";
 import { useTranslation } from "react-i18next";
+import { trackRegistration } from "@/tools/analytics";
 
 /**
  * AuthCallback — принимает JWT из соц-входа (query `?access&refresh&user`),
@@ -58,15 +59,22 @@ export default function AuthCallback() {
         Cookies.set("refresh", refresh, { expires: 15, secure, sameSite: "lax" });
         if (user) Cookies.set("user", user, { secure, sameSite: "lax" });
         // Новый соц-пользователь (бэк прислал welcome=1) → приветственное окно
-        // + конверсия «Регистрация» в Google Ads (только для нового аккаунта).
+        // + конверсия «Регистрация» в Google Ads и цель «registration» в
+        // Яндекс.Метрике (только для нового аккаунта).
+        let waitingForGoal = false;
         try {
           if (get("welcome")) {
             localStorage.setItem("esai-show-welcome", "1");
             // Событие уходит через sendBeacon и переживёт последующий переход.
             try { (window as any).gtag_report_conversion?.(); } catch {}
+            // А вот Метрику ждём: отсюда уходим мгновенно, и цель, поставленная
+            // в очередь до загрузки tag.js, пропала бы вместе со страницей.
+            // Колбэк сработает и по таймауту, так что зависнуть нельзя.
+            waitingForGoal = true;
+            trackRegistration(() => go(nextUrl));
           }
         } catch {}
-        go(nextUrl);
+        if (!waitingForGoal) go(nextUrl);
       } else {
         // Нет токенов (например, устаревшая вкладка после выхода) → на вход.
         go("/auth/signin");
