@@ -1,4 +1,4 @@
-from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin, BaseUserManager, Group, Permission
+﻿from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin, BaseUserManager, Group, Permission
 from django.db import models
 from django.db.utils import IntegrityError
 from django.utils import timezone
@@ -409,3 +409,74 @@ class UserMemory(models.Model):
     def __str__(self) -> str:
         snippet = (self.content or "")[:50]
         return f"Memory(user={self.user_id}, {self.category}: {snippet})"
+
+
+class SignupBlock(models.Model):
+    """Правило чёрного списка: домен почты, IP-адрес или подсеть.
+
+    Заводится в админке. Применяется в users/blocklist.py — при запросе кода,
+    при подтверждении кода и при входе через Google/Telegram.
+
+    Повод: массовые регистрации с одноразовых ящиков (@jmaie.com), которые
+    забирают приветственный бонус и ежедневные бесплатные кредиты.
+    """
+    KIND_DOMAIN = "domain"
+    KIND_IP = "ip"
+    KIND_SUBNET = "subnet"
+    KIND_CHOICES = [
+        (KIND_DOMAIN, "Домен почты"),
+        (KIND_IP, "IP-адрес"),
+        (KIND_SUBNET, "Подсеть (CIDR)"),
+    ]
+
+    kind = models.CharField(
+        max_length=10, choices=KIND_CHOICES, default=KIND_DOMAIN,
+        verbose_name="Что блокируем")
+    value = models.CharField(
+        max_length=255, verbose_name="Значение",
+        help_text=(
+            "Домен: jmaie.com (поддомены тоже попадут под запрет). "
+            "IP: 91.240.10.5. Подсеть: 91.240.0.0/16."
+        ))
+    block_login = models.BooleanField(
+        default=True, verbose_name="Закрыть и вход",
+        help_text=(
+            "Кроме регистрации закрыть вход уже существующим аккаунтам. "
+            "Для IP снимайте галочку, если за адресом может быть офис или "
+            "мобильный оператор — иначе отрежете и обычных пользователей."
+        ))
+    reason = models.CharField(
+        max_length=255, blank=True, default="", verbose_name="Причина",
+        help_text="Для себя: почему заблокировали. Пользователю не показывается.")
+    is_active = models.BooleanField(default=True, verbose_name="Правило включено")
+    hits = models.PositiveIntegerField(default=0, verbose_name="Срабатываний")
+    last_hit_at = models.DateTimeField(null=True, blank=True, verbose_name="Последнее срабатывание")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def save(self, *args, **kwargs):
+        # Нормализуем ЗДЕСЬ, а не в админке: правило может прийти и из shell,
+        # а сравнение в blocklist идёт по точному значению в нижнем регистре.
+        from .blocklist import invalidate_cache, normalize_domain
+
+        if self.kind == self.KIND_DOMAIN:
+            self.value = normalize_domain(self.value)
+        else:
+            self.value = (self.value or "").strip().lower()
+        super().save(*args, **kwargs)
+        invalidate_cache()  # правило должно начать действовать сразу, а не через минуту
+
+    def delete(self, *args, **kwargs):
+        from .blocklist import invalidate_cache
+
+        res = super().delete(*args, **kwargs)
+        invalidate_cache()
+        return res
+
+    def __str__(self):
+        return f"{self.get_kind_display()}: {self.value}"
+
+    class Meta:
+        ordering = ("-created_at",)
+        unique_together = ("kind", "value")
+        verbose_name = "Запрет регистрации"
+        verbose_name_plural = "Запреты регистрации"

@@ -1,4 +1,4 @@
-import logging
+﻿import logging
 import random
 import json
 from django.conf import settings
@@ -62,6 +62,23 @@ class SigninApiView(APIView):
                 {"status": "error", "message": "Введите корректный email"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+
+        # Чёрный список (домен почты / IP). Проверяем до отправки письма: нет
+        # смысла слать код туда, где вход всё равно закроется на следующем шаге.
+        # Существующему аккаунту вход рубим, только если у правила стоит
+        # «Закрыть и вход»; для нового аккаунта запрет действует всегда.
+        try:
+            from .blocklist import BLOCK_MESSAGE, find_block
+            from .antifraud import get_client_ip
+
+            known = User.objects.filter(email=email).exists()
+            if find_block(email=email, ip=get_client_ip(request) or "", for_login=known):
+                return Response(
+                    {"status": "error", "message": BLOCK_MESSAGE},
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+        except Exception:
+            logger.exception("blocklist: проверка при запросе кода упала")
 
         # === Спец-случай: тестовый аккаунт платёжной системы ===
         # У тестировщиков платёжки нет почтового ящика для этого адреса,
@@ -170,6 +187,19 @@ class VerifyCodeApiView(APIView):
 
         # Авто-создание аккаунта при первом входе (отдельной регистрации нет).
         user = User.objects.filter(email=email).first()
+
+        # Чёрный список — вторая проверка, уже на самом создании аккаунта.
+        # Дублирует проверку в SigninApiView намеренно: код мог быть запрошен
+        # до появления правила, а этот шаг — последний перед выдачей токенов.
+        try:
+            from .blocklist import BLOCK_MESSAGE, find_block
+            from .antifraud import get_client_ip
+
+            if find_block(email=email, ip=get_client_ip(request) or "", for_login=bool(user)):
+                return Response({"error": BLOCK_MESSAGE}, status=403)
+        except Exception:
+            logger.exception("blocklist: проверка при подтверждении кода упала")
+
         created = False
         if not user:
             created = True
@@ -185,6 +215,14 @@ class VerifyCodeApiView(APIView):
                     except Exception:
                         pass
             user.save()
+
+        # Отключённый аккаунт (снят is_active вручную или действием «Отключить
+        # аккаунты, попадающие под правило») не должен получать токены: иначе
+        # блокировка была бы только на бумаге.
+        if user and not getattr(user, "is_active", True):
+            from .blocklist import BLOCK_MESSAGE
+
+            return Response({"error": BLOCK_MESSAGE}, status=403)
 
         if not getattr(user, "is_confirmed", True):
             user.is_confirmed = True

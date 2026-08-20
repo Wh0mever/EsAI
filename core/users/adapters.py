@@ -1,9 +1,11 @@
-import logging
+﻿import logging
 from allauth.socialaccount.adapter import DefaultSocialAccountAdapter
 from allauth.core.exceptions import ImmediateHttpResponse
 from django.contrib.auth import get_user_model
 from django.conf import settings
 from django.http import HttpResponseRedirect
+
+logger = logging.getLogger(__name__)
 
 
 def _allowed_frontend_hosts() -> set:
@@ -133,9 +135,33 @@ class SocialAccountAdapter(DefaultSocialAccountAdapter):
         Prevents IntegrityError(UNIQUE email) when provider returns an email
         that already exists in our DB from classic (password/code) signup.
         """
+        extra = getattr(sociallogin.account, "extra_data", {}) or {}
+
+        # Чёрный список (домен почты / IP) — до всего остального, иначе успеем
+        # обновить аватар и связать аккаунт заблокированному пользователю.
+        # Существующему аккаунту вход рубим только при «Закрыть и вход»;
+        # для нового запрет действует всегда.
+        try:
+            from .antifraud import get_client_ip
+            from .blocklist import find_block
+
+            _email = (extra.get("email") or getattr(sociallogin.user, "email", "") or "")
+            if find_block(
+                email=_email,
+                ip=get_client_ip(request) or "",
+                for_login=bool(sociallogin.is_existing),
+            ):
+                site_base = _frontend_base_from_request(request)
+                raise ImmediateHttpResponse(
+                    HttpResponseRedirect(f"{site_base}/auth/signin?error=blocked")
+                )
+        except ImmediateHttpResponse:
+            raise
+        except Exception:
+            logger.exception("blocklist: проверка соц-входа упала")
+
         # Аватар: обновляем на КАЖДОМ входе (фото в Telegram/Google могло
         # смениться). Для нового юзера (ещё без pk) аватар проставит populate_user.
-        extra = getattr(sociallogin.account, "extra_data", {}) or {}
         avatar = (extra.get("photo_url") or extra.get("picture") or "").strip()[:512]
         if avatar:
             u = getattr(sociallogin, "user", None)
