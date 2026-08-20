@@ -1,6 +1,6 @@
-from django.contrib import admin
+﻿from django.contrib import admin
 from django import forms
-from .models import User, UserQuestions, Notification, NotificationDelivery, UserFeedback, UserCardBind
+from .models import User, UserQuestions, Notification, NotificationDelivery, UserFeedback, UserCardBind, SignupBlock
 from django.utils import timezone
 from django.utils.html import format_html
 from .actions import charge_by_current_plan
@@ -144,3 +144,87 @@ class UserFeedbackAdmin(admin.ModelAdmin):
     def short_message(self, obj: UserFeedback) -> str:
         txt = obj.message or ""
         return (txt[:77] + "…") if len(txt) > 80 else txt
+
+
+@admin.register(SignupBlock)
+class SignupBlockAdmin(admin.ModelAdmin):
+    """Чёрный список: домены одноразовой почты, IP и подсети.
+
+    Правило начинает действовать сразу после сохранения. Само по себе оно
+    закрывает только НОВЫЕ регистрации и (если стоит «Закрыть и вход») вход
+    существующих. Уже заведённые аккаунты остаются в базе — отключить их можно
+    действием «Отключить аккаунты, попадающие под правило».
+    """
+    list_display = ("kind", "value", "block_login", "is_active", "matched_users", "hits", "last_hit_at", "reason")
+    list_filter = ("kind", "is_active", "block_login")
+    search_fields = ("value", "reason")
+    list_editable = ("is_active", "block_login")
+    readonly_fields = ("hits", "last_hit_at", "created_at")
+    ordering = ("-created_at",)
+    actions = ("deactivate_matching_users", "activate_matching_users")
+
+    @admin.display(description="Аккаунтов под правилом")
+    def matched_users(self, obj: SignupBlock) -> str:
+        """Сколько уже заведённых аккаунтов подходит под правило."""
+        try:
+            return str(self._matching_users(obj).count())
+        except Exception:
+            return "—"
+
+    @staticmethod
+    def _matching_users(obj: SignupBlock):
+        """Аккаунты под правилом: по домену почты либо по IP регистрации.
+
+        IP берём из audit.SignupDevice — это единственное место, где он
+        сохраняется при регистрации.
+        """
+        if obj.kind == SignupBlock.KIND_DOMAIN and obj.value:
+            # Поддомены тоже: @jmaie.com и @mail.jmaie.com.
+            from django.db.models import Q
+
+            return User.objects.filter(
+                Q(email__iendswith=f"@{obj.value}") | Q(email__iendswith=f".{obj.value}")
+            )
+
+        from audit.models import SignupDevice
+
+        devices = SignupDevice.objects.exclude(ip=None)
+        if obj.kind == SignupBlock.KIND_IP:
+            ids = devices.filter(ip=obj.value).values_list("user_id", flat=True)
+        else:
+            # Подсеть: сравнение делаем в питоне — БД про CIDR не знает.
+            import ipaddress
+
+            try:
+                net = ipaddress.ip_network(obj.value, strict=False)
+            except ValueError:
+                return User.objects.none()
+            ids = [
+                d.user_id
+                for d in devices.only("user_id", "ip")
+                if d.ip and _ip_in(d.ip, net)
+            ]
+        return User.objects.filter(id__in=list(ids))
+
+    @admin.action(description="Отключить аккаунты, попадающие под правило")
+    def deactivate_matching_users(self, request, queryset):
+        total = 0
+        for obj in queryset:
+            total += self._matching_users(obj).update(is_active=False)
+        self.message_user(request, f"Отключено аккаунтов: {total}")
+
+    @admin.action(description="Вернуть доступ аккаунтам под правилом")
+    def activate_matching_users(self, request, queryset):
+        total = 0
+        for obj in queryset:
+            total += self._matching_users(obj).update(is_active=True)
+        self.message_user(request, f"Возвращён доступ: {total}")
+
+
+def _ip_in(ip: str, net) -> bool:
+    import ipaddress
+
+    try:
+        return ipaddress.ip_address(str(ip)) in net
+    except ValueError:
+        return False

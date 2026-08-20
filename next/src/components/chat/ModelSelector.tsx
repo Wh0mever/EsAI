@@ -455,7 +455,7 @@ export default function ModelSelector({ value, onChange, className }: Props) {
                               <p className="text-xs text-foreground leading-relaxed">
                                 {t("chat.model.locked_hint", {
                                   defaultValue:
-                                    "Доступно только для платных пакетов. Пополните баланс на 190 сомов, чтобы открыть все премиум-нейросети.",
+                                    "Доступно только для платных пакетов. Пополните баланс, чтобы открыть все премиум-нейросети планеты",
                                 })}
                               </p>
                               <button

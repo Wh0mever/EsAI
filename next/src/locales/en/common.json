@@ -647,7 +647,7 @@
 		"model": {
 			"select": "Select model",
 			"premium_badge": "Premium",
-			"locked_hint": "Available only on paid packages. Top up your balance by 190 som to unlock all premium AI models on the planet",
+			"locked_hint": "Available only on paid packages. Top up your balance to unlock all premium AI models on the planet",
 			"search": "Search models...",
 			"nothing": "Nothing found",
 			"cap_image": "Generates images",
