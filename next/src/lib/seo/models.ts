@@ -5,6 +5,8 @@
 
 export type ModelFaq = { q: string; a: string };
 
+import { SEO_MODELS_EXTRA } from "./modelsExtra";
+
 export type SeoModel = {
   slug: string;
   /** Display name used in H1, titles, breadcrumbs. */
@@ -24,7 +26,10 @@ export type SeoModel = {
   faq: ModelFaq[];
 };
 
-export const SEO_MODELS: SeoModel[] = [
+// Первая семёрка — самые известные бренды, с них начинали SEO. Остальные
+// модели каталога лежат в modelsExtra.ts и подмешиваются ниже: держать сорок
+// с лишним записей в одном файле с типами и хелперами неудобно.
+const SEO_MODELS_CORE: SeoModel[] = [
   {
     slug: "chatgpt",
     name: "ChatGPT",
@@ -215,6 +220,9 @@ export const SEO_MODELS: SeoModel[] = [
     ],
   },
 ];
+
+/** Все модели, у которых есть страница /model/<slug>. */
+export const SEO_MODELS: SeoModel[] = [...SEO_MODELS_CORE, ...SEO_MODELS_EXTRA];
 
 export function getModel(slug: string): SeoModel | undefined {
   return SEO_MODELS.find((m) => m.slug === slug);
