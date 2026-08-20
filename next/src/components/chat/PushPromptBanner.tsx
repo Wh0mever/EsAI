@@ -99,11 +99,15 @@ export default function PushPromptBanner({ authed, ready }: Props) {
           ) : (
             <>
               <p className="text-sm font-semibold text-foreground leading-snug">
-                {t("push.prompt_title", {
-                  count: bonus.daily_free_credits,
-                  defaultValue:
-                    "Напоминать, когда придут бесплатные кредиты? Каждый день до {{count}}.",
-                })}
+                {bonus.loaded
+                  ? t("push.prompt_title", {
+                      count: bonus.daily_free_credits,
+                      defaultValue:
+                        "Напоминать, когда придут бесплатные кредиты? Каждый день до {{count}}.",
+                    })
+                  : t("push.prompt_title_plain", {
+                      defaultValue: "Напоминать, когда придут бесплатные кредиты?",
+                    })}
               </p>
               <div className="mt-2 flex flex-wrap items-center gap-2">
                 <button

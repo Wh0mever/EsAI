@@ -321,7 +321,8 @@
 		"code_sent_to": "Code sent to email",
 		"auto_create_hint": "First time? An account will be created automatically.",
 		"hero_title": "EsAI — All AI models in one place.",
-		"hero_subtitle": "No unnecessary spending or subscriptions."
+		"hero_subtitle": "No unnecessary spending or subscriptions.",
+		"cta_part1_plain": "🎁 Sign in with one click and get bonus credits as a gift."
 	},
 	"auth_extra": {},
 	"pages_titles": {
@@ -1368,7 +1369,8 @@
 		"prompt_title": "Want a reminder when your free credits arrive? Up to {{count}} every day.",
 		"prompt_enable": "Remind me",
 		"prompt_later": "No thanks",
-		"prompt_done": "Done! We will let you know when credits arrive."
+		"prompt_done": "Done! We will let you know when credits arrive.",
+		"prompt_title_plain": "Remind you when free credits arrive?"
 	},
 	"promo": {
 		"title": "Redeem a promo code",
@@ -1383,7 +1385,9 @@
 		"limit_desc": "Get {{count}} free credits for signing up. No card, no subscriptions.",
 		"free_remaining": "{{count}} of {{limit}} free messages left",
 		"sidebar_bonus": "{{count}} free credits for signing up",
-		"more_login_options": "All login options (Email)"
+		"more_login_options": "All login options (Email)",
+		"sidebar_bonus_plain": "Bonus credits as a gift for signing up",
+		"limit_desc_plain": "Get bonus credits as a gift for signing up. No card, no subscriptions."
 	},
 	"theme": {
 		"title": "Theme",

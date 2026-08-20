@@ -32,11 +32,16 @@ export default function GuestLimitModal({ open, onClose }: Props) {
           <FiLock />
         </div>
         <p className="text-sm text-muted mb-5">
-          {t("guest.limit_desc", {
-            count: bonus.welcome_bonus,
-            defaultValue:
-              "Получите {{count}} кредитов в подарок за регистрацию. Без карты, без подписок.",
-          })}
+          {bonus.loaded
+            ? t("guest.limit_desc", {
+                count: bonus.welcome_bonus,
+                defaultValue:
+                  "Получите {{count}} кредитов в подарок за регистрацию. Без карты, без подписок.",
+              })
+            : t("guest.limit_desc_plain", {
+                defaultValue:
+                  "Получите бонусные кредиты в подарок за регистрацию. Без карты, без подписок.",
+              })}
         </p>
 
         <SocialAuthButtons />

@@ -508,10 +508,14 @@ export default function ChatSidebar({
                 ) : (
                   <div className="rounded-xl border border-accent/40 bg-accent/[0.07] p-3 text-center">
                     <p className="text-sm text-foreground font-medium mb-2.5">
-                      🎁 {t("guest.sidebar_bonus", {
-                        count: bonus.welcome_bonus,
-                        defaultValue: "{{count}} кредитов в подарок за регистрацию",
-                      })}
+                      🎁 {bonus.loaded
+                        ? t("guest.sidebar_bonus", {
+                            count: bonus.welcome_bonus,
+                            defaultValue: "{{count}} кредитов в подарок за регистрацию",
+                          })
+                        : t("guest.sidebar_bonus_plain", {
+                            defaultValue: "Бонусные кредиты в подарок за регистрацию",
+                          })}
                     </p>
                     <NextLink
                       href="/auth/signin"
