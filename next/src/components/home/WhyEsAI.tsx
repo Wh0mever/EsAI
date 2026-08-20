@@ -22,6 +22,8 @@ type WhyCard = {
   titleDefault: string;
   descKey: string;
   descDefault: string;
+  /** Занять всю ширину на узком экране (длинная подпись). */
+  wide?: boolean;
 };
 
 const CARDS: WhyCard[] = [
@@ -65,7 +67,12 @@ const CARDS: WhyCard[] = [
     titleKey: "home.why.items.6.title",
     titleDefault: "Удобная оплата",
     descKey: "home.why.items.6.desc",
-    descDefault: "Visa, Mastercard и кошельки Кыргызстана",
+    // На узком экране подпись из двух стран разваливается в колонке на шесть
+    // строк, поэтому карточка оплаты занимает всю ширину. На больших экранах
+    // колонка и так широкая — там она обычного размера.
+    wide: true,
+    descDefault:
+      "🇰🇬 Кыргызстан: Visa, Mastercard, местные кошельки\n🇷🇺 Россия: карты, SberPay, ЮMoney, T-Pay",
   },
 ];
 
@@ -85,7 +92,9 @@ export default function WhyEsAI() {
             return (
               <div
                 key={card.titleKey}
-                className="rounded-2xl border border-border bg-surface-2 p-3 flex flex-col gap-1.5"
+                className={`rounded-2xl border border-border bg-surface-2 p-3 flex flex-col gap-1.5 ${
+                  card.wide ? "col-span-2 lg:col-span-1" : ""
+                }`}
               >
                 <div className="h-8 w-8 sm:h-9 sm:w-9 rounded-xl bg-accent/15 text-accent-strong flex items-center justify-center">
                   <Icon size={16} aria-hidden />
@@ -93,7 +102,9 @@ export default function WhyEsAI() {
                 <h3 className="text-sm sm:text-base font-bold text-foreground leading-snug">
                   {t(card.titleKey, { defaultValue: card.titleDefault })}
                 </h3>
-                <p className="text-xs sm:text-sm text-muted leading-snug">
+                {/* whitespace-pre-line — у карточки оплаты подпись из двух строк,
+                    по одной на страну. Остальным карточкам не мешает. */}
+                <p className="text-xs sm:text-sm text-muted leading-snug whitespace-pre-line">
                   {t(card.descKey, { defaultValue: card.descDefault })}
                 </p>
               </div>
