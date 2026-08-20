@@ -3,8 +3,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
 import { fetchData } from "@/tools/fetchData";
+// Ключ устройства общий на весь сайт (вход, скидка, блокировки) — см. tools/deviceKey.
+import { getOrCreateDeviceKey } from "@/tools/deviceKey";
 
-const DEVICE_KEY_STORAGE = "esai_device_key";
+
 const ENDPOINT = {
   status: "plans/exit-discount/status/",
   show: "plans/exit-discount/show/",
@@ -21,25 +23,6 @@ type StatusResponse = {
   eligible_for_popup: boolean;
   active: (ExitDiscountOffer & { seconds_left?: number }) | null;
 };
-
-/**
- * Возвращает существующий esai_device_key из localStorage, либо создаёт новый
- * и сохраняет — переживает визиты, отправляется ВСЕГДА (даже авторизованному
- * пользователю), чтобы бэк мог смёрджить гостевой claim с последующим логином.
- */
-function getOrCreateDeviceKey(): string {
-  if (typeof window === "undefined") return "";
-  try {
-    const existing = window.localStorage.getItem(DEVICE_KEY_STORAGE);
-    if (existing) return existing;
-    const created = crypto.randomUUID();
-    window.localStorage.setItem(DEVICE_KEY_STORAGE, created);
-    return created;
-  } catch {
-    // localStorage недоступен (приватный режим и т.п.) — работаем без персиста.
-    return crypto.randomUUID();
-  }
-}
 
 function isTouchDevice(): boolean {
   if (typeof window === "undefined") return false;

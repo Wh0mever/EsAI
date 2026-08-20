@@ -13,6 +13,7 @@ import SmartForm from "@/components/forms/SmartForm";
 import SocialAuthButtons from "@/components/auth/SocialAuthButtons";
 import { useBonusSettings } from "@/hooks/useBonusSettings";
 import { trackRegistration } from "@/tools/analytics";
+import { deviceKeyHeader } from "@/tools/deviceKey";
 
 const INPUT_CLASS =
 	"w-full rounded-xl bg-surface-2 border border-border text-foreground placeholder:text-muted-2 text-sm px-4 py-3 focus:border-accent focus:outline-none transition-colors";
@@ -127,7 +128,10 @@ export default function SignIn() {
 		if (step === "request") {
 			const email = data.email;
 			setFormState({ email });
-			const response = await fetchData("users/signin/", "POST", { email }).catch((error) => ({
+			// X-Device-Key — постоянный UUID устройства. Нужен для блокировок:
+			// по нему видно, что «новый» пользователь заходит с устройства, где
+			// уже заводили аккаунт.
+			const response = await fetchData("users/signin/", "POST", { email }, false, deviceKeyHeader()).catch((error) => ({
 				data: { status: "error", message: error.message },
 			}));
 			if (response?.data?.status === "success") {
@@ -150,10 +154,13 @@ export default function SignIn() {
 		}
 		// Шаг 2 — подтверждение кода: POST users/signin/confirm/ { email, code }
 		if (step === "verify") {
-			const response = await fetchData("users/signin/confirm/", "POST", {
-				email: formState.email,
-				code: data.code,
-			}).catch((error) => ({ data: { status: "error", message: error.message } }));
+			const response = await fetchData(
+				"users/signin/confirm/",
+				"POST",
+				{ email: formState.email, code: data.code },
+				false,
+				deviceKeyHeader(),
+			).catch((error) => ({ data: { status: "error", message: error.message } }));
 			if (response?.data?.status === "authenticated") {
 				signin(response, setResponseData, t);
 			} else {

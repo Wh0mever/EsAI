@@ -423,10 +423,12 @@ class SignupBlock(models.Model):
     KIND_DOMAIN = "domain"
     KIND_IP = "ip"
     KIND_SUBNET = "subnet"
+    KIND_DEVICE = "device"
     KIND_CHOICES = [
         (KIND_DOMAIN, "Домен почты"),
         (KIND_IP, "IP-адрес"),
         (KIND_SUBNET, "Подсеть (CIDR)"),
+        (KIND_DEVICE, "Устройство (UUID)"),
     ]
 
     kind = models.CharField(
@@ -436,7 +438,9 @@ class SignupBlock(models.Model):
         max_length=255, verbose_name="Значение",
         help_text=(
             "Домен: jmaie.com (поддомены тоже попадут под запрет). "
-            "IP: 91.240.10.5. Подсеть: 91.240.0.0/16."
+            "IP: 91.240.10.5. Подсеть: 91.240.0.0/16. "
+            "Устройство: UUID из браузера — под запрет попадут ВСЕ аккаунты "
+            "с этого устройства."
         ))
     block_login = models.BooleanField(
         default=True, verbose_name="Закрыть и вход",

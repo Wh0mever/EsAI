@@ -142,13 +142,14 @@ class SocialAccountAdapter(DefaultSocialAccountAdapter):
         # Существующему аккаунту вход рубим только при «Закрыть и вход»;
         # для нового запрет действует всегда.
         try:
-            from .antifraud import get_client_ip
+            from .antifraud import get_client_ip, get_fingerprint
             from .blocklist import find_block
 
             _email = (extra.get("email") or getattr(sociallogin.user, "email", "") or "")
             if find_block(
                 email=_email,
                 ip=get_client_ip(request) or "",
+                device=get_fingerprint(request),
                 for_login=bool(sociallogin.is_existing),
             ):
                 site_base = _frontend_base_from_request(request)

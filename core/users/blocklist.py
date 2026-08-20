@@ -1,4 +1,4 @@
-"""Чёрный список: запрет регистрации и входа по домену почты, IP или подсети.
+﻿"""Чёрный список: запрет регистрации и входа по домену почты, IP или подсети.
 
 Повод — массовые регистрации с одноразовых ящиков (@jmaie.com и подобные):
 такие аккаунты берут приветственный бонус и ежедневные бесплатные кредиты, а
@@ -110,22 +110,24 @@ def _ip_matches(kind: str, rule_value: str, ip: str) -> bool:
         return False
 
 
-def find_block(email: str = "", ip: str = "", *, for_login: bool = False):
+def find_block(email: str = "", ip: str = "", device: str = "", *, for_login: bool = False):
     """Первое подошедшее правило или None.
 
     for_login=True — проверяем ВХОД, поэтому учитываем только правила с
     block_login. Для регистрации подходит любое активное правило.
     """
     domain = email_domain(email)
+    dev = (device or "").strip().lower()
     for r in _rules():
         if for_login and not r["block_login"]:
             continue
         kind = r["kind"]
-        hit = (
-            _domain_matches(r["value"], domain)
-            if kind == "domain"
-            else _ip_matches(kind, r["value"], ip)
-        )
+        if kind == "domain":
+            hit = _domain_matches(r["value"], domain)
+        elif kind == "device":
+            hit = bool(dev) and dev == r["value"]
+        else:
+            hit = _ip_matches(kind, r["value"], ip)
         if hit:
             _note_hit(r["id"])
             return r
