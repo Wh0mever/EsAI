@@ -69,10 +69,15 @@ class SigninApiView(APIView):
         # «Закрыть и вход»; для нового аккаунта запрет действует всегда.
         try:
             from .blocklist import BLOCK_MESSAGE, find_block
-            from .antifraud import get_client_ip
+            from .antifraud import get_client_ip, get_fingerprint
 
             known = User.objects.filter(email=email).exists()
-            if find_block(email=email, ip=get_client_ip(request) or "", for_login=known):
+            if find_block(
+                email=email,
+                ip=get_client_ip(request) or "",
+                device=get_fingerprint(request),
+                for_login=known,
+            ):
                 return Response(
                     {"status": "error", "message": BLOCK_MESSAGE},
                     status=status.HTTP_403_FORBIDDEN,
@@ -193,9 +198,14 @@ class VerifyCodeApiView(APIView):
         # до появления правила, а этот шаг — последний перед выдачей токенов.
         try:
             from .blocklist import BLOCK_MESSAGE, find_block
-            from .antifraud import get_client_ip
+            from .antifraud import get_client_ip, get_fingerprint
 
-            if find_block(email=email, ip=get_client_ip(request) or "", for_login=bool(user)):
+            if find_block(
+                email=email,
+                ip=get_client_ip(request) or "",
+                device=get_fingerprint(request),
+                for_login=bool(user),
+            ):
                 return Response({"error": BLOCK_MESSAGE}, status=403)
         except Exception:
             logger.exception("blocklist: проверка при подтверждении кода упала")

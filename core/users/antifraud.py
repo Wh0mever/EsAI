@@ -1,4 +1,4 @@
-"""Антифрод v1 для welcome-бонуса (ТЗ 4.3).
+﻿"""Антифрод v1 для welcome-бонуса (ТЗ 4.3).
 
 Защита приветственного бонуса (3000 токенов) от массовой накрутки фейками с
 одного устройства/IP. Логика:
@@ -63,14 +63,22 @@ def ip_subnet(ip) -> str:
 
 
 def get_fingerprint(request) -> str:
-    """Клиентский отпечаток: заголовок X-Device-Fingerprint или body fingerprint."""
+    """Ключ устройства клиента.
+
+    Порядок: X-Device-Key (его шлёт фронт при входе) → X-Device-Fingerprint
+    (историческое имя) → поле fingerprint в теле → cookie esai_device_key.
+
+    Cookie нужна ради соц-входа: там браузер уходит к Google/Telegram и
+    возвращается редиректом, заголовок в такой поездке не выживет.
+    """
     if request is None:
         return ""
     try:
         meta = getattr(request, "META", {}) or {}
-        fp = meta.get("HTTP_X_DEVICE_FINGERPRINT")
-        if fp:
-            return str(fp).strip()[:128]
+        for header in ("HTTP_X_DEVICE_KEY", "HTTP_X_DEVICE_FINGERPRINT"):
+            fp = meta.get(header)
+            if fp:
+                return str(fp).strip()[:128]
     except Exception:
         pass
     try:
@@ -78,9 +86,15 @@ def get_fingerprint(request) -> str:
         if data is None:
             data = getattr(request, "POST", None)
         if data is not None:
-            fp = data.get("fingerprint")
+            fp = data.get("fingerprint") or data.get("device_key")
             if fp:
                 return str(fp).strip()[:128]
+    except Exception:
+        pass
+    try:
+        fp = (getattr(request, "COOKIES", {}) or {}).get("esai_device_key")
+        if fp:
+            return str(fp).strip()[:128]
     except Exception:
         pass
     return ""

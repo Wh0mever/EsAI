@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import views
+from . import blocks, views
 
 app_name = "adminapi"
 
@@ -21,6 +21,11 @@ urlpatterns = [
     path("promo-codes/<int:pk>/", views.PromoCodeDetailView.as_view(), name="promo-codes-detail"),
     path("config/", views.ConfigView.as_view(), name="config"),
     path("exit-discount/stats/", views.ExitDiscountStatsView.as_view(), name="exit-discount-stats"),
+    # Блокировки: домены одноразовой почты, IP, подсети, устройства.
+    path("blocks/", blocks.BlocksListView.as_view(), name="blocks-list"),
+    path("blocks/suspects/", blocks.BlockSuspectsView.as_view(), name="blocks-suspects"),
+    path("blocks/<int:pk>/", blocks.BlockDetailView.as_view(), name="blocks-detail"),
+    path("blocks/<int:pk>/accounts/", blocks.BlockAccountsView.as_view(), name="blocks-accounts"),
     path("settings/", views.SettingsView.as_view(), name="settings"),
     path("settings/test-openrouter/", views.SettingsTestOpenRouterView.as_view(), name="settings-test-openrouter"),
 ]
