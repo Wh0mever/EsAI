@@ -1,4 +1,4 @@
-from django.db import models
+﻿from django.db import models
 from users.models import User
 from django.utils import timezone
 import uuid
@@ -15,7 +15,20 @@ class GPTModels(models.Model):
     openrouter_id = models.CharField(
         max_length=128, unique=True, default="",
         help_text="Системный ID модели в OpenRouter (напр. 'openai/gpt-4o')")
-    description = models.TextField(blank=True)
+    description = models.TextField(
+        blank=True,
+        help_text="Описание для каталога /models: одна строка о том, для чего модель.")
+    # Короткая метка под названием в выборе модели. Раньше для video-моделей эту
+    # роль играло description — из-за чего в каталоге у них вместо описания
+    # стояло «Максимальное качество». Теперь у метки своё поле, а description
+    # у всех моделей значит одно и то же.
+    short_label = models.CharField(
+        max_length=64, blank=True, default="",
+        verbose_name="Короткая метка",
+        help_text=(
+            "Подпись под названием при выборе модели, напр. «Максимальное качество». "
+            "У видео-моделей задаёт значок качества."
+        ))
     max_tokens = models.IntegerField(help_text="Maximum tokens allowed")
     system_prompt = models.TextField(
         blank=True, default="",

@@ -40,7 +40,7 @@ class GPTModelsAdmin(admin.ModelAdmin):
     readonly_fields = ('created_at', 'updated_at')
     fieldsets = (
         (None, {
-            'fields': ('name', 'openrouter_id', 'description', 'is_active', 'sort_order'),
+            'fields': ('name', 'openrouter_id', 'description', 'short_label', 'is_active', 'sort_order'),
         }),
         ('Параметры генерации', {
             'fields': ('system_prompt', 'temperature', 'top_p', 'max_tokens'),

@@ -1,4 +1,4 @@
-from rest_framework import serializers
+﻿from rest_framework import serializers
 from .models import (
     AiPromptTemplate,
     AiPromptTemplateFavorite,
@@ -94,7 +94,7 @@ class AiModelSerializer(serializers.ModelSerializer):
     class Meta:
         model = GPTModels
         fields = (
-            "id", "name", "openrouter_id", "description", "sort_order",
+            "id", "name", "openrouter_id", "description", "short_label", "sort_order",
             "is_free", "markup_coefficient", "locked", "supports_vision",
             "category", "recommended", "estimated_usage",
         )

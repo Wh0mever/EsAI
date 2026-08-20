@@ -29,6 +29,8 @@ export type AiModel = {
   category?: string;
   /** показывать в «⭐ Рекомендуемые» наверху */
   recommended?: boolean;
+  /** короткая подпись под названием («Максимальное качество») */
+  short_label?: string;
 };
 
 const LS_MODEL = "esai-model";
@@ -406,15 +408,15 @@ export default function ModelSelector({ value, onChange, className }: Props) {
                                   голубой (#4DA3FF @ ~82% насыщенности = #5DA3F0):
                                   читается на тёмном, не спорит с жёлтыми заголовками
                                   разделов и не перебивает название модели (просьба клиента). */}
-                              {isVideoGen(m) && (m.description || "").trim() && (
+                              {isVideoGen(m) && (m.short_label || "").trim() && (
                                 <span
                                   className="inline-flex items-center gap-1 text-[11px] font-medium truncate"
                                   style={{ color: "#5DA3F0" }}
                                 >
-                                  {VIDEO_QUALITY_ICONS[(m.description || "").trim()] || null}
+                                  {VIDEO_QUALITY_ICONS[(m.short_label || "").trim()] || null}
                                   <span className="truncate">
                                     {(() => {
-                                      const d = (m.description || "").trim();
+                                      const d = (m.short_label || "").trim();
                                       const vq = VIDEO_QUALITY_I18N[d];
                                       return vq ? t(vq.key, { defaultValue: vq.def }) : d;
                                     })()}
