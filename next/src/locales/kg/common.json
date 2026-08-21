@@ -1058,6 +1058,11 @@
 			"first_frame": "Биринчи кадр",
 			"last_frame": "Акыркы кадр",
 			"cost_hint": "{{seconds}} сек ролик — {{credits}} кредит алынат"
+		},
+		"topbar": {
+			"topup_hint": "→ Балансты толуктоо",
+			"guest_bonus": "Кирүү үчүн +{{count}} кредит",
+			"guest_bonus_plain": "Кирүү үчүн бонус кредиттер"
 		}
 	},
 	"profile": {

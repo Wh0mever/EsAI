@@ -1058,6 +1058,11 @@
 			"first_frame": "Первый кадр",
 			"last_frame": "Последний кадр",
 			"cost_hint": "Ролик {{seconds}} сек — спишется {{credits}} кредитов"
+		},
+		"topbar": {
+			"topup_hint": "→ Пополнить баланс",
+			"guest_bonus": "+{{count}} кредитов за вход",
+			"guest_bonus_plain": "Бонусные кредиты за вход"
 		}
 	},
 	"profile": {

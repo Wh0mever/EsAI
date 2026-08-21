@@ -20,6 +20,7 @@ import ChatSidebar, { type ChatItem } from "./ChatSidebar";
 import EsaiLogo from "@/components/brand/EsaiLogo";
 import TopUpModal from "./TopUpModal";
 import GuestLimitModal from "./GuestLimitModal";
+import { useBonusSettings } from "@/hooks/useBonusSettings";
 import PaywallModal, { type PaywallContext, type PaywallReason } from "./PaywallModal";
 import { useBalance } from "@/hooks/useBalance";
 
@@ -94,6 +95,8 @@ export default function ChatWorkspace({ chatId, mode = MODE, heroSlot, belowComp
   const [modelVision, setModelVision] = useState<boolean | undefined>(undefined);
   // Видео-модель (category === "video"): к ней можно прикрепить ФОТО как первый
   // кадр (image-to-video), несмотря на supports_vision=false — не блокируем.
+  // Размер приветственного бонуса для подписи под кнопкой «Войти».
+  const bonus = useBonusSettings();
   const [modelIsVideo, setModelIsVideo] = useState(false);
   // Модель генерации изображений (category==="image", напр. FLUX/Nano Banana): к
   // ней МОЖНО прикрепить фото — для FLUX это редактирование (замена фона/объектов),
@@ -728,24 +731,53 @@ export default function ChatWorkspace({ chatId, mode = MODE, heroSlot, belowComp
           </a>
         </div>
         <div className="flex items-center gap-2">
+          {/* Подпись под кнопкой, а не рядом: на телефоне справа остаётся около
+              сотни пикселей, и строка в один ряд с кнопкой упёрлась бы в «+».
+              Кнопка (36px) и подпись (13px) вместе укладываются в высоту шапки,
+              поэтому она не выросла. */}
           {isAuthed ? (
-            <button
-              type="button"
-              onClick={() => setTopUpOpen(true)}
-              className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface-2 hover:border-accent/60 text-sm px-3 py-2 cursor-pointer"
-              title={t("balance.topup", { defaultValue: "Пополнить" })}
-            >
-              <FiZap className="text-accent" />
-              <span className="font-medium">{(balance ?? 0).toLocaleString()}</span>
-            </button>
+            <div className="flex flex-col items-end gap-0.5">
+              <button
+                type="button"
+                onClick={() => setTopUpOpen(true)}
+                className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface-2 hover:border-accent/60 text-sm px-3 py-1.5 cursor-pointer"
+                title={t("balance.topup", { defaultValue: "Пополнить" })}
+              >
+                <FiZap className="text-accent" />
+                <span className="font-medium">{(balance ?? 0).toLocaleString()}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setTopUpOpen(true)}
+                className="text-[10px] leading-none text-accent hover:text-accent-strong whitespace-nowrap cursor-pointer"
+              >
+                {t("chat.topbar.topup_hint", { defaultValue: "→ Пополнить баланс" })}
+              </button>
+            </div>
           ) : (
-            // Гость: вместо баланса «0» — заметная кнопка «Войти».
-            <a
-              href="/auth/signin"
-              className="inline-flex items-center rounded-full bg-accent text-on-accent text-sm font-semibold px-4 py-2 hover:bg-accent-strong transition-colors"
-            >
-              {t("auth.login", { defaultValue: "Войти" })}
-            </a>
+            // Гость: вместо баланса «0» — заметная кнопка «Войти» и под ней
+            // размер приветственного бонуса (из админки, не захардкожен).
+            <div className="flex flex-col items-end gap-0.5">
+              <a
+                href="/auth/signin"
+                className="inline-flex items-center rounded-full bg-accent text-on-accent text-sm font-semibold px-4 py-1.5 hover:bg-accent-strong transition-colors"
+              >
+                {t("auth.login", { defaultValue: "Войти" })}
+              </a>
+              <a
+                href="/auth/signin"
+                className="text-[10px] leading-none text-accent hover:text-accent-strong whitespace-nowrap"
+              >
+                {bonus.loaded
+                  ? t("chat.topbar.guest_bonus", {
+                      count: bonus.welcome_bonus,
+                      defaultValue: "+{{count}} кредитов за вход",
+                    })
+                  : t("chat.topbar.guest_bonus_plain", {
+                      defaultValue: "Бонусные кредиты за вход",
+                    })}
+              </a>
+            </div>
           )}
           <button
             type="button"
