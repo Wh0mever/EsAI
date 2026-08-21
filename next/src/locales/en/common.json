@@ -1059,6 +1059,11 @@
 			"first_frame": "First frame",
 			"last_frame": "Last frame",
 			"cost_hint": "{{seconds}} sec clip — {{credits}} credits will be charged"
+		},
+		"topbar": {
+			"topup_hint": "→ Top up balance",
+			"guest_bonus": "+{{count}} credits on sign-in",
+			"guest_bonus_plain": "Bonus credits on sign-in"
 		}
 	},
 	"profile": {
