@@ -108,6 +108,7 @@ export default function ChatWorkspace({ chatId, mode = MODE, heroSlot, belowComp
   const [videoSettings, setVideoSettings] = useState<VideoSettings>({
     duration: null,
     resolution: null,
+    aspectRatio: null,
     firstFrame: null,
     lastFrame: null,
   });
@@ -375,6 +376,10 @@ export default function ChatWorkspace({ chatId, mode = MODE, heroSlot, belowComp
         if (modelIsVideo && videoSettings.firstFrame) payload.video_first_frame = videoSettings.firstFrame;
         if (modelIsVideo && videoSettings.lastFrame) payload.video_last_frame = videoSettings.lastFrame;
         if (modelIsVideo && extendVideoUrl) payload.extend_video_url = extendVideoUrl;
+        // Пропорции кадра — общее поле для видео и картинок: на сервере это
+        // одна настройка. Если пользователь ничего не выбрал, сервер попробует
+        // распознать её в тексте запроса («нарисуй вертикально»).
+        if (videoSettings.aspectRatio) payload.aspect_ratio = videoSettings.aspectRatio;
         if (sessionId) payload.chat_id = sessionId;
         if (readyAttachments.length) payload.attachments = readyAttachments;
         if (i18n?.language) payload.lang = i18n.language;
@@ -669,7 +674,7 @@ export default function ChatWorkspace({ chatId, mode = MODE, heroSlot, belowComp
         attachments={attachments}
         setAttachments={setAttachments}
         model={model}
-        onModelChange={(id, m) => { setModel(id); setModelVision(m?.supports_vision); setModelIsVideo((m?.category || "") === "video"); setModelIsImageEdit((m?.category || "") === "image"); setVideoSettings({ duration: null, resolution: null, firstFrame: null, lastFrame: null }); }}
+        onModelChange={(id, m) => { setModel(id); setModelVision(m?.supports_vision); setModelIsVideo((m?.category || "") === "video"); setModelIsImageEdit((m?.category || "") === "image"); setVideoSettings({ duration: null, resolution: null, aspectRatio: null, firstFrame: null, lastFrame: null }); }}
         autoFocus={!started}
         focusSignal={focusSignal}
         webSearch={webSearch}
