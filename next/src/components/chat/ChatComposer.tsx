@@ -8,6 +8,7 @@ import { FiMic, FiSquare } from "react-icons/fi";
 import { fetchData, BACKEND } from "@/tools/fetchData";
 import ModelSelector, { type AiModel } from "./ModelSelector";
 import VideoParamsPanel, { type VideoSettings } from "./VideoParamsPanel";
+import ImageParamsPanel from "./ImageParamsPanel";
 
 /**
  * Минимальные типы Web Speech API: их нет в lib.dom для всех таргетов,
@@ -521,6 +522,18 @@ export default function ChatComposer({
             model={model}
             value={videoSettings}
             onChange={onVideoSettingsChange || (() => {})}
+          />
+        </div>
+      )}
+
+      {/* У картинок из настроек только пропорции кадра — отдельная панель
+          попроще. Хранится в тех же videoSettings: для пользователя это одна и
+          та же настройка, и держать два состояния незачем. */}
+      {!modelIsVideo && modelIsImageEdit && videoSettings && (
+        <div className="mt-2">
+          <ImageParamsPanel
+            value={videoSettings.aspectRatio}
+            onChange={(r) => (onVideoSettingsChange || (() => {}))({ aspectRatio: r })}
           />
         </div>
       )}

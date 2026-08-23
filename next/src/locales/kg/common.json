@@ -1057,12 +1057,17 @@
 			"resolution": "Сапаты",
 			"first_frame": "Биринчи кадр",
 			"last_frame": "Акыркы кадр",
-			"cost_hint": "{{seconds}} сек ролик — {{credits}} кредит алынат"
+			"cost_hint": "{{seconds}} сек ролик — {{credits}} кредит алынат",
+			"aspect": "Кадрдын катышы"
 		},
 		"topbar": {
 			"topup_hint": "→ Балансты толуктоо",
 			"guest_bonus": "Кирүү үчүн +{{count}} кредит",
 			"guest_bonus_plain": "Кирүү үчүн бонус кредиттер"
+		},
+		"image": {
+			"panel_title": "Сүрөт параметрлери",
+			"aspect_hint": "Тандалган жок — модель өз өлчөмүн тандайт. Сөз менен да болот: «тигинен тарт»"
 		}
 	},
 	"profile": {

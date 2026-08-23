@@ -1058,12 +1058,17 @@
 			"resolution": "Quality",
 			"first_frame": "First frame",
 			"last_frame": "Last frame",
-			"cost_hint": "{{seconds}} sec clip — {{credits}} credits will be charged"
+			"cost_hint": "{{seconds}} sec clip — {{credits}} credits will be charged",
+			"aspect": "Aspect ratio"
 		},
 		"topbar": {
 			"topup_hint": "→ Top up balance",
 			"guest_bonus": "+{{count}} credits on sign-in",
 			"guest_bonus_plain": "Bonus credits on sign-in"
+		},
+		"image": {
+			"panel_title": "Image settings",
+			"aspect_hint": "Not set — the model picks its own size. You can also just say “make it vertical”"
 		}
 	},
 	"profile": {

@@ -190,7 +190,8 @@ def _is_image_gen_model(model_ref) -> bool:
 
 
 def _flux_generate_image(
-    model_ref: str, prompt: str, references: Optional[List[str]] = None
+    model_ref: str, prompt: str, references: Optional[List[str]] = None,
+    aspect_ratio: Optional[str] = None,
 ) -> Tuple[List[dict], Optional[float]]:
     """Сгенерировать/ОТРЕДАКТИРОВАТЬ изображение через OpenRouter images-API (FLUX).
 
@@ -212,6 +213,10 @@ def _flux_generate_image(
     cfg = _openrouter_config()
     base_url = cfg["base_url"].rstrip("/")
     payload = {"model": model_ref, "prompt": prompt}
+    # Пропорции кадра. Проверено вживую: без параметра выходит 1024x1024,
+    # с 16:9 — 1824x1024, с 9:16 — 1024x1824 (см. ai/aspect.py).
+    if aspect_ratio:
+        payload["aspect_ratio"] = aspect_ratio
     refs = [u for u in (references or []) if isinstance(u, str) and u.startswith("http")][:8]
     if refs:
         payload["input_references"] = [
@@ -2060,6 +2065,18 @@ def _authed_chat_stream(request):
         # Панель параметров видео (как в плейграунде OpenRouter): разрешение и
         # опорные кадры. Значения валидируются ниже по каталогу модели.
         req_video_resolution = (request.data.get("video_resolution") or "").strip() or None
+        # Пропорции кадра. Одно поле на видео и на картинки: для пользователя
+        # это одна и та же настройка, и незачем плодить два имени.
+        req_aspect_ratio = (request.data.get("aspect_ratio") or "").strip() or None
+        # Для картинок список пропорций общий: каталог /images/models их по
+        # моделям не отдаёт (проверено). Значение из панели, иначе — из текста
+        # запроса («нарисуй вертикально»).
+        try:
+            from .aspect import IMAGE_ASPECT_RATIOS as _IMG_AR, resolve as _resolve_aspect_img
+
+            _aspect_for_images = _resolve_aspect_img(req_aspect_ratio, message, _IMG_AR)
+        except Exception:
+            _aspect_for_images = None
         req_first_frame = (request.data.get("video_first_frame") or "").strip() or None
         req_last_frame = (request.data.get("video_last_frame") or "").strip() or None
 
@@ -2116,7 +2133,19 @@ def _authed_chat_stream(request):
         except Exception:
             origin_base = None
 
-        messages = _build_openai_messages(session, message, system_prompt, origin_base, supports_vision=bool(getattr(model_obj, "supports_vision", False)))
+        # Image-модели, работающие через chat-completions (Nano Banana), параметра
+        # пропорций не имеют вовсе — там пропорция дописывается в текст запроса.
+        # В историю чата дописка НЕ попадает: пользователю она не нужна, а
+        # следующему сообщению незачем тащить старую пропорцию.
+        _msg_for_model = message
+        if _aspect_for_images and _is_image_gen_model(selected_model_name):
+            try:
+                from .aspect import prompt_suffix as _aspect_suffix
+
+                _msg_for_model = message + _aspect_suffix(_aspect_for_images)
+            except Exception:
+                _msg_for_model = message
+        messages = _build_openai_messages(session, _msg_for_model, system_prompt, origin_base, supports_vision=bool(getattr(model_obj, "supports_vision", False)))
         client = _make_openai_client(provider)
         # Лимит длины ответа (ТЗ 4.2): free → ограничен, paid → нет.
         limited = not is_paid_tier(request.user)
@@ -2292,6 +2321,21 @@ def _authed_chat_stream(request):
                     "duration": duration,
                     "resolution": resolution,
                 }
+                # Пропорции: выбранные в панели либо названные словами в самом
+                # запросе («вертикальное видео»). Сверяем с каталогом модели —
+                # 21:9 умеет Seedance, но не умеет Veo, и неверное значение
+                # отвергло бы весь запрос.
+                try:
+                    from .aspect import resolve as _resolve_aspect
+
+                    _spec = _openrouter_video_catalog(selected_model_name) or {}
+                    _ar = _resolve_aspect(
+                        req_aspect_ratio, message, _spec.get("supported_aspect_ratios") or []
+                    )
+                    if _ar:
+                        _submit_body["aspect_ratio"] = _ar
+                except Exception:
+                    logger.exception("video: пропорции не применились")
                 _frames = []
                 if first_img_abs_url:
                     _frames.append({
@@ -2548,7 +2592,8 @@ def _authed_chat_stream(request):
                     flux_refs = []
                 try:
                     gen_atts, provider_cost = _flux_generate_image(
-                        selected_model_name, message, references=flux_refs
+                        selected_model_name, message, references=flux_refs,
+                        aspect_ratio=_aspect_for_images,
                     )
                 except Exception:
                     logger.exception("flux image generation failed")
@@ -2902,6 +2947,18 @@ def OpenAIHandler(request):
         if not message:
             _release_daily_request(request.user)
             return {"error": "No message provided"}
+
+        # Пропорции кадра — та же логика, что в потоковом пути: значение из
+        # панели, иначе названное словами в самом запросе. Считаем отдельно,
+        # потому что это другая функция со своей областью видимости.
+        try:
+            from .aspect import IMAGE_ASPECT_RATIOS as _IMG_AR, resolve as _resolve_aspect_img
+
+            _aspect_for_images = _resolve_aspect_img(
+                (request.data.get("aspect_ratio") or "").strip() or None, message, _IMG_AR
+            )
+        except Exception:
+            _aspect_for_images = None
         attachments = request.data.get("attachments")
 
         # Память пользователя: обработать явные команды «запомни/забудь», затем
@@ -2962,7 +3019,19 @@ def OpenAIHandler(request):
         except Exception:
             origin_base = None
 
-        messages = _build_openai_messages(session, message, system_prompt, origin_base, supports_vision=bool(getattr(model_obj, "supports_vision", False)))
+        # Image-модели, работающие через chat-completions (Nano Banana), параметра
+        # пропорций не имеют вовсе — там пропорция дописывается в текст запроса.
+        # В историю чата дописка НЕ попадает: пользователю она не нужна, а
+        # следующему сообщению незачем тащить старую пропорцию.
+        _msg_for_model = message
+        if _aspect_for_images and _is_image_gen_model(selected_model_name):
+            try:
+                from .aspect import prompt_suffix as _aspect_suffix
+
+                _msg_for_model = message + _aspect_suffix(_aspect_for_images)
+            except Exception:
+                _msg_for_model = message
+        messages = _build_openai_messages(session, _msg_for_model, system_prompt, origin_base, supports_vision=bool(getattr(model_obj, "supports_vision", False)))
         client = _make_openai_client(provider)
 
         # Determine completion tokens limit from selected model settings.
@@ -3026,7 +3095,8 @@ def OpenAIHandler(request):
                 _flux_refs = []
             try:
                 gen_atts, provider_cost = _flux_generate_image(
-                    selected_model_name, message, references=_flux_refs
+                    selected_model_name, message, references=_flux_refs,
+                    aspect_ratio=_aspect_for_images,
                 )
             except Exception:
                 logger.exception("flux image generation failed (non-stream)")

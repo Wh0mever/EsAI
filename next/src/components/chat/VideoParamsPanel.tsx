@@ -20,6 +20,8 @@ type VideoParams = {
 export type VideoSettings = {
   duration: number | null;
   resolution: string | null;
+  /** Пропорции кадра: 16:9, 9:16 и т.д. null — на усмотрение модели. */
+  aspectRatio: string | null;
   firstFrame: string | null;
   lastFrame: string | null;
 };
@@ -61,6 +63,30 @@ function IconRatio({ className = "" }: { className?: string }) {
       strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden>
       <rect x="2" y="6" width="20" height="12" rx="2" />
       <path d="M7 10v4M17 10v4" />
+    </svg>
+  );
+}
+
+/** Подписи к пропорциям — чтобы не гадать, где вертикаль, а где широкий кадр. */
+export const ASPECT_HINT: Record<string, string> = {
+  "16:9": "Горизонтальное — YouTube, презентации",
+  "9:16": "Вертикальное — сторис, Reels, TikTok",
+  "1:1": "Квадрат — лента, аватар",
+  "4:3": "Классическое горизонтальное",
+  "3:4": "Классическое вертикальное",
+  "3:2": "Как фотография",
+  "2:3": "Как фотография, вертикально",
+  "4:5": "Вертикальное для ленты",
+  "21:9": "Кинематографичное, очень широкое",
+  "9:21": "Очень узкое вертикальное",
+};
+
+export function IconAspect({ className = "" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}
+      strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden>
+      <rect x="3" y="5" width="18" height="14" rx="2" />
+      <path d="M8 5v14" />
     </svg>
   );
 }
@@ -322,6 +348,28 @@ export default function VideoParamsPanel({ model, value, onChange }: Props) {
                       type="button"
                       onClick={() => onChange({ resolution: r })}
                       className={chip((value.resolution ?? params.default_resolution) === r)}
+                    >
+                      {r}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {params.aspect_ratios.length > 1 && (
+              <div className="flex flex-col gap-1.5">
+                <span className="inline-flex items-center gap-1.5 text-[11px] text-muted">
+                  <IconAspect className="size-3.5" />
+                  {t("chat.video.aspect", { defaultValue: "Соотношение сторон" })}
+                </span>
+                <div className="flex flex-wrap gap-1.5">
+                  {params.aspect_ratios.map((r) => (
+                    <button
+                      key={r}
+                      type="button"
+                      onClick={() => onChange({ aspectRatio: value.aspectRatio === r ? null : r })}
+                      className={chip(value.aspectRatio === r)}
+                      title={ASPECT_HINT[r] || r}
                     >
                       {r}
                     </button>
