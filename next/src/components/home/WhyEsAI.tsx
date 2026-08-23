@@ -2,11 +2,11 @@
 
 import { useTranslation } from "react-i18next";
 import type { IconType } from "react-icons";
-import { FiGrid, FiUser, FiCreditCard, FiTarget, FiZap, FiSmartphone } from "react-icons/fi";
+import { FiGrid, FiUser, FiCreditCard, FiTarget, FiZap, FiSmartphone, FiStar } from "react-icons/fi";
 
 /**
  * WhyEsAI — секция «Почему EsAI» для главной страницы (блок 2 из 8 в новой
- * структуре лендинга). 6 карточек, текст ДОСЛОВНО из ТЗ клиента.
+ * структуре лендинга). 7 карточек, текст ДОСЛОВНО из ТЗ клиента.
  *
  * Статична (кроме i18n), поэтому не тянет данные с бэка — но помечена
  * "use client", потому что useTranslation требует клиентского рендера
@@ -63,13 +63,22 @@ const CARDS: WhyCard[] = [
     descDefault: "Без ожидания и обновлений",
   },
   {
+    // Клиент попросил закрыть пустое место в сетке: после того как карточка
+    // оплаты стала широкой, рядом с «Новинки сразу» зияла дыра.
+    icon: FiStar,
+    titleKey: "home.why.items.7.title",
+    titleDefault: "Всё AI — в одном месте",
+    descKey: "home.why.items.7.desc",
+    descDefault: "Чат • Картинки • Видео",
+  },
+  {
     icon: FiSmartphone,
     titleKey: "home.why.items.6.title",
     titleDefault: "Удобная оплата",
     descKey: "home.why.items.6.desc",
-    // На узком экране подпись из двух стран разваливается в колонке на шесть
-    // строк, поэтому карточка оплаты занимает всю ширину. На больших экранах
-    // колонка и так широкая — там она обычного размера.
+    // Карточка оплаты во всю ширину: подпись из двух стран в узкой колонке
+    // разваливалась на шесть строк. Заодно ровно закрывает последний ряд —
+    // и на телефоне (4 ряда по два), и на большом экране (3 ряда по три).
     wide: true,
     descDefault:
       "🇰🇬 Кыргызстан: Visa, Mastercard, местные кошельки\n🇷🇺 Россия: карты, SberPay, ЮMoney, T-Pay",
@@ -93,7 +102,7 @@ export default function WhyEsAI() {
               <div
                 key={card.titleKey}
                 className={`rounded-2xl border border-border bg-surface-2 p-3 flex flex-col gap-1.5 ${
-                  card.wide ? "col-span-2 lg:col-span-1" : ""
+                  card.wide ? "col-span-2 lg:col-span-3" : ""
                 }`}
               >
                 <div className="h-8 w-8 sm:h-9 sm:w-9 rounded-xl bg-accent/15 text-accent-strong flex items-center justify-center">
