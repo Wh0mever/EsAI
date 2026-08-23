@@ -4,6 +4,8 @@ services:
       - ./nginx/nginx-ssl.conf:/etc/nginx/nginx.conf:ro
       - ./static:/var/www/static:ro
       - ./media:/var/www/media:ro
+      # Накопительная статика Next (см. location /_next/static/ в nginx-ssl.conf)
+      - ./next-static:/var/www/next-static:ro
       - certbot-var:/var/www/certbot
       - certbot-etc:/etc/letsencrypt
       # Expose nginx logs to host in HTTPS mode as well

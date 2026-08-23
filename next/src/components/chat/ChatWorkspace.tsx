@@ -733,7 +733,7 @@ export default function ChatWorkspace({ chatId, mode = MODE, heroSlot, belowComp
         <div className="flex items-center gap-2">
           {/* Подпись под кнопкой, а не рядом: на телефоне справа остаётся около
               сотни пикселей, и строка в один ряд с кнопкой упёрлась бы в «+».
-              Кнопка (36px) и подпись (13px) вместе укладываются в высоту шапки,
+              Кнопка (32px) и подпись (15px) вместе укладываются в 56px шапки,
               поэтому она не выросла. */}
           {isAuthed ? (
             <div className="flex flex-col items-end gap-0.5">
@@ -749,7 +749,7 @@ export default function ChatWorkspace({ chatId, mode = MODE, heroSlot, belowComp
               <button
                 type="button"
                 onClick={() => setTopUpOpen(true)}
-                className="text-[10px] leading-none text-accent hover:text-accent-strong whitespace-nowrap cursor-pointer"
+                className="text-xs leading-tight font-medium text-accent hover:text-accent-strong whitespace-nowrap cursor-pointer"
               >
                 {t("chat.topbar.topup_hint", { defaultValue: "→ Пополнить баланс" })}
               </button>
@@ -766,7 +766,7 @@ export default function ChatWorkspace({ chatId, mode = MODE, heroSlot, belowComp
               </a>
               <a
                 href="/auth/signin"
-                className="text-[10px] leading-none text-accent hover:text-accent-strong whitespace-nowrap"
+                className="text-xs leading-tight font-medium text-accent hover:text-accent-strong whitespace-nowrap"
               >
                 {bonus.loaded
                   ? t("chat.topbar.guest_bonus", {

@@ -5,7 +5,10 @@
  *   - /api/* (incl. streaming chat): always network, never cached
  * Bump CACHE_VERSION to invalidate old caches on deploy.
  */
-const CACHE_VERSION = "esai-v4";
+// v5: сброс кэшей после починки статики. У части пользователей в SHELL_CACHE
+// лежала страница от старой сборки, чей css уже удалён с сервера, — она
+// открывалась без стилей. Смена версии разом выбрасывает такие копии.
+const CACHE_VERSION = "esai-v5";
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const OFFLINE_URL = "/offline.html";

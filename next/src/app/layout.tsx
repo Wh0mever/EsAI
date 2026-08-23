@@ -8,6 +8,7 @@ import "highlight.js/styles/github-dark.css";
 import "@/assets/style.scss";
 import DomainDefaults from "@/components/bootstrap/DomainDefaults";
 import { THEME_BOOTSTRAP } from "@/lib/theme";
+import { CSS_GUARD } from "@/lib/cssGuard";
 import { SITE_URL, SITE_NAME, OG_IMAGE } from "@/lib/seo/site";
 import { homeJsonLd } from "@/lib/seo/jsonLd";
 import { localeFromAcceptLanguage } from "@/lib/localeDetect";
@@ -142,6 +143,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
 						<img src="https://mc.yandex.ru/watch/111652637" style={{ position: "absolute", left: "-9999px" }} alt="" />
 					</div>
 				</noscript>
+				{/* Страховка от «сайта без стилей» после выкладки — см. lib/cssGuard. */}
+				<script dangerouslySetInnerHTML={{ __html: CSS_GUARD }} />
 				<DomainDefaults />
 				<div id="alert-root"></div>
 				<script
