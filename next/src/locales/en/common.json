@@ -315,9 +315,9 @@
 		"promo_ph": "Enter promo code",
 		"telegram": "Sign in with Telegram",
 		"get_code": "Get code",
-		"cta_part1": "🎁 Sign in with 1 click and get {{count}} free credits.",
+		"cta_part1": "🎁 Sign in with one click and get free credits every day.",
 		"cta_credits": "3,000 credits",
-		"cta_part2": "No card. No subscriptions.",
+		"cta_part2": "No card. No subscription.",
 		"code_sent_to": "Code sent to email",
 		"auto_create_hint": "First time? An account will be created automatically.",
 		"hero_title": "EsAI — All AI models in one place.",
@@ -1063,8 +1063,7 @@
 		},
 		"topbar": {
 			"topup_hint": "→ Top up balance",
-			"guest_bonus": "+{{count}} credits on sign-in",
-			"guest_bonus_plain": "Bonus credits on sign-in"
+			"guest_bonus": "+ Credits every day"
 		},
 		"image": {
 			"panel_title": "Image settings",
@@ -1392,12 +1391,12 @@
 	},
 	"guest": {
 		"limit_title": "Continue? 🎁",
-		"limit_desc": "Get {{count}} free credits for signing up. No card, no subscriptions.",
+		"limit_desc": "Sign in and get up to {{count}} free credits every day. No card, no subscription.",
 		"free_remaining": "{{count}} of {{limit}} free messages left",
-		"sidebar_bonus": "{{count}} free credits for signing up",
+		"sidebar_bonus": "Free credits every day — up to {{count}}",
 		"more_login_options": "All login options (Email)",
-		"sidebar_bonus_plain": "Bonus credits as a gift for signing up",
-		"limit_desc_plain": "Get bonus credits as a gift for signing up. No card, no subscriptions."
+		"sidebar_bonus_plain": "Free credits every day",
+		"limit_desc_plain": "Sign in and get free credits every day. No card, no subscription."
 	},
 	"theme": {
 		"title": "Theme",

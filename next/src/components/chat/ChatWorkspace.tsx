@@ -761,7 +761,7 @@ export default function ChatWorkspace({ chatId, mode = MODE, heroSlot, belowComp
             </div>
           ) : (
             // Гость: вместо баланса «0» — заметная кнопка «Войти» и под ней
-            // размер приветственного бонуса (из админки, не захардкожен).
+            // напоминание про ежедневные кредиты (бонус за регистрацию убран).
             <div className="flex flex-col items-end gap-0.5">
               <a
                 href="/auth/signin"
@@ -773,14 +773,7 @@ export default function ChatWorkspace({ chatId, mode = MODE, heroSlot, belowComp
                 href="/auth/signin"
                 className="text-xs leading-tight font-medium text-accent hover:text-accent-strong whitespace-nowrap"
               >
-                {bonus.loaded
-                  ? t("chat.topbar.guest_bonus", {
-                      count: bonus.welcome_bonus,
-                      defaultValue: "+{{count}} кредитов за вход",
-                    })
-                  : t("chat.topbar.guest_bonus_plain", {
-                      defaultValue: "Бонусные кредиты за вход",
-                    })}
+                {t("chat.topbar.guest_bonus", { defaultValue: "+ Кредиты ежедневно" })}
               </a>
             </div>
           )}

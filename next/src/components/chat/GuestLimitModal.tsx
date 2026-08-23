@@ -32,15 +32,15 @@ export default function GuestLimitModal({ open, onClose }: Props) {
           <FiLock />
         </div>
         <p className="text-sm text-muted mb-5">
-          {bonus.loaded
+          {bonus.loaded && bonus.daily_free_credits > 0
             ? t("guest.limit_desc", {
-                count: bonus.welcome_bonus,
+                count: bonus.daily_free_credits,
                 defaultValue:
-                  "Получите {{count}} кредитов в подарок за регистрацию. Без карты, без подписок.",
+                  "Войдите — и получайте до {{count}} бесплатных кредитов каждый день. Без карты, без подписки.",
               })
             : t("guest.limit_desc_plain", {
                 defaultValue:
-                  "Получите бонусные кредиты в подарок за регистрацию. Без карты, без подписок.",
+                  "Войдите — и получайте бесплатные кредиты каждый день. Без карты, без подписки.",
               })}
         </p>
 

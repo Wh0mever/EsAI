@@ -508,13 +508,14 @@ export default function ChatSidebar({
                 ) : (
                   <div className="rounded-xl border border-accent/40 bg-accent/[0.07] p-3 text-center">
                     <p className="text-sm text-foreground font-medium mb-2.5">
-                      🎁 {bonus.loaded
+                      {/* Бонус за регистрацию убран — зовём на ежедневные кредиты. */}
+                      🎁 {bonus.loaded && bonus.daily_free_credits > 0
                         ? t("guest.sidebar_bonus", {
-                            count: bonus.welcome_bonus,
-                            defaultValue: "{{count}} кредитов в подарок за регистрацию",
+                            count: bonus.daily_free_credits,
+                            defaultValue: "Бесплатные кредиты каждый день — до {{count}}",
                           })
                         : t("guest.sidebar_bonus_plain", {
-                            defaultValue: "Бонусные кредиты в подарок за регистрацию",
+                            defaultValue: "Бесплатные кредиты каждый день",
                           })}
                     </p>
                     <NextLink
