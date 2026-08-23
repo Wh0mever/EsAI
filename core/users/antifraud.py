@@ -185,6 +185,35 @@ def maybe_grant_welcome_bonus(user, request) -> dict:
         return {"status": "skipped"}
 
     amount = int(getattr(settings, "WELCOME_BONUS_TOKENS", 3000) or 0)
+    try:
+        from adminapi.runtime import get_runtime
+
+        amount = int(get_runtime("WELCOME_BONUS_TOKENS", amount))
+    except Exception:
+        pass
+
+    # Приветственный бонус отключён (клиент убрал его в пользу ежедневных).
+    # Тогда сразу выдаём дневную норму, иначе человек регистрируется и сидит с
+    # нулём до ночного прогона начислений — то есть до суток без сервиса.
+    if amount <= 0:
+        try:
+            record_signup_device(user, request)
+        except Exception:
+            pass
+        try:
+            from django.conf import settings as dj_settings
+            from adminapi.runtime import get_runtime as _rt
+            from plans.wallet import set_balance_to
+
+            target = int(_rt("DAILY_RETENTION_TARGET",
+                             getattr(dj_settings, "DAILY_RETENTION_TARGET", 0) or 0))
+            if target > 0 and int(getattr(user, "token_balance", 0) or 0) < target:
+                set_balance_to(user, target, reason="daily_bonus",
+                               meta={"task": "signup_initial"})
+                return {"status": "daily_granted", "amount": target}
+        except Exception:
+            logger.exception("выдача дневной нормы при регистрации не удалась")
+        return {"status": "no_welcome_bonus"}
 
     try:
         # Слепок устройства фиксируем всегда (нужен и для оценки следующих).

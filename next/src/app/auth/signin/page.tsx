@@ -199,20 +199,16 @@ export default function SignIn() {
 
 			{/* CTA клиента — заметный блок с золотым акцентом на «3 000 кредитов» */}
 			<div className="rounded-2xl border border-accent/40 bg-accent/[0.07] px-5 py-4 text-center">
-				{/* Пока размер бонуса не пришёл с сервера — текст без цифры:
-				    обещать сумму, которой нет, нельзя даже на долю секунды. */}
+				{/* Про бонус за регистрацию больше не обещаем: клиент его убрал,
+				    кредиты теперь начисляются каждый день. Числа в тексте нет
+				    намеренно — размер меняется в админке. */}
 				<p className="text-base sm:text-lg font-semibold text-foreground leading-snug">
-					{bonus.loaded
-						? t("auth.cta_part1", {
-								count: bonus.welcome_bonus,
-								defaultValue: "🎁 Войдите в 1 клик и получите {{count}} кредитов в подарок.",
-						  })
-						: t("auth.cta_part1_plain", {
-								defaultValue: "🎁 Войдите в 1 клик и получите бонусные кредиты в подарок.",
-						  })}
+					{t("auth.cta_part1", {
+						defaultValue: "🎁 Войдите в 1 клик и получайте бесплатные кредиты каждый день.",
+					})}
 				</p>
 				<p className="text-sm text-muted mt-1">
-					{t("auth.cta_part2", { defaultValue: "Без карты. Без подписок." })}
+					{t("auth.cta_part2", { defaultValue: "Без карты. Без подписки." })}
 				</p>
 			</div>
 
