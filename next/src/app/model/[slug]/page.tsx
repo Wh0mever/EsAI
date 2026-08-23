@@ -135,7 +135,12 @@ export default async function ModelPage({ params }: { params: Promise<Params> })
                   {f.q}
                   <span className="text-muted group-open:rotate-180 transition-transform">⌄</span>
                 </summary>
-                <p className="mt-2 text-sm text-muted leading-relaxed">{f.a}</p>
+                {/* Размер как у подписей на главной (text-xs → sm), а не крупнее:
+                    просьба клиента. whitespace-pre-line — ответ про оплату
+                    разбит по строкам на страну. */}
+                <p className="mt-2 text-xs sm:text-sm text-muted leading-relaxed whitespace-pre-line">
+                  {f.a}
+                </p>
               </details>
             ))}
           </div>
