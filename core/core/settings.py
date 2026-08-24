@@ -1,4 +1,4 @@
-from pathlib import Path
+﻿from pathlib import Path
 from datetime import timedelta
 import os
 import environ
@@ -107,6 +107,7 @@ INSTALLED_APPS = [
     "payments.apps.PaymentsConfig",
     "audit.apps.AuditConfig",
     "adminapi.apps.AdminapiConfig",
+    "cartoon.apps.CartoonConfig",
 ]
 
 SITE_ID = 1
