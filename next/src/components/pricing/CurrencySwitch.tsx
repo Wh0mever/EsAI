@@ -13,9 +13,12 @@ import type { Currency } from "@/lib/currency";
  * (next/src/hooks/useCurrency.ts), общего для всех мест, где показывается
  * цена (TokenPackages, HomePricingPreview, TopUpModal).
  */
-const CURRENCIES: { code: Currency; label: string }[] = [
-  { code: "KGS", label: "KGS" },
-  { code: "RUB", label: "RUB" },
+// Подписи словами, а не кодами. Клиент справедливо заметил: «россияне даже не
+// знают, что значит KGS». Валюту человек должен узнавать без расшифровки, а
+// коды ISO знают только те, кто с ними работает.
+const CURRENCIES: { code: Currency; label: string; title: string }[] = [
+  { code: "KGS", label: "сом", title: "Кыргызский сом" },
+  { code: "RUB", label: "₽", title: "Российский рубль" },
 ];
 
 type Props = {
@@ -34,13 +37,13 @@ export default function CurrencySwitch({ value, onChange, className }: Props) {
       role="group"
       aria-label="Валюта"
     >
-      {CURRENCIES.map(({ code, label }) => (
+      {CURRENCIES.map(({ code, label, title }) => (
         <button
           key={code}
           type="button"
           onClick={() => onChange(code)}
           aria-pressed={value === code}
-          title={label}
+          title={title}
           className={clsx(
             "rounded-md px-2.5 py-1 text-xs font-semibold transition-colors cursor-pointer",
             value === code

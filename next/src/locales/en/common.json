@@ -413,21 +413,26 @@
 			"6": {
 				"q": "How do I top up my balance?",
 				"a": [
-					"You can top up your balance via Freedom Pay.",
-					"At checkout you can choose the most convenient payment method:",
-					"• Bank card (Visa, Mastercard, Elkart)",
-					"• Internet banking",
+					"Topping up takes a couple of seconds.",
+					"Kyrgyzstan — Freedom Pay:",
+					"• Bank cards",
+					"• Elcart",
 					"• E-wallets",
-					"• Mobile phone balance",
-					"• Payment terminals",
-					"All payments go through the secure Freedom Pay payment system."
+					"• Mobile and internet banking",
+					"Russia — YooKassa:",
+					"• Bank cards",
+					"• SBP",
+					"• SberPay",
+					"• T-Pay",
+					"• YooMoney",
+					"All payments go through the secure Freedom Pay and YooKassa payment systems."
 				]
 			},
 			"7": {
 				"q": "Is payment secure?",
 				"a": [
-					"Yes. All payments are processed by the Freedom Pay payment system.",
-					"EsAI does not store users' bank card details."
+					"Yes. Payments are processed by the secure Freedom Pay and YooKassa payment systems.",
+					"EsAI does not store users' bank card data."
 				]
 			},
 			"8": {
@@ -1434,7 +1439,7 @@
 		"payg_subtitle": "Top up your balance and spend it only on real AI usage. Not using it? We don't charge you anything.",
 		"payg_check_no_subscription": "No subscriptions",
 		"payg_check_no_hidden_fees": "No hidden fees",
-		"payg_check_starts_from": "From 190 som",
+		"payg_check_starts_from": "From 190 KGS / RUB",
 		"rub_payment_soon": "RUB payment coming soon",
 		"rub_payment_soon_hint": "Switch to KGS to pay for this package",
 		"rub_payment_soon_note": "Card payment in rubles is coming soon. Switch the currency to KGS to buy right now.",
