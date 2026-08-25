@@ -696,11 +696,18 @@ def _select_recent_window(rows: list, budget: int) -> list:
     return kept
 
 
-def _build_openai_messages(session: AiChatSession, new_user_text: str, system_prompt: str, origin_base: str | None = None, supports_vision: bool = True) -> List[dict]:
+def _build_openai_messages(session: AiChatSession, new_user_text: str, system_prompt: str, origin_base: str | None = None, supports_vision: bool = True, max_history_images: int | None = None) -> List[dict]:
     """Build messages for Chat Completions, supporting image attachments.
 
     If a message has attachments with type "image" and a URL, we include them via
     multi-part content: [{type: 'text', text: ...}, {type: 'image_url', image_url: {url}}].
+
+    max_history_images ограничивает, сколько картинок из ИСТОРИИ уедет модели
+    (оставляем самые свежие). Нужно для image-моделей: когда в переписке уже
+    десяток сгенерированных картинок, Nano Banana перестаёт рисовать и начинает
+    ПЕРЕСКАЗЫВАТЬ — отвечает текстом с меткой <image> вместо самой картинки.
+    Текстовая часть истории при этом остаётся целой, поэтому «нарисуй так же, но
+    синим» продолжает работать.
 
     Если модель без зрения (supports_vision=False) — картинки из истории/сообщения
     НЕ отправляем (иначе провайдер вернёт 400 'Failed to load image'/'no image
@@ -738,8 +745,21 @@ def _build_openai_messages(session: AiChatSession, new_user_text: str, system_pr
     if summary:
         out.append({"role": "system", "content": CONTEXT_SUMMARY_PREFIX + summary})
 
-    for m in kept:
+    # Индекс сообщения, начиная с которого картинки из истории разрешены.
+    # Всё, что старше, идёт только текстом (см. max_history_images в docstring).
+    _img_from_index = 0
+    if max_history_images is not None:
+        _with_img = [
+            i for i, m in enumerate(kept)
+            if isinstance(getattr(m, "attachments", None), list)
+            and any((a or {}).get("type") == "image" for a in (m.attachments or []))
+        ]
+        if len(_with_img) > max_history_images:
+            _img_from_index = _with_img[-max_history_images]
+
+    for _idx, m in enumerate(kept):
         parts = []
+        _images_allowed = _idx >= _img_from_index
         try:
             atts = m.attachments or []
         except Exception:
@@ -758,7 +778,7 @@ def _build_openai_messages(session: AiChatSession, new_user_text: str, system_pr
                         u = to_abs((a or {}).get("url") or "")
                         if not u:
                             continue
-                        if supports_vision:
+                        if supports_vision and _images_allowed:
                             parts.append({"type": "image_url", "image_url": {"url": u}})
                         else:
                             had_image = True
@@ -2145,7 +2165,13 @@ def _authed_chat_stream(request):
                 _msg_for_model = message + _aspect_suffix(_aspect_for_images)
             except Exception:
                 _msg_for_model = message
-        messages = _build_openai_messages(session, _msg_for_model, system_prompt, origin_base, supports_vision=bool(getattr(model_obj, "supports_vision", False)))
+        messages = _build_openai_messages(
+            session, _msg_for_model, system_prompt, origin_base,
+            supports_vision=bool(getattr(model_obj, "supports_vision", False)),
+            # Для image-моделей ограничиваем число картинок из истории: с
+            # десятком прошлых изображений Nano Banana сбивается на пересказ.
+            max_history_images=2 if _is_image_gen_model(selected_model_name) else None,
+        )
         client = _make_openai_client(provider)
         # Лимит длины ответа (ТЗ 4.2): free → ограничен, paid → нет.
         limited = not is_paid_tier(request.user)
@@ -2694,6 +2720,21 @@ def _authed_chat_stream(request):
                 _release_daily_request(user)
                 yield _sse({"error": "Не удалось сгенерировать ответ. Попробуйте ещё раз.", "done": True})
                 return
+            # Image-модель ответила ТЕКСТОМ без картинки. Так бывает, когда
+            # Gemini «переключается» в рассказ и пишет метку вроде <image>
+            # вместо самой картинки. Человек просил изображение, изображения нет
+            # — брать за это деньги нельзя. Ответ показываем (вдруг там что-то
+            # полезное), но списание обнуляем и честно говорим, что вышло.
+            _image_expected_missed = bool(
+                _is_image_gen_model(selected_model_name) and not gen_atts
+            )
+            if _image_expected_missed:
+                _note = (
+                    "_Изображение не пришло — модель ответила текстом. "
+                    "Кредиты за этот ответ не списаны, попробуйте ещё раз._"
+                )
+                answer = ((answer or "").strip() + "\n\n" + _note).strip()
+
             # Гарантия по символам для ограниченных (ТЗ 4.2): обрезаем + приписка.
             if char_limit is not None:
                 answer = _truncate_for_free(answer)
@@ -2717,6 +2758,11 @@ def _authed_chat_stream(request):
             charged, total_int, coeff_dec, usage_missing = _compute_charge(
                 usage_meta, messages, answer, web_search=web_search,
             )
+            if _image_expected_missed:
+                # Ноль вместо оценки: списывать за неполученную картинку нечестно.
+                charged = 0
+                usage_meta = dict(usage_meta)
+                usage_meta["image_missing"] = True
             if usage_missing:
                 usage_meta = dict(usage_meta)
                 usage_meta["usage_missing"] = True
@@ -3031,7 +3077,13 @@ def OpenAIHandler(request):
                 _msg_for_model = message + _aspect_suffix(_aspect_for_images)
             except Exception:
                 _msg_for_model = message
-        messages = _build_openai_messages(session, _msg_for_model, system_prompt, origin_base, supports_vision=bool(getattr(model_obj, "supports_vision", False)))
+        messages = _build_openai_messages(
+            session, _msg_for_model, system_prompt, origin_base,
+            supports_vision=bool(getattr(model_obj, "supports_vision", False)),
+            # Для image-моделей ограничиваем число картинок из истории: с
+            # десятком прошлых изображений Nano Banana сбивается на пересказ.
+            max_history_images=2 if _is_image_gen_model(selected_model_name) else None,
+        )
         client = _make_openai_client(provider)
 
         # Determine completion tokens limit from selected model settings.
@@ -3218,6 +3270,17 @@ def OpenAIHandler(request):
             _release_daily_request(request.user)
             return {"error": "Не удалось сгенерировать ответ. Попробуйте ещё раз."}
 
+        # Просили картинку, пришёл текст — см. тот же разбор в потоковом пути.
+        _image_expected_missed = bool(
+            _is_image_gen_model(selected_model_name) and not gen_atts
+        )
+        if _image_expected_missed:
+            _note = (
+                "_Изображение не пришло — модель ответила текстом. "
+                "Кредиты за этот ответ не списаны, попробуйте ещё раз._"
+            )
+            answer = ((answer or "").strip() + "\n\n" + _note).strip()
+
         # Гарантия по символам для ограниченных тиров (ТЗ 4.2): обрезаем + приписка.
         if limited:
             answer = _truncate_for_free(answer)
@@ -3246,6 +3309,11 @@ def OpenAIHandler(request):
         charged, total_int, coeff_dec, usage_missing = _compute_charge(
             usage_meta, messages, answer, web_search=web_search,
         )
+        if _image_expected_missed:
+            # Ноль вместо оценки: списывать за неполученную картинку нечестно.
+            charged = 0
+            usage_meta = dict(usage_meta)
+            usage_meta["image_missing"] = True
         if usage_missing:
             usage_meta = dict(usage_meta)
             usage_meta["usage_missing"] = True
