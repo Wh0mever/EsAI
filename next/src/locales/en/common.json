@@ -1222,8 +1222,7 @@
 		"profile": "Profile",
 		"settings": "Settings",
 		"logout": "Logout",
-		"logOutConfirmTitle": "Are you sure you want to log out?",
-		"studio": "Cartoons"
+		"logOutConfirmTitle": "Are you sure you want to log out?"
 	},
 	"forms": {
 		"required_short": "Please fill in all required fields"
