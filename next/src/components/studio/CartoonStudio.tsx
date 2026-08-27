@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { FiDownload, FiFilm, FiLoader, FiPlus, FiZap } from "react-icons/fi";
+import { FiFilm, FiLoader, FiPlus, FiZap } from "react-icons/fi";
 import { fetchData } from "@/tools/fetchData";
+import SaveMediaButton from "@/components/ui/SaveMediaButton";
 import CharacterPicker, { type StudioCharacter } from "./CharacterPicker";
 import SceneTimeline, { type StudioScene } from "./SceneTimeline";
 
@@ -384,14 +385,16 @@ export default function CartoonStudio() {
                 playsInline
                 className="w-full rounded-2xl border border-border bg-black"
               />
-              <a
-                href={project.result_video}
-                download="esai-cartoon.mp4"
-                className="inline-flex w-fit items-center gap-2 rounded-full border border-accent px-4 py-2 text-sm font-semibold text-accent transition-colors hover:bg-accent-soft"
+              {/* Не <a download>: на iPhone он не скачивает, а открывает файл
+                  серой заглушкой «Открыть в iMovie» (жалоба клиента). */}
+              <SaveMediaButton
+                url={project.result_video}
+                filename="esai-cartoon.mp4"
+                label="Скачать мультфильм"
+                className="inline-flex w-fit cursor-pointer items-center gap-2 rounded-full border border-accent px-4 py-2 text-sm font-semibold text-accent transition-colors hover:bg-accent-soft"
               >
-                <FiDownload />
                 Скачать
-              </a>
+              </SaveMediaButton>
             </section>
           )}
 
