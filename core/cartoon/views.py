@@ -1,4 +1,4 @@
-﻿"""API студии мультфильмов.
+"""API студии мультфильмов.
 
 Путь пользователя, который эти эндпоинты обслуживают:
   1. GET  presets/           — что можно снять (с видео-превью и ценой)
@@ -31,7 +31,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
-from .models import CartoonCharacter, CartoonPreset, CartoonProject, CartoonScene
+from .models import (CartoonCategory, CartoonCharacter, CartoonPreset, CartoonProject,
+                     CartoonScene)
 from .tasks import assemble_movie, render_scene
 
 logger = logging.getLogger(__name__)
@@ -76,7 +77,12 @@ def preset_json(p: CartoonPreset) -> dict:
         "duration": p.duration,
         "aspect_ratio": p.aspect_ratio,
         "credits": p.estimated_credits(),
+        "category": p.category.slug if p.category_id else "",
     }
+
+
+def category_json(c) -> dict:
+    return {"slug": c.slug, "title": c.title, "emoji": c.emoji}
 
 
 def character_json(c: CartoonCharacter) -> dict:
@@ -86,6 +92,7 @@ def character_json(c: CartoonCharacter) -> dict:
         "image": c.image.url if c.image else "",
         "source": c.source,
         "is_mine": c.user_id is not None,
+        "category": c.category.slug if c.category_id else "",
     }
 
 
@@ -118,12 +125,27 @@ def project_json(p: CartoonProject) -> dict:
 
 
 class PresetsView(StudioPublicAPIView):
-    """GET — активные пресеты сцен."""
+    """GET — активные пресеты сцен вместе с разделами библиотеки.
+
+    Разделы отдаём тем же запросом, а не отдельной ручкой: библиотека без них
+    не рисуется, а лишний поход по сети на старте студии — лишняя секунда до
+    первого превью.
+    """
 
     def get(self, request):
+        # Сортировка по разделу нужна и во вкладке «Все»: там сцены идут одной
+        # лентой, и без неё финал соседствует с началом.
         qs = CartoonPreset.objects.filter(is_active=True).select_related(
-            "image_model", "video_model")
-        return Response([preset_json(p) for p in qs])
+            "image_model", "video_model", "category").order_by(
+            "category__sort_order", "sort_order", "id")
+        presets = [preset_json(p) for p in qs]
+        used = {p["category"] for p in presets}
+        cats = CartoonCategory.objects.filter(is_active=True)
+        return Response({
+            # Пустые разделы не показываем: человек ткнёт и увидит ничего.
+            "categories": [category_json(c) for c in cats if c.slug in used],
+            "presets": presets,
+        })
 
 
 class CharactersView(StudioPublicAPIView):
@@ -133,8 +155,8 @@ class CharactersView(StudioPublicAPIView):
         library = Q(is_public=True, user__isnull=True)
         # У анонима нет своих персонажей, а Q(user=AnonymousUser) уронил бы запрос.
         mine = Q(user=request.user) if request.user.is_authenticated else Q(pk__in=[])
-        qs = CartoonCharacter.objects.filter(library | mine).order_by(
-            "-user_id", "sort_order", "-created_at")
+        qs = CartoonCharacter.objects.filter(library | mine).select_related(
+            "category").order_by("-user_id", "sort_order", "-created_at")
         return Response([character_json(c) for c in qs])
 
     def post(self, request):
