@@ -1,4 +1,4 @@
-from django.urls import path
+﻿from django.urls import path
 from django.urls import include
 from django.contrib import admin
 from django.conf import settings
@@ -12,6 +12,7 @@ urlpatterns = [
     path('api/plans/', include('plans.urls')),
     path('api/payments/', include('payments.urls')),
     path('api/manage/', include('adminapi.urls')),
+    path('api/cartoon/', include('cartoon.urls')),
 ]
 
 if settings.DEBUG:
