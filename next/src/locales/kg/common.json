@@ -1221,8 +1221,7 @@
 		"profile": "Профиль",
 		"settings": "Жөндөөлөр",
 		"logout": "Чыгуу",
-		"logOutConfirmTitle": "Чыгууну каалайсызбы?",
-		"studio": "Мультфильмдер"
+		"logOutConfirmTitle": "Чыгууну каалайсызбы?"
 	},
 	"forms": {
 		"required_short": "Милдеттүү талааларды толтуруңуз"
@@ -1724,7 +1723,15 @@
 		"back_to_studio": "Студияга кайтуу",
 		"all_packages": "EsAI'дин бардык тарифтери",
 		"value_characters_one": "🦸 Кошумча өз каармандарыңыз — {{count}} кредиттен",
-		"value_characters_other": "🦸 Кошумча өз каармандарыңыз — {{count}} кредиттен"
+		"value_characters_other": "🦸 Кошумча өз каармандарыңыз — {{count}} кредиттен",
+		"credits_few": "{{count}} кредит",
+		"credits_many": "{{count}} кредит",
+		"value_scenes_few": "🎬 5 секунддук {{count}} көрүнүшкө",
+		"value_scenes_many": "🎬 5 секунддук {{count}} көрүнүшкө",
+		"value_movies_few": "🎞 20 секунддук {{count}} мультфильмге",
+		"value_movies_many": "🎞 20 секунддук {{count}} мультфильмге",
+		"value_characters_few": "🦸 Кошумча өз каармандарыңыз — {{count}} кредиттен",
+		"value_characters_many": "🦸 Кошумча өз каармандарыңыз — {{count}} кредиттен"
 	},
 	"studio_ui": {
 		"title": "Мультфильм студиясы",
@@ -1776,6 +1783,10 @@
 		"retry_failed": "Кайра аракет кылуу",
 		"remove": "Көрүнүштү алып салуу",
 		"credits_short": "кр",
-		"price": "{{credits}} кр · {{duration}} сек"
+		"price": "{{credits}} кр · {{duration}} сек",
+		"short_title_few": "Улантуу үчүн дагы {{count}} кредит керек",
+		"short_title_many": "Улантуу үчүн дагы {{count}} кредит керек",
+		"balance_few": "Балансыңызда {{count}} кредит",
+		"balance_many": "Балансыңызда {{count}} кредит"
 	}
 }

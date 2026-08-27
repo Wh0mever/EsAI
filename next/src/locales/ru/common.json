@@ -1221,8 +1221,7 @@
 		"profile": "Профиль",
 		"settings": "Настройки",
 		"logout": "Выйти",
-		"logOutConfirmTitle": "Вы уверены, что хотите выйти?",
-		"studio": "Мультфильмы"
+		"logOutConfirmTitle": "Вы уверены, что хотите выйти?"
 	},
 	"forms": {
 		"required_short": "Заполни обязательные поля"
