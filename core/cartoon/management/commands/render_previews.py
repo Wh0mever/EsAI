@@ -28,21 +28,11 @@ from django.core.management.base import BaseCommand
 from cartoon.models import CartoonCharacter, CartoonPreset
 from cartoon.services import generate_keyframe, generate_scene_video
 
-# Стартовая библиотека. Разные по типажу, чтобы человек сразу увидел, что
-# героем может быть кто угодно, а не только зверёк.
-LIBRARY = [
-    ("Кот-супергерой", "a ginger cat superhero in a blue cape with small goggles",
-     "a friendly ginger cat superhero wearing a blue cape and small flight goggles"),
-    ("Девочка-космонавт", "a little girl astronaut with red braids in a white spacesuit",
-     "a cheerful little girl astronaut with red braids, white spacesuit with orange stripes"),
-    ("Дракончик", "a small round green dragon with tiny wings",
-     "a small round friendly green dragon with tiny wings and big eyes"),
-    ("Робот-помощник", "a small white round robot with glowing blue eyes",
-     "a small white rounded helper robot with glowing blue eyes and short arms"),
-]
+from cartoon.library import CHARACTERS, STYLE as SCENE_STYLE
+from cartoon.models import CartoonCategory
 
-# Без слов «character sheet»: модель воспринимала их буквально и печатала
-# подпись в самой картинке. Надписи запрещаем прямым текстом.
+# Как рисуем самого героя. Без слов «character sheet»: модель понимала их
+# буквально и печатала подпись в самой картинке. Надписи запрещаем прямо.
 STYLE_SUFFIX = ("Full body view, standing, clean plain white background, "
                 "NO text, NO captions, NO labels, NO watermark anywhere in the image. "
                 "3D cartoon animation style, soft lighting, vibrant colors, front view.")
@@ -62,7 +52,7 @@ class Command(BaseCommand):
         from ai.handlers import _openrouter_config
 
         cfg = _openrouter_config()
-        for name, description, look in LIBRARY:
+        for name, description, look, cat_slug in CHARACTERS:
             if CartoonCharacter.objects.filter(name=name, user__isnull=True).exists():
                 continue
             self.stdout.write(f"  рисую героя: {name}")
@@ -83,6 +73,7 @@ class Command(BaseCommand):
                 continue
             char = CartoonCharacter(
                 user=None, name=name, description=description,
+                category=CartoonCategory.objects.filter(slug=cat_slug).first(),
                 source=CartoonCharacter.SOURCE_LIBRARY, is_public=True,
             )
             char.image.save(f"{uuid.uuid4().hex}.jpg", ContentFile(base64.b64decode(b64)), save=True)

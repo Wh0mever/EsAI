@@ -1,4 +1,4 @@
-"""Студия мультфильмов: персонаж → сцены по пресетам → таймлайн → склейка.
+﻿"""Студия мультфильмов: персонаж → сцены по пресетам → таймлайн → склейка.
 
 Замысел клиента: человек НЕ пишет промпты и не разбирается в видео-моделях.
 Он выбирает или создаёт персонажа, набирает готовые сцены из библиотеки и
@@ -23,6 +23,30 @@ from django.conf import settings
 from django.db import models
 
 from ai.models import GPTModels
+
+
+class CartoonCategory(models.Model):
+    """Раздел библиотеки: и для сцен, и для героев.
+
+    Отдельной моделью, а не списком в коде: клиент просил, чтобы библиотека
+    росла работами пользователей, а модератор при публикации выбирал раздел.
+    Значит, разделы должны заводиться в админке, без выкладки кода.
+    """
+    title = models.CharField(max_length=80, verbose_name="Название")
+    slug = models.SlugField(max_length=90, unique=True, verbose_name="Код")
+    emoji = models.CharField(
+        max_length=8, blank=True, default="", verbose_name="Значок",
+        help_text="Один символ для плитки раздела, необязательно.")
+    sort_order = models.PositiveIntegerField(default=100, verbose_name="Порядок")
+    is_active = models.BooleanField(default=True, verbose_name="Показывать")
+
+    def __str__(self):
+        return self.title
+
+    class Meta:
+        ordering = ("sort_order", "id")
+        verbose_name = "Раздел библиотеки"
+        verbose_name_plural = "Разделы библиотеки"
 
 
 class CartoonPreset(models.Model):
@@ -86,6 +110,9 @@ class CartoonPreset(models.Model):
         null=True, blank=True, verbose_name="Цена вручную",
         help_text="Пусто — цена считается по моделям и длительности. Заполните, чтобы назначить свою.")
 
+    category = models.ForeignKey(
+        CartoonCategory, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="presets", verbose_name="Раздел")
     sort_order = models.PositiveIntegerField(default=100, verbose_name="Порядок")
     is_active = models.BooleanField(default=True, verbose_name="Показывать")
     created_at = models.DateTimeField(auto_now_add=True)
@@ -134,6 +161,9 @@ class CartoonCharacter(models.Model):
             "По-английски, короткой фразой: «a ginger cat superhero in a blue cape». "
             "Подставляется в промпт вместо слова «character»."
         ))
+    category = models.ForeignKey(
+        CartoonCategory, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="characters", verbose_name="Раздел")
     source = models.CharField(max_length=12, choices=SOURCE_CHOICES, default=SOURCE_LIBRARY,
                               verbose_name="Откуда")
     is_public = models.BooleanField(default=False, verbose_name="В общей библиотеке")
