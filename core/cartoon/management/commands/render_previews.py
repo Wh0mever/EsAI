@@ -28,7 +28,7 @@ from django.core.management.base import BaseCommand
 from cartoon.models import CartoonCharacter, CartoonPreset
 from cartoon.services import generate_keyframe, generate_scene_video
 
-from cartoon.library import CHARACTERS, STYLE as SCENE_STYLE
+from cartoon.library import CHARACTER_TRANSLATIONS, CHARACTERS, STYLE as SCENE_STYLE
 from cartoon.models import CartoonCategory
 
 # Как рисуем самого героя. Без слов «character sheet»: модель понимала их
@@ -71,8 +71,10 @@ class Command(BaseCommand):
             except Exception as exc:
                 self.stderr.write(self.style.WARNING(f"    не вышло: {exc}"))
                 continue
+            tr = CHARACTER_TRANSLATIONS.get(name, ("", ""))
             char = CartoonCharacter(
-                user=None, name=name, description=description,
+                user=None, name=name, name_en=tr[0], name_kg=tr[1],
+                description=description,
                 category=CartoonCategory.objects.filter(slug=cat_slug).first(),
                 source=CartoonCharacter.SOURCE_LIBRARY, is_public=True,
             )

@@ -64,6 +64,17 @@ type TokenPackagesProps = {
   onPurchaseStart?: () => void;
   /** вызывается после ответа/редиректа покупки (успех или ошибка) */
   onPurchaseEnd?: () => void;
+  /**
+   * Куда вернуть человека после оплаты и после входа. По умолчанию профиль и
+   * /pricing. Студия ставит сюда «/studio»: тот, кто пошёл платить из
+   * недоделанного мультфильма, должен вернуться к нему, а не в профиль.
+   */
+  returnTo?: string;
+  /**
+   * Чем заменить блок «Примерно хватит на». Нужно витрине студии: там
+   * считают не запросы и картинки, а сцены и мультфильмы.
+   */
+  valueOverride?: (pkg: Pkg) => { title: string; rows: string[] } | null;
 };
 
 /**
@@ -87,6 +98,8 @@ export default function TokenPackages({
   convert = (priceKgs: number) => priceKgs,
   onPurchaseStart,
   onPurchaseEnd,
+  returnTo,
+  valueOverride,
 }: TokenPackagesProps = {}) {
   const { t } = useTranslation("common");
   const [packages, setPackages] = useState<Pkg[]>([]);
@@ -158,7 +171,7 @@ export default function TokenPackages({
   const onBuy = async (pkg: Pkg) => {
     // Guests must authenticate before topping up.
     if (!authed) {
-      const next = encodeURIComponent("/pricing");
+      const next = encodeURIComponent(returnTo || "/pricing");
       window.location.href = `/auth/signin?next=${next}`;
       return;
     }
@@ -171,7 +184,7 @@ export default function TokenPackages({
         "plans/purchase/",
         "POST",
         // Валюта решает платёжный путь: RUB -> ЮKassa, KGS -> FreedomPay.
-        { package_id: pkg.id, pay_currency: currency },
+        { package_id: pkg.id, pay_currency: currency, ...(returnTo ? { return_to: returnTo } : {}) },
         true,
         deviceKey ? { "X-Device-Key": deviceKey } : undefined
       );
@@ -283,6 +296,7 @@ export default function TokenPackages({
                 }),
               });
             }
+            const custom = valueOverride ? valueOverride(p) : null;
             return (
               <div
                 key={p.id}
@@ -339,7 +353,18 @@ export default function TokenPackages({
                   )}
                 </div>
 
-                {valueRows.length > 0 && (
+                {custom ? (
+                  <div className="rounded-xl bg-surface-2 border border-border px-3.5 py-3 flex flex-col gap-1.5">
+                    <div className="text-xs font-semibold text-muted uppercase tracking-wide">{custom.title}</div>
+                    <ul className="flex flex-col gap-1 text-sm text-foreground">
+                      {custom.rows.map((r) => (
+                        <li key={r}>{r}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+
+                {!custom && valueRows.length > 0 && (
                   <div className="rounded-xl bg-surface-2 border border-border px-3.5 py-3 flex flex-col gap-1.5">
                     <div className="text-xs font-semibold text-muted uppercase tracking-wide">
                       {t("packages.value_title", { defaultValue: "Примерно хватит на" })}

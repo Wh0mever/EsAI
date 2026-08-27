@@ -60,18 +60,40 @@ class StudioPublicAPIView(APIView):
     permission_classes = [AllowAny]
 
 
+def _lang(request) -> str:
+    """Язык витрины: сначала явный ?lang= с фронта, потом Accept-Language.
+
+    Фронт знает выбранный язык лучше браузера (человек мог переключить его
+    руками), поэтому параметр важнее заголовка.
+    """
+    raw = (request.query_params.get("lang") or "").strip().lower()
+    if raw not in ("ru", "en", "kg"):
+        header = (request.META.get("HTTP_ACCEPT_LANGUAGE") or "").lower()
+        raw = "kg" if header.startswith(("ky", "kg")) else ("en" if header.startswith("en") else "ru")
+    return raw
+
+
+def _tr(obj, field: str, lang: str) -> str:
+    """Перевод поля с откатом на русский: пустой перевод хуже родного текста."""
+    if lang in ("en", "kg"):
+        value = (getattr(obj, f"{field}_{lang}", "") or "").strip()
+        if value:
+            return value
+    return getattr(obj, field, "") or ""
+
+
 def _media(path: str) -> str:
     return default_storage.url(path) if path else ""
 
 
-def preset_json(p: CartoonPreset) -> dict:
+def preset_json(p: CartoonPreset, lang: str = "ru") -> dict:
     """Пользователю — только витрина: название, превью, длительность и цена.
     Промпты и модели наружу не отдаём: это внутренняя кухня студии."""
     return {
         "id": p.id,
         "slug": p.slug,
-        "title": p.title,
-        "subtitle": p.subtitle,
+        "title": _tr(p, "title", lang),
+        "subtitle": _tr(p, "subtitle", lang),
         "preview_video": p.preview_video.url if p.preview_video else "",
         "preview_poster": p.preview_poster.url if p.preview_poster else "",
         "duration": p.duration,
@@ -81,14 +103,14 @@ def preset_json(p: CartoonPreset) -> dict:
     }
 
 
-def category_json(c) -> dict:
-    return {"slug": c.slug, "title": c.title, "emoji": c.emoji}
+def category_json(c, lang: str = "ru") -> dict:
+    return {"slug": c.slug, "title": _tr(c, "title", lang), "emoji": c.emoji}
 
 
-def character_json(c: CartoonCharacter) -> dict:
+def character_json(c: CartoonCharacter, lang: str = "ru") -> dict:
     return {
         "id": c.id,
-        "name": c.name,
+        "name": _tr(c, "name", lang),
         "image": c.image.url if c.image else "",
         "source": c.source,
         "is_mine": c.user_id is not None,
@@ -138,13 +160,50 @@ class PresetsView(StudioPublicAPIView):
         qs = CartoonPreset.objects.filter(is_active=True).select_related(
             "image_model", "video_model", "category").order_by(
             "category__sort_order", "sort_order", "id")
-        presets = [preset_json(p) for p in qs]
+        lang = _lang(request)
+        presets = [preset_json(p, lang) for p in qs]
         used = {p["category"] for p in presets}
         cats = CartoonCategory.objects.filter(is_active=True)
         return Response({
             # Пустые разделы не показываем: человек ткнёт и увидит ничего.
-            "categories": [category_json(c) for c in cats if c.slug in used],
+            "categories": [category_json(c, lang) for c in cats if c.slug in used],
             "presets": presets,
+        })
+
+
+class PricingView(StudioPublicAPIView):
+    """GET — из чего складывается счёт студии.
+
+    Считается по тем же моделям, что и реальные списания, а не вписывается
+    руками: коэффициенты меняются в админке, и страница тарифов не должна
+    расходиться со списаниями. Дороже сцены в студии ничего нет, поэтому
+    именно она и есть единица счёта для пользователя.
+    """
+
+    def get(self, request):
+        from ai.models import GPTModels
+
+        img = GPTModels.objects.filter(
+            openrouter_id="google/gemini-2.5-flash-image", is_active=True).first()
+        character = max(1, int(float(img.markup_coefficient or 1))) if img else 4
+
+        prices = sorted(
+            p.estimated_credits()
+            for p in CartoonPreset.objects.filter(is_active=True).select_related(
+                "image_model", "video_model")
+        )
+        if not prices:
+            prices = [0]
+        # Медиана, а не среднее: пара коротких сцен не должна занижать цифру,
+        # по которой человек прикидывает, на сколько ему хватит пакета.
+        typical = prices[len(prices) // 2]
+        return Response({
+            "character": character,
+            "scene_min": prices[0],
+            "scene_typical": typical,
+            "scene_max": prices[-1],
+            # Склейка идёт на нашем сервере через ffmpeg и моделям не платится.
+            "assembly": 0,
         })
 
 
@@ -157,7 +216,8 @@ class CharactersView(StudioPublicAPIView):
         mine = Q(user=request.user) if request.user.is_authenticated else Q(pk__in=[])
         qs = CartoonCharacter.objects.filter(library | mine).select_related(
             "category").order_by("-user_id", "sort_order", "-created_at")
-        return Response([character_json(c) for c in qs])
+        lang = _lang(request)
+        return Response([character_json(c, lang) for c in qs])
 
     def post(self, request):
         if not request.user.is_authenticated:

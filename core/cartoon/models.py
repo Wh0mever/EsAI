@@ -33,6 +33,10 @@ class CartoonCategory(models.Model):
     Значит, разделы должны заводиться в админке, без выкладки кода.
     """
     title = models.CharField(max_length=80, verbose_name="Название")
+    # Библиотека — такой же контент, как статьи блога, и переводится так же:
+    # отдельным полем на язык. Пусто — покажется русское название.
+    title_en = models.CharField(max_length=80, blank=True, default="", verbose_name="Название (EN)")
+    title_kg = models.CharField(max_length=80, blank=True, default="", verbose_name="Название (KG)")
     slug = models.SlugField(max_length=90, unique=True, verbose_name="Код")
     emoji = models.CharField(
         max_length=8, blank=True, default="", verbose_name="Значок",
@@ -56,9 +60,13 @@ class CartoonPreset(models.Model):
     длительность он не трогает — в этом вся идея студии.
     """
     title = models.CharField(max_length=120, verbose_name="Название")
+    title_en = models.CharField(max_length=120, blank=True, default="", verbose_name="Название (EN)")
+    title_kg = models.CharField(max_length=120, blank=True, default="", verbose_name="Название (KG)")
     subtitle = models.CharField(
         max_length=160, blank=True, default="", verbose_name="Подпись",
         help_text="Короткое пояснение под названием, напр. «Герой появляется на крыше»")
+    subtitle_en = models.CharField(max_length=160, blank=True, default="", verbose_name="Подпись (EN)")
+    subtitle_kg = models.CharField(max_length=160, blank=True, default="", verbose_name="Подпись (KG)")
     slug = models.SlugField(max_length=140, unique=True, verbose_name="Код")
 
     preview_video = models.FileField(
@@ -154,6 +162,8 @@ class CartoonCharacter(models.Model):
         related_name="cartoon_characters", verbose_name="Владелец",
         help_text="Пусто — персонаж из общей библиотеки.")
     name = models.CharField(max_length=120, verbose_name="Имя")
+    name_en = models.CharField(max_length=120, blank=True, default="", verbose_name="Имя (EN)")
+    name_kg = models.CharField(max_length=120, blank=True, default="", verbose_name="Имя (KG)")
     image = models.ImageField(upload_to="cartoon/characters/", verbose_name="Изображение")
     description = models.TextField(
         blank=True, default="", verbose_name="Описание для моделей",

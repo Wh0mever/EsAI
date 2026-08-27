@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslation } from "react-i18next";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { FiFilm, FiLoader, FiPlus, FiZap } from "react-icons/fi";
 import { fetchData } from "@/tools/fetchData";
@@ -50,6 +51,7 @@ type Project = {
 const WORKING: StudioScene["status"][] = ["new", "keyframe", "video"];
 
 export default function CartoonStudio() {
+  const { t, i18n } = useTranslation("common");
   const [presets, setPresets] = useState<Preset[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [activeCat, setActiveCat] = useState("");
@@ -62,6 +64,9 @@ export default function CartoonStudio() {
   const [adding, setAdding] = useState<number | null>(null);
   const [busyIds, setBusyIds] = useState<Set<number>>(new Set());
   const [assembling, setAssembling] = useState(false);
+  // Не хватило кредитов — не ошибка, а точка покупки: человек уже выбрал героя
+  // и сцену, и это самый дорогой момент, чтобы упереться в сухую красную строку.
+  const [shortfall, setShortfall] = useState<{ required: number; balance: number } | null>(null);
   const [authed, setAuthed] = useState(true);
   const pollRef = useRef<number | null>(null);
 
@@ -86,9 +91,12 @@ export default function CartoonStudio() {
   useEffect(() => {
     let alive = true;
     (async () => {
+      // Язык нужен серверу: названия сцен и героев лежат в базе и переводятся
+      // там же, поэтому витрина просит их сразу на нужном языке.
+      const lang = (i18n.language || "ru").slice(0, 2) === "ky" ? "kg" : (i18n.language || "ru").slice(0, 2);
       const [p, c, mine] = await Promise.all([
-        fetchData<{ categories: Category[]; presets: Preset[] }>("cartoon/presets/", "GET", null, true),
-        fetchData<StudioCharacter[]>("cartoon/characters/", "GET", null, true),
+        fetchData<{ categories: Category[]; presets: Preset[] }>(`cartoon/presets/?lang=${lang}`, "GET", null, true),
+        fetchData<StudioCharacter[]>(`cartoon/characters/?lang=${lang}`, "GET", null, true),
         fetchData<Project[]>("cartoon/projects/", "GET", null, true),
       ]);
       if (!alive) return;
@@ -97,7 +105,7 @@ export default function CartoonStudio() {
         setCategories(p.data.categories || []);
       }
       if (c.ok && Array.isArray(c.data)) setCharacters(c.data);
-      if (!p.ok) setError("Не удалось загрузить сцены. Обновите страницу.");
+      if (!p.ok) setError(t("studio_ui.err_load"));
 
       // Витрина открыта всем, а свои мультфильмы есть только у вошедших:
       // по ответу этого запроса и понимаем, гость перед нами или нет.
@@ -117,7 +125,7 @@ export default function CartoonStudio() {
     return () => {
       alive = false;
     };
-  }, [loadBalance]);
+  }, [loadBalance, i18n.language]);
 
   // Опрос, пока что-то считается.
   const refresh = useCallback(async (id: number) => {
@@ -160,7 +168,7 @@ export default function CartoonStudio() {
       setProject(res.data);
       return res.data;
     }
-    setError((res.data as any)?.detail || "Не удалось начать мультфильм");
+    setError((res.data as any)?.detail || t("studio_ui.err_project"));
     return null;
   }, [project, character]);
 
@@ -172,6 +180,7 @@ export default function CartoonStudio() {
       return;
     }
     setError("");
+    setShortfall(null);
     setAdding(preset.id);
     const p = await ensureProject();
     if (!p) {
@@ -186,11 +195,11 @@ export default function CartoonStudio() {
       await refresh(p.id);
     } else {
       const d = res.data as any;
-      setError(
-        d?.required
-          ? `Не хватает кредитов: нужно ${d.required}, на балансе ${d.balance}`
-          : d?.detail || "Не удалось добавить сцену"
-      );
+      if (d?.required) {
+        setShortfall({ required: Number(d.required), balance: Number(d.balance ?? 0) });
+      } else {
+        setError(d?.detail || t("studio_ui.err_scene"));
+      }
     }
   };
 
@@ -238,7 +247,7 @@ export default function CartoonStudio() {
     );
     setAssembling(false);
     if (res.ok && res.data) setProject(res.data);
-    else setError((res.data as any)?.detail || "Не удалось собрать мультфильм");
+    else setError((res.data as any)?.detail || t("studio_ui.err_assemble"));
   };
 
   const scenes = project ? [...project.scenes].sort((a, b) => a.order - b.order) : [];
@@ -260,16 +269,40 @@ export default function CartoonStudio() {
     // оказывался ПОД меню (жалоба клиента: «2 текста в одном месте»).
     <main className="mx-auto max-w-5xl px-4 pt-24 sm:pt-28 pb-16">
       <header className="mb-6">
-        <h1 className="text-2xl font-bold text-foreground sm:text-3xl">Студия мультфильмов</h1>
+        <h1 className="text-2xl font-bold text-foreground sm:text-3xl">{t("studio_ui.title")}</h1>
         <p className="mt-1 text-sm text-muted">
-          Выберите героя, наберите сцены — и студия соберёт из них готовый ролик. Промпты
-          писать не нужно.
+          {t("studio_ui.subtitle")}
         </p>
       </header>
 
       {error && (
         <div className="mb-4 rounded-xl border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-400">
           {error}
+        </div>
+      )}
+
+      {shortfall && (
+        <div className="mb-4 flex flex-col gap-3 rounded-2xl border border-accent/40 bg-accent/5 p-4 sm:flex-row sm:items-center">
+          <div className="flex-1">
+            <p className="text-sm font-semibold text-foreground">
+              {t("studio_ui.short_title", {
+                count: Math.max(0, shortfall.required - shortfall.balance),
+              })}
+            </p>
+            <p className="mt-0.5 text-sm text-muted">
+              {t("studio_ui.short_note", {
+                required: shortfall.required,
+                balance: shortfall.balance,
+              })}
+            </p>
+          </div>
+          <a
+            href="/pricing/studio"
+            className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-semibold text-on-accent transition-colors hover:bg-accent-strong"
+          >
+            <FiZap />
+            {t("studio_ui.short_cta")}
+          </a>
         </div>
       )}
 
@@ -287,10 +320,9 @@ export default function CartoonStudio() {
         <>
           <section className="mt-8 flex flex-col gap-4">
             <div>
-              <h2 className="text-lg font-bold text-foreground">2. Наберите сцены</h2>
+              <h2 className="text-lg font-bold text-foreground">{t("studio_ui.step2")}</h2>
               <p className="mt-0.5 text-sm text-muted">
-                Каждая сцена — готовый кусок мультфильма с вашим героем. Нажмите, чтобы
-                добавить в ленту.
+                {t("studio_ui.step2_note")}
               </p>
             </div>
 
@@ -298,7 +330,7 @@ export default function CartoonStudio() {
                 человек ищет не «сцену вообще», а начало, погоню или финал. */}
             {categories.length > 1 && (
               <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:mx-0 sm:flex-wrap sm:px-0">
-                {[{ slug: "", title: "Все", emoji: "🎞" }, ...categories].map((c) => (
+                {[{ slug: "", title: t("studio_ui.cat_all"), emoji: "🎞" }, ...categories].map((c) => (
                   <button
                     key={c.slug || "all"}
                     type="button"
@@ -355,7 +387,7 @@ export default function CartoonStudio() {
                     <div className="mt-auto flex items-center gap-2 pt-2">
                       <span className="inline-flex items-center gap-1 text-[11px] text-muted">
                         <FiZap className="text-accent" />
-                        {p.credits} кр · {p.duration} с
+                        {t("studio_ui.price", { credits: p.credits, duration: p.duration })}
                       </span>
                       <button
                         type="button"
@@ -368,7 +400,7 @@ export default function CartoonStudio() {
                         ) : (
                           <FiPlus />
                         )}
-                        В ленту
+                        {t("studio_ui.add")}
                       </button>
                     </div>
                   </div>
@@ -379,11 +411,12 @@ export default function CartoonStudio() {
 
           <section className="mt-8 flex flex-col gap-3">
             <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-lg font-bold text-foreground">3. Лента сцен</h2>
+              <h2 className="text-lg font-bold text-foreground">{t("studio_ui.step3")}</h2>
               {scenes.length > 0 && (
                 <span className="text-sm text-muted">
-                  готово {readyCount} из {scenes.length}
-                  {project && project.credits_spent > 0 && ` · потрачено ${project.credits_spent} кр`}
+                  {t("studio_ui.progress", { ready: readyCount, total: scenes.length })}
+                  {project && project.credits_spent > 0 &&
+                    t("studio_ui.spent", { count: project.credits_spent })}
                 </span>
               )}
             </div>
@@ -408,22 +441,22 @@ export default function CartoonStudio() {
                 ) : (
                   <FiFilm />
                 )}
-                Собрать мультфильм
+                {t("studio_ui.assemble")}
               </button>
               {working && (
                 <span className="text-xs text-muted">
-                  Сцены ещё считаются — можно добавлять следующие, ждать не нужно.
+                  {t("studio_ui.working_note")}
                 </span>
               )}
               {!readyCount && !working && scenes.length === 0 && (
-                <span className="text-xs text-muted-2">Добавьте хотя бы одну сцену</span>
+                <span className="text-xs text-muted-2">{t("studio_ui.empty_hint")}</span>
               )}
             </div>
           </section>
 
           {project?.result_video && (
             <section className="mt-8 flex flex-col gap-3">
-              <h2 className="text-lg font-bold text-foreground">Готовый мультфильм</h2>
+              <h2 className="text-lg font-bold text-foreground">{t("studio_ui.result")}</h2>
               <video
                 src={project.result_video}
                 controls
@@ -435,10 +468,10 @@ export default function CartoonStudio() {
               <SaveMediaButton
                 url={project.result_video}
                 filename="esai-cartoon.mp4"
-                label="Скачать мультфильм"
+                label={t("studio_ui.download_label")}
                 className="inline-flex w-fit cursor-pointer items-center gap-2 rounded-full border border-accent px-4 py-2 text-sm font-semibold text-accent transition-colors hover:bg-accent-soft"
               >
-                Скачать
+                {t("studio_ui.download")}
               </SaveMediaButton>
             </section>
           )}
