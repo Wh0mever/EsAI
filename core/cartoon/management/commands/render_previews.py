@@ -1,4 +1,4 @@
-"""Снять видео-превью для пресетов студии и завести стартовую библиотеку героев.
+﻿"""Снять видео-превью для пресетов студии и завести стартовую библиотеку героев.
 
 Превью — это то, ради чего пресет вообще существует: человек не читает промпт,
 он смотрит ролик и понимает, что получит. Пока превью нет, карточка сцены
@@ -41,7 +41,10 @@ LIBRARY = [
      "a small white rounded helper robot with glowing blue eyes and short arms"),
 ]
 
-STYLE_SUFFIX = ("Full body character sheet, clean plain white background, "
+# Без слов «character sheet»: модель воспринимала их буквально и печатала
+# подпись в самой картинке. Надписи запрещаем прямым текстом.
+STYLE_SUFFIX = ("Full body view, standing, clean plain white background, "
+                "NO text, NO captions, NO labels, NO watermark anywhere in the image. "
                 "3D cartoon animation style, soft lighting, vibrant colors, front view.")
 
 

@@ -223,7 +223,7 @@ export default function CartoonStudio() {
 
   if (loading) {
     return (
-      <div className="mx-auto max-w-5xl space-y-4 px-4 py-8">
+      <div className="mx-auto max-w-5xl space-y-4 px-4 pt-24 sm:pt-28 pb-16">
         <div className="h-8 w-64 animate-pulse rounded-lg bg-surface-2" />
         <div className="h-40 animate-pulse rounded-2xl bg-surface-2" />
         <div className="h-64 animate-pulse rounded-2xl bg-surface-2" />
@@ -232,7 +232,9 @@ export default function CartoonStudio() {
   }
 
   return (
-    <main className="mx-auto max-w-5xl px-4 py-6 sm:py-8">
+    // pt-24/28 — как на /models: шапка сайта fixed, и без отступа заголовок
+    // оказывался ПОД меню (жалоба клиента: «2 текста в одном месте»).
+    <main className="mx-auto max-w-5xl px-4 pt-24 sm:pt-28 pb-16">
       <header className="mb-6">
         <h1 className="text-2xl font-bold text-foreground sm:text-3xl">Студия мультфильмов</h1>
         <p className="mt-1 text-sm text-muted">
