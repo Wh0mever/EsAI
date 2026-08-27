@@ -1,0 +1,135 @@
+"""Снять видео-превью для пресетов студии и завести стартовую библиотеку героев.
+
+Превью — это то, ради чего пресет вообще существует: человек не читает промпт,
+он смотрит ролик и понимает, что получит. Пока превью нет, карточка сцены
+пустая и выбирать не из чего.
+
+Снимаем ОДНИМ и тем же героем нарочно. Во-первых, десять сцен с одним котом
+сразу показывают главное свойство студии — персонаж не меняется от сцены к
+сцене. Во-вторых, так видно именно разницу сцен, а не разницу героев.
+
+Расход настоящий, деньгами с баланса OpenRouter: около $0.5 за сцену (5 секунд
+Wan 2.7 плюс кадр). Кредиты пользователя НЕ трогаются — это наш контент, а не
+чей-то заказ, поэтому идём мимо биллинга.
+
+Запуск:
+    python manage.py render_previews              # только те, у кого превью нет
+    python manage.py render_previews --force      # переснять всё
+    python manage.py render_previews --only slug  # одну сцену
+"""
+import base64
+import time
+import uuid
+
+import requests
+from django.core.files.base import ContentFile
+from django.core.management.base import BaseCommand
+
+from cartoon.models import CartoonCharacter, CartoonPreset
+from cartoon.services import generate_keyframe, generate_scene_video
+
+# Стартовая библиотека. Разные по типажу, чтобы человек сразу увидел, что
+# героем может быть кто угодно, а не только зверёк.
+LIBRARY = [
+    ("Кот-супергерой", "a ginger cat superhero in a blue cape with small goggles",
+     "a friendly ginger cat superhero wearing a blue cape and small flight goggles"),
+    ("Девочка-космонавт", "a little girl astronaut with red braids in a white spacesuit",
+     "a cheerful little girl astronaut with red braids, white spacesuit with orange stripes"),
+    ("Дракончик", "a small round green dragon with tiny wings",
+     "a small round friendly green dragon with tiny wings and big eyes"),
+    ("Робот-помощник", "a small white round robot with glowing blue eyes",
+     "a small white rounded helper robot with glowing blue eyes and short arms"),
+]
+
+STYLE_SUFFIX = ("Full body character sheet, clean plain white background, "
+                "3D cartoon animation style, soft lighting, vibrant colors, front view.")
+
+
+class Command(BaseCommand):
+    help = "Снять видео-превью пресетов и создать стартовых персонажей"
+
+    def add_arguments(self, parser):
+        parser.add_argument("--force", action="store_true", help="Переснять уже готовые превью")
+        parser.add_argument("--only", type=str, default="", help="Только этот пресет (slug)")
+        parser.add_argument("--skip-characters", action="store_true",
+                            help="Не создавать библиотеку героев")
+
+    # ------------------------------------------------------------------ герои
+    def ensure_library(self):
+        from ai.handlers import _openrouter_config
+
+        cfg = _openrouter_config()
+        for name, description, look in LIBRARY:
+            if CartoonCharacter.objects.filter(name=name, user__isnull=True).exists():
+                continue
+            self.stdout.write(f"  рисую героя: {name}")
+            try:
+                r = requests.post(
+                    f"{cfg['base_url'].rstrip('/')}/images",
+                    json={"model": "google/gemini-2.5-flash-image",
+                          "prompt": f"{look}. {STYLE_SUFFIX}", "aspect_ratio": "1:1"},
+                    headers={"Authorization": f"Bearer {cfg['api_key']}",
+                             "Content-Type": "application/json"},
+                    timeout=(10, 180),
+                )
+                b64 = (((r.json() or {}).get("data") or [{}])[0]).get("b64_json") or ""
+                if not b64:
+                    raise RuntimeError(f"http {r.status_code}: {str(r.text)[:150]}")
+            except Exception as exc:
+                self.stderr.write(self.style.WARNING(f"    не вышло: {exc}"))
+                continue
+            char = CartoonCharacter(
+                user=None, name=name, description=description,
+                source=CartoonCharacter.SOURCE_LIBRARY, is_public=True,
+            )
+            char.image.save(f"{uuid.uuid4().hex}.jpg", ContentFile(base64.b64decode(b64)), save=True)
+            self.stdout.write(self.style.SUCCESS(f"    готов: {char.image.url}"))
+
+    # ---------------------------------------------------------------- превью
+    def handle(self, *args, **opts):
+        if not opts.get("skip_characters"):
+            self.stdout.write(self.style.MIGRATE_HEADING("Библиотека героев"))
+            self.ensure_library()
+
+        hero = (CartoonCharacter.objects.filter(name="Кот-супергерой", user__isnull=True).first()
+                or CartoonCharacter.objects.filter(user__isnull=True).first())
+        if not hero:
+            self.stderr.write(self.style.ERROR("Нет ни одного библиотечного героя — превью снимать некем"))
+            return
+
+        qs = CartoonPreset.objects.filter(is_active=True).select_related("image_model", "video_model")
+        if opts.get("only"):
+            qs = qs.filter(slug=opts["only"])
+        elif not opts.get("force"):
+            qs = qs.filter(preview_video="")
+
+        total = qs.count()
+        self.stdout.write(self.style.MIGRATE_HEADING(
+            f"Превью: {total} сцен, герой — {hero.name}"))
+        done = failed = 0
+
+        for i, preset in enumerate(qs, start=1):
+            self.stdout.write(f"[{i}/{total}] {preset.title}")
+            started = time.time()
+            try:
+                keyframe = generate_keyframe(preset, hero)
+                video_path = generate_scene_video(preset, keyframe)
+            except Exception as exc:
+                failed += 1
+                self.stderr.write(self.style.WARNING(f"    не вышло: {exc}"))
+                continue
+
+            from django.core.files.storage import default_storage
+
+            with default_storage.open(video_path, "rb") as fh:
+                preset.preview_video.save(f"{preset.slug}.mp4", ContentFile(fh.read()), save=False)
+            # Обложкой берём тот же кадр, с которого начинается ролик: пока
+            # видео не подгрузилось, карточка показывает ровно его первый кадр.
+            with default_storage.open(keyframe, "rb") as fh:
+                preset.preview_poster.save(f"{preset.slug}.png", ContentFile(fh.read()), save=False)
+            preset.save(update_fields=["preview_video", "preview_poster"])
+            done += 1
+            self.stdout.write(self.style.SUCCESS(
+                f"    готово за {int(time.time() - started)} с: {preset.preview_video.url}"))
+
+        self.stdout.write(self.style.SUCCESS(f"Итог: снято {done}, не вышло {failed}"))
