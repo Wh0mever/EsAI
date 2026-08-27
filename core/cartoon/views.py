@@ -1,4 +1,4 @@
-"""API студии мультфильмов.
+﻿"""API студии мультфильмов.
 
 Путь пользователя, который эти эндпоинты обслуживают:
   1. GET  presets/           — что можно снять (с видео-превью и ценой)
@@ -165,7 +165,12 @@ class CharacterGenerateView(StudioAPIView):
                              "balance": balance}, status=status.HTTP_402_PAYMENT_REQUIRED)
 
         cfg = _openrouter_config()
-        full = (f"{prompt}. Full body character sheet, clean plain white background, "
+        # «character sheet» из промпта убрано намеренно: Nano Banana хорошо
+        # рисует текст и честно печатала подпись прямо в картинке («FRIENDLY
+        # DRAGON / CHARACTER SHEET»). Надписи запрещаем явно — иначе они
+        # налезают на имя персонажа в плитке.
+        full = (f"{prompt}. Full body view, standing, clean plain white background, "
+                "NO text, NO captions, NO labels, NO watermark anywhere in the image. "
                 "3D cartoon animation style, soft lighting, vibrant colors, front view.")
         try:
             r = http.post(
