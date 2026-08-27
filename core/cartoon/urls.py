@@ -6,6 +6,7 @@ app_name = "cartoon"
 
 urlpatterns = [
     path("presets/", views.PresetsView.as_view(), name="presets"),
+    path("pricing/", views.PricingView.as_view(), name="pricing"),
     path("characters/", views.CharactersView.as_view(), name="characters"),
     path("characters/generate/", views.CharacterGenerateView.as_view(), name="character-generate"),
     path("projects/", views.ProjectsView.as_view(), name="projects"),

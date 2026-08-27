@@ -421,6 +421,23 @@ class TokenTransactionListView(generics.ListAPIView):
         )
 
 
+def safe_return_path(value, default="/profile") -> str:
+    """Куда вернуть человека после оплаты.
+
+    Путь приходит с фронта, поэтому пускаем только относительный, свой:
+    «//evil.com» браузер считает абсолютным адресом, и открытая переадресация
+    из платёжки — готовый фишинг. Всё подозрительное молча заменяем профилем.
+    """
+    raw = str(value or "").strip()
+    if not raw.startswith("/") or raw.startswith("//") or "\\" in raw or len(raw) > 200:
+        return default
+    # Свой параметр «?payment=...» дописывается к этому пути позже, поэтому
+    # чужую строку запроса не принимаем — иначе получится «/studio?a=1?payment=».
+    if "?" in raw or "#" in raw:
+        return default
+    return raw
+
+
 class TokenPurchaseView(APIView):
     """POST /api/plans/purchase/ {"package_id"} — инициировать оплату пакета токенов.
 
@@ -453,6 +470,10 @@ class TokenPurchaseView(APIView):
         # пакета хранится в сомах, поэтому для рублей пересчитываем по тому
         # же курсу, который показан на витрине (CurrencyRateView), — иначе
         # человек увидел бы одну сумму, а списалось бы другое.
+        # Куда вернуть после оплаты: студия отправляет человека платить прямо из
+        # проекта, и высаживать его в профиль вместо недоделанного мультфильма —
+        # значит терять того, кто уже заплатил.
+        return_to = safe_return_path((request.data or {}).get("return_to"))
         pay_currency = str((request.data or {}).get("pay_currency") or "").strip().upper()
         if pay_currency == "RUB":
             from payments import yookassa as yk
@@ -467,7 +488,7 @@ class TokenPurchaseView(APIView):
                 rate = Decimal(str(settings.CURRENCY_KGS_TO_RUB_RATE))
             if rate <= 0:
                 return Response({"detail": "currency_rate_invalid"}, status=drf_status.HTTP_502_BAD_GATEWAY)
-            return self._purchase_via_yookassa(request, package, base_amount, rate)
+            return self._purchase_via_yookassa(request, package, base_amount, rate, return_to)
 
         merchant_id = (settings.FREEDOM_PAY_MERCHANT_ID or settings.FP_MERCHANT_ID or "").strip()
         secret = (settings.FREEDOM_PAY_TOKEN or "").strip()
@@ -536,7 +557,8 @@ class TokenPurchaseView(APIView):
                     "tokens": int(package.tokens or 0),
                     "bonus_tokens": int(package.bonus_tokens or 0),
                     "payload": payload,
-                }
+                },
+                "return_to": return_to,
             }
             if discount_offer is not None:
                 request_payload["exit_discount"] = {
@@ -597,7 +619,7 @@ class TokenPurchaseView(APIView):
             status=drf_status.HTTP_200_OK,
         )
 
-    def _purchase_via_yookassa(self, request, package, base_amount, rate):
+    def _purchase_via_yookassa(self, request, package, base_amount, rate, return_to="/profile"):
         """Оплата пакета в рублях через ЮKassa.
 
         Считаем сумму в рублях по тому же курсу, что показан на витрине,
@@ -635,13 +657,14 @@ class TokenPurchaseView(APIView):
                 },
                 "kgs_price": str(base_amount),
                 "rate_kgs_to_rub": str(rate),
+                "return_to": return_to,
             },
             response={},
         )
 
         from payments.views import _frontend_absolute_url
 
-        return_url = _frontend_absolute_url(request, "/profile", {"payment": "tokens_success"})
+        return_url = _frontend_absolute_url(request, return_to, {"payment": "tokens_success"})
         try:
             data = yk.create_payment(
                 amount=format(amount_rub, "f"),

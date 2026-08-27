@@ -101,6 +101,11 @@ function MobileNav({ className, onNavigate }: any) {
           </Link>
         </li>
         <li>
+          <Link href="/studio" onClick={onNavigate} className={linkCls("/studio")} aria-current={isActive("/studio") ? "page" : undefined}>
+            {t("nav.studio", { defaultValue: "Мультфильмы" })}
+          </Link>
+        </li>
+        <li>
           <Link href="/blog" onClick={onNavigate} className={linkCls("/blog")} aria-current={isActive("/blog") ? "page" : undefined}>
             {t("nav.blog")}
           </Link>
@@ -172,6 +177,11 @@ function PCNav({ className, onNavigate, t, changeLanguage, currentLang }: any) {
         <li className={linkCls("/pricing")}>
           <Link href="/pricing" onClick={onNavigate} className={linkInner(isActive("/pricing"))} aria-current={isActive("/pricing") ? "page" : undefined}>
             {t("nav.pricing")}
+          </Link>
+        </li>
+        <li className={linkCls("/studio")}>
+          <Link href="/studio" onClick={onNavigate} className={linkInner(isActive("/studio"))} aria-current={isActive("/studio") ? "page" : undefined}>
+            {t("nav.studio", { defaultValue: "Мультфильмы" })}
           </Link>
         </li>
         <li className={linkCls("/blog")}>

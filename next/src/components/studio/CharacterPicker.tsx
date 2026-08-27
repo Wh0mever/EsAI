@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslation } from "react-i18next";
 import { useRef, useState } from "react";
 import { FiLoader, FiPlus, FiUpload, FiZap } from "react-icons/fi";
 import { fetchData } from "@/tools/fetchData";
@@ -37,6 +38,7 @@ export default function CharacterPicker({
   onCreated: (c: StudioCharacter) => void;
   balance: number | null;
 }) {
+  const { t } = useTranslation("common");
   const [prompt, setPrompt] = useState("");
   const [busy, setBusy] = useState<"upload" | "generate" | null>(null);
   const [error, setError] = useState("");
@@ -47,21 +49,21 @@ export default function CharacterPicker({
     setError("");
     const fd = new FormData();
     fd.append("image", file);
-    fd.append("name", file.name.replace(/\.[^.]+$/, "").slice(0, 60) || "Мой персонаж");
+    fd.append("name", file.name.replace(/\.[^.]+$/, "").slice(0, 60) || t("studio_ui.my_character"));
     const res = await fetchData<StudioCharacter>("cartoon/characters/", "POST", fd, true);
     setBusy(null);
     if (res.ok && res.data) {
       onCreated(res.data);
       onPick(res.data);
     } else {
-      setError((res.data as any)?.detail || "Не удалось загрузить изображение");
+      setError((res.data as any)?.detail || t("studio_ui.err_upload"));
     }
   };
 
   const generate = async () => {
     const p = prompt.trim();
     if (!p) {
-      setError("Опишите героя: кто он и как выглядит");
+      setError(t("studio_ui.err_describe"));
       return;
     }
     setBusy("generate");
@@ -78,8 +80,8 @@ export default function CharacterPicker({
       const d = res.data as any;
       setError(
         d?.required
-          ? `Не хватает кредитов: нужно ${d.required}, на балансе ${d.balance}`
-          : d?.detail || "Не удалось нарисовать персонажа"
+          ? t("studio_ui.short_note", { required: d.required, balance: d.balance })
+          : d?.detail || t("studio_ui.err_draw")
       );
     }
   };
@@ -87,10 +89,9 @@ export default function CharacterPicker({
   return (
     <section className="flex flex-col gap-4">
       <div>
-        <h2 className="text-lg font-bold text-foreground">1. Кто будет героем</h2>
+        <h2 className="text-lg font-bold text-foreground">{t("studio_ui.step1")}</h2>
         <p className="text-sm text-muted mt-0.5">
-          Выберите из библиотеки, загрузите своего или нарисуйте по описанию. Этот герой
-          останется одинаковым во всех сценах.
+          {t("studio_ui.step1_note")}
         </p>
       </div>
 
@@ -128,7 +129,7 @@ export default function CharacterPicker({
           ) : (
             <FiUpload className="text-xl" />
           )}
-          <span className="text-[11px]">Загрузить</span>
+          <span className="text-[11px]">{t("studio_ui.upload")}</span>
         </button>
         <input
           ref={fileRef}
@@ -146,11 +147,10 @@ export default function CharacterPicker({
       <div className="rounded-2xl border border-border bg-surface-2/60 p-3">
         <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
           <FiZap className="text-accent" />
-          Нарисовать героя
+          {t("studio_ui.draw_title")}
         </div>
         <p className="mt-1 text-xs text-muted-2">
-          Опишите словами: «рыжий кот-супергерой в синем плаще», «девочка-космонавт с
-          рыжими косичками».
+          {t("studio_ui.draw_note")}
         </p>
         <div className="mt-2 flex flex-col gap-2 sm:flex-row">
           <input
@@ -159,7 +159,7 @@ export default function CharacterPicker({
             onKeyDown={(e) => {
               if (e.key === "Enter" && !busy) void generate();
             }}
-            placeholder="Кто ваш герой?"
+            placeholder={t("studio_ui.draw_placeholder")}
             className="flex-1 rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-foreground outline-none placeholder:text-muted-2 focus:border-accent"
           />
           <button
@@ -169,11 +169,11 @@ export default function CharacterPicker({
             className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-on-accent transition-colors hover:bg-accent-strong disabled:opacity-60 cursor-pointer"
           >
             {busy === "generate" ? <FiLoader className="animate-spin" /> : <FiPlus />}
-            {busy === "generate" ? "Рисую…" : "Нарисовать"}
+            {busy === "generate" ? t("studio_ui.drawing") : t("studio_ui.draw_btn")}
           </button>
         </div>
         {balance !== null && (
-          <p className="mt-1.5 text-[11px] text-muted-2">На балансе {balance} кредитов</p>
+          <p className="mt-1.5 text-[11px] text-muted-2">{t("studio_ui.balance", { count: balance })}</p>
         )}
       </div>
 

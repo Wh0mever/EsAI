@@ -1198,6 +1198,12 @@ class FreedomPayTokenPurchaseResultBaseView(APIView):
             payment.response = response
             payment.save(update_fields=["response"])
 
+        # Куда возвращать, решено при создании платежа (студия платит прямо из
+        # проекта). Путь там уже проверен, здесь только читаем.
+        back = "/profile"
+        if payment:
+            back = ((payment.request or {}).get("return_to") or "/profile")
+
         if self.result_type == "success":
             # Постбэк FreedomPay ненадёжен → мгновенно сверяем статус и начисляем
             # (идемпотентно), не блокируя редирект. Плюс beat-задача подстрахует.
@@ -1207,10 +1213,10 @@ class FreedomPayTokenPurchaseResultBaseView(APIView):
             except Exception:
                 pass
             return HttpResponseRedirect(
-                _frontend_absolute_url(request, "/profile", {"payment": "tokens_success"})
+                _frontend_absolute_url(request, back, {"payment": "tokens_success"})
             )
         return HttpResponseRedirect(
-            _frontend_absolute_url(request, "/profile", {"payment": "tokens_failed"})
+            _frontend_absolute_url(request, back, {"payment": "tokens_failed"})
         )
 
 

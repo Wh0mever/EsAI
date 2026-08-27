@@ -1,5 +1,6 @@
 "use client";
 
+import { useTranslation } from "react-i18next";
 import {
   FiAlertTriangle,
   FiArrowLeft,
@@ -33,12 +34,13 @@ export type StudioScene = {
  * одинаково.
  */
 
-const STATUS_LABEL: Record<StudioScene["status"], string> = {
-  new: "В очереди",
-  keyframe: "Рисуется кадр",
-  video: "Оживляется",
-  ready: "Готова",
-  failed: "Не получилось",
+/** Ключ подписи состояния — сам текст берётся из локали (studio_ui.st_*). */
+const STATUS_KEY: Record<StudioScene["status"], string> = {
+  new: "st_new",
+  keyframe: "st_keyframe",
+  video: "st_video",
+  ready: "st_ready",
+  failed: "st_failed",
 };
 
 export default function SceneTimeline({
@@ -54,10 +56,12 @@ export default function SceneTimeline({
   onRetry: (scene: StudioScene) => void;
   onDelete: (scene: StudioScene) => void;
 }) {
+  const { t } = useTranslation("common");
+
   if (!scenes.length) {
     return (
       <div className="rounded-2xl border border-dashed border-border p-6 text-center text-sm text-muted">
-        Сцен пока нет. Выберите сцену выше — она появится здесь.
+        {t("studio_ui.timeline_empty")}
       </div>
     );
   }
@@ -113,17 +117,17 @@ export default function SceneTimeline({
             <div className="flex items-center gap-1 text-[11px]">
               {s.status === "ready" ? (
                 <span className="inline-flex items-center gap-1 text-emerald-400">
-                  <FiCheck /> {STATUS_LABEL.ready}
+                  <FiCheck /> {t("studio_ui.st_ready")}
                 </span>
               ) : s.status === "failed" ? (
                 <span className="truncate text-red-400" title={s.error}>
-                  {STATUS_LABEL.failed}
+                  {t("studio_ui.st_failed")}
                 </span>
               ) : (
-                <span className="text-muted">{STATUS_LABEL[s.status]}…</span>
+                <span className="text-muted">{t(`studio_ui.${STATUS_KEY[s.status]}`)}…</span>
               )}
               {s.credits_spent > 0 && (
-                <span className="ml-auto shrink-0 text-muted-2">{s.credits_spent} кр</span>
+                <span className="ml-auto shrink-0 text-muted-2">{s.credits_spent} {t("studio_ui.credits_short")}</span>
               )}
             </div>
 
@@ -132,7 +136,7 @@ export default function SceneTimeline({
                 type="button"
                 onClick={() => onMove(s, -1)}
                 disabled={i === 0 || busy}
-                title="Раньше"
+                title={t("studio_ui.move_up")}
                 className="grid size-7 place-items-center rounded-lg text-muted transition-colors hover:bg-surface-2 hover:text-foreground disabled:opacity-30 cursor-pointer"
               >
                 <FiArrowLeft />
@@ -141,7 +145,7 @@ export default function SceneTimeline({
                 type="button"
                 onClick={() => onMove(s, 1)}
                 disabled={i === scenes.length - 1 || busy}
-                title="Позже"
+                title={t("studio_ui.move_down")}
                 className="grid size-7 place-items-center rounded-lg text-muted transition-colors hover:bg-surface-2 hover:text-foreground disabled:opacity-30 cursor-pointer"
               >
                 <FiArrowRight />
@@ -153,7 +157,7 @@ export default function SceneTimeline({
                   disabled={busy}
                   // Кадр не трогаем: пересобираем только ролик, поэтому герой и
                   // композиция остаются прежними, а платим лишь за видео.
-                  title={s.status === "failed" ? "Попробовать снова" : "Переснять ролик"}
+                  title={t(s.status === "failed" ? "studio_ui.retry_failed" : "studio_ui.retry")}
                   className="grid size-7 place-items-center rounded-lg text-muted transition-colors hover:bg-surface-2 hover:text-accent disabled:opacity-40 cursor-pointer"
                 >
                   <FiRefreshCw className={busy ? "animate-spin" : ""} />
@@ -163,7 +167,7 @@ export default function SceneTimeline({
                 type="button"
                 onClick={() => onDelete(s)}
                 disabled={busy}
-                title="Убрать сцену"
+                title={t("studio_ui.remove")}
                 className="ml-auto grid size-7 place-items-center rounded-lg text-muted transition-colors hover:bg-surface-2 hover:text-red-400 disabled:opacity-40 cursor-pointer"
               >
                 <FiTrash2 />
