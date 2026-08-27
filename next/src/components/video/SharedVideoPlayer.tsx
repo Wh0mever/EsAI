@@ -1,17 +1,19 @@
 "use client";
 
 import { useState } from "react";
-import { FiCheck, FiDownload, FiLink } from "react-icons/fi";
+import { FiCheck, FiLink } from "react-icons/fi";
 import VideoPlayer from "./VideoPlayer";
+import SaveMediaButton from "@/components/ui/SaveMediaButton";
 
 /**
  * Плеер публичной страницы ролика (/v/<код>) — тот же VideoPlayer плюс два
  * действия, которых ждёт человек, пришедший по ссылке из мессенджера:
  * скачать файл и скопировать ссылку, чтобы переслать дальше.
  *
- * Здесь обычная <a download>, а не saveMedia из чата: страницу открывают в
- * настоящем браузере по ссылке, а не в установленном PWA, где download
- * игнорируется.
+ * Скачивание идёт через нативное сохранение, а не через <a download>: на iPhone
+ * такая ссылка не скачивает, а уводит на файл и показывает серую заглушку с
+ * иконкой MP4. Ссылками делятся в мессенджерах, то есть открывают их как раз с
+ * телефона, — здесь это критичнее, чем где-либо ещё.
  */
 export default function SharedVideoPlayer({
   src,
@@ -38,14 +40,17 @@ export default function SharedVideoPlayer({
     <div className="flex flex-col gap-3">
       <VideoPlayer src={src} poster={poster} className="w-full" />
       <div className="flex items-center justify-center gap-5">
-        <a
-          href={src}
-          download={downloadName}
-          className="inline-flex items-center gap-1.5 text-sm text-muted-2 hover:text-foreground transition-colors"
+        {/* Через нативное сохранение, а не <a download>: на iPhone ссылка не
+            скачивает, а открывает файл заглушкой (см. ui/SaveMediaButton). */}
+        <SaveMediaButton
+          url={src}
+          filename={downloadName}
+          label="Скачать"
+          iconClassName="text-[15px]"
+          className="inline-flex cursor-pointer items-center gap-1.5 text-sm text-muted-2 transition-colors hover:text-foreground"
         >
-          <FiDownload className="text-[15px]" />
           Скачать
-        </a>
+        </SaveMediaButton>
         <button
           type="button"
           onClick={() => void copy()}
