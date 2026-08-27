@@ -57,6 +57,7 @@ export default function CartoonStudio() {
   const [adding, setAdding] = useState<number | null>(null);
   const [busyIds, setBusyIds] = useState<Set<number>>(new Set());
   const [assembling, setAssembling] = useState(false);
+  const [authed, setAuthed] = useState(true);
   const pollRef = useRef<number | null>(null);
 
   const markBusy = (id: number, on: boolean) =>
@@ -84,7 +85,11 @@ export default function CartoonStudio() {
       if (!alive) return;
       if (p.ok && Array.isArray(p.data)) setPresets(p.data);
       if (c.ok && Array.isArray(c.data)) setCharacters(c.data);
-      if (!p.ok) setError("Не удалось загрузить сцены. Войдите в аккаунт и обновите страницу.");
+      if (!p.ok) setError("Не удалось загрузить сцены. Обновите страницу.");
+
+      // Витрина открыта всем, а свои мультфильмы есть только у вошедших:
+      // по ответу этого запроса и понимаем, гость перед нами или нет.
+      setAuthed(mine.ok);
 
       // Продолжаем последний мультфильм, а не начинаем пустой: сцены стоят
       // денег, и терять их при перезагрузке страницы недопустимо.
@@ -148,6 +153,12 @@ export default function CartoonStudio() {
   }, [project, character]);
 
   const addScene = async (preset: Preset) => {
+    // Гость свободно ходит по студии и видит цену, но сцена стоит денег —
+    // на этом шаге и просим войти. Возврат — обратно в студию.
+    if (!authed) {
+      window.location.href = "/auth/signin?next=" + encodeURIComponent("/studio");
+      return;
+    }
     setError("");
     setAdding(preset.id);
     const p = await ensureProject();

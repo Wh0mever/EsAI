@@ -26,7 +26,7 @@ from django.core.files.storage import default_storage
 from django.db.models import Q
 from django.shortcuts import get_object_or_404
 from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.authentication import JWTAuthentication
@@ -38,9 +38,25 @@ logger = logging.getLogger(__name__)
 
 
 class StudioAPIView(APIView):
-    """База: студия только для авторизованных — у сцен есть цена."""
+    """База для действий, которые тратят кредиты — только для вошедших."""
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
+
+
+class StudioPublicAPIView(APIView):
+    """База для ВИТРИНЫ: пресеты и библиотека героев открыты всем.
+
+    Ради этого превью и снимались: человек должен увидеть, что получит, ДО
+    регистрации. Раньше гость получал пустую страницу с ошибкой — то есть
+    десять роликов показывались только тем, кто уже вошёл, а именно их и
+    нужно было показать первыми.
+
+    Ничего приватного здесь нет: пресеты — витрина (промпты и модели наружу
+    не отдаются), библиотека — общая. Личные персонажи гостю не видны,
+    потому что фильтр по пользователю для анонима отдаёт только публичные.
+    """
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [AllowAny]
 
 
 def _media(path: str) -> str:
@@ -101,7 +117,7 @@ def project_json(p: CartoonProject) -> dict:
     }
 
 
-class PresetsView(StudioAPIView):
+class PresetsView(StudioPublicAPIView):
     """GET — активные пресеты сцен."""
 
     def get(self, request):
@@ -110,16 +126,21 @@ class PresetsView(StudioAPIView):
         return Response([preset_json(p) for p in qs])
 
 
-class CharactersView(StudioAPIView):
+class CharactersView(StudioPublicAPIView):
     """GET — библиотека и свои персонажи. POST — загрузить своего."""
 
     def get(self, request):
-        qs = CartoonCharacter.objects.filter(
-            Q(is_public=True, user__isnull=True) | Q(user=request.user)
-        ).order_by("-user_id", "sort_order", "-created_at")
+        library = Q(is_public=True, user__isnull=True)
+        # У анонима нет своих персонажей, а Q(user=AnonymousUser) уронил бы запрос.
+        mine = Q(user=request.user) if request.user.is_authenticated else Q(pk__in=[])
+        qs = CartoonCharacter.objects.filter(library | mine).order_by(
+            "-user_id", "sort_order", "-created_at")
         return Response([character_json(c) for c in qs])
 
     def post(self, request):
+        if not request.user.is_authenticated:
+            return Response({"detail": "Войдите, чтобы загрузить своего персонажа"},
+                            status=status.HTTP_401_UNAUTHORIZED)
         image = request.FILES.get("image")
         if not image:
             return Response({"detail": "Приложите изображение персонажа"},
