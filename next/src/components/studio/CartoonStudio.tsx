@@ -30,7 +30,10 @@ type Preset = {
   duration: number;
   aspect_ratio: string;
   credits: number;
+  category: string;
 };
+
+type Category = { slug: string; title: string; emoji: string };
 
 type Project = {
   id: number;
@@ -48,6 +51,8 @@ const WORKING: StudioScene["status"][] = ["new", "keyframe", "video"];
 
 export default function CartoonStudio() {
   const [presets, setPresets] = useState<Preset[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [activeCat, setActiveCat] = useState("");
   const [characters, setCharacters] = useState<StudioCharacter[]>([]);
   const [character, setCharacter] = useState<StudioCharacter | null>(null);
   const [project, setProject] = useState<Project | null>(null);
@@ -59,6 +64,10 @@ export default function CartoonStudio() {
   const [assembling, setAssembling] = useState(false);
   const [authed, setAuthed] = useState(true);
   const pollRef = useRef<number | null>(null);
+
+  const visiblePresets = activeCat
+    ? presets.filter((p) => p.category === activeCat)
+    : presets;
 
   const markBusy = (id: number, on: boolean) =>
     setBusyIds((prev) => {
@@ -78,12 +87,15 @@ export default function CartoonStudio() {
     let alive = true;
     (async () => {
       const [p, c, mine] = await Promise.all([
-        fetchData<Preset[]>("cartoon/presets/", "GET", null, true),
+        fetchData<{ categories: Category[]; presets: Preset[] }>("cartoon/presets/", "GET", null, true),
         fetchData<StudioCharacter[]>("cartoon/characters/", "GET", null, true),
         fetchData<Project[]>("cartoon/projects/", "GET", null, true),
       ]);
       if (!alive) return;
-      if (p.ok && Array.isArray(p.data)) setPresets(p.data);
+      if (p.ok && p.data) {
+        setPresets(p.data.presets || []);
+        setCategories(p.data.categories || []);
+      }
       if (c.ok && Array.isArray(c.data)) setCharacters(c.data);
       if (!p.ok) setError("Не удалось загрузить сцены. Обновите страницу.");
 
@@ -282,8 +294,30 @@ export default function CartoonStudio() {
               </p>
             </div>
 
+            {/* Разделы: сцен три десятка, и одной простынёй они не читаются —
+                человек ищет не «сцену вообще», а начало, погоню или финал. */}
+            {categories.length > 1 && (
+              <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:mx-0 sm:flex-wrap sm:px-0">
+                {[{ slug: "", title: "Все", emoji: "🎞" }, ...categories].map((c) => (
+                  <button
+                    key={c.slug || "all"}
+                    type="button"
+                    onClick={() => setActiveCat(c.slug)}
+                    className={`shrink-0 rounded-full border px-3 py-1.5 text-[13px] font-medium transition-colors cursor-pointer ${
+                      activeCat === c.slug
+                        ? "border-accent bg-accent text-on-accent"
+                        : "border-border bg-surface text-muted hover:text-foreground"
+                    }`}
+                  >
+                    {c.emoji && <span className="mr-1">{c.emoji}</span>}
+                    {c.title}
+                  </button>
+                ))}
+              </div>
+            )}
+
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-              {presets.map((p) => (
+              {visiblePresets.map((p) => (
                 <div
                   key={p.id}
                   className="flex flex-col overflow-hidden rounded-2xl border border-border bg-surface"

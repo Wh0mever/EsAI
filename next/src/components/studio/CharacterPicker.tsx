@@ -10,6 +10,7 @@ export type StudioCharacter = {
   image: string;
   source: string;
   is_mine: boolean;
+  category?: string;
 };
 
 /**
