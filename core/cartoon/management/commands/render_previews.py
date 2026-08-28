@@ -43,6 +43,21 @@ ADULT_STYLE_SUFFIX = (f"{_FRAMING} stylized 3D animated film style, semi-realist
                       "proportions, cinematic lighting, muted filmic colors, NOT childish.")
 
 
+def _free_credits():
+    """Сколько денег осталось на OpenRouter. None — если не удалось узнать."""
+    from ai.handlers import _openrouter_config
+
+    try:
+        cfg = _openrouter_config()
+        r = requests.get(f"{cfg['base_url'].rstrip('/')}/credits",
+                         headers={"Authorization": f"Bearer {cfg['api_key']}"}, timeout=20)
+        d = (r.json() or {}).get("data") or {}
+        return float(d.get("total_credits") or 0) - float(d.get("total_usage") or 0)
+    except Exception:
+        # Не смогли узнать — не повод останавливать съёмку.
+        return None
+
+
 class Command(BaseCommand):
     help = "Снять видео-превью пресетов и создать стартовых персонажей"
 
@@ -52,6 +67,8 @@ class Command(BaseCommand):
                             help="Только эти пресеты (slug через запятую)")
         parser.add_argument("--hero", type=str, default="",
                             help="Снимать указанным героем, а не подобранным по разделу")
+        parser.add_argument("--min-balance", type=float, default=10.0,
+                            help="Остановиться, когда на OpenRouter останется меньше этой суммы")
         parser.add_argument("--skip-characters", action="store_true",
                             help="Не создавать библиотеку героев")
 
@@ -139,7 +156,18 @@ class Command(BaseCommand):
         self.stdout.write(self.style.MIGRATE_HEADING(f"Превью: {total} сцен"))
         done = failed = 0
 
+        floor = float(opts.get("min_balance") or 0)
         for i, preset in enumerate(qs, start=1):
+            # Библиотеку снимаем на общий баланс OpenRouter — тот же, с которого
+            # генерируют пользователи. Досняв её до нуля, мы остановили бы сайт,
+            # поэтому перед каждой сценой смотрим, сколько осталось.
+            if floor > 0:
+                left = _free_credits()
+                if left is not None and left < floor:
+                    self.stdout.write(self.style.WARNING(
+                        f"Остановился: на балансе ${left:.2f}, порог ${floor:.2f}. "
+                        f"Снято {done}, осталось {total - i + 1}."))
+                    break
             hero = hero_for(preset)
             self.stdout.write(f"[{i}/{total}] {preset.title} — {hero.name}")
             started = time.time()
