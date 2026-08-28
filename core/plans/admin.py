@@ -183,6 +183,18 @@ class TokenPackageAdmin(admin.ModelAdmin):
     list_filter = ("is_active", "featured", "currency")
     search_fields = ("id", "name")
     ordering = ("sort_order", "id")
+    # Переводы отдельным блоком: их заполняют редко, и в общей простыне полей
+    # они мешали бы правке цены и наполнения — того, ради чего сюда заходят.
+    fieldsets = (
+        (None, {"fields": ("name", "tokens", "bonus_tokens", "price", "currency",
+                           "badge", "description", "featured", "is_active", "sort_order")}),
+        ("Переводы витрины", {
+            "classes": ("collapse",),
+            "description": "Пусто — на английской и кыргызской странице покажется русский текст.",
+            "fields": ("name_en", "badge_en", "description_en",
+                       "name_kg", "badge_kg", "description_kg"),
+        }),
+    )
 
 
 @admin.register(TokenTransaction)

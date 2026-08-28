@@ -5,6 +5,7 @@ from .models import (
     TokenPackage, TokenTransaction,
 )
 from .services import get_currency_per_usd_map
+from core.langutils import tr
 
 # price quantize helper
 Q2 = Decimal("0.01")
@@ -180,12 +181,34 @@ class AddonPurchaseSerializer(serializers.ModelSerializer):
 
 
 class TokenPackageSerializer(serializers.ModelSerializer):
+    """Витрина пакетов. Имя, подпись и бейдж приходят уже на нужном языке.
+
+    Поля остаются теми же (name/description/badge), а не превращаются в
+    name_en и подобные: фронту незачем знать про переводы, он показывает то,
+    что дали. Язык кладётся во view через context["lang"].
+    """
+    name = serializers.SerializerMethodField()
+    description = serializers.SerializerMethodField()
+    badge = serializers.SerializerMethodField()
+
     class Meta:
         model = TokenPackage
         fields = (
             "id", "name", "tokens", "bonus_tokens", "price", "currency",
             "description", "badge", "featured", "sort_order",
         )
+
+    def _lang(self) -> str:
+        return self.context.get("lang") or "ru"
+
+    def get_name(self, obj) -> str:
+        return tr(obj, "name", self._lang())
+
+    def get_description(self, obj) -> str:
+        return tr(obj, "description", self._lang())
+
+    def get_badge(self, obj) -> str:
+        return tr(obj, "badge", self._lang())
 
 
 class TokenTransactionSerializer(serializers.ModelSerializer):

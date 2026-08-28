@@ -73,6 +73,10 @@ class TokenPackageAdminSerializer(serializers.ModelSerializer):
         fields = [
             "id", "name", "tokens", "bonus_tokens", "price", "badge",
             "featured", "is_active", "sort_order", "description",
+            # Переводы витрины: без них на английской и кыргызской странице
+            # среди переведённого интерфейса остаётся русский текст пакета.
+            "name_en", "name_kg", "badge_en", "badge_kg",
+            "description_en", "description_kg",
         ]
         read_only_fields = ["id"]
 

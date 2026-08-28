@@ -10,6 +10,7 @@ import { useCurrency } from "@/hooks/useCurrency";
 import type { PackageValue } from "@/types/pricing";
 import CurrencySwitch from "@/components/pricing/CurrencySwitch";
 import PayAsYouGoBanner from "@/components/pricing/PayAsYouGoBanner";
+import { apiLang } from "@/lib/apiLang";
 
 type Pkg = {
   id: number | string;
@@ -45,7 +46,7 @@ type Props = {
  * first time the modal is opened.
  */
 export default function TopUpModal({ open, onClose }: Props) {
-  const { t } = useTranslation("common");
+  const { t, i18n } = useTranslation("common");
   const [packages, setPackages] = useState<Pkg[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -72,7 +73,7 @@ export default function TopUpModal({ open, onClose }: Props) {
     setError("");
     (async () => {
       try {
-        const res = await fetchData<Pkg[]>("plans/packages/", "GET", null, false);
+        const res = await fetchData<Pkg[]>(`plans/packages/?lang=${apiLang(i18n.language)}`, "GET", null, false);
         if (cancelled) return;
         if (res?.ok && Array.isArray(res.data)) {
           setPackages([...res.data].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0)));
@@ -84,7 +85,7 @@ export default function TopUpModal({ open, onClose }: Props) {
       }
     })();
     return () => { cancelled = true; };
-  }, [open, t]);
+  }, [open, t, i18n.language]);
 
   const purchase = async (pkg: Pkg) => {
     if (buyingId != null) return;

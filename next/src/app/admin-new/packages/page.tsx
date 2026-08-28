@@ -15,9 +15,35 @@ type Pkg = {
   is_active: boolean;
   sort_order: number;
   description: string;
+  name_en: string;
+  name_kg: string;
+  badge_en: string;
+  badge_kg: string;
+  description_en: string;
+  description_kg: string;
 };
 
-type Editable = Pick<Pkg, "tokens" | "price" | "badge" | "featured" | "is_active">;
+type Editable = Pick<
+  Pkg,
+  | "tokens"
+  | "price"
+  | "badge"
+  | "featured"
+  | "is_active"
+  | "name_en"
+  | "name_kg"
+  | "badge_en"
+  | "badge_kg"
+  | "description_en"
+  | "description_kg"
+>;
+
+/** Что переводится в пакете: русский текст рядом, чтобы было с чего переводить. */
+const TRANSLATABLE: { label: string; source: keyof Pkg; en: keyof Editable; kg: keyof Editable }[] = [
+  { label: "Название", source: "name", en: "name_en", kg: "name_kg" },
+  { label: "Бейдж", source: "badge", en: "badge_en", kg: "badge_kg" },
+  { label: "Подпись", source: "description", en: "description_en", kg: "description_kg" },
+];
 
 const INPUT =
   "rounded-lg bg-surface-2 border border-border px-3 py-2 text-sm text-foreground focus:border-accent outline-none";
@@ -191,6 +217,43 @@ export default function AdminPackagesPage() {
                   </label>
                 </div>
               </div>
+
+              {/* Переводы витрины. Свёрнуты: заходят сюда обычно за ценой и
+                  наполнением, а переводы правят редко. */}
+              <details className="mt-4 rounded-xl border border-border bg-surface-2/50 p-3">
+                <summary className="cursor-pointer text-sm font-medium text-muted hover:text-foreground">
+                  Переводы витрины (EN / KG)
+                </summary>
+                <p className="mt-2 text-xs text-muted-2">
+                  Пусто — на английской и кыргызской странице покажется русский текст.
+                </p>
+                <div className="mt-3 space-y-3">
+                  {TRANSLATABLE.map((f) => (
+                    <div key={f.en} className="space-y-1.5">
+                      <div className="text-xs text-muted">
+                        {f.label}
+                        <span className="ml-1.5 text-muted-2">
+                          — {String(p[f.source] || "").trim() || "пусто"}
+                        </span>
+                      </div>
+                      <input
+                        type="text"
+                        placeholder="EN"
+                        className={`${INPUT} w-full`}
+                        value={String(p[f.en] ?? "")}
+                        onChange={(e) => setField(p.id, f.en, e.target.value)}
+                      />
+                      <input
+                        type="text"
+                        placeholder="KG"
+                        className={`${INPUT} w-full`}
+                        value={String(p[f.kg] ?? "")}
+                        onChange={(e) => setField(p.id, f.kg, e.target.value)}
+                      />
+                    </div>
+                  ))}
+                </div>
+              </details>
 
               <div className="mt-5 flex h-9 items-center">
                 {savedFlash[p.id] ? (

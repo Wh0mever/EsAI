@@ -6,6 +6,7 @@ import { fetchData } from "@/tools/fetchData";
 import { FiZap, FiGift } from "react-icons/fi";
 import Cookies from "js-cookie";
 import type { Currency } from "@/lib/currency";
+import { apiLang } from "@/lib/apiLang";
 
 type Pkg = {
   id: number | string;
@@ -101,7 +102,10 @@ export default function TokenPackages({
   returnTo,
   valueOverride,
 }: TokenPackagesProps = {}) {
-  const { t } = useTranslation("common");
+  const { t, i18n } = useTranslation("common");
+  // Названия и подписи пакетов лежат в базе на трёх языках (админка),
+  // поэтому язык уезжает на сервер вместе с запросом.
+  const lang = apiLang(i18n.language);
   const [packages, setPackages] = useState<Pkg[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -122,7 +126,7 @@ export default function TokenPackages({
     (async () => {
       try {
         const res = await fetchData<{ packages: PkgWithValue[] }>(
-          "plans/packages/value/",
+          `plans/packages/value/?lang=${lang}`,
           "GET",
           null,
           false
@@ -143,7 +147,7 @@ export default function TokenPackages({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [lang]);
 
   useEffect(() => {
     let cancelled = false;
@@ -151,7 +155,7 @@ export default function TokenPackages({
     setError("");
     (async () => {
       try {
-        const res = await fetchData<Pkg[]>("plans/packages/", "GET", null, false);
+        const res = await fetchData<Pkg[]>(`plans/packages/?lang=${lang}`, "GET", null, false);
         if (cancelled) return;
         if (res?.ok && Array.isArray(res.data)) {
           const list = [...res.data].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
@@ -166,7 +170,7 @@ export default function TokenPackages({
     return () => {
       cancelled = true;
     };
-  }, [t]);
+  }, [t, lang]);
 
   const onBuy = async (pkg: Pkg) => {
     // Guests must authenticate before topping up.

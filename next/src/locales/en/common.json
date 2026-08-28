@@ -1776,6 +1776,12 @@
 		"retry_failed": "Try again",
 		"remove": "Remove the scene",
 		"credits_short": "cr",
-		"price": "{{credits}} cr · {{duration}} s"
+		"price": "{{credits}} cr · {{duration}} s",
+		"new_movie": "Start a new one",
+		"my_movies": "My cartoons",
+		"movie_fallback": "Cartoon #{{id}}",
+		"movie_scenes_one": "{{count}} scene",
+		"movie_scenes_other": "{{count}} scenes",
+		"movie_ready": "ready"
 	}
 }
