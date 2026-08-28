@@ -149,7 +149,9 @@ export function Modal({ title, children, size = "md", onClose, open }: ModalProp
         className={`bg-surface p-6 relative border border-border ${containerClasses} flex flex-col min-h-0 overflow-hidden`}
         onClick={(e) => e.stopPropagation()}
       >
-        <h2 className="text-xl font-semibold mb-4 border-b py-2 border-border capitalize">{title}</h2>
+        {/* Без capitalize: он ломает русские заголовки в «Войдите, Чтобы Собрать
+            Мультфильм» — сайт говорит предложениями, а не ярлыками. */}
+        <h2 className="text-xl font-semibold mb-4 border-b py-2 border-border">{title}</h2>
         <button
           onClick={onClose}
           className="absolute top-5 right-5 text-xl text-muted hover:text-foreground duration-300 transition cursor-pointer"

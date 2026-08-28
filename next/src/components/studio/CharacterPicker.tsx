@@ -28,12 +28,18 @@ export type StudioCharacter = {
  * работают карточки в полный рост на простом фоне — их и рисует генератор.
  */
 export default function CharacterPicker({
+  authed = true,
+  onNeedAuth,
   characters,
   value,
   onPick,
   onCreated,
   balance,
 }: {
+  /** Вошёл ли человек: гостю нельзя ни загрузить своего героя, ни нарисовать. */
+  authed?: boolean;
+  /** Позвать окно входа вместо строчки с ошибкой под формой. */
+  onNeedAuth?: () => void;
   characters: StudioCharacter[];
   value: StudioCharacter | null;
   onPick: (c: StudioCharacter) => void;
@@ -63,6 +69,10 @@ export default function CharacterPicker({
   };
 
   const generate = async () => {
+    if (!authed) {
+      onNeedAuth?.();
+      return;
+    }
     const p = prompt.trim();
     if (!p) {
       setError(t("studio_ui.err_describe"));
@@ -122,7 +132,15 @@ export default function CharacterPicker({
         {/* Загрузка своего — тот же размер плитки, чтобы ряд не рвался. */}
         <button
           type="button"
-          onClick={() => fileRef.current?.click()}
+          onClick={() => {
+            // Гостю сюда нельзя: раньше он узнавал об этом строчкой под
+            // формой, которой не видно (жалоба клиента).
+            if (!authed) {
+              onNeedAuth?.();
+              return;
+            }
+            fileRef.current?.click();
+          }}
           disabled={busy !== null}
           className="flex aspect-square flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed border-border text-muted transition-colors hover:border-accent/60 hover:text-foreground disabled:opacity-60 cursor-pointer"
         >

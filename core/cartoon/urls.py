@@ -14,4 +14,5 @@ urlpatterns = [
     path("projects/<int:pk>/scenes/", views.ProjectScenesView.as_view(), name="project-scenes"),
     path("projects/<int:pk>/assemble/", views.ProjectAssembleView.as_view(), name="project-assemble"),
     path("scenes/<int:pk>/", views.SceneDetailView.as_view(), name="scene-detail"),
+    path("scenes/<int:pk>/render/", views.SceneRenderView.as_view(), name="scene-render"),
 ]
