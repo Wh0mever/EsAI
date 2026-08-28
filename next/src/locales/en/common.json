@@ -1800,6 +1800,8 @@
 		"auth_note": "Your timeline and characters are saved to your account. Signing in takes one click — no registration form.",
 		"auth_cta": "Sign in",
 		"drafts_hint_one": "{{count}} scene in the timeline is not shot yet",
-		"drafts_hint_other": "{{count}} scenes in the timeline are not shot yet"
+		"drafts_hint_other": "{{count}} scenes in the timeline are not shot yet",
+		"cat_popular": "Popular",
+		"cat_pick": "EsAI picks"
 	}
 }

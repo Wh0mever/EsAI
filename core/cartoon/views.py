@@ -80,12 +80,13 @@ def preset_json(p: CartoonPreset, lang: str = "ru") -> dict:
         "aspect_ratio": p.aspect_ratio,
         "credits": p.estimated_credits(),
         "category": p.category.slug if p.category_id else "",
+        "audience": p.audience,
+        "is_pick": p.is_pick,
     }
 
 
 def category_json(c, lang: str = "ru") -> dict:
-    return {"slug": c.slug, "title": _tr(c, "title", lang), "emoji": c.emoji,
-            "audience": c.audience}
+    return {"slug": c.slug, "title": _tr(c, "title", lang), "emoji": c.emoji}
 
 
 def character_json(c: CartoonCharacter, lang: str = "ru") -> dict:
@@ -96,9 +97,7 @@ def character_json(c: CartoonCharacter, lang: str = "ru") -> dict:
         "source": c.source,
         "is_mine": c.user_id is not None,
         "category": c.category.slug if c.category_id else "",
-        # Аудитория героя — аудитория его раздела: взрослому сюжету нужен
-        # взрослый герой, и в студии эти списки фильтруются вместе.
-        "audience": c.category.audience if c.category_id else "kids",
+        "audience": c.audience,
     }
 
 
@@ -158,7 +157,24 @@ class PresetsView(StudioPublicAPIView):
             # Пустые разделы не показываем: человек ткнёт и увидит ничего.
             "categories": [category_json(c, lang) for c in cats if c.slug in used],
             "presets": presets,
+            "popular": self._popular(),
         })
+
+    @staticmethod
+    def _popular(limit: int = 12) -> list:
+        """Что чаще всего берут в ленту.
+
+        Считаем по реальным добавлениям, а не по галочке в админке: подборка
+        «Популярное», собранная руками, врёт ровно до первого пользователя.
+        Пока данных мало, подборки просто нет — пустая вкладка хуже честного
+        её отсутствия.
+        """
+        from django.db.models import Count
+
+        rows = (CartoonScene.objects.values("preset__slug")
+                .annotate(n=Count("id")).order_by("-n")[:limit])
+        slugs = [r["preset__slug"] for r in rows if r["preset__slug"]]
+        return slugs if len(slugs) >= 6 else []
 
 
 class PricingView(StudioPublicAPIView):

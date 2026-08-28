@@ -589,26 +589,8 @@ ADULT_PRESETS = [
      "the android tilts its head, light shifts between the two faces, camera pushes in", 5, "scifi"),
 ]
 
-# --- Сведение обеих половин -------------------------------------------------
-# Разделы носят пометку аудитории: 19 разделов одной строкой не читаются, и в
-# студии человек сначала выбирает, для кого он снимает, а уже потом жанр.
-CATEGORIES = ([(slug, title, emoji, order, "kids") for slug, title, emoji, order in KIDS_CATEGORIES]
-              + [(slug, title, emoji, order, "adults") for slug, title, emoji, order in ADULT_CATEGORIES])
-
-ADULT_CATEGORY_SLUGS = {slug for slug, _t, _e, _o in ADULT_CATEGORIES}
-
 CHARACTERS = CHARACTERS + ADULT_CHARACTERS
 PRESETS = PRESETS + ADULT_PRESETS
-
-
-def audience_of(category_slug: str) -> str:
-    """Для кого раздел. Взрослые сцены снимаются другим стилем и другим героем."""
-    return "adults" if category_slug in ADULT_CATEGORY_SLUGS else "kids"
-
-
-def style_for(category_slug: str) -> str:
-    """Стиль кадра. Милый Pixar-рендер на сцене допроса выглядит пародией."""
-    return ADULT_STYLE if audience_of(category_slug) == "adults" else STYLE
 
 
 CATEGORY_TRANSLATIONS.update({
@@ -728,3 +710,211 @@ PRESET_TRANSLATIONS.update({
     "sci-android": ("Meeting the android", "Face to face with the machine",
                     "Андроид менен жолугушуу", "Машина менен бетме-бет"),
 })
+
+
+# ===========================================================================
+# Разделы библиотеки — версия клиента (28.08.2026)
+# ===========================================================================
+# Клиент прислал свой список разделов, и он лучше прежнего: раньше половина
+# делилась по этапу истории («начало», «финал»), половина по жанру, и человек
+# не понимал, где искать. Здесь всё по теме, а этап сведён в один раздел
+# «Начало и финал».
+#
+# Аудитория переехала с раздела на сцену. В «Приключениях» теперь и детские
+# джунгли, и взрослый поиск сокровищ: делить по разделу стало нельзя, а
+# показывать ребёнку сцену допроса — тем более.
+
+CATEGORIES = [
+    ("holidays", "Поздравления и праздники", "🎉", 10),
+    ("love", "Любовь и отношения", "❤️", 20),
+    ("family", "Семья", "🏡", 30),
+    ("city", "Городская жизнь", "🌆", 40),
+    ("work", "Работа и бизнес", "💼", 50),
+    ("travel", "Путешествия", "✈️", 60),
+    ("adventure", "Приключения", "🧭", 70),
+    ("action", "Экшен", "💥", 80),
+    ("detective", "Детектив и криминал", "🕵️", 90),
+    ("funny", "Юмор и курьёзы", "😄", 100),
+    ("sport", "Спорт", "⚽", 110),
+    ("fantasy", "Фэнтези и магия", "🐉", 120),
+    ("space", "Космос", "🚀", 130),
+    ("tech", "Будущее и технологии", "🤖", 140),
+    ("mystic", "Мистика и хоррор", "👻", 150),
+    ("daily", "Повседневная жизнь", "☕", 160),
+    ("arc", "Начало и финал", "🎬", 170),
+]
+
+# Куда переезжают сцены и герои прежних разделов.
+CATEGORY_MOVES = {
+    "start": "arc",
+    "finale": "arc",
+    "magic": "fantasy",
+    "thriller": "action",
+    "crime": "detective",
+    "relationships": "love",
+    "office": "work",
+    "scifi": "tech",
+    "drama": "daily",
+}
+
+# Отдельные сцены, которым общий переезд раздела не подходит.
+PRESET_MOVES = {
+    "dra-confession": "love",
+}
+
+# Сцены, снятые детским стилем. Всё остальное — взрослое.
+KIDS_PRESETS = {p[0] for p in PRESETS} - {p[0] for p in ADULT_PRESETS}
+KIDS_CHARACTERS = {c[0] for c in CHARACTERS} - {c[0] for c in ADULT_CHARACTERS}
+
+# ⭐ Выбор EsAI — редакторская подборка наверху библиотеки. Не «самое красивое»,
+# а то, с чего проще всего начать историю и получить понятный результат.
+EDITOR_PICKS = {
+    "hero-appears", "city-night-walk", "det-board", "office-pitch",
+    "rel-first-date", "hol-birthday", "trav-mountains", "sci-neon-city",
+    "fan-portal", "thr-car-chase", "funny-fall", "fam-dinner",
+}
+
+NEW_PRESETS = [
+    # --- Поздравления и праздники ---
+    ("hol-birthday", "День рождения", "Задувает свечи на торте",
+     "the character leans over a birthday cake covered in lit candles and blows them out, "
+     "friends around the table, warm party lights and garlands",
+     "the candles go out in a puff of smoke, everyone claps, camera pushes in", 5, "holidays"),
+    ("hol-gift", "Подарок", "Разворачивает коробку с лентой",
+     "the character unwraps a large gift box with a satin ribbon, surprised delighted face, "
+     "soft festive lights behind",
+     "the ribbon falls away, the lid lifts, warm light spills from inside the box", 5, "holidays"),
+    ("hol-toast", "Тост", "Поднимает бокал за столом",
+     "the character stands and raises a champagne glass at a festive dinner table, "
+     "guests lifting their glasses in return, candles and warm light",
+     "glasses rise and meet, bubbles catch the light, the character smiles", 5, "holidays"),
+    ("hol-newyear", "Новый год", "У ёлки под бой курантов",
+     "the character stands by a decorated new year tree as confetti falls, "
+     "garlands glowing, glass of champagne in hand, midnight window behind",
+     "confetti drifts down, lights twinkle, the character looks up smiling", 5, "holidays"),
+    ("hol-wedding", "Свадьба", "Под аркой в лепестках",
+     "the character stands under a floral wedding arch as petals fall around, "
+     "guests blurred behind, golden hour light",
+     "petals drift through the air, camera slowly circles the arch", 5, "holidays"),
+    ("hol-graduation", "Выпускной", "Подбрасывает конфедератку",
+     "the character throws a graduation cap into the air, diploma in hand, "
+     "classmates cheering, university building behind, bright day",
+     "the cap spins upward in slow motion, the character laughs, camera tilts up", 5, "holidays"),
+
+    # --- Мистика и хоррор ---
+    ("mys-dark-house", "Тёмный дом", "Идёт по коридору со свечой",
+     "the character walks down a dark old house corridor holding a candle, "
+     "peeling wallpaper, closed doors, shadows stretching along the walls",
+     "the candle flame trembles, shadows shift on the walls, camera follows from behind", 5, "mystic"),
+    ("mys-night-forest", "Ночной лес", "Луч фонаря между стволов",
+     "the character moves through a night forest with a flashlight, beam cutting through mist, "
+     "bare trunks all around, cold blue moonlight",
+     "the beam sweeps between the trees, mist curls in the light, branches creak", 5, "mystic"),
+    ("mys-abandoned", "Заброшенное здание", "Входит в разрушенный зал",
+     "the character steps into a ruined abandoned hall, broken windows and dust, "
+     "shafts of grey daylight, debris on the floor",
+     "dust swirls in the light shafts, the character walks slowly forward", 5, "mystic"),
+    ("mys-door", "Таинственная дверь", "Тянется к скрипучей двери",
+     "the character reaches for the handle of an old creaking door with faint light behind it, "
+     "dark corridor, hand hesitating",
+     "the door opens a crack, light widens across the face, the character freezes", 5, "mystic"),
+    ("mys-escape", "Побег", "Убегает по коридору",
+     "the character runs down a long dark corridor away from a bright doorway behind, "
+     "flickering lights, panic on the face",
+     "the character runs toward camera, lights flicker past, the doorway shrinks behind", 5, "mystic"),
+
+    # --- Повседневная жизнь ---
+    ("day-morning-coffee", "Утренний кофе", "Наливает чашку у окна",
+     "the character pours coffee into a cup by a sunlit kitchen window, "
+     "steam rising, quiet morning, plants on the sill",
+     "steam curls up, morning light moves across the counter, the character takes a sip", 5, "daily"),
+    ("day-breakfast", "Завтрак", "Ест за столом в утреннем свете",
+     "the character eats breakfast at a small table in soft morning light, "
+     "newspaper and cup beside the plate, cosy room",
+     "the character eats unhurried, light shifts on the table, camera drifts in", 5, "daily"),
+    ("day-shopping", "В магазине", "Выбирает у полок",
+     "the character picks products from a supermarket shelf with a basket in hand, "
+     "bright aisle lighting, rows of goods receding",
+     "the character examines a package and puts it in the basket, camera glides along the aisle", 5, "daily"),
+    ("day-friends", "Встреча с друзьями", "Смеются за столиком",
+     "the character laughs with friends around a cafe table, cups and plates between them, "
+     "warm afternoon light through the window",
+     "everyone laughs, someone gestures, camera slowly circles the table", 5, "daily"),
+    ("day-evening-home", "Вечер дома", "На диване с пледом",
+     "the character sits on a couch under a blanket with a book and a warm lamp, "
+     "quiet evening room, rain outside the window",
+     "the character turns a page, lamp light flickers warmly, rain runs down the glass", 5, "daily"),
+]
+
+NEW_TRANSLATIONS = {
+    "hol-birthday": ("Birthday", "Blowing out the candles on the cake",
+                     "Туулган күн", "Тортдогу шамдарды үйлөп өчүрөт"),
+    "hol-gift": ("The gift", "Unwrapping a ribboned box",
+                 "Белек", "Тасмалуу кутучаны ачат"),
+    "hol-toast": ("The toast", "Raising a glass at the table",
+                  "Тост", "Үстөлдө бокал көтөрөт"),
+    "hol-newyear": ("New year", "By the tree as confetti falls",
+                    "Жаңы жыл", "Балатынын жанында конфетти алдында"),
+    "hol-wedding": ("The wedding", "Under the arch in falling petals",
+                    "Той", "Гүл жалбырактарынын астында аркада"),
+    "hol-graduation": ("Graduation", "Throwing the cap in the air",
+                       "Бүтүрүү кечеси", "Калпакты асманга ыргытат"),
+    "mys-dark-house": ("The dark house", "Walking the corridor with a candle",
+                       "Караңгы үй", "Шам менен коридордо басат"),
+    "mys-night-forest": ("Night forest", "A flashlight beam between the trunks",
+                         "Түнкү токой", "Дарактардын арасында кол чырак"),
+    "mys-abandoned": ("Abandoned building", "Stepping into a ruined hall",
+                      "Ташталган имарат", "Кыйраган залга кирет"),
+    "mys-door": ("The mysterious door", "Reaching for the creaking handle",
+                 "Сырдуу эшик", "Кычыраган туткага колун сунат"),
+    "mys-escape": ("The escape", "Running down the corridor",
+                   "Качуу", "Коридор менен чуркайт"),
+    "day-morning-coffee": ("Morning coffee", "Pouring a cup by the window",
+                           "Эртең мененки кофе", "Терезе жанында чөйчөккө куят"),
+    "day-breakfast": ("Breakfast", "Eating at the table in morning light",
+                      "Эртең мененки тамак", "Эртең мененки жарыкта үстөлдө"),
+    "day-shopping": ("At the shop", "Choosing from the shelves",
+                     "Дүкөндө", "Текчелерден тандайт"),
+    "day-friends": ("Meeting friends", "Laughing around a cafe table",
+                    "Достор менен жолугушуу", "Кафеде күлүшүп отурушат"),
+    "day-evening-home": ("Evening at home", "On the couch under a blanket",
+                         "Үйдөгү кеч", "Жууркандын астында диванда"),
+}
+
+CATEGORY_TRANSLATIONS.update({
+    "holidays": ("Celebrations", "Майрамдар жана куттуктоолор"),
+    "love": ("Love & relationships", "Сүйүү жана мамилелер"),
+    "work": ("Work & business", "Иш жана бизнес"),
+    "action": ("Action", "Экшен"),
+    "detective": ("Detective & crime", "Детектив жана кылмыш"),
+    "funny": ("Humour & mishaps", "Юмор жана кызыктар"),
+    "fantasy": ("Fantasy & magic", "Фэнтези жана сыйкыр"),
+    "tech": ("Future & technology", "Келечек жана технологиялар"),
+    "mystic": ("Mystery & horror", "Мистика жана коркунуч"),
+    "daily": ("Everyday life", "Күнүмдүк турмуш"),
+    "arc": ("Beginning & finale", "Башталышы жана финалы"),
+})
+
+PRESET_TRANSLATIONS.update(NEW_TRANSLATIONS)
+PRESETS = PRESETS + NEW_PRESETS
+
+
+def category_of(slug: str, preset_slug: str = "") -> str:
+    """Куда попадает сцена или герой после перестройки разделов."""
+    if preset_slug and preset_slug in PRESET_MOVES:
+        return PRESET_MOVES[preset_slug]
+    return CATEGORY_MOVES.get(slug, slug)
+
+
+def audience_of_preset(preset_slug: str) -> str:
+    return "kids" if preset_slug in KIDS_PRESETS else "adults"
+
+
+def audience_of_character(name: str) -> str:
+    return "kids" if name in KIDS_CHARACTERS else "adults"
+
+
+def style_for_preset(preset_slug: str) -> str:
+    """Стиль кадра зависит от сцены, а не от раздела: в одном разделе теперь
+    соседствуют детские джунгли и взрослый поиск сокровищ."""
+    return STYLE if preset_slug in KIDS_PRESETS else ADULT_STYLE

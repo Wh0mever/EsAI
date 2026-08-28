@@ -41,11 +41,6 @@ class CartoonCategory(models.Model):
     emoji = models.CharField(
         max_length=8, blank=True, default="", verbose_name="Значок",
         help_text="Один символ для плитки раздела, необязательно.")
-    audience = models.CharField(
-        max_length=8, choices=[("kids", "Для детей"), ("adults", "Для взрослых")],
-        default="kids", verbose_name="Для кого",
-        help_text="Разделов почти два десятка, и одной строкой они не читаются: "
-                  "в студии человек сначала выбирает, для кого снимает, потом жанр.")
     sort_order = models.PositiveIntegerField(default=100, verbose_name="Порядок")
     is_active = models.BooleanField(default=True, verbose_name="Показывать")
 
@@ -126,6 +121,14 @@ class CartoonPreset(models.Model):
     category = models.ForeignKey(
         CartoonCategory, on_delete=models.SET_NULL, null=True, blank=True,
         related_name="presets", verbose_name="Раздел")
+    # Аудитория живёт на сцене, а не на разделе: в «Приключениях» соседствуют
+    # детские джунгли и взрослый поиск сокровищ, и стиль съёмки у них разный.
+    audience = models.CharField(
+        max_length=8, choices=[("kids", "Для детей"), ("adults", "Для взрослых")],
+        default="adults", verbose_name="Для кого")
+    is_pick = models.BooleanField(
+        default=False, verbose_name="⭐ Выбор EsAI",
+        help_text="Показывать в подборке наверху библиотеки.")
     sort_order = models.PositiveIntegerField(default=100, verbose_name="Порядок")
     is_active = models.BooleanField(default=True, verbose_name="Показывать")
     created_at = models.DateTimeField(auto_now_add=True)
@@ -179,6 +182,9 @@ class CartoonCharacter(models.Model):
     category = models.ForeignKey(
         CartoonCategory, on_delete=models.SET_NULL, null=True, blank=True,
         related_name="characters", verbose_name="Раздел")
+    audience = models.CharField(
+        max_length=8, choices=[("kids", "Для детей"), ("adults", "Для взрослых")],
+        default="adults", verbose_name="Для кого")
     source = models.CharField(max_length=12, choices=SOURCE_CHOICES, default=SOURCE_LIBRARY,
                               verbose_name="Откуда")
     is_public = models.BooleanField(default=False, verbose_name="В общей библиотеке")

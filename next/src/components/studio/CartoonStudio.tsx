@@ -35,9 +35,11 @@ type Preset = {
   aspect_ratio: string;
   credits: number;
   category: string;
+  audience: "kids" | "adults";
+  is_pick: boolean;
 };
 
-type Category = { slug: string; title: string; emoji: string; audience: "kids" | "adults" };
+type Category = { slug: string; title: string; emoji: string };
 
 type Project = {
   id: number;
@@ -58,6 +60,9 @@ export default function CartoonStudio() {
   const { t, i18n } = useTranslation("common");
   const [presets, setPresets] = useState<Preset[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
+  // Подборки наверху библиотеки: «Популярное» приходит с сервера по
+  // реальным добавлениям, «Выбор EsAI» помечен у самих сцен в админке.
+  const [popular, setPopular] = useState<string[]>([]);
   const [activeCat, setActiveCat] = useState("");
   // Для кого снимаем. Разделов девятнадцать, героев больше двух десятков, и
   // взрослому сюжету нужен взрослый герой — поэтому один переключатель наверху
@@ -90,8 +95,18 @@ export default function CartoonStudio() {
   const [shareUrl, setShareUrl] = useState("");
   const [sharing, setSharing] = useState(false);
 
-  const visibleCategories =
-    audience === "all" ? categories : categories.filter((c) => c.audience === audience);
+  const byAudience = (p: Preset) => audience === "all" || p.audience === audience;
+
+  // Раздел показываем, только если в нём есть что смотреть при текущем выборе
+  // аудитории — иначе человек ткнёт в «Спорт» и увидит пустоту.
+  const visibleCategories = categories.filter((c) =>
+    presets.some((p) => p.category === c.slug && byAudience(p))
+  );
+
+  const picks = presets.filter((p) => p.is_pick && byAudience(p));
+  const popularPresets = popular
+    .map((slug) => presets.find((p) => p.slug === slug))
+    .filter((p): p is Preset => Boolean(p) && byAudience(p as Preset));
 
   // Свои персонажи показываются всегда: человек загрузил их сам, и прятать их
   // за чужим делением на «детское/взрослое» было бы странно.
@@ -100,16 +115,19 @@ export default function CartoonStudio() {
       ? characters
       : characters.filter((c) => c.is_mine || c.audience === audience);
 
-  const visiblePresets = activeCat
-    ? presets.filter((p) => p.category === activeCat)
-    : audience === "all"
-    ? presets
-    : presets.filter((p) => visibleCategories.some((c) => c.slug === p.category));
+  const visiblePresets =
+    activeCat === "__pick"
+      ? picks
+      : activeCat === "__popular"
+      ? popularPresets
+      : activeCat
+      ? presets.filter((p) => p.category === activeCat && byAudience(p))
+      : presets.filter(byAudience);
 
   const pickAudience = (next: "all" | "kids" | "adults") => {
     setAudience(next);
-    if (activeCat && next !== "all") {
-      const still = categories.find((c) => c.slug === activeCat && c.audience === next);
+    if (activeCat && !activeCat.startsWith("__") && next !== "all") {
+      const still = presets.some((p) => p.category === activeCat && p.audience === next);
       if (!still) setActiveCat("");
     }
   };
@@ -135,7 +153,8 @@ export default function CartoonStudio() {
       // там же, поэтому витрина просит их сразу на нужном языке.
       const lang = apiLang(i18n.language);
       const [p, c, mine] = await Promise.all([
-        fetchData<{ categories: Category[]; presets: Preset[] }>(`cartoon/presets/?lang=${lang}`, "GET", null, true),
+        fetchData<{ categories: Category[]; presets: Preset[]; popular: string[] }>(
+          `cartoon/presets/?lang=${lang}`, "GET", null, true),
         fetchData<StudioCharacter[]>(`cartoon/characters/?lang=${lang}`, "GET", null, true),
         fetchData<Project[]>(`cartoon/projects/?lang=${lang}`, "GET", null, true),
       ]);
@@ -143,6 +162,7 @@ export default function CartoonStudio() {
       if (p.ok && p.data) {
         setPresets(p.data.presets || []);
         setCategories(p.data.categories || []);
+        setPopular(p.data.popular || []);
       }
       if (c.ok && Array.isArray(c.data)) setCharacters(c.data);
       if (!p.ok) setError(t("studio_ui.err_load"));
@@ -395,7 +415,7 @@ export default function CartoonStudio() {
       </header>
 
       {/* Для кого снимаем: сужает и библиотеку героев, и разделы сцен. */}
-      {categories.some((c) => c.audience === "adults") && (
+      {presets.some((p) => p.audience === "adults") && (
         <div className="mb-6 inline-flex rounded-full border border-border bg-surface p-1">
           {([
             ["all", t("studio_ui.aud_all")],
@@ -507,7 +527,12 @@ export default function CartoonStudio() {
                 человек ищет не «сцену вообще», а начало, погоню или финал. */}
             {visibleCategories.length > 1 && (
               <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:mx-0 sm:flex-wrap sm:px-0">
-                {[{ slug: "", title: t("studio_ui.cat_all"), emoji: "🎞" }, ...visibleCategories].map((c) => (
+                {[
+                  { slug: "", title: t("studio_ui.cat_all"), emoji: "🎞" },
+                  ...(popularPresets.length ? [{ slug: "__popular", title: t("studio_ui.cat_popular"), emoji: "🔥" }] : []),
+                  ...(picks.length ? [{ slug: "__pick", title: t("studio_ui.cat_pick"), emoji: "⭐" }] : []),
+                  ...visibleCategories,
+                ].map((c) => (
                   <button
                     key={c.slug || "all"}
                     type="button"
