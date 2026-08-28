@@ -47,7 +47,10 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("--force", action="store_true", help="Переснять уже готовые превью")
-        parser.add_argument("--only", type=str, default="", help="Только этот пресет (slug)")
+        parser.add_argument("--only", type=str, default="",
+                            help="Только эти пресеты (slug через запятую)")
+        parser.add_argument("--hero", type=str, default="",
+                            help="Снимать указанным героем, а не подобранным по разделу")
         parser.add_argument("--skip-characters", action="store_true",
                             help="Не создавать библиотеку героев")
 
@@ -97,6 +100,13 @@ class Command(BaseCommand):
             self.stderr.write(self.style.ERROR("Нет ни одного библиотечного героя — превью снимать некем"))
             return
 
+        forced = None
+        if opts.get("hero"):
+            forced = next((c for c in library if c.name == opts["hero"]), None)
+            if not forced:
+                self.stderr.write(self.style.ERROR(f"Нет героя «{opts['hero']}» в библиотеке"))
+                return
+
         def hero_for(preset):
             """Кем снимать превью этой сцены.
 
@@ -105,6 +115,8 @@ class Command(BaseCommand):
             герой берётся из того же раздела, а если его там нет — любой
             подходящий по аудитории.
             """
+            if forced:
+                return forced
             cat = preset.category.slug if preset.category_id else ""
             same = [c for c in library if c.category_id and c.category.slug == cat]
             if same:
@@ -117,7 +129,8 @@ class Command(BaseCommand):
         qs = CartoonPreset.objects.filter(is_active=True).select_related(
             "image_model", "video_model", "category")
         if opts.get("only"):
-            qs = qs.filter(slug=opts["only"])
+            slugs = [x.strip() for x in str(opts["only"]).split(",") if x.strip()]
+            qs = qs.filter(slug__in=slugs)
         elif not opts.get("force"):
             qs = qs.filter(preview_video="")
 
