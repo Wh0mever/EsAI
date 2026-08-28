@@ -1817,6 +1817,7 @@
 		"drafts_hint_many": "Тасмадагы {{count}} көрүнүш азырынча тартылган жок",
 		"drafts_hint_other": "Тасмадагы {{count}} көрүнүш азырынча тартылган жок",
 		"cat_popular": "Популярдуу",
-		"cat_pick": "EsAI тандоосу"
+		"cat_pick": "EsAI тандоосу",
+		"download_scene": "Көрүнүштү жүктөп алуу"
 	}
 }

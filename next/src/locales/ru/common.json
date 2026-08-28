@@ -1809,6 +1809,7 @@
 		"drafts_hint_few": "{{count}} сцены в ленте ещё не сняты",
 		"drafts_hint_many": "{{count}} сцен в ленте ещё не сняты",
 		"cat_popular": "Популярное",
-		"cat_pick": "Выбор EsAI"
+		"cat_pick": "Выбор EsAI",
+		"download_scene": "Скачать сцену"
 	}
 }
