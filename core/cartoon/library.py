@@ -918,3 +918,407 @@ def style_for_preset(preset_slug: str) -> str:
     """Стиль кадра зависит от сцены, а не от раздела: в одном разделе теперь
     соседствуют детские джунгли и взрослый поиск сокровищ."""
     return STYLE if preset_slug in KIDS_PRESETS else ADULT_STYLE
+
+
+# ===========================================================================
+# Вторая волна: добиваем разделы по спискам клиента
+# ===========================================================================
+# Клиент перечислил, что должно быть внутри каждого раздела. Здесь дописано
+# то, чего не хватало, в том же порядке, что и разделы. Всё — действия, из
+# которых собирается история: не «красивый офис», а «подписывают договор».
+
+FILL_PRESETS = [
+    # --- 1. Поздравления и праздники ---
+    ("hol-party", "Вечеринка", "Танцует в толпе под гирляндами",
+     "the character dances in a crowded house party under string lights, "
+     "friends around, confetti in the air, warm colourful glow",
+     "the crowd moves to the beat, lights sweep across faces, confetti drifts down", 5, "holidays"),
+    ("hol-anniversary", "Годовщина", "Двое с бокалами у свечей",
+     "the character and a companion clink glasses across a candlelit table with a small cake, "
+     "intimate restaurant, soft golden light",
+     "glasses meet, candle flames waver, the two smile at each other", 5, "holidays"),
+    ("hol-jubilee", "Юбилей", "Принимает поздравления у большого стола",
+     "the character stands at the head of a long celebration table receiving congratulations, "
+     "flowers and glasses everywhere, guests applauding",
+     "guests raise glasses and applaud, the character nods with a warm smile", 5, "holidays"),
+    ("hol-corporate", "Корпоратив", "Команда поднимает бокалы в офисе",
+     "the character celebrates with colleagues in a decorated office space, glasses raised, "
+     "garlands and laptop screens behind, festive evening light",
+     "everyone cheers and clinks glasses, someone laughs, camera pans across the group", 5, "holidays"),
+
+    # --- 2. Любовь и отношения ---
+    ("love-meet", "Знакомство", "Первый взгляд в кафе",
+     "the character notices someone across a busy cafe and their eyes meet for the first time, "
+     "warm afternoon light, blurred people between them",
+     "the character looks up, a small surprised smile, camera racks focus between the two", 5, "love"),
+    ("love-walk", "Прогулка вдвоём", "Идут по набережной на закате",
+     "the character walks along an evening embankment hand in hand with a companion, "
+     "city lights reflected on the water, golden sunset",
+     "the two walk slowly, camera tracks beside them, water glitters behind", 5, "love"),
+    ("love-dinner", "Романтический ужин", "Ужин при свечах вдвоём",
+     "the character shares a candlelit dinner with a companion at a quiet restaurant table, "
+     "wine and flowers between them, soft warm light",
+     "the character pours wine, both lean closer, candlelight flickers", 5, "love"),
+    ("love-proposal", "Предложение", "Кольцо в раскрытой коробочке",
+     "the character kneels holding an open ring box before a stunned smiling companion, "
+     "evening park with lights behind, soft bokeh",
+     "the box opens, the ring catches the light, hands rise to a mouth in surprise", 5, "love"),
+    ("love-kiss", "Поцелуй", "Двое под фонарём в дождь",
+     "the character kisses a companion under a streetlamp in light rain, umbrella above them, "
+     "wet pavement glowing with reflected light",
+     "rain falls through the lamplight, the umbrella turns slowly, camera circles the two", 5, "love"),
+    ("love-makeup", "Примирение", "Протягивает руку после ссоры",
+     "the character reaches out a hand toward a companion who slowly takes it, "
+     "dim living room after an argument, evening light through the window",
+     "the hands meet, shoulders relax, the two step closer", 5, "love"),
+
+    # --- 3. Семья ---
+    ("fam-parents", "Родители и дети", "Читает ребёнку перед сном",
+     "the character reads a picture book to a child tucked into bed, warm bedside lamp, "
+     "cosy child's room with toys on the shelf",
+     "a page turns, the child's eyes grow sleepy, the character smiles softly", 5, "family"),
+    ("fam-play", "Игра с ребёнком", "Кружит ребёнка на руках",
+     "the character lifts and spins a laughing child in a sunlit living room, "
+     "toys scattered on the floor, bright afternoon light",
+     "the child spins through the air laughing, camera circles with them", 5, "family"),
+    ("fam-holiday", "Семейный праздник", "Вся семья за накрытым столом",
+     "the character celebrates with the whole family around a festive table, "
+     "children and grandparents together, garlands and warm lamplight",
+     "everyone raises glasses, children laugh, camera drifts along the table", 5, "family"),
+    ("fam-relatives", "Встреча родственников", "Обнимает гостей на пороге",
+     "the character welcomes arriving relatives at the front door with a big hug, "
+     "suitcases and coats, warm hallway light behind",
+     "the door opens wider, the hug tightens, more people step in smiling", 5, "family"),
+
+    # --- 4. Городская жизнь ---
+    ("city-restaurant", "Ресторан", "Ужинает у окна с видом на город",
+     "the character dines alone at a stylish restaurant window table with the city glowing below, "
+     "candle on the table, quiet elegant interior",
+     "the character lifts a glass, city lights shimmer beyond the glass, camera pushes in", 5, "city"),
+    ("city-park", "Парк", "Сидит на скамейке среди деревьев",
+     "the character sits on a park bench under autumn trees, leaves falling around, "
+     "path curving away, soft afternoon light",
+     "leaves drift down past the bench, a breeze moves the branches, camera slowly rises", 5, "city"),
+    ("city-car", "За рулём по городу", "Едет по вечерним улицам",
+     "the character drives through evening city streets, hands on the wheel, "
+     "shop signs and traffic lights sliding past the windows",
+     "lights slide across the windscreen and the face, the car turns a corner", 5, "city"),
+    ("city-rain", "Дождливый город", "Под зонтом на перекрёстке",
+     "the character stands with an umbrella at a busy rainy crossing, "
+     "headlights and neon smeared in the wet air, crowd flowing past",
+     "rain drums on the umbrella, cars pass throwing spray, the crowd moves around", 5, "city"),
+
+    # --- 5. Работа и бизнес ---
+    ("work-negotiation", "Переговоры", "Двое по разные стороны стола",
+     "the character faces a counterpart across a wide negotiation table, documents between them, "
+     "glass walls and city view behind, tense composed atmosphere",
+     "the character slides a document forward, the other studies it, camera arcs slowly", 5, "work"),
+    ("work-meeting", "Деловая встреча", "Разговор за кофе в лобби",
+     "the character talks business with a partner in a hotel lobby over coffee, "
+     "armchairs and marble, daylight through tall windows",
+     "the two lean in, the character gestures while explaining, camera drifts closer", 5, "work"),
+
+    # --- 6. Путешествия ---
+    ("trav-plane", "В самолёте", "Смотрит в иллюминатор на облака",
+     "the character looks out of an aeroplane window at clouds and sunlight, "
+     "cabin interior softly lit, headrest and tray table visible",
+     "clouds slide past the window, light shifts across the face", 5, "travel"),
+    ("trav-train", "В поезде", "У окна под стук колёс",
+     "the character sits by a train window watching countryside rush past, "
+     "warm carriage interior, cup on the folding table",
+     "landscape streaks past the glass, the cup trembles slightly, camera holds steady", 5, "travel"),
+    ("trav-hotel", "Отель", "Открывает шторы в номере",
+     "the character pulls open the curtains of a hotel room revealing a city or sea view, "
+     "suitcase on the bed, morning light flooding in",
+     "the curtains sweep open, light floods the room, the character steps to the window", 5, "travel"),
+    ("trav-sea", "Море", "Стоит по щиколотку в воде",
+     "the character stands ankle-deep in the sea at sunset, shoes in hand, "
+     "waves running over the sand, warm orange sky",
+     "a wave rolls in around the ankles, wind moves the hair, camera drifts along the shore", 5, "travel"),
+    ("trav-landmark", "Достопримечательность", "Смотрит на древний храм",
+     "the character stands before a famous ancient monument at golden hour, "
+     "tourists small in the distance, warm stone and long shadows",
+     "camera cranes up past the character revealing the full monument", 5, "travel"),
+
+    # --- 7. Приключения ---
+    ("adv-forest", "В лесу", "Идёт по тропе между высоких сосен",
+     "the character walks a narrow forest trail between tall pines, "
+     "sunbeams cutting through the canopy, moss and ferns underfoot",
+     "sunbeams sweep across the path as the character walks, camera tracks alongside", 5, "adventure"),
+    ("adv-cave", "Пещера", "С факелом у подземного озера",
+     "the character holds a torch at the edge of an underground lake in a vast cave, "
+     "stalactites above, reflections rippling on the water",
+     "torchlight dances on the water and walls, the character steps to the edge", 5, "adventure"),
+    ("adv-island", "Необитаемый остров", "Выходит на берег из волн",
+     "the character wades ashore onto a deserted tropical island beach, "
+     "palm trees ahead, turquoise water behind, bright midday sun",
+     "waves push at the legs, the character walks up onto the sand and looks around", 5, "adventure"),
+    ("adv-treasure", "Поиск сокровищ", "Открывает старый сундук",
+     "the character lifts the lid of an old wooden chest, golden light pouring onto the face, "
+     "cave or ruin around, dust in the air",
+     "the lid creaks open, golden light spills over the face, eyes widen", 5, "adventure"),
+    ("adv-rescue", "Спасение", "Втягивает другого на уступ",
+     "the character pulls another person up onto a rocky ledge above a drop, "
+     "both straining, wind and clouds around, dramatic height",
+     "the grip tightens, the character heaves the other up over the edge", 5, "adventure"),
+
+    # --- 8. Экшен ---
+    ("act-rescue", "Спасение из огня", "Выносит человека из дыма",
+     "the character carries an unconscious person out of a smoke-filled doorway, "
+     "embers and orange glow behind, soot on the face",
+     "the character strides forward through the smoke, embers swirl, camera backs away ahead", 5, "action"),
+    ("act-victory", "Победа", "Стоит над поверженным противником",
+     "the character stands breathing hard over a defeated opponent, "
+     "wrecked surroundings, dust settling, shaft of light from above",
+     "dust settles slowly, the character straightens up, camera rises", 5, "action"),
+
+    # --- 9. Детектив и криминал ---
+    ("det-solved", "Разгадка", "Соединяет последнюю нить на доске",
+     "the character connects the final red string on the evidence board and steps back, "
+     "the whole case laid out in front, single desk lamp",
+     "the string snaps into place, the character steps back, camera widens onto the full board", 5, "detective"),
+    ("det-arrest", "Задержание", "Ведёт задержанного к машине",
+     "the character escorts a handcuffed suspect toward a police car at night, "
+     "blue lights flashing, wet asphalt, officers around",
+     "the lights pulse across the scene, the pair walk toward the car, camera tracks", 5, "detective"),
+
+    # --- 10. Юмор и курьёзы ---
+    ("fun-prank", "Розыгрыш", "Прячется за дверью с ведром",
+     "the character hides behind a door holding a bucket, grinning mischievously, "
+     "bright cartoonish room, exaggerated sneaky pose",
+     "the character peeks around the door, giggles, then ducks back", 5, "funny"),
+    ("fun-awkward", "Неловкая встреча", "Замирает, столкнувшись лицом к лицу",
+     "the character freezes awkwardly after bumping into someone in a narrow corridor, "
+     "both stepping the same way, embarrassed faces",
+     "the two step side to side in the same direction twice, then laugh", 5, "funny"),
+    ("fun-reaction", "Смешная реакция", "Выпучивает глаза от удивления",
+     "extreme close reaction shot of the character with wide eyes and open mouth, "
+     "exaggerated comic surprise, bright simple background",
+     "the eyes go wide, the jaw drops, the head recoils slightly", 4, "funny"),
+    ("fun-mess", "Всё пошло не так", "Стоит в облаке муки на кухне",
+     "the character stands covered in flour in a wrecked kitchen, pot lid in hand, "
+     "cloud of flour still hanging in the air, sheepish expression",
+     "flour drifts down around the character, they blink and shrug", 5, "funny"),
+
+    # --- 11. Спорт ---
+    ("sport-basket", "Баскетбол", "Забивает сверху в кольцо",
+     "the character slam dunks a basketball through the hoop in a packed arena, "
+     "crowd blurred behind, bright court lights",
+     "the character rises, hangs at the rim, the net snaps, crowd erupts", 5, "sport"),
+    ("sport-box", "Бокс", "Наносит удар на ринге",
+     "the character throws a punch in a boxing ring under harsh spotlights, "
+     "sweat flying, ropes and dark crowd around",
+     "the punch lands, sweat sprays through the light, camera whips with the motion", 5, "sport"),
+    ("sport-training", "Тренировка", "Отжимается в пустом зале",
+     "the character trains alone in an empty gym at dawn, straining through push-ups, "
+     "cold morning light through high windows",
+     "the character pushes up rep after rep, breath visible, camera slowly circles", 5, "sport"),
+    ("sport-medal", "Награждение", "Поднимает кубок над головой",
+     "the character lifts a trophy above their head on a podium, confetti falling, "
+     "medal around the neck, crowd cheering behind",
+     "the trophy rises, confetti rains down, the character shouts in triumph", 5, "sport"),
+    ("sport-race", "Соревнование", "Рвётся вперёд на дорожке",
+     "the character sprints down a running track neck and neck with a rival, "
+     "stadium blurred behind, intense focused face",
+     "legs drive forward, the rival falls behind, camera tracks alongside at speed", 5, "sport"),
+
+    # --- 12. Фэнтези и магия ---
+    ("fan-dragon", "Дракон", "Стоит перед огромным драконом",
+     "the character stands small before an enormous dragon in a rocky canyon, "
+     "the beast's head lowering toward them, smoke curling from its nostrils",
+     "the dragon lowers its head, smoke drifts, the character holds their ground", 5, "fantasy"),
+    ("fan-artifact", "Артефакт", "Поднимает светящийся камень",
+     "the character lifts a glowing magical artifact from a stone pedestal, "
+     "light washing over the face, ancient carvings around",
+     "the artifact rises, light pulses brighter, dust lifts from the pedestal", 5, "fantasy"),
+    ("fan-battle", "Битва добра и зла", "Скрещивает клинок с тенью",
+     "the character clashes a glowing blade against a dark shadowy figure, "
+     "sparks flying, storm clouds and ruins behind",
+     "the blades meet in a burst of sparks, both push against each other", 5, "fantasy"),
+
+    # --- 13. Космос ---
+    ("space-planet", "Другая планета", "Ступает на красный песок",
+     "the character in a spacesuit steps onto the red sand of an alien planet, "
+     "two moons in the sky, strange rock formations around",
+     "the boot presses into the sand, dust drifts up, the character looks to the horizon", 5, "space"),
+    ("space-flight", "Полёт сквозь астероиды", "Ведёт корабль между глыб",
+     "the character pilots a small ship weaving between tumbling asteroids, "
+     "cockpit glow on the face, stars and rock beyond the glass",
+     "asteroids tumble past the canopy, the ship banks hard, warning lights flash", 5, "space"),
+    ("space-battle", "Космическая битва", "Уходит от лазерных залпов",
+     "the character's ship dodges laser fire between two fleets in deep space, "
+     "explosions blooming silently, distant planet below",
+     "laser bolts streak past, an explosion flares behind, the ship rolls away", 5, "space"),
+
+    # --- 14. Будущее и технологии ---
+    ("tech-ai", "Разговор с ИИ", "Стоит перед светящимся интерфейсом",
+     "the character speaks to a vast glowing AI interface in a dark control room, "
+     "waveform of light responding, blue reflections on the face",
+     "the waveform pulses as it answers, light shifts across the character's face", 5, "tech"),
+    ("tech-cyber", "Киберпространство", "Парит среди потоков данных",
+     "the character floats inside a digital cyberspace of glowing data streams and grids, "
+     "code flowing around, neon blue and magenta light",
+     "data streams rush past, grids rotate, the character reaches out to touch one", 5, "tech"),
+    ("tech-gadget", "Высокие технологии", "Разворачивает гибкий экран",
+     "the character unfolds a transparent flexible screen showing live data, "
+     "modern minimal interior, cool daylight",
+     "the screen unfolds and lights up, data animates across it", 5, "tech"),
+
+    # --- 15. Мистика и хоррор ---
+    ("mys-ghost", "Призрак", "Оборачивается на белую фигуру",
+     "the character turns to see a pale translucent figure standing at the end of a dark room, "
+     "cold moonlight through a window, frozen in fear",
+     "the figure drifts a step closer, curtains stir, the character backs away", 5, "mystic"),
+    ("mys-mirror", "Отражение", "Видит в зеркале не себя",
+     "the character stares into an old mirror where the reflection is subtly wrong, "
+     "dim bathroom light, cracked glass",
+     "the reflection turns its head a moment later than the character does", 5, "mystic"),
+
+    # --- 16. Повседневная жизнь ---
+    ("day-commute", "Дорога на работу", "Идёт в потоке людей утром",
+     "the character walks with the morning crowd toward the office district, "
+     "coffee cup in hand, low sun between the buildings",
+     "the crowd streams past, the character checks the time and walks on", 5, "daily"),
+    ("day-walk", "Вечерняя прогулка", "Идёт по улице с собакой",
+     "the character walks a dog along a quiet evening street, warm windows glowing, "
+     "long shadows from the streetlamps",
+     "the dog trots ahead pulling the leash, camera tracks alongside", 5, "daily"),
+
+    # --- 17. Начало и финал ---
+    ("arc-twist", "Неожиданное событие", "Оборачивается на грохот за спиной",
+     "the character spins around startled toward something loud happening behind them, "
+     "dust and light bursting from the source, shocked face",
+     "the character whips around, hair and clothes move, light flares behind", 5, "arc"),
+    ("arc-turn", "Поворот сюжета", "Читает письмо и меняется в лице",
+     "the character reads a letter and their expression slowly changes to disbelief, "
+     "quiet room, single window light on the page",
+     "the eyes move across the page, the hand lowers slightly, the face falls", 5, "arc"),
+    ("arc-climax", "Кульминация", "Стоит под дождём на краю крыши",
+     "the character stands at the edge of a rooftop in pouring rain arms at their sides, "
+     "storm sky and lightning above the city, everything at stake",
+     "lightning flashes across the sky, rain lashes down, the character lifts their head", 5, "arc"),
+]
+
+FILL_TRANSLATIONS = {
+    "hol-party": ("The party", "Dancing in the crowd under the lights",
+                  "Кече", "Гирлянда астында элдин арасында бийлейт"),
+    "hol-anniversary": ("Anniversary", "Two glasses by candlelight",
+                        "Жылдык", "Шам жарыгында эки бокал"),
+    "hol-jubilee": ("Jubilee", "Taking congratulations at the head of the table",
+                    "Юбилей", "Чоң үстөлдүн башында куттуктоолорду кабыл алат"),
+    "hol-corporate": ("Office party", "The team raises their glasses",
+                      "Корпоратив", "Команда бокалдарын көтөрөт"),
+    "love-meet": ("Meeting", "First glance across the cafe",
+                  "Таанышуу", "Кафеде биринчи көз караш"),
+    "love-walk": ("A walk together", "Along the embankment at sunset",
+                  "Экөө сейилдейт", "Кун батканда жээкте"),
+    "love-dinner": ("Romantic dinner", "Dinner for two by candlelight",
+                    "Романтикалык кечки тамак", "Шам жарыгында экөө"),
+    "love-proposal": ("The proposal", "A ring in an open box",
+                      "Сунуш", "Ачык кутучада шакек"),
+    "love-kiss": ("The kiss", "Under a lamp in the rain",
+                  "Өбүшүү", "Жамгырда чырак астында"),
+    "love-makeup": ("Making up", "A hand offered after the argument",
+                    "Жарашуу", "Урушкандан кийин кол сунат"),
+    "fam-parents": ("Parents and children", "Reading a bedtime story",
+                    "Ата-эне жана балдар", "Уктаар алдында жомок окуйт"),
+    "fam-play": ("Playing with a child", "Spinning a laughing child",
+                 "Бала менен оюн", "Күлгөн баланы айлантат"),
+    "fam-holiday": ("Family celebration", "The whole family at the table",
+                    "Үй-бүлөлүк майрам", "Бүт үй-бүлө үстөлдө"),
+    "fam-relatives": ("Relatives arrive", "Hugging guests at the door",
+                      "Туугандар келди", "Босогодо коноктарды кучактайт"),
+    "city-restaurant": ("Restaurant", "Dinner by the window above the city",
+                        "Ресторан", "Шаардын үстүндө терезе жанында"),
+    "city-park": ("The park", "On a bench among the trees",
+                  "Парк", "Дарактардын арасында отургучта"),
+    "city-car": ("Driving through the city", "Evening streets past the windows",
+                 "Шаар аралап айдоо", "Кечки көчөлөр терезеден өтөт"),
+    "city-rain": ("Rainy city", "Under an umbrella at the crossing",
+                  "Жамгырлуу шаар", "Кесилиште кол чатыр астында"),
+    "work-negotiation": ("Negotiation", "Two sides of the table",
+                         "Сүйлөшүүлөр", "Үстөлдүн эки жагында"),
+    "work-meeting": ("Business meeting", "Talking over coffee in the lobby",
+                     "Ишкердик жолугушуу", "Лоббиде кофе үстүндө"),
+    "trav-plane": ("On the plane", "Clouds beyond the window",
+                   "Учакта", "Терезенин артында булуттар"),
+    "trav-train": ("On the train", "By the window to the sound of wheels",
+                   "Поездде", "Дөңгөлөктөрдүн үнү астында терезе жанында"),
+    "trav-hotel": ("The hotel", "Opening the curtains on the view",
+                   "Мейманкана", "Көшөгөнү ачат"),
+    "trav-sea": ("The sea", "Ankle-deep in the water",
+                 "Деңиз", "Сууда томуктан"),
+    "trav-landmark": ("The landmark", "Before an ancient temple",
+                      "Көрүнүктүү жер", "Байыркы ибадаткананын алдында"),
+    "adv-forest": ("In the forest", "A trail between tall pines",
+                   "Токойдо", "Бийик карагайлардын арасында"),
+    "adv-cave": ("The cave", "A torch by an underground lake",
+                 "Үңкүр", "Жер астындагы көлдө шам"),
+    "adv-island": ("Desert island", "Wading ashore from the waves",
+                   "Ээн арал", "Толкундан жээкке чыгат"),
+    "adv-treasure": ("The treasure", "Opening an old chest",
+                     "Кенч", "Эски сандыкты ачат"),
+    "adv-rescue": ("The rescue", "Pulling someone onto the ledge",
+                   "Куткаруу", "Аскага тартып чыгарат"),
+    "act-rescue": ("Rescue from the fire", "Carrying someone out of the smoke",
+                   "Оттон куткаруу", "Түтүндөн алып чыгат"),
+    "act-victory": ("Victory", "Standing over a beaten opponent",
+                    "Жеңиш", "Жеңилген атаандаштын үстүндө"),
+    "det-solved": ("The breakthrough", "The last string on the board",
+                   "Чечим", "Тактадагы акыркы жип"),
+    "det-arrest": ("The arrest", "Walking the suspect to the car",
+                   "Кармоо", "Шектүүнү унаага алып барат"),
+    "fun-prank": ("The prank", "Hiding behind the door with a bucket",
+                  "Тамаша", "Чака менен эшиктин артында"),
+    "fun-awkward": ("Awkward encounter", "Both step the same way",
+                    "Ыңгайсыз жолугушуу", "Экөө тең бир жакка кадам таштайт"),
+    "fun-reaction": ("The reaction", "Eyes wide with surprise",
+                     "Реакция", "Таң калуудан көзү чакчайат"),
+    "fun-mess": ("It all went wrong", "Standing in a cloud of flour",
+                 "Баары туура эмес кетти", "Un булутунун ичинде турат"),
+    "sport-basket": ("Basketball", "Slamming it through the hoop",
+                     "Баскетбол", "Шакекче аркылуу сокку"),
+    "sport-box": ("Boxing", "Landing a punch in the ring",
+                  "Бокс", "Рингде сокку урат"),
+    "sport-training": ("Training", "Push-ups in an empty gym",
+                       "Машыгуу", "Бош залда жерден түртүнөт"),
+    "sport-medal": ("The award", "Lifting the trophy overhead",
+                    "Сыйлыктоо", "Кубокту башынан жогору көтөрөт"),
+    "sport-race": ("The race", "Neck and neck on the track",
+                   "Мелдеш", "Жолдо катар чуркашат"),
+    "fan-dragon": ("The dragon", "Facing an enormous beast",
+                   "Ажыдаар", "Алп жаныбардын алдында"),
+    "fan-artifact": ("The artifact", "Lifting a glowing stone",
+                     "Артефакт", "Жаркыраган ташты көтөрөт"),
+    "fan-battle": ("Good against evil", "Blades crossed with a shadow",
+                   "Жакшылык менен жамандык", "Көлөкө менен кылыч кагыштырат"),
+    "space-planet": ("Another planet", "Stepping onto red sand",
+                     "Башка планета", "Кызыл кумга кадам таштайт"),
+    "space-flight": ("Through the asteroids", "Weaving the ship between rocks",
+                     "Астероиддер аркылуу", "Кемени таштардын арасынан алып өтөт"),
+    "space-battle": ("Space battle", "Dodging the laser fire",
+                     "Космостук салгылашуу", "Лазер оттон качат"),
+    "tech-ai": ("Talking to the AI", "Before a glowing interface",
+                "ИИ менен маек", "Жаркыраган интерфейстин алдында"),
+    "tech-cyber": ("Cyberspace", "Floating among data streams",
+                   "Кибермейкиндик", "Маалымат агымдарынын арасында"),
+    "tech-gadget": ("High technology", "Unfolding a flexible screen",
+                    "Жогорку технологиялар", "Ийилчээк экранды жайып ачат"),
+    "mys-ghost": ("The ghost", "Turning to a pale figure",
+                  "Элес", "Ак элеске бурулат"),
+    "mys-mirror": ("The reflection", "The mirror is subtly wrong",
+                   "Чагылыш", "Күзгүдө өзү эмес"),
+    "day-commute": ("The commute", "Walking with the morning crowd",
+                    "Ишке жол", "Эртең мененки топ менен басат"),
+    "day-walk": ("Evening walk", "Down the street with the dog",
+                 "Кечки сейил", "Ит менен көчөдө"),
+    "arc-twist": ("The unexpected", "Spinning around at a crash",
+                  "Күтүлбөгөн окуя", "Дүңгүрдөн бурулат"),
+    "arc-turn": ("The turning point", "The letter changes everything",
+                 "Бурулуш", "Кат баарын өзгөртөт"),
+    "arc-climax": ("The climax", "On the rooftop edge in the rain",
+                   "Кульминация", "Жамгырда чатырдын кырында"),
+}
+
+PRESET_TRANSLATIONS.update(FILL_TRANSLATIONS)
+PRESETS = PRESETS + FILL_PRESETS
