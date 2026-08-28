@@ -1,6 +1,7 @@
 "use client";
 
 import { useTranslation } from "react-i18next";
+import SaveMediaButton from "@/components/ui/SaveMediaButton";
 import {
   FiAlertTriangle,
   FiArrowLeft,
@@ -184,6 +185,18 @@ export default function SceneTimeline({
                 >
                   <FiRefreshCw className={busy ? "animate-spin" : ""} />
                 </button>
+              )}
+              {/* Скачать отдельную сцену: клиент просил забирать не только
+                  готовый мультфильм, но и каждый ролик по отдельности —
+                  сцену часто выкладывают саму по себе. */}
+              {s.video && (
+                <SaveMediaButton
+                  url={s.video}
+                  filename={`esai-scene-${s.order + 1}.mp4`}
+                  label={t("studio_ui.download_scene")}
+                  iconClassName=""
+                  className="grid size-7 place-items-center rounded-lg text-muted transition-colors hover:bg-surface-2 hover:text-accent cursor-pointer"
+                />
               )}
               <button
                 type="button"
