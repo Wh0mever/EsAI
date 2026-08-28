@@ -41,6 +41,11 @@ class CartoonCategory(models.Model):
     emoji = models.CharField(
         max_length=8, blank=True, default="", verbose_name="Значок",
         help_text="Один символ для плитки раздела, необязательно.")
+    audience = models.CharField(
+        max_length=8, choices=[("kids", "Для детей"), ("adults", "Для взрослых")],
+        default="kids", verbose_name="Для кого",
+        help_text="Разделов почти два десятка, и одной строкой они не читаются: "
+                  "в студии человек сначала выбирает, для кого снимает, потом жанр.")
     sort_order = models.PositiveIntegerField(default=100, verbose_name="Порядок")
     is_active = models.BooleanField(default=True, verbose_name="Показывать")
 

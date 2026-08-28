@@ -298,6 +298,12 @@ class SharedVideo(models.Model):
         max_length=512, blank=True, default="", verbose_name="Обложка")
     prompt = models.TextField(blank=True, default="", verbose_name="Запрос")
     model_name = models.CharField(max_length=128, blank=True, default="", verbose_name="Модель")
+    kind = models.CharField(
+        max_length=10, default="video",
+        choices=[("video", "Ролик из чата"), ("cartoon", "Мультфильм из студии")],
+        verbose_name="Что за ролик",
+        help_text="От этого зависит призыв на публичной странице: ролик зовёт в чат, "
+                  "мультфильм — в Cartoon Studio.")
     width = models.PositiveIntegerField(null=True, blank=True, verbose_name="Ширина")
     height = models.PositiveIntegerField(null=True, blank=True, verbose_name="Высота")
     duration = models.FloatField(null=True, blank=True, verbose_name="Длительность, с")

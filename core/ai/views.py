@@ -915,6 +915,19 @@ class VideoShareCreateAPIView(APIView):
             Q(attachments__contains=[{"url": media_ref}])
             | Q(attachments__contains=[{"url": name}])
         ).exists()
+
+        # Готовый мультфильм лежит не во вложениях чата, а в своём проекте:
+        # студия делится тем же механизмом, что и ролики, поэтому право на
+        # ссылку проверяем и по ней.
+        kind = "video"
+        if not owns:
+            from cartoon.models import CartoonProject
+
+            owns = CartoonProject.objects.filter(
+                user=request.user, result_video=name).exists()
+            if owns:
+                kind = "cartoon"
+
         if not owns:
             return Response(
                 {"error": "video does not belong to the current user"},
@@ -955,6 +968,7 @@ class VideoShareCreateAPIView(APIView):
                     poster_path=poster_path,
                     prompt=prompt,
                     model_name=model_name,
+                    kind=kind,
                     width=meta.get("width"),
                     height=meta.get("height"),
                     duration=meta.get("duration"),
@@ -977,6 +991,7 @@ class VideoShareCreateAPIView(APIView):
         # человек нажал «Поделиться».
         return {
             "slug": share.slug,
+            "kind": share.kind,
             "share_url": request.build_absolute_uri(f"/v/{share.slug}"),
             "video_url": request.build_absolute_uri(default_storage.url(share.video_path)),
         }
@@ -1011,6 +1026,7 @@ class VideoSharePublicAPIView(APIView):
 
         return Response({
             "slug": share.slug,
+            "kind": share.kind,
             "video_url": abs_media(share.video_path),
             "poster_url": abs_media(share.poster_path),
             "prompt": share.prompt,

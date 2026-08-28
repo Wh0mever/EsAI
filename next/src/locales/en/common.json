@@ -1782,6 +1782,14 @@
 		"movie_fallback": "Cartoon #{{id}}",
 		"movie_scenes_one": "{{count}} scene",
 		"movie_scenes_other": "{{count}} scenes",
-		"movie_ready": "ready"
+		"movie_ready": "ready",
+		"aud_all": "All",
+		"aud_kids": "For kids",
+		"aud_adults": "For adults",
+		"need_hero": "Pick a character first — it stays the same in every scene.",
+		"share_title": "Share the cartoon",
+		"share_note": "The link plays right inside the messenger and invites the viewer to make their own.",
+		"share_text": "My cartoon from EsAI Cartoon Studio 🎬 Try making your own:",
+		"share_preparing": "Preparing the link…"
 	}
 }

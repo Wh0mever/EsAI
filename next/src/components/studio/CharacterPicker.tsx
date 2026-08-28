@@ -12,6 +12,8 @@ export type StudioCharacter = {
   source: string;
   is_mine: boolean;
   category?: string;
+  /** Для кого герой — берётся из его раздела; свои персонажи всегда видны. */
+  audience?: "kids" | "adults";
 };
 
 /**

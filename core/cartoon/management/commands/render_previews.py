@@ -28,14 +28,18 @@ from django.core.management.base import BaseCommand
 from cartoon.models import CartoonCharacter, CartoonPreset
 from cartoon.services import generate_keyframe, generate_scene_video
 
-from cartoon.library import CHARACTER_TRANSLATIONS, CHARACTERS, STYLE as SCENE_STYLE
+from cartoon.library import CHARACTER_TRANSLATIONS, CHARACTERS, audience_of
 from cartoon.models import CartoonCategory
 
 # Как рисуем самого героя. Без слов «character sheet»: модель понимала их
 # буквально и печатала подпись в самой картинке. Надписи запрещаем прямо.
-STYLE_SUFFIX = ("Full body view, standing, clean plain white background, "
-                "NO text, NO captions, NO labels, NO watermark anywhere in the image. "
-                "3D cartoon animation style, soft lighting, vibrant colors, front view.")
+_FRAMING = ("Full body view, standing, clean plain white background, "
+            "NO text, NO captions, NO labels, NO watermark anywhere in the image. front view.")
+STYLE_SUFFIX = f"{_FRAMING} 3D cartoon animation style, soft lighting, vibrant colors."
+# Взрослого героя нельзя рисовать той же милой подачей: в детективе и драме
+# он должен выглядеть человеком, а не игрушкой.
+ADULT_STYLE_SUFFIX = (f"{_FRAMING} stylized 3D animated film style, semi-realistic adult "
+                      "proportions, cinematic lighting, muted filmic colors, NOT childish.")
 
 
 class Command(BaseCommand):
@@ -55,12 +59,13 @@ class Command(BaseCommand):
         for name, description, look, cat_slug in CHARACTERS:
             if CartoonCharacter.objects.filter(name=name, user__isnull=True).exists():
                 continue
+            suffix = (ADULT_STYLE_SUFFIX if audience_of(cat_slug) == "adults" else STYLE_SUFFIX)
             self.stdout.write(f"  рисую героя: {name}")
             try:
                 r = requests.post(
                     f"{cfg['base_url'].rstrip('/')}/images",
                     json={"model": "google/gemini-2.5-flash-image",
-                          "prompt": f"{look}. {STYLE_SUFFIX}", "aspect_ratio": "1:1"},
+                          "prompt": f"{look}. {suffix}", "aspect_ratio": "1:1"},
                     headers={"Authorization": f"Bearer {cfg['api_key']}",
                              "Content-Type": "application/json"},
                     timeout=(10, 180),
@@ -87,25 +92,42 @@ class Command(BaseCommand):
             self.stdout.write(self.style.MIGRATE_HEADING("Библиотека героев"))
             self.ensure_library()
 
-        hero = (CartoonCharacter.objects.filter(name="Кот-супергерой", user__isnull=True).first()
-                or CartoonCharacter.objects.filter(user__isnull=True).first())
-        if not hero:
+        library = list(CartoonCharacter.objects.filter(user__isnull=True).select_related("category"))
+        if not library:
             self.stderr.write(self.style.ERROR("Нет ни одного библиотечного героя — превью снимать некем"))
             return
 
-        qs = CartoonPreset.objects.filter(is_active=True).select_related("image_model", "video_model")
+        def hero_for(preset):
+            """Кем снимать превью этой сцены.
+
+            Раньше все превью снимались котом-супергероем. Для «Пробуждения»
+            это мило, а для допроса и офисной презентации — пародия, поэтому
+            герой берётся из того же раздела, а если его там нет — любой
+            подходящий по аудитории.
+            """
+            cat = preset.category.slug if preset.category_id else ""
+            same = [c for c in library if c.category_id and c.category.slug == cat]
+            if same:
+                return same[0]
+            want = audience_of(cat)
+            fit = [c for c in library
+                   if c.category_id and audience_of(c.category.slug) == want]
+            return fit[0] if fit else library[0]
+
+        qs = CartoonPreset.objects.filter(is_active=True).select_related(
+            "image_model", "video_model", "category")
         if opts.get("only"):
             qs = qs.filter(slug=opts["only"])
         elif not opts.get("force"):
             qs = qs.filter(preview_video="")
 
         total = qs.count()
-        self.stdout.write(self.style.MIGRATE_HEADING(
-            f"Превью: {total} сцен, герой — {hero.name}"))
+        self.stdout.write(self.style.MIGRATE_HEADING(f"Превью: {total} сцен"))
         done = failed = 0
 
         for i, preset in enumerate(qs, start=1):
-            self.stdout.write(f"[{i}/{total}] {preset.title}")
+            hero = hero_for(preset)
+            self.stdout.write(f"[{i}/{total}] {preset.title} — {hero.name}")
             started = time.time()
             try:
                 keyframe = generate_keyframe(preset, hero)
