@@ -28,7 +28,8 @@ from django.core.management.base import BaseCommand
 from cartoon.models import CartoonCharacter, CartoonPreset
 from cartoon.services import generate_keyframe, generate_scene_video
 
-from cartoon.library import CHARACTER_TRANSLATIONS, CHARACTERS, audience_of
+from cartoon.library import (CHARACTER_TRANSLATIONS, CHARACTERS, audience_of_character,
+                             category_of)
 from cartoon.models import CartoonCategory
 
 # Как рисуем самого героя. Без слов «character sheet»: модель понимала их
@@ -62,7 +63,8 @@ class Command(BaseCommand):
         for name, description, look, cat_slug in CHARACTERS:
             if CartoonCharacter.objects.filter(name=name, user__isnull=True).exists():
                 continue
-            suffix = (ADULT_STYLE_SUFFIX if audience_of(cat_slug) == "adults" else STYLE_SUFFIX)
+            audience = audience_of_character(name)
+            suffix = ADULT_STYLE_SUFFIX if audience == "adults" else STYLE_SUFFIX
             self.stdout.write(f"  рисую героя: {name}")
             try:
                 r = requests.post(
@@ -82,8 +84,8 @@ class Command(BaseCommand):
             tr = CHARACTER_TRANSLATIONS.get(name, ("", ""))
             char = CartoonCharacter(
                 user=None, name=name, name_en=tr[0], name_kg=tr[1],
-                description=description,
-                category=CartoonCategory.objects.filter(slug=cat_slug).first(),
+                description=description, audience=audience,
+                category=CartoonCategory.objects.filter(slug=category_of(cat_slug)).first(),
                 source=CartoonCharacter.SOURCE_LIBRARY, is_public=True,
             )
             char.image.save(f"{uuid.uuid4().hex}.jpg", ContentFile(base64.b64decode(b64)), save=True)
@@ -121,9 +123,8 @@ class Command(BaseCommand):
             same = [c for c in library if c.category_id and c.category.slug == cat]
             if same:
                 return same[0]
-            want = audience_of(cat)
-            fit = [c for c in library
-                   if c.category_id and audience_of(c.category.slug) == want]
+            want = preset.audience
+            fit = [c for c in library if c.audience == want]
             return fit[0] if fit else library[0]
 
         qs = CartoonPreset.objects.filter(is_active=True).select_related(
