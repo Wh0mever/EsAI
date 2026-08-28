@@ -84,7 +84,8 @@ def preset_json(p: CartoonPreset, lang: str = "ru") -> dict:
 
 
 def category_json(c, lang: str = "ru") -> dict:
-    return {"slug": c.slug, "title": _tr(c, "title", lang), "emoji": c.emoji}
+    return {"slug": c.slug, "title": _tr(c, "title", lang), "emoji": c.emoji,
+            "audience": c.audience}
 
 
 def character_json(c: CartoonCharacter, lang: str = "ru") -> dict:
@@ -95,6 +96,9 @@ def character_json(c: CartoonCharacter, lang: str = "ru") -> dict:
         "source": c.source,
         "is_mine": c.user_id is not None,
         "category": c.category.slug if c.category_id else "",
+        # Аудитория героя — аудитория его раздела: взрослому сюжету нужен
+        # взрослый герой, и в студии эти списки фильтруются вместе.
+        "audience": c.category.audience if c.category_id else "kids",
     }
 
 

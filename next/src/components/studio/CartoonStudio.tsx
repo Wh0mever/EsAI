@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { FiFilm, FiLoader, FiPlus, FiZap } from "react-icons/fi";
 import { fetchData } from "@/tools/fetchData";
 import SaveMediaButton from "@/components/ui/SaveMediaButton";
+import ShareButtons from "@/components/ui/ShareButtons";
 import CharacterPicker, { type StudioCharacter } from "./CharacterPicker";
 import SceneTimeline, { type StudioScene } from "./SceneTimeline";
 import { apiLang } from "@/lib/apiLang";
@@ -35,7 +36,7 @@ type Preset = {
   category: string;
 };
 
-type Category = { slug: string; title: string; emoji: string };
+type Category = { slug: string; title: string; emoji: string; audience: "kids" | "adults" };
 
 type Project = {
   id: number;
@@ -57,6 +58,13 @@ export default function CartoonStudio() {
   const [presets, setPresets] = useState<Preset[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [activeCat, setActiveCat] = useState("");
+  // Для кого снимаем. Разделов девятнадцать, героев больше двух десятков, и
+  // взрослому сюжету нужен взрослый герой — поэтому один переключатель наверху
+  // сужает сразу оба списка.
+  const [audience, setAudience] = useState<"all" | "kids" | "adults">("all");
+  // Сцены видны сразу, без выбора героя (просьба клиента), поэтому нажатие
+  // «В ленту» без героя не ошибка, а подсказка с прокруткой к первому шагу.
+  const [needHero, setNeedHero] = useState(false);
   const [characters, setCharacters] = useState<StudioCharacter[]>([]);
   const [character, setCharacter] = useState<StudioCharacter | null>(null);
   const [project, setProject] = useState<Project | null>(null);
@@ -75,10 +83,33 @@ export default function CartoonStudio() {
   const [shortfall, setShortfall] = useState<{ required: number; balance: number } | null>(null);
   const [authed, setAuthed] = useState(true);
   const pollRef = useRef<number | null>(null);
+  const heroRef = useRef<HTMLDivElement | null>(null);
+  const [shareUrl, setShareUrl] = useState("");
+  const [sharing, setSharing] = useState(false);
+
+  const visibleCategories =
+    audience === "all" ? categories : categories.filter((c) => c.audience === audience);
+
+  // Свои персонажи показываются всегда: человек загрузил их сам, и прятать их
+  // за чужим делением на «детское/взрослое» было бы странно.
+  const visibleCharacters =
+    audience === "all"
+      ? characters
+      : characters.filter((c) => c.is_mine || c.audience === audience);
 
   const visiblePresets = activeCat
     ? presets.filter((p) => p.category === activeCat)
-    : presets;
+    : audience === "all"
+    ? presets
+    : presets.filter((p) => visibleCategories.some((c) => c.slug === p.category));
+
+  const pickAudience = (next: "all" | "kids" | "adults") => {
+    setAudience(next);
+    if (activeCat && next !== "all") {
+      const still = categories.find((c) => c.slug === activeCat && c.audience === next);
+      if (!still) setActiveCat("");
+    }
+  };
 
   const markBusy = (id: number, on: boolean) =>
     setBusyIds((prev) => {
@@ -191,7 +222,14 @@ export default function CartoonStudio() {
       window.location.href = "/auth/signin?next=" + encodeURIComponent("/studio");
       return;
     }
+    if (!character) {
+      // Сцены видны сразу, но снимать их не с кем — ведём к первому шагу.
+      setNeedHero(true);
+      heroRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
+    }
     setError("");
+    setNeedHero(false);
     setShortfall(null);
     setAdding(preset.id);
     const p = await ensureProject();
@@ -266,6 +304,7 @@ export default function CartoonStudio() {
    *  чаще всего следующую историю снимают тем же персонажем. Старый проект
    *  никуда не девается, к нему можно вернуться списком ниже. */
   const startNewMovie = () => {
+    setShareUrl("");
     setProject(null);
     setShortfall(null);
     setError("");
@@ -273,6 +312,7 @@ export default function CartoonStudio() {
   };
 
   const openProject = async (id: number) => {
+    setShareUrl("");
     setShortfall(null);
     setError("");
     const known = projects.find((x) => x.id === id);
@@ -284,6 +324,28 @@ export default function CartoonStudio() {
   // Пустые черновики в список не берём: проект создаётся при первой сцене, и
   // брошенная попытка не должна засорять переключатель.
   const myMovies = projects.filter((m) => m.scenes.length > 0);
+
+  /** Ссылка на публичную страницу мультфильма.
+   *
+   *  Делимся именно ей, а не файлом: страница несёт og:video (мессенджеры
+   *  играют ролик прямо в переписке) и призыв «Создайте свой мультфильм» с
+   *  переходом в студию. Отправленный mp4 не сказал бы про EsAI ничего.
+   */
+  const makeShareLink = useCallback(async () => {
+    if (!project?.result_video || shareUrl || sharing) return;
+    setSharing(true);
+    const res = await fetchData<{ share_url: string }>(
+      "ai/video/share/", "POST", { url: project.result_video }, true
+    );
+    setSharing(false);
+    if (res.ok && res.data?.share_url) setShareUrl(res.data.share_url);
+  }, [project?.result_video, shareUrl, sharing]);
+
+  // Готовый ролик появляется после склейки — ссылку готовим сразу, чтобы
+  // кнопки соцсетей не заставляли ждать ещё один запрос.
+  useEffect(() => {
+    if (project?.result_video) void makeShareLink();
+  }, [project?.result_video, makeShareLink]);
 
   const scenes = project ? [...project.scenes].sort((a, b) => a.order - b.order) : [];
   const readyCount = scenes.filter((s) => s.status === "ready").length;
@@ -309,6 +371,30 @@ export default function CartoonStudio() {
           {t("studio_ui.subtitle")}
         </p>
       </header>
+
+      {/* Для кого снимаем: сужает и библиотеку героев, и разделы сцен. */}
+      {categories.some((c) => c.audience === "adults") && (
+        <div className="mb-6 inline-flex rounded-full border border-border bg-surface p-1">
+          {([
+            ["all", t("studio_ui.aud_all")],
+            ["kids", t("studio_ui.aud_kids")],
+            ["adults", t("studio_ui.aud_adults")],
+          ] as const).map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => pickAudience(key)}
+              className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors cursor-pointer ${
+                audience === key
+                  ? "bg-accent text-on-accent"
+                  : "text-muted hover:text-foreground"
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {error && (
         <div className="mb-4 rounded-xl border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-400">
@@ -376,17 +462,27 @@ export default function CartoonStudio() {
         </div>
       )}
 
-      <CharacterPicker
-        characters={characters}
-        value={character}
-        onPick={setCharacter}
-        onCreated={(c) => setCharacters((prev) => [c, ...prev])}
-        balance={balance}
-      />
+      <div ref={heroRef} className="scroll-mt-28">
+        {needHero && !character && (
+          <div className="mb-3 rounded-xl border border-accent/40 bg-accent/5 p-3 text-sm text-foreground">
+            {t("studio_ui.need_hero")}
+          </div>
+        )}
+        <CharacterPicker
+          characters={visibleCharacters}
+          value={character}
+          onPick={(c) => {
+            setCharacter(c);
+            setNeedHero(false);
+          }}
+          onCreated={(c) => setCharacters((prev) => [c, ...prev])}
+          balance={balance}
+        />
+      </div>
 
-      {/* Сцены и таймлайн показываем только после выбора героя: без него
-          добавлять сцены некуда, и лишние блоки только путают. */}
-      {character && (
+      {/* Сцены показываем сразу, не дожидаясь выбора героя: клиент попросил,
+          чтобы витрину было видно с порога — ради неё в студию и заходят. */}
+      {true && (
         <>
           <section className="mt-8 flex flex-col gap-4">
             <div>
@@ -398,9 +494,9 @@ export default function CartoonStudio() {
 
             {/* Разделы: сцен три десятка, и одной простынёй они не читаются —
                 человек ищет не «сцену вообще», а начало, погоню или финал. */}
-            {categories.length > 1 && (
+            {visibleCategories.length > 1 && (
               <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:mx-0 sm:flex-wrap sm:px-0">
-                {[{ slug: "", title: t("studio_ui.cat_all"), emoji: "🎞" }, ...categories].map((c) => (
+                {[{ slug: "", title: t("studio_ui.cat_all"), emoji: "🎞" }, ...visibleCategories].map((c) => (
                   <button
                     key={c.slug || "all"}
                     type="button"
@@ -479,6 +575,7 @@ export default function CartoonStudio() {
             </div>
           </section>
 
+          {character && (
           <section className="mt-8 flex flex-col gap-3">
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-lg font-bold text-foreground">{t("studio_ui.step3")}</h2>
@@ -533,6 +630,7 @@ export default function CartoonStudio() {
               )}
             </div>
           </section>
+          )}
 
           {project?.result_video && (
             <section className="mt-8 flex flex-col gap-3">
@@ -561,6 +659,26 @@ export default function CartoonStudio() {
                 <FiPlus />
                 {t("studio_ui.new_movie")}
               </button>
+
+              {/* Поделиться. Ссылка ведёт на страницу мультфильма, а не на
+                  файл: там ролик играет прямо в мессенджере и стоит призыв
+                  создать свой — так каждый отправленный мультфильм работает
+                  рекламой студии. */}
+              <div className="mt-2 rounded-2xl border border-border bg-surface-2/50 p-4">
+                <p className="text-sm font-semibold text-foreground">{t("studio_ui.share_title")}</p>
+                <p className="mt-0.5 mb-3 text-xs text-muted-2">{t("studio_ui.share_note")}</p>
+                {shareUrl ? (
+                  <ShareButtons
+                    url={shareUrl}
+                    text={t("studio_ui.share_text")}
+                  />
+                ) : (
+                  <span className="inline-flex items-center gap-2 text-sm text-muted">
+                    <FiLoader className="animate-spin" />
+                    {t("studio_ui.share_preparing")}
+                  </span>
+                )}
+              </div>
             </section>
           )}
 

@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import NextLink from "@/components/ui/nextLink/NextLink";
 import { SITE_NAME, SITE_URL, absoluteUrl } from "@/lib/seo/site";
 import SharedVideoPlayer from "@/components/video/SharedVideoPlayer";
+import ShareButtons from "@/components/ui/ShareButtons";
 
 /**
  * Публичная страница ролика: esai.kg/v/<код>.
@@ -21,6 +22,7 @@ type Params = { slug: string };
 
 type Share = {
   slug: string;
+  kind?: "video" | "cartoon";
   video_url: string;
   poster_url?: string;
   prompt?: string;
@@ -58,8 +60,17 @@ export async function generateMetadata({ params }: { params: Promise<Params> }):
   if (!share) return { title: `Видео — ${SITE_NAME}`, robots: { index: false, follow: false } };
 
   const prompt = shortPrompt(share.prompt);
-  const title = prompt ? `${prompt} — видео от ${SITE_NAME}` : `Видео от ${SITE_NAME}`;
-  const description = prompt
+  const cartoon = share.kind === "cartoon";
+  // Превью ссылки в мессенджере — первое, что видит человек, и это то самое
+  // место, где мультфильм должен работать рекламой студии.
+  const title = cartoon
+    ? `Мультфильм из ${SITE_NAME} Cartoon Studio`
+    : prompt
+    ? `${prompt} — видео от ${SITE_NAME}`
+    : `Видео от ${SITE_NAME}`;
+  const description = cartoon
+    ? `Собран в ${SITE_NAME} Cartoon Studio без единого промпта. Попробуйте создать свой мультфильм — бесплатные кредиты каждый день.`
+    : prompt
     ? `Ролик создан нейросетью в ${SITE_NAME}. Запрос: «${prompt}». Сделайте своё — бесплатные кредиты каждый день.`
     : `Ролик создан нейросетью в ${SITE_NAME}. Сделайте своё — бесплатные кредиты каждый день.`;
 
@@ -100,6 +111,8 @@ export default async function SharedVideoPage({ params }: { params: Promise<Para
   if (!share) notFound();
 
   const prompt = (share.prompt || "").trim();
+  const cartoon = share.kind === "cartoon";
+  const shareUrl = absoluteUrl(`/v/${share.slug}`);
   // Вертикальный ролик не должен растягиваться на всю ширину — иначе на
   // десктопе он занимает экран целиком и выглядит нелепо.
   const vertical = Boolean(share.width && share.height && share.height > share.width);
@@ -112,10 +125,10 @@ export default async function SharedVideoPage({ params }: { params: Promise<Para
           <span className="text-accent">✨</span>
         </NextLink>
         <NextLink
-          href="/"
+          href={cartoon ? "/studio" : "/"}
           className="rounded-full bg-accent text-on-accent text-sm font-semibold px-4 py-1.5 hover:bg-accent-strong transition-colors"
         >
-          Создать своё
+          {cartoon ? "Создать мультфильм" : "Создать своё"}
         </NextLink>
       </header>
 
@@ -124,7 +137,23 @@ export default async function SharedVideoPage({ params }: { params: Promise<Para
           <SharedVideoPlayer
             src={share.video_url}
             poster={share.poster_url || ""}
-            downloadName={`esai-video-${share.slug}.mp4`}
+            downloadName={
+              cartoon ? `esai-cartoon-${share.slug}.mp4` : `esai-video-${share.slug}.mp4`
+            }
+          />
+        </div>
+
+        {/* Тот, кто пришёл по ссылке, должен иметь возможность переслать её
+            дальше в один клик — на этом и держится расползание студии. */}
+        <div className="w-full max-w-2xl">
+          <ShareButtons
+            url={shareUrl}
+            text={
+              cartoon
+                ? `Мой мультфильм из ${SITE_NAME} Cartoon Studio 🎬 Попробуйте создать свой:`
+                : `Смотрите, что сделала нейросеть в ${SITE_NAME}:`
+            }
+            compact
           />
         </div>
 
@@ -135,16 +164,35 @@ export default async function SharedVideoPage({ params }: { params: Promise<Para
         )}
 
         <p className="text-xs text-muted-2 text-center">
-          Ролик создан нейросетью в {SITE_NAME}
-          {share.model ? ` · ${share.model}` : ""}
+          {cartoon ? `Мультфильм собран в ${SITE_NAME} Cartoon Studio` : `Ролик создан нейросетью в ${SITE_NAME}`}
+          {!cartoon && share.model ? ` · ${share.model}` : ""}
         </p>
 
-        <NextLink
-          href="/"
-          className="mt-2 rounded-full border border-accent text-accent hover:bg-accent-soft transition-colors text-sm font-medium px-5 py-2"
-        >
-          Сделать такое же видео бесплатно
-        </NextLink>
+        {cartoon ? (
+          /* Призыв клиента: каждый опубликованный мультфильм работает рекламой
+             студии — «посмотрел → увидел „Создайте свой“ → перешёл в Studio». */
+          <NextLink
+            href="/studio"
+            className="mt-2 flex w-full max-w-2xl flex-col items-center gap-2 rounded-2xl border border-accent bg-accent-soft px-6 py-5 text-center transition-colors hover:bg-accent/15"
+          >
+            <span className="text-lg font-bold text-foreground">
+              Попробуйте создать свой мультфильм в {SITE_NAME}
+            </span>
+            <span className="text-sm text-muted">
+              Выберите героя и сцены — студия соберёт ролик сама. Промпты писать не нужно.
+            </span>
+            <span className="mt-1 inline-flex items-center gap-2 rounded-full bg-accent px-5 py-2 text-sm font-semibold text-on-accent">
+              Открыть Cartoon Studio →
+            </span>
+          </NextLink>
+        ) : (
+          <NextLink
+            href="/"
+            className="mt-2 rounded-full border border-accent text-accent hover:bg-accent-soft transition-colors text-sm font-medium px-5 py-2"
+          >
+            Сделать такое же видео бесплатно
+          </NextLink>
+        )}
       </div>
     </main>
   );

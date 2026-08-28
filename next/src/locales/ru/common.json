@@ -1788,6 +1788,14 @@
 		"movie_scenes_one": "{{count}} сцена",
 		"movie_scenes_few": "{{count}} сцены",
 		"movie_scenes_many": "{{count}} сцен",
-		"movie_ready": "готов"
+		"movie_ready": "готов",
+		"aud_all": "Все",
+		"aud_kids": "Для детей",
+		"aud_adults": "Для взрослых",
+		"need_hero": "Сначала выберите героя — он будет одинаковым во всех сценах.",
+		"share_title": "Поделиться мультфильмом",
+		"share_note": "Ссылка играет прямо в мессенджере, а зрителю предлагает создать свой мультфильм.",
+		"share_text": "Мой мультфильм из EsAI Cartoon Studio 🎬 Попробуйте создать свой:",
+		"share_preparing": "Готовлю ссылку…"
 	}
 }

@@ -1,4 +1,4 @@
-﻿"""Разделы библиотеки и пресеты сцен студии мультфильмов.
+"""Разделы библиотеки и пресеты сцен студии мультфильмов.
 
 Сами данные лежат в cartoon/library.py — ими пользуется и эта команда, и
 админка при модерации пользовательских работ (раздел выбирается из того же
@@ -16,7 +16,7 @@ from django.core.management.base import BaseCommand
 
 from ai.models import GPTModels
 from cartoon.library import (CATEGORIES, CATEGORY_TRANSLATIONS, PRESETS,
-                             PRESET_TRANSLATIONS, STYLE)
+                             PRESET_TRANSLATIONS, style_for)
 from cartoon.models import CartoonCategory, CartoonPreset
 
 
@@ -40,12 +40,13 @@ class Command(BaseCommand):
             return
 
         cats = {}
-        for slug, title, emoji, order in CATEGORIES:
+        for slug, title, emoji, order, audience in CATEGORIES:
             tr = CATEGORY_TRANSLATIONS.get(slug, ("", ""))
             cat, _ = CartoonCategory.objects.update_or_create(
                 slug=slug,
                 defaults=dict(title=title, title_en=tr[0], title_kg=tr[1],
-                              emoji=emoji, sort_order=order, is_active=True),
+                              emoji=emoji, sort_order=order, audience=audience,
+                              is_active=True),
             )
             cats[slug] = cat
         self.stdout.write(self.style.SUCCESS(f"Разделов: {len(cats)}"))
@@ -77,7 +78,8 @@ class Command(BaseCommand):
                 title=title, subtitle=subtitle,
                 title_en=tr[0] if tr else "", subtitle_en=tr[1] if tr else "",
                 title_kg=tr[2] if tr else "", subtitle_kg=tr[3] if tr else "",
-                scene_prompt=scene, motion_prompt=motion, style_prompt=STYLE,
+                scene_prompt=scene, motion_prompt=motion,
+                style_prompt=style_for(cat_slug),
                 image_model=image_model, video_model=video_model,
                 duration=duration, aspect_ratio="16:9", resolution="720p",
                 category=cats.get(cat_slug),
