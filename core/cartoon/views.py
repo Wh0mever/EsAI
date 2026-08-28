@@ -31,6 +31,8 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
+from core.langutils import request_lang as _lang, tr as _tr
+
 from .models import (CartoonCategory, CartoonCharacter, CartoonPreset, CartoonProject,
                      CartoonScene)
 from .tasks import assemble_movie, render_scene
@@ -58,28 +60,6 @@ class StudioPublicAPIView(APIView):
     """
     authentication_classes = [JWTAuthentication]
     permission_classes = [AllowAny]
-
-
-def _lang(request) -> str:
-    """Язык витрины: сначала явный ?lang= с фронта, потом Accept-Language.
-
-    Фронт знает выбранный язык лучше браузера (человек мог переключить его
-    руками), поэтому параметр важнее заголовка.
-    """
-    raw = (request.query_params.get("lang") or "").strip().lower()
-    if raw not in ("ru", "en", "kg"):
-        header = (request.META.get("HTTP_ACCEPT_LANGUAGE") or "").lower()
-        raw = "kg" if header.startswith(("ky", "kg")) else ("en" if header.startswith("en") else "ru")
-    return raw
-
-
-def _tr(obj, field: str, lang: str) -> str:
-    """Перевод поля с откатом на русский: пустой перевод хуже родного текста."""
-    if lang in ("en", "kg"):
-        value = (getattr(obj, f"{field}_{lang}", "") or "").strip()
-        if value:
-            return value
-    return getattr(obj, field, "") or ""
 
 
 def _media(path: str) -> str:
@@ -118,11 +98,12 @@ def character_json(c: CartoonCharacter, lang: str = "ru") -> dict:
     }
 
 
-def scene_json(s: CartoonScene) -> dict:
+def scene_json(s: CartoonScene, lang: str = "ru") -> dict:
     return {
         "id": s.id,
         "order": s.order,
-        "preset": {"id": s.preset_id, "title": s.preset.title if s.preset_id else ""},
+        "preset": {"id": s.preset_id,
+                   "title": _tr(s.preset, "title", lang) if s.preset_id else ""},
         "keyframe": _media(s.keyframe),
         "video": _media(s.video),
         "status": s.status,
@@ -131,17 +112,18 @@ def scene_json(s: CartoonScene) -> dict:
     }
 
 
-def project_json(p: CartoonProject) -> dict:
+def project_json(p: CartoonProject, lang: str = "ru") -> dict:
     scenes = list(p.scenes.select_related("preset").order_by("order", "id"))
     return {
         "id": p.id,
         "title": p.title,
         "status": p.status,
         "aspect_ratio": p.aspect_ratio,
-        "character": character_json(p.character) if p.character else None,
+        "character": character_json(p.character, lang) if p.character else None,
         "result_video": _media(p.result_video),
         "error": p.error,
-        "scenes": [scene_json(s) for s in scenes],
+        "scenes": [scene_json(s, lang) for s in scenes],
+        "created_at": p.created_at.isoformat(),
         "credits_spent": sum(s.credits_spent for s in scenes),
     }
 
@@ -312,7 +294,7 @@ class ProjectsView(StudioAPIView):
 
     def get(self, request):
         qs = CartoonProject.objects.filter(user=request.user).prefetch_related("scenes")[:50]
-        return Response([project_json(p) for p in qs])
+        return Response([project_json(p, _lang(request)) for p in qs])
 
     def post(self, request):
         char_id = request.data.get("character_id")
@@ -328,7 +310,7 @@ class ProjectsView(StudioAPIView):
             character=character,
             aspect_ratio=(request.data.get("aspect_ratio") or "16:9").strip()[:8],
         )
-        return Response(project_json(project), status=status.HTTP_201_CREATED)
+        return Response(project_json(project, _lang(request)), status=status.HTTP_201_CREATED)
 
 
 class ProjectDetailView(StudioAPIView):
@@ -337,7 +319,7 @@ class ProjectDetailView(StudioAPIView):
 
     def get(self, request, pk):
         project = get_object_or_404(CartoonProject, pk=pk, user=request.user)
-        return Response(project_json(project))
+        return Response(project_json(project, _lang(request)))
 
     def delete(self, request, pk):
         project = get_object_or_404(CartoonProject, pk=pk, user=request.user)
@@ -370,7 +352,7 @@ class ProjectScenesView(StudioAPIView):
             order=(last.order + 1) if last else 0,
         )
         render_scene.delay(scene.pk)
-        return Response(scene_json(scene), status=status.HTTP_201_CREATED)
+        return Response(scene_json(scene, _lang(request)), status=status.HTTP_201_CREATED)
 
 
 class SceneDetailView(StudioAPIView):
@@ -397,7 +379,7 @@ class SceneDetailView(StudioAPIView):
             scene.save(update_fields=["keyframe", "status", "error", "updated_at"])
             render_scene.delay(scene.pk)
 
-        return Response(scene_json(scene))
+        return Response(scene_json(scene, _lang(request)))
 
     def delete(self, request, pk):
         scene = get_object_or_404(CartoonScene, pk=pk, project__user=request.user)
@@ -421,4 +403,4 @@ class ProjectAssembleView(StudioAPIView):
             return Response({"detail": "Нет готовых сцен"}, status=status.HTTP_400_BAD_REQUEST)
         assemble_movie.delay(project.pk)
         project.refresh_from_db()
-        return Response(project_json(project), status=status.HTTP_202_ACCEPTED)
+        return Response(project_json(project, _lang(request)), status=status.HTTP_202_ACCEPTED)

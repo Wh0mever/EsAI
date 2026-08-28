@@ -1787,6 +1787,14 @@
 		"short_title_few": "Улантуу үчүн дагы {{count}} кредит керек",
 		"short_title_many": "Улантуу үчүн дагы {{count}} кредит керек",
 		"balance_few": "Балансыңызда {{count}} кредит",
-		"balance_many": "Балансыңызда {{count}} кредит"
+		"balance_many": "Балансыңызда {{count}} кредит",
+		"new_movie": "Жаңысын баштоо",
+		"my_movies": "Менин мультфильмдерим",
+		"movie_fallback": "Мультфильм #{{id}}",
+		"movie_scenes_one": "{{count}} көрүнүш",
+		"movie_scenes_few": "{{count}} көрүнүш",
+		"movie_scenes_many": "{{count}} көрүнүш",
+		"movie_scenes_other": "{{count}} көрүнүш",
+		"movie_ready": "даяр"
 	}
 }

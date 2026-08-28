@@ -1781,6 +1781,13 @@
 		"retry_failed": "Попробовать снова",
 		"remove": "Убрать сцену",
 		"credits_short": "кр",
-		"price": "{{credits}} кр · {{duration}} с"
+		"price": "{{credits}} кр · {{duration}} с",
+		"new_movie": "Начать новый",
+		"my_movies": "Мои мультфильмы",
+		"movie_fallback": "Мультфильм #{{id}}",
+		"movie_scenes_one": "{{count}} сцена",
+		"movie_scenes_few": "{{count}} сцены",
+		"movie_scenes_many": "{{count}} сцен",
+		"movie_ready": "готов"
 	}
 }

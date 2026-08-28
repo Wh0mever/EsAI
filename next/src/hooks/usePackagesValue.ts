@@ -2,7 +2,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
 import { fetchData } from "@/tools/fetchData";
+import { apiLang } from "@/lib/apiLang";
 import type { PkgWithValue } from "@/types/pricing";
 
 export type UsePackagesValueResult = {
@@ -34,18 +36,22 @@ export function usePackagesValue(enabled: boolean = true): UsePackagesValueResul
   const [data, setData] = useState<PkgWithValue[]>([]);
   const [loading, setLoading] = useState(enabled);
   const [error, setError] = useState(false);
-  const startedRef = useRef(false);
+  // Имена и бейджи пакетов переводятся в базе, поэтому «уже загружено»
+  // считается для конкретного языка: после переключения нужны новые данные.
+  const { i18n } = useTranslation();
+  const lang = apiLang(i18n.language);
+  const startedRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!enabled || startedRef.current) return;
-    startedRef.current = true;
+    if (!enabled || startedRef.current === lang) return;
+    startedRef.current = lang;
     let cancelled = false;
     setLoading(true);
     setError(false);
     (async () => {
       try {
         const res = await fetchData<{ packages: PkgWithValue[] }>(
-          "plans/packages/value/",
+          `plans/packages/value/?lang=${lang}`,
           "GET",
           null,
           false
@@ -67,7 +73,7 @@ export function usePackagesValue(enabled: boolean = true): UsePackagesValueResul
     return () => {
       cancelled = true;
     };
-  }, [enabled]);
+  }, [enabled, lang]);
 
   return { data, loading, error };
 }

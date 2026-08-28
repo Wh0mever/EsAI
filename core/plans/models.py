@@ -383,8 +383,17 @@ class AddonPurchase(models.Model):
 
 
 class TokenPackage(models.Model):
-    """Пакет кредитов для покупки (pay-as-you-go). Редактируется в админке."""
+    """Пакет кредитов для покупки (pay-as-you-go). Редактируется в админке.
+
+    Название, бейдж и подпись переводятся отдельными полями на язык — так же,
+    как статьи блога и библиотека студии. Иначе на английской и кыргызской
+    витрине среди переведённого интерфейса оставались русские «Старт» и
+    «Выбор большинства»: этот текст пишет клиент в админке, и подставить его
+    из locales нельзя. Пусто — покажется русский вариант.
+    """
     name = models.CharField(max_length=100, verbose_name="Название")
+    name_en = models.CharField(max_length=100, blank=True, default="", verbose_name="Название (EN)")
+    name_kg = models.CharField(max_length=100, blank=True, default="", verbose_name="Название (KG)")
     tokens = models.BigIntegerField(verbose_name="Кредитов")
     bonus_tokens = models.BigIntegerField(default=0, verbose_name="Бонусных кредитов")
     price = models.DecimalField(max_digits=12, decimal_places=2, verbose_name="Цена")
@@ -392,9 +401,13 @@ class TokenPackage(models.Model):
     is_active = models.BooleanField(default=True, verbose_name="Активен")
     sort_order = models.PositiveIntegerField(default=100, verbose_name="Порядок сортировки")
     description = models.TextField(blank=True, verbose_name="Описание (подпись под пакетом)")
+    description_en = models.TextField(blank=True, default="", verbose_name="Описание (EN)")
+    description_kg = models.TextField(blank=True, default="", verbose_name="Описание (KG)")
     badge = models.CharField(
         max_length=60, blank=True, default="", verbose_name="Бейдж",
         help_text="Маркетинговая плашка над пакетом, напр. «⭐ Популярный», «🔥 Лучший выбор». Пусто — без бейджа.")
+    badge_en = models.CharField(max_length=60, blank=True, default="", verbose_name="Бейдж (EN)")
+    badge_kg = models.CharField(max_length=60, blank=True, default="", verbose_name="Бейдж (KG)")
     featured = models.BooleanField(
         default=False, verbose_name="Выделенный",
         help_text="Визуально выделить пакет (рамка/увеличение) как рекомендованный. Включайте только у ОДНОГО пакета.")

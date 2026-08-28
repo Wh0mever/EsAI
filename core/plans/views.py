@@ -30,6 +30,7 @@ from users.models import User, UserCardBind
 from django.db import transaction
 from payments.freedompay import FreedomPay, FreedomPayError, make_api_signature
 from decimal import Decimal
+from core.langutils import request_lang
 
 
 @method_decorator(cache_page(60), name="dispatch")               # page cache
@@ -300,6 +301,13 @@ class TokenPackageListView(generics.ListAPIView):
     def get_queryset(self):
         return TokenPackage.objects.filter(is_active=True).order_by("sort_order", "id")
 
+    def get_serializer_context(self):
+        # Название и подпись пакета хранятся в базе на трёх языках; какой
+        # показать, решает витрина (см. core/langutils).
+        ctx = super().get_serializer_context()
+        ctx["lang"] = request_lang(self.request)
+        return ctx
+
 
 class TokenPackageValueListView(APIView):
     """GET /api/plans/packages/value/ — публичный расчёт "на что хватит" пакета.
@@ -317,7 +325,7 @@ class TokenPackageValueListView(APIView):
         from .credit_value import compute_all_packages_value
 
         try:
-            packages = compute_all_packages_value()
+            packages = compute_all_packages_value(request_lang(request))
         except Exception:
             logging.getLogger(__name__).exception(
                 "TokenPackageValueListView: compute_all_packages_value failed")

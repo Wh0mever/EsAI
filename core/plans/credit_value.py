@@ -55,6 +55,7 @@ from __future__ import annotations
 
 import logging
 from decimal import Decimal, ROUND_CEILING, ROUND_FLOOR
+from core.langutils import tr
 
 logger = logging.getLogger(__name__)
 
@@ -529,7 +530,7 @@ def _mark_recommended(category: str, pkg_list: list, values: dict) -> None:
     values[winner.id][category]["recommended"] = True
 
 
-def compute_all_packages_value() -> list[dict]:
+def compute_all_packages_value(lang: str = "ru") -> list[dict]:
     """Расчёт value для всех активных TokenPackage, отсортированных по sort_order.
 
     Каждый элемент — словарь с базовыми полями пакета + вложенный "value"
@@ -551,12 +552,14 @@ def compute_all_packages_value() -> list[dict]:
     for pkg in pkg_list:
         out.append({
             "id": pkg.id,
-            "name": pkg.name,
+            # Имя и бейдж переведены в базе: этот ответ рисует калькулятор
+            # «на что хватит» и превью тарифов на главной.
+            "name": tr(pkg, "name", lang),
             "tokens": pkg.tokens,
             "bonus_tokens": pkg.bonus_tokens,
             "price": str(pkg.price),
             "currency": pkg.currency,
-            "badge": pkg.badge,
+            "badge": tr(pkg, "badge", lang),
             "featured": pkg.featured,
             "sort_order": pkg.sort_order,
             "value": values[pkg.id],

@@ -7,6 +7,7 @@ import { fetchData } from "@/tools/fetchData";
 import SaveMediaButton from "@/components/ui/SaveMediaButton";
 import CharacterPicker, { type StudioCharacter } from "./CharacterPicker";
 import SceneTimeline, { type StudioScene } from "./SceneTimeline";
+import { apiLang } from "@/lib/apiLang";
 
 /**
  * CartoonStudio — студия мультфильмов: персонаж → сцены → таймлайн → готовый
@@ -46,6 +47,7 @@ type Project = {
   error: string;
   scenes: StudioScene[];
   credits_spent: number;
+  created_at?: string;
 };
 
 const WORKING: StudioScene["status"][] = ["new", "keyframe", "video"];
@@ -58,6 +60,10 @@ export default function CartoonStudio() {
   const [characters, setCharacters] = useState<StudioCharacter[]>([]);
   const [character, setCharacter] = useState<StudioCharacter | null>(null);
   const [project, setProject] = useState<Project | null>(null);
+  // Все мультфильмы пользователя. Нужны не для красоты: как только человек
+  // начинает новый, старый перестаёт быть «последним» и без списка исчезает
+  // из интерфейса вместе с оплаченными сценами.
+  const [projects, setProjects] = useState<Project[]>([]);
   const [balance, setBalance] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -93,11 +99,11 @@ export default function CartoonStudio() {
     (async () => {
       // Язык нужен серверу: названия сцен и героев лежат в базе и переводятся
       // там же, поэтому витрина просит их сразу на нужном языке.
-      const lang = (i18n.language || "ru").slice(0, 2) === "ky" ? "kg" : (i18n.language || "ru").slice(0, 2);
+      const lang = apiLang(i18n.language);
       const [p, c, mine] = await Promise.all([
         fetchData<{ categories: Category[]; presets: Preset[] }>(`cartoon/presets/?lang=${lang}`, "GET", null, true),
         fetchData<StudioCharacter[]>(`cartoon/characters/?lang=${lang}`, "GET", null, true),
-        fetchData<Project[]>("cartoon/projects/", "GET", null, true),
+        fetchData<Project[]>(`cartoon/projects/?lang=${lang}`, "GET", null, true),
       ]);
       if (!alive) return;
       if (p.ok && p.data) {
@@ -113,8 +119,9 @@ export default function CartoonStudio() {
 
       // Продолжаем последний мультфильм, а не начинаем пустой: сцены стоят
       // денег, и терять их при перезагрузке страницы недопустимо.
-      const last = (mine.ok && Array.isArray(mine.data) ? mine.data : [])
-        .find((x) => x.scenes.length > 0);
+      const mineList = mine.ok && Array.isArray(mine.data) ? mine.data : [];
+      setProjects(mineList);
+      const last = mineList.find((x) => x.scenes.length > 0);
       if (last) {
         setProject(last);
         if (last.character) setCharacter(last.character);
@@ -130,7 +137,11 @@ export default function CartoonStudio() {
   // Опрос, пока что-то считается.
   const refresh = useCallback(async (id: number) => {
     const res = await fetchData<Project>(`cartoon/projects/${id}/`, "GET", null, true);
-    if (res.ok && res.data) setProject(res.data);
+    if (res.ok && res.data) {
+      const fresh = res.data;
+      setProject(fresh);
+      setProjects((prev) => prev.map((x) => (x.id === fresh.id ? fresh : x)));
+    }
     return res.data || null;
   }, []);
 
@@ -166,6 +177,7 @@ export default function CartoonStudio() {
     );
     if (res.ok && res.data) {
       setProject(res.data);
+      setProjects((prev) => [res.data as Project, ...prev]);
       return res.data;
     }
     setError((res.data as any)?.detail || t("studio_ui.err_project"));
@@ -250,6 +262,29 @@ export default function CartoonStudio() {
     else setError((res.data as any)?.detail || t("studio_ui.err_assemble"));
   };
 
+  /** Начать новый мультфильм: проект обнуляется, герой остаётся выбранным —
+   *  чаще всего следующую историю снимают тем же персонажем. Старый проект
+   *  никуда не девается, к нему можно вернуться списком ниже. */
+  const startNewMovie = () => {
+    setProject(null);
+    setShortfall(null);
+    setError("");
+    setBusyIds(new Set());
+  };
+
+  const openProject = async (id: number) => {
+    setShortfall(null);
+    setError("");
+    const known = projects.find((x) => x.id === id);
+    if (known) setProject(known);
+    const fresh = await refresh(id);
+    if (fresh?.character) setCharacter(fresh.character);
+  };
+
+  // Пустые черновики в список не берём: проект создаётся при первой сцене, и
+  // брошенная попытка не должна засорять переключатель.
+  const myMovies = projects.filter((m) => m.scenes.length > 0);
+
   const scenes = project ? [...project.scenes].sort((a, b) => a.order - b.order) : [];
   const readyCount = scenes.filter((s) => s.status === "ready").length;
   const working = scenes.some((s) => WORKING.includes(s.status));
@@ -303,6 +338,41 @@ export default function CartoonStudio() {
             <FiZap />
             {t("studio_ui.short_cta")}
           </a>
+        </div>
+      )}
+
+      {/* Свои мультфильмы. Показываем, только когда есть куда переключаться:
+          иначе строка занимала бы место у того, кто снимает первый ролик. */}
+      {myMovies.length > (project ? 1 : 0) && (
+        <div className="mb-6">
+          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-2">
+            {t("studio_ui.my_movies")}
+          </div>
+          <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:mx-0 sm:flex-wrap sm:px-0">
+            {myMovies.map((m) => {
+              const active = project?.id === m.id;
+              return (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => void openProject(m.id)}
+                  className={`shrink-0 rounded-xl border px-3 py-2 text-left text-xs transition-colors cursor-pointer ${
+                    active
+                      ? "border-accent bg-accent/10 text-foreground"
+                      : "border-border bg-surface text-muted hover:text-foreground"
+                  }`}
+                >
+                  <span className="block font-semibold">
+                    {m.title || t("studio_ui.movie_fallback", { id: m.id })}
+                  </span>
+                  <span className="mt-0.5 block text-muted-2">
+                    {t("studio_ui.movie_scenes", { count: m.scenes.length })}
+                    {m.result_video ? ` · ${t("studio_ui.movie_ready")}` : ""}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
         </div>
       )}
 
@@ -412,6 +482,16 @@ export default function CartoonStudio() {
           <section className="mt-8 flex flex-col gap-3">
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-lg font-bold text-foreground">{t("studio_ui.step3")}</h2>
+              {project && scenes.length > 0 && (
+                <button
+                  type="button"
+                  onClick={startNewMovie}
+                  className="ml-auto inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs font-semibold text-muted transition-colors hover:border-accent hover:text-foreground cursor-pointer"
+                >
+                  <FiPlus />
+                  {t("studio_ui.new_movie")}
+                </button>
+              )}
               {scenes.length > 0 && (
                 <span className="text-sm text-muted">
                   {t("studio_ui.progress", { ready: readyCount, total: scenes.length })}
@@ -473,6 +553,14 @@ export default function CartoonStudio() {
               >
                 {t("studio_ui.download")}
               </SaveMediaButton>
+              <button
+                type="button"
+                onClick={startNewMovie}
+                className="inline-flex w-fit items-center gap-2 rounded-full bg-accent px-4 py-2 text-sm font-semibold text-on-accent transition-colors hover:bg-accent-strong cursor-pointer"
+              >
+                <FiPlus />
+                {t("studio_ui.new_movie")}
+              </button>
             </section>
           )}
 
