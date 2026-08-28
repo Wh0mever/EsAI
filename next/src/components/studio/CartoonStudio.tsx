@@ -6,6 +6,7 @@ import { FiFilm, FiLoader, FiPlus, FiZap } from "react-icons/fi";
 import { fetchData } from "@/tools/fetchData";
 import SaveMediaButton from "@/components/ui/SaveMediaButton";
 import ShareButtons from "@/components/ui/ShareButtons";
+import { StudioAuthDialog, StudioPaywallDialog } from "./StudioDialogs";
 import CharacterPicker, { type StudioCharacter } from "./CharacterPicker";
 import SceneTimeline, { type StudioScene } from "./SceneTimeline";
 import { apiLang } from "@/lib/apiLang";
@@ -81,9 +82,11 @@ export default function CartoonStudio() {
   // Не хватило кредитов — не ошибка, а точка покупки: человек уже выбрал героя
   // и сцену, и это самый дорогой момент, чтобы упереться в сухую красную строку.
   const [shortfall, setShortfall] = useState<{ required: number; balance: number } | null>(null);
+  const [authFor, setAuthFor] = useState<"character" | "scene" | null>(null);
   const [authed, setAuthed] = useState(true);
   const pollRef = useRef<number | null>(null);
   const heroRef = useRef<HTMLDivElement | null>(null);
+  const timelineRef = useRef<HTMLDivElement | null>(null);
   const [shareUrl, setShareUrl] = useState("");
   const [sharing, setSharing] = useState(false);
 
@@ -216,10 +219,10 @@ export default function CartoonStudio() {
   }, [project, character]);
 
   const addScene = async (preset: Preset) => {
-    // Гость свободно ходит по студии и видит цену, но сцена стоит денег —
-    // на этом шаге и просим войти. Возврат — обратно в студию.
+    // Гость свободно ходит по студии и видит цену, но лента живёт в его
+    // проекте — на этом шаге и просим войти, окном, а не строчкой внизу.
     if (!authed) {
-      window.location.href = "/auth/signin?next=" + encodeURIComponent("/studio");
+      setAuthFor("scene");
       return;
     }
     if (!character) {
@@ -243,13 +246,31 @@ export default function CartoonStudio() {
     setAdding(null);
     if (res.ok && res.data) {
       await refresh(p.id);
+      // Лента ниже сцен, и без прокрутки человек не понимает, куда делась
+      // добавленная сцена.
+      timelineRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
     } else {
-      const d = res.data as any;
-      if (d?.required) {
-        setShortfall({ required: Number(d.required), balance: Number(d.balance ?? 0) });
-      } else {
-        setError(d?.detail || t("studio_ui.err_scene"));
-      }
+      setError((res.data as any)?.detail || t("studio_ui.err_scene"));
+    }
+  };
+
+  /** Снять сцену из ленты. Здесь и только здесь тратятся кредиты. */
+  const renderScene = async (scene: StudioScene) => {
+    if (!project) return;
+    markBusy(scene.id, true);
+    const res = await fetchData<StudioScene>(
+      `cartoon/scenes/${scene.id}/render/`, "POST", {}, true
+    );
+    markBusy(scene.id, false);
+    if (res.ok) {
+      await refresh(project.id);
+      return;
+    }
+    const d = res.data as any;
+    if (d?.required) {
+      setShortfall({ required: Number(d.required), balance: Number(d.balance ?? 0) });
+    } else {
+      setError(d?.detail || t("studio_ui.err_scene"));
     }
   };
 
@@ -349,6 +370,7 @@ export default function CartoonStudio() {
 
   const scenes = project ? [...project.scenes].sort((a, b) => a.order - b.order) : [];
   const readyCount = scenes.filter((s) => s.status === "ready").length;
+  const drafts = scenes.filter((s) => s.status === "draft").length;
   const working = scenes.some((s) => WORKING.includes(s.status));
 
   if (loading) {
@@ -402,30 +424,17 @@ export default function CartoonStudio() {
         </div>
       )}
 
-      {shortfall && (
-        <div className="mb-4 flex flex-col gap-3 rounded-2xl border border-accent/40 bg-accent/5 p-4 sm:flex-row sm:items-center">
-          <div className="flex-1">
-            <p className="text-sm font-semibold text-foreground">
-              {t("studio_ui.short_title", {
-                count: Math.max(0, shortfall.required - shortfall.balance),
-              })}
-            </p>
-            <p className="mt-0.5 text-sm text-muted">
-              {t("studio_ui.short_note", {
-                required: shortfall.required,
-                balance: shortfall.balance,
-              })}
-            </p>
-          </div>
-          <a
-            href="/pricing/studio"
-            className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-semibold text-on-accent transition-colors hover:bg-accent-strong"
-          >
-            <FiZap />
-            {t("studio_ui.short_cta")}
-          </a>
-        </div>
-      )}
+      <StudioPaywallDialog
+        open={Boolean(shortfall)}
+        required={shortfall?.required ?? 0}
+        balance={shortfall?.balance ?? 0}
+        onClose={() => setShortfall(null)}
+      />
+      <StudioAuthDialog
+        open={Boolean(authFor)}
+        reason={authFor ?? "scene"}
+        onClose={() => setAuthFor(null)}
+      />
 
       {/* Свои мультфильмы. Показываем, только когда есть куда переключаться:
           иначе строка занимала бы место у того, кто снимает первый ролик. */}
@@ -469,6 +478,8 @@ export default function CartoonStudio() {
           </div>
         )}
         <CharacterPicker
+          authed={authed}
+          onNeedAuth={() => setAuthFor("character")}
           characters={visibleCharacters}
           value={character}
           onPick={(c) => {
@@ -576,7 +587,7 @@ export default function CartoonStudio() {
           </section>
 
           {character && (
-          <section className="mt-8 flex flex-col gap-3">
+          <section ref={timelineRef} className="mt-8 flex flex-col gap-3 scroll-mt-24">
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-lg font-bold text-foreground">{t("studio_ui.step3")}</h2>
               {project && scenes.length > 0 && (
@@ -604,6 +615,7 @@ export default function CartoonStudio() {
               onMove={moveScene}
               onRetry={retryScene}
               onDelete={deleteScene}
+              onRender={renderScene}
             />
 
             <div className="flex flex-wrap items-center gap-3">
@@ -623,6 +635,11 @@ export default function CartoonStudio() {
               {working && (
                 <span className="text-xs text-muted">
                   {t("studio_ui.working_note")}
+                </span>
+              )}
+              {drafts > 0 && (
+                <span className="text-xs text-muted-2">
+                  {t("studio_ui.drafts_hint", { count: drafts })}
                 </span>
               )}
               {!readyCount && !working && scenes.length === 0 && (

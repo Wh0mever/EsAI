@@ -244,12 +244,14 @@ class CartoonScene(models.Model):
     ролик не удался, пересоздать его можно с ТЕМ ЖЕ кадром — персонаж и
     композиция не поедут.
     """
+    STATUS_DRAFT = "draft"
     STATUS_NEW = "new"
     STATUS_KEYFRAME = "keyframe"
     STATUS_VIDEO = "video"
     STATUS_READY = "ready"
     STATUS_FAILED = "failed"
     STATUS_CHOICES = [
+        (STATUS_DRAFT, "В ленте, не снята"),
         (STATUS_NEW, "Ожидает"),
         (STATUS_KEYFRAME, "Рисуется кадр"),
         (STATUS_VIDEO, "Оживляется"),
@@ -269,7 +271,10 @@ class CartoonScene(models.Model):
                                 verbose_name="Кадр-раскадровка")
     video = models.CharField(max_length=512, blank=True, default="",
                              verbose_name="Ролик сцены")
-    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default=STATUS_NEW,
+    # Черновик по умолчанию: человек сначала набирает ленту, а снимает потом и
+    # по одной — так он видит, за что платит, и не теряет кредиты на сцене,
+    # добавленной по ошибке.
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default=STATUS_DRAFT,
                               verbose_name="Состояние")
     error = models.TextField(blank=True, default="", verbose_name="Ошибка")
     credits_spent = models.PositiveIntegerField(default=0, verbose_name="Списано кредитов")

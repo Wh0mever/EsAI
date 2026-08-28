@@ -1790,6 +1790,16 @@
 		"share_title": "Share the cartoon",
 		"share_note": "The link plays right inside the messenger and invites the viewer to make their own.",
 		"share_text": "My cartoon from EsAI Cartoon Studio 🎬 Try making your own:",
-		"share_preparing": "Preparing the link…"
+		"share_preparing": "Preparing the link…",
+		"st_draft": "In the timeline",
+		"render_scene": "Shoot the scene",
+		"paywall_title": "Not enough credits",
+		"later": "Later",
+		"auth_character": "Sign in to upload your own character",
+		"auth_scene": "Sign in to build a cartoon",
+		"auth_note": "Your timeline and characters are saved to your account. Signing in takes one click — no registration form.",
+		"auth_cta": "Sign in",
+		"drafts_hint_one": "{{count}} scene in the timeline is not shot yet",
+		"drafts_hint_other": "{{count}} scenes in the timeline are not shot yet"
 	}
 }

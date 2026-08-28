@@ -188,12 +188,17 @@ def assemble_project(project) -> str:
             logger.warning("склейка: сцена %s не читается, пропускаю", scene.pk)
     if not parts:
         raise RuntimeError("нет готовых сцен для склейки")
-    if len(parts) == 1:
-        return _save_bytes(parts[0], "cartoon/movies", "mp4")
-    joined = concat_videos(parts)
+    joined = parts[0] if len(parts) == 1 else concat_videos(parts)
     if not joined:
         raise RuntimeError("склейка не удалась")
-    return _save_bytes(joined, "cartoon/movies", "mp4")
+
+    # Заставка EsAI в конце. Скачанный mp4 расходится дальше уже без нашей
+    # страницы, и то, что впечатано в кадр, — единственное, что переживает
+    # перезалив в соцсети. Осечка заставки не должна стоить оплаченного ролика,
+    # поэтому append_outro при любой ошибке отдаёт исходник.
+    from .outro import append_outro
+
+    return _save_bytes(append_outro(joined), "cartoon/movies", "mp4")
 
 
 def charge(user, amount: int, reason: str, meta: dict | None = None) -> None:

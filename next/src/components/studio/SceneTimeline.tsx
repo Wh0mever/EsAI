@@ -7,6 +7,7 @@ import {
   FiArrowRight,
   FiCheck,
   FiLoader,
+  FiPlay,
   FiRefreshCw,
   FiTrash2,
 } from "react-icons/fi";
@@ -14,10 +15,10 @@ import {
 export type StudioScene = {
   id: number;
   order: number;
-  preset: { id: number; title: string };
+  preset: { id: number; title: string; credits?: number; duration?: number };
   keyframe: string;
   video: string;
-  status: "new" | "keyframe" | "video" | "ready" | "failed";
+  status: "draft" | "new" | "keyframe" | "video" | "ready" | "failed";
   error: string;
   credits_spent: number;
 };
@@ -36,6 +37,7 @@ export type StudioScene = {
 
 /** Ключ подписи состояния — сам текст берётся из локали (studio_ui.st_*). */
 const STATUS_KEY: Record<StudioScene["status"], string> = {
+  draft: "st_draft",
   new: "st_new",
   keyframe: "st_keyframe",
   video: "st_video",
@@ -49,12 +51,14 @@ export default function SceneTimeline({
   onMove,
   onRetry,
   onDelete,
+  onRender,
 }: {
   scenes: StudioScene[];
   busyIds: Set<number>;
   onMove: (scene: StudioScene, dir: -1 | 1) => void;
   onRetry: (scene: StudioScene) => void;
   onDelete: (scene: StudioScene) => void;
+  onRender: (scene: StudioScene) => void;
 }) {
   const { t } = useTranslation("common");
 
@@ -123,6 +127,10 @@ export default function SceneTimeline({
                 <span className="truncate text-red-400" title={s.error}>
                   {t("studio_ui.st_failed")}
                 </span>
+              ) : s.status === "draft" ? (
+                <span className="text-muted-2">
+                  {s.preset.credits ? `${s.preset.credits} ${t("studio_ui.credits_short")}` : ""}
+                </span>
               ) : (
                 <span className="text-muted">{t(`studio_ui.${STATUS_KEY[s.status]}`)}…</span>
               )}
@@ -130,6 +138,20 @@ export default function SceneTimeline({
                 <span className="ml-auto shrink-0 text-muted-2">{s.credits_spent} {t("studio_ui.credits_short")}</span>
               )}
             </div>
+
+            {/* Черновик снимается отсюда: клиент просил, чтобы человек сначала
+                набирал ленту, а потом генерировал любую сцену из неё. */}
+            {s.status === "draft" && (
+              <button
+                type="button"
+                onClick={() => onRender(s)}
+                disabled={busy}
+                className="mb-1 inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-accent px-3 py-2 text-xs font-bold text-on-accent transition-colors hover:bg-accent-strong disabled:opacity-60 cursor-pointer"
+              >
+                {busy ? <FiLoader className="animate-spin" /> : <FiPlay />}
+                {t("studio_ui.render_scene")}
+              </button>
+            )}
 
             <div className="flex items-center gap-1">
               <button

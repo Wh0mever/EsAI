@@ -107,7 +107,11 @@ def scene_json(s: CartoonScene, lang: str = "ru") -> dict:
         "id": s.id,
         "order": s.order,
         "preset": {"id": s.preset_id,
-                   "title": _tr(s.preset, "title", lang) if s.preset_id else ""},
+                   "title": _tr(s.preset, "title", lang) if s.preset_id else "",
+                   # Цена нужна прямо в ленте: снимают оттуда, и человек должен
+                   # видеть, во что обойдётся кнопка, до нажатия.
+                   "credits": s.preset.estimated_credits() if s.preset_id else 0,
+                   "duration": s.preset.duration if s.preset_id else 0},
         "keyframe": _media(s.keyframe),
         "video": _media(s.video),
         "status": s.status,
@@ -332,7 +336,12 @@ class ProjectDetailView(StudioAPIView):
 
 
 class ProjectScenesView(StudioAPIView):
-    """POST — добавить сцену в конец таймлайна и запустить генерацию."""
+    """POST — добавить сцену в конец таймлайна. Генерация — отдельным запросом.
+
+    Клиент: «набрал пользователь три сцены — они появились в ленте, и уже из
+    ленты он генерирует любую». Поэтому здесь ничего не считается и не
+    списывается: сцена просто встаёт в ленту черновиком.
+    """
 
     def post(self, request, pk):
         project = get_object_or_404(CartoonProject, pk=pk, user=request.user)
@@ -342,21 +351,41 @@ class ProjectScenesView(StudioAPIView):
         if not preset:
             return Response({"detail": "Сцена не найдена"}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Пред-чек баланса: сцена стоит заметных денег, и узнать об этом лучше
-        # до запуска, а не в фоне после списания за кадр.
-        need = preset.estimated_credits()
+        last = project.scenes.order_by("-order").first()
+        scene = CartoonScene.objects.create(
+            project=project, preset=preset,
+            order=(last.order + 1) if last else 0,
+            status=CartoonScene.STATUS_DRAFT,
+        )
+        return Response(scene_json(scene, _lang(request)), status=status.HTTP_201_CREATED)
+
+
+class SceneRenderView(StudioAPIView):
+    """POST — снять сцену из ленты. Здесь и происходит проверка баланса.
+
+    Отделено от добавления сознательно: деньги списываются в момент, когда
+    человек осознанно нажал «Снять», а не когда он собирал ленту.
+    """
+
+    def post(self, request, pk):
+        scene = get_object_or_404(
+            CartoonScene.objects.select_related("preset__image_model", "preset__video_model"),
+            pk=pk, project__user=request.user)
+        if scene.status in (CartoonScene.STATUS_NEW, CartoonScene.STATUS_KEYFRAME,
+                            CartoonScene.STATUS_VIDEO):
+            return Response(scene_json(scene, _lang(request)))
+
+        need = scene.preset.estimated_credits()
         balance = int(getattr(request.user, "token_balance", 0) or 0)
         if balance < need:
             return Response({"detail": "Недостаточно кредитов", "required": need,
                              "balance": balance}, status=status.HTTP_402_PAYMENT_REQUIRED)
 
-        last = project.scenes.order_by("-order").first()
-        scene = CartoonScene.objects.create(
-            project=project, preset=preset,
-            order=(last.order + 1) if last else 0,
-        )
+        scene.status = CartoonScene.STATUS_NEW
+        scene.error = ""
+        scene.save(update_fields=["status", "error", "updated_at"])
         render_scene.delay(scene.pk)
-        return Response(scene_json(scene, _lang(request)), status=status.HTTP_201_CREATED)
+        return Response(scene_json(scene, _lang(request)))
 
 
 class SceneDetailView(StudioAPIView):
