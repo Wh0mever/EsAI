@@ -20,6 +20,8 @@ CACHE_PREFIX = "appset:"
 # Ключи, управляемые из админки (/api/manage/settings/).
 KEYS = (
     "OPENROUTER_API_KEY",
+    # Ниже какого остатка ($) система сама переключается на запасной аккаунт.
+    "openrouter_auto_switch_below",
     "WELCOME_BONUS_TOKENS",
     "REFERRAL_BONUS_TOKENS",
     "DAILY_RETENTION_TARGET",

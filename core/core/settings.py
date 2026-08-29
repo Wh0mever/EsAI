@@ -471,6 +471,13 @@ CELERY_BEAT_SCHEDULE = {
     # поэтому каждые 2 мин сами спрашиваем статус у оплаченных, но не начисленных
     # token-заказов и начисляем подтверждённые (идемпотентно). Без этого кредиты
     # после реальной оплаты не поступают. См. payments/tasks.py.
+    # Балансы OpenRouter: раз в 5 минут обновляем и, если на рабочем аккаунте
+    # кончились деньги, включаем запасной. Без этого сайт встаёт целиком и
+    # ждёт, пока человек заметит (см. ai/tasks.py openrouter_autoswitch).
+    "ai:openrouter_autoswitch": {
+        "task": "ai.tasks.openrouter_autoswitch",
+        "schedule": timedelta(minutes=5),
+    },
     "payments:reconcile_token_payments": {
         "task": "payments.tasks.reconcile_pending_token_payments",
         "schedule": timedelta(minutes=2),

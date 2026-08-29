@@ -161,3 +161,64 @@ def summarize_session_context(session_id: int) -> dict:
     except Exception as exc:  # noqa: BLE001 — суммаризация не должна падать
         logger.warning("summarize_session_context failed session=%s: %s", session_id, exc)
         return {"status": "error", "error": str(exc)}
+
+
+@shared_task(name="ai.tasks.openrouter_autoswitch")
+def openrouter_autoswitch() -> dict:
+    """Обновить балансы аккаунтов OpenRouter и включить запасной, если пора.
+
+    Зачем. На единственном ключе кончались деньги, и сайт вставал целиком, пока
+    человек не заметит и не пополнит. Теперь, если у рабочего аккаунта остаток
+    упал ниже порога, а запасной с деньгами есть, система переключается сама.
+
+    Переключаемся только на аккаунты, помеченные запасными: молча увести
+    расходы на чужой ключ, который завели «на потом», нельзя. Ручной выбор
+    рабочего аккаунта это не отменяет — он просто станет отправной точкой для
+    следующего автопереключения.
+    """
+    from django.utils import timezone as _tz
+
+    from adminapi.openrouter import refresh
+    from adminapi.runtime import get_runtime
+
+    from .models import OpenRouterAccount
+
+    accounts = list(OpenRouterAccount.objects.all())
+    if not accounts:
+        return {"status": "no_accounts"}
+    for a in accounts:
+        refresh(a)
+
+    try:
+        floor = float(get_runtime("openrouter_auto_switch_below", 2) or 0)
+    except (TypeError, ValueError):
+        floor = 2.0
+
+    active = next((a for a in accounts if a.is_active), None)
+    if not active:
+        return {"status": "no_active"}
+    # Ошибка ключа — тоже повод уйти на запасной: аккаунт мог быть отключён.
+    drained = active.last_error or (active.balance_usd is not None
+                                    and active.balance_usd <= floor)
+    if not drained:
+        return {"status": "ok", "active": active.title, "balance": active.balance_usd}
+
+    spare = [a for a in accounts
+             if a.auto_switch and not a.is_active and not a.last_error
+             and (a.balance_usd or 0) > floor]
+    if not spare:
+        logger.warning("OpenRouter: на «%s» осталось %s, запасного нет",
+                       active.title, active.balance_usd)
+        return {"status": "no_spare", "active": active.title,
+                "balance": active.balance_usd}
+
+    # Берём самый полный: переключаться дважды за час незачем.
+    spare.sort(key=lambda a: a.balance_usd or 0, reverse=True)
+    winner = spare[0]
+    winner.is_active = True
+    winner.auto_switched_at = _tz.now()
+    winner.save(update_fields=["is_active", "auto_switched_at"])
+    logger.warning("OpenRouter: переключился с «%s» ($%s) на «%s» ($%s)",
+                   active.title, active.balance_usd, winner.title, winner.balance_usd)
+    return {"status": "switched", "from": active.title, "to": winner.title,
+            "balance": winner.balance_usd}
