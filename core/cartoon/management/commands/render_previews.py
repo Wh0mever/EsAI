@@ -27,6 +27,7 @@ from django.core.management.base import BaseCommand
 
 from cartoon.models import CartoonCharacter, CartoonPreset
 from cartoon.services import generate_keyframe, generate_scene_video
+from cartoon.thumbs import CHARACTER_BOX, POSTER_BOX, make_thumb
 
 from cartoon.library import (CHARACTER_TRANSLATIONS, CHARACTERS, audience_of_character,
                              category_of)
@@ -105,7 +106,12 @@ class Command(BaseCommand):
                 category=CartoonCategory.objects.filter(slug=category_of(cat_slug)).first(),
                 source=CartoonCharacter.SOURCE_LIBRARY, is_public=True,
             )
-            char.image.save(f"{uuid.uuid4().hex}.jpg", ContentFile(base64.b64decode(b64)), save=True)
+            blob = base64.b64decode(b64)
+            char.image.save(f"{uuid.uuid4().hex}.jpg", ContentFile(blob), save=False)
+            thumb = make_thumb(blob, CHARACTER_BOX)
+            if thumb:
+                char.image_thumb.save(f"char-{uuid.uuid4().hex}.jpg", ContentFile(thumb), save=False)
+            char.save()
             self.stdout.write(self.style.SUCCESS(f"    готов: {char.image.url}"))
 
     # ---------------------------------------------------------------- превью
@@ -186,8 +192,14 @@ class Command(BaseCommand):
             # Обложкой берём тот же кадр, с которого начинается ролик: пока
             # видео не подгрузилось, карточка показывает ровно его первый кадр.
             with default_storage.open(keyframe, "rb") as fh:
-                preset.preview_poster.save(f"{preset.slug}.png", ContentFile(fh.read()), save=False)
-            preset.save(update_fields=["preview_video", "preview_poster"])
+                poster_blob = fh.read()
+            preset.preview_poster.save(f"{preset.slug}.png", ContentFile(poster_blob), save=False)
+            # Лёгкая копия для сетки: оригинал больше мегабайта, а витрина
+            # показывает сотню карточек разом.
+            thumb = make_thumb(poster_blob, POSTER_BOX)
+            if thumb:
+                preset.preview_thumb.save(f"{preset.slug}.jpg", ContentFile(thumb), save=False)
+            preset.save(update_fields=["preview_video", "preview_poster", "preview_thumb"])
             done += 1
             self.stdout.write(self.style.SUCCESS(
                 f"    готово за {int(time.time() - started)} с: {preset.preview_video.url}"))

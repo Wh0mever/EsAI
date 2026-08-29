@@ -30,6 +30,7 @@ export type StudioCharacter = {
 export default function CharacterPicker({
   authed = true,
   onNeedAuth,
+  onNeedCredits,
   characters,
   value,
   onPick,
@@ -40,6 +41,9 @@ export default function CharacterPicker({
   authed?: boolean;
   /** Позвать окно входа вместо строчки с ошибкой под формой. */
   onNeedAuth?: () => void;
+  /** Не хватило кредитов на своего героя — показать окно оплаты.
+   *  Раньше это была красная строка под формой, которой клиент не увидел. */
+  onNeedCredits?: (required: number, balance: number) => void;
   characters: StudioCharacter[];
   value: StudioCharacter | null;
   onPick: (c: StudioCharacter) => void;
@@ -90,11 +94,11 @@ export default function CharacterPicker({
       setPrompt("");
     } else {
       const d = res.data as any;
-      setError(
-        d?.required
-          ? t("studio_ui.short_note", { required: d.required, balance: d.balance })
-          : d?.detail || t("studio_ui.err_draw")
-      );
+      if (d?.required) {
+        onNeedCredits?.(Number(d.required), Number(d.balance ?? 0));
+      } else {
+        setError(d?.detail || t("studio_ui.err_draw"));
+      }
     }
   };
 
@@ -121,7 +125,13 @@ export default function CharacterPicker({
               title={c.name}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={c.image} alt={c.name} className="h-full w-full object-cover" />
+              <img
+                src={c.image}
+                alt={c.name}
+                loading="lazy"
+                decoding="async"
+                className="h-full w-full object-cover"
+              />
               <span className="absolute inset-x-0 bottom-0 truncate bg-black/60 px-1.5 py-1 text-[11px] text-white">
                 {c.name}
               </span>

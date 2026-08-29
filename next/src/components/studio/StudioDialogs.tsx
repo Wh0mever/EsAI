@@ -18,11 +18,14 @@ export function StudioPaywallDialog({
   open,
   required,
   balance,
+  kind = "scene",
   onClose,
 }: {
   open: boolean;
   required: number;
   balance: number;
+  /** За что не хватило: у сцены и у своего героя разные цены и разный текст. */
+  kind?: "scene" | "character";
   onClose: () => void;
 }) {
   const { t } = useTranslation("common");
@@ -32,7 +35,10 @@ export function StudioPaywallDialog({
     <Modal open={open} onClose={onClose} title={t("studio_ui.paywall_title")} size="sm">
       <div className="flex flex-col gap-4">
         <p className="text-sm text-muted">
-          {t("studio_ui.short_note", { required, balance })}
+          {t(kind === "character" ? "studio_ui.short_note_character" : "studio_ui.short_note", {
+            required,
+            balance,
+          })}
         </p>
 
         <div className="rounded-xl border border-accent/40 bg-accent/5 px-4 py-3 text-center">

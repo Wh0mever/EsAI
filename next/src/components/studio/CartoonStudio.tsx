@@ -2,7 +2,7 @@
 
 import { useTranslation } from "react-i18next";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { FiFilm, FiLoader, FiPlus, FiZap } from "react-icons/fi";
+import { FiFilm, FiLoader, FiPlay, FiPlus, FiZap } from "react-icons/fi";
 import { fetchData } from "@/tools/fetchData";
 import SaveMediaButton from "@/components/ui/SaveMediaButton";
 import ShareButtons from "@/components/ui/ShareButtons";
@@ -64,6 +64,9 @@ export default function CartoonStudio() {
   // реальным добавлениям, «Выбор EsAI» помечен у самих сцен в админке.
   const [popular, setPopular] = useState<string[]>([]);
   const [activeCat, setActiveCat] = useState("");
+  // Какая карточка сейчас проигрывается: ролик мы подставляем по одному,
+  // иначе сотня видео тянет свои постеры и душит загрузку страницы.
+  const [previewing, setPreviewing] = useState<number | null>(null);
   // Для кого снимаем. Разделов девятнадцать, героев больше двух десятков, и
   // взрослому сюжету нужен взрослый герой — поэтому один переключатель наверху
   // сужает сразу оба списка.
@@ -86,7 +89,9 @@ export default function CartoonStudio() {
   const [assembling, setAssembling] = useState(false);
   // Не хватило кредитов — не ошибка, а точка покупки: человек уже выбрал героя
   // и сцену, и это самый дорогой момент, чтобы упереться в сухую красную строку.
-  const [shortfall, setShortfall] = useState<{ required: number; balance: number } | null>(null);
+  const [shortfall, setShortfall] = useState<
+    { required: number; balance: number; kind?: "scene" | "character" } | null
+  >(null);
   const [authFor, setAuthFor] = useState<"character" | "scene" | null>(null);
   const [authed, setAuthed] = useState(true);
   const pollRef = useRef<number | null>(null);
@@ -448,6 +453,7 @@ export default function CartoonStudio() {
         open={Boolean(shortfall)}
         required={shortfall?.required ?? 0}
         balance={shortfall?.balance ?? 0}
+        kind={shortfall?.kind ?? "scene"}
         onClose={() => setShortfall(null)}
       />
       <StudioAuthDialog
@@ -500,6 +506,7 @@ export default function CartoonStudio() {
         <CharacterPicker
           authed={authed}
           onNeedAuth={() => setAuthFor("character")}
+          onNeedCredits={(required, bal) => setShortfall({ required, balance: bal, kind: "character" })}
           characters={visibleCharacters}
           value={character}
           onPick={(c) => {
@@ -556,25 +563,46 @@ export default function CartoonStudio() {
                   key={p.id}
                   className="flex flex-col overflow-hidden rounded-2xl border border-border bg-surface"
                 >
-                  <div className="relative aspect-video bg-surface-2">
-                    {p.preview_video ? (
+                  {/* В сетке лежит картинка, а не видео. Полторы сотни
+                      элементов <video> тянули постеры разом — сто с лишним
+                      запросов забивали очередь, и портреты героев не
+                      доезжали вовсе (на телефоне вместо них серые «?»).
+                      Ролик подставляется только для той карточки, на которую
+                      навели мышью или нажали пальцем. */}
+                  <div
+                    className="relative aspect-video cursor-pointer bg-surface-2"
+                    onMouseEnter={() => setPreviewing(p.id)}
+                    onMouseLeave={() => setPreviewing((cur) => (cur === p.id ? null : cur))}
+                    onClick={() => setPreviewing((cur) => (cur === p.id ? null : p.id))}
+                  >
+                    {previewing === p.id && p.preview_video ? (
                       <video
                         src={p.preview_video}
                         poster={p.preview_poster || undefined}
+                        autoPlay
                         muted
                         loop
                         playsInline
-                        preload="metadata"
-                        onMouseEnter={(e) => void e.currentTarget.play().catch(() => {})}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.pause();
-                          e.currentTarget.currentTime = 0;
-                        }}
                         className="h-full w-full object-cover"
                       />
                     ) : p.preview_poster ? (
-                      /* eslint-disable-next-line @next/next/no-img-element */
-                      <img src={p.preview_poster} alt="" className="h-full w-full object-cover" />
+                      <>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={p.preview_poster}
+                          alt=""
+                          loading="lazy"
+                          decoding="async"
+                          className="h-full w-full object-cover"
+                        />
+                        {p.preview_video && (
+                          <span className="pointer-events-none absolute inset-0 grid place-items-center">
+                            <span className="grid size-10 place-items-center rounded-full bg-black/45 text-white backdrop-blur-sm">
+                              <FiPlay className="ml-0.5" />
+                            </span>
+                          </span>
+                        )}
+                      </>
                     ) : (
                       <span className="grid h-full w-full place-items-center text-muted-2">
                         <FiFilm className="text-2xl" />

@@ -62,6 +62,26 @@ class StudioPublicAPIView(APIView):
     permission_classes = [AllowAny]
 
 
+def _attach_thumb(char) -> None:
+    """Лёгкая копия портрета для сетки библиотеки.
+
+    Без неё в витрину уезжает оригинал под мегабайт, и на телефоне картинки
+    не доезжают вовсе. Осечка не критична: витрина откатится на оригинал.
+    """
+    from django.core.files.base import ContentFile as _CF
+
+    from .thumbs import CHARACTER_BOX, make_thumb
+
+    try:
+        with char.image.open("rb") as fh:
+            blob = fh.read()
+        thumb = make_thumb(blob, CHARACTER_BOX)
+        if thumb:
+            char.image_thumb.save(f"char-{char.pk}.jpg", _CF(thumb), save=True)
+    except Exception:
+        logger.exception("миниатюра персонажа %s не сделалась", char.pk)
+
+
 def _media(path: str) -> str:
     return default_storage.url(path) if path else ""
 
@@ -75,7 +95,10 @@ def preset_json(p: CartoonPreset, lang: str = "ru") -> dict:
         "title": _tr(p, "title", lang),
         "subtitle": _tr(p, "subtitle", lang),
         "preview_video": p.preview_video.url if p.preview_video else "",
-        "preview_poster": p.preview_poster.url if p.preview_poster else "",
+        # В сетку отдаём лёгкую копию: оригинального кадра на мегабайт хватило
+        # бы, чтобы страница не догрузилась вовсе.
+        "preview_poster": (p.preview_thumb.url if p.preview_thumb
+                           else (p.preview_poster.url if p.preview_poster else "")),
         "duration": p.duration,
         "aspect_ratio": p.aspect_ratio,
         "credits": p.estimated_credits(),
@@ -93,7 +116,8 @@ def character_json(c: CartoonCharacter, lang: str = "ru") -> dict:
     return {
         "id": c.id,
         "name": _tr(c, "name", lang),
-        "image": c.image.url if c.image else "",
+        "image": (c.image_thumb.url if c.image_thumb
+                  else (c.image.url if c.image else "")),
         "source": c.source,
         "is_mine": c.user_id is not None,
         "category": c.category.slug if c.category_id else "",
@@ -243,7 +267,8 @@ class CharactersView(StudioPublicAPIView):
             description=(request.data.get("description") or "").strip()[:1000],
             source=CartoonCharacter.SOURCE_UPLOAD,
         )
-        return Response(character_json(char), status=status.HTTP_201_CREATED)
+        _attach_thumb(char)
+        return Response(character_json(char, _lang(request)), status=status.HTTP_201_CREATED)
 
 
 class CharacterGenerateView(StudioAPIView):
@@ -309,11 +334,12 @@ class CharacterGenerateView(StudioAPIView):
             source=CartoonCharacter.SOURCE_GENERATED,
         )
         char.image.save(f"{uuid.uuid4().hex}.jpg", ContentFile(base64.b64decode(b64)), save=True)
+        _attach_thumb(char)
 
         from .services import charge
 
         charge(request.user, price, "cartoon_character", meta={"character": char.pk})
-        return Response(character_json(char), status=status.HTTP_201_CREATED)
+        return Response(character_json(char, _lang(request)), status=status.HTTP_201_CREATED)
 
 
 class ProjectsView(StudioAPIView):

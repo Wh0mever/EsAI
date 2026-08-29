@@ -77,6 +77,11 @@ class CartoonPreset(models.Model):
         upload_to="cartoon/posters/", blank=True, null=True,
         verbose_name="Обложка превью",
         help_text="Кадр для списка. Пусто — возьмётся первый кадр превью.")
+    # Витрина показывает полторы сотни сцен разом, а кадр от модели весит
+    # больше мегабайта — в сетке отдаём лёгкую копию (см. cartoon/thumbs.py).
+    preview_thumb = models.ImageField(
+        upload_to="cartoon/posters/thumbs/", blank=True, null=True,
+        verbose_name="Обложка для списка (лёгкая)")
 
     # --- то, что уходит моделям ---
     scene_prompt = models.TextField(
@@ -173,6 +178,9 @@ class CartoonCharacter(models.Model):
     name_en = models.CharField(max_length=120, blank=True, default="", verbose_name="Имя (EN)")
     name_kg = models.CharField(max_length=120, blank=True, default="", verbose_name="Имя (KG)")
     image = models.ImageField(upload_to="cartoon/characters/", verbose_name="Изображение")
+    image_thumb = models.ImageField(
+        upload_to="cartoon/characters/thumbs/", blank=True, null=True,
+        verbose_name="Изображение для списка (лёгкое)")
     description = models.TextField(
         blank=True, default="", verbose_name="Описание для моделей",
         help_text=(
