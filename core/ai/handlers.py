@@ -863,12 +863,27 @@ OPENROUTER_TITLE_DEFAULT = "ESAI"
 
 
 def _openrouter_config() -> dict:
-    """Read OpenRouter connection config: runtime-настройка из админки, затем env."""
+    """Ключ OpenRouter: активный аккаунт из панели, затем настройка, затем env.
+
+    Аккаунты появились, когда деньги на единственном ключе кончились и встал
+    весь сайт (см. ai.models.OpenRouterAccount). Если ни одного аккаунта не
+    заведено, всё работает по-старому — поэтому модуль можно было включить,
+    ничего не переключая.
+    """
     api_key = (os.environ.get("OPENROUTER_API_KEY") or "").strip()
     try:
         from adminapi.runtime import get_runtime
         api_key = (get_runtime("OPENROUTER_API_KEY", "") or "").strip() or api_key
     except Exception:
+        pass
+    try:
+        from .models import OpenRouterAccount
+
+        active = OpenRouterAccount.objects.filter(is_active=True).only("api_key").first()
+        if active and (active.api_key or "").strip():
+            api_key = active.api_key.strip()
+    except Exception:
+        # База недоступна — не повод ронять генерацию: остаётся прежний ключ.
         pass
     return {
         "base_url": (os.environ.get("OPENROUTER_API_BASE") or OPENROUTER_API_BASE_DEFAULT).strip(),

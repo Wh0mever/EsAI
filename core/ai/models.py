@@ -320,3 +320,57 @@ class SharedVideo(models.Model):
         ordering = ("-created_at",)
         verbose_name = "Ссылка на ролик"
         verbose_name_plural = "Ссылки на ролики"
+
+
+class OpenRouterAccount(models.Model):
+    """Аккаунт OpenRouter, с которого работает весь сайт.
+
+    Зачем модуль. Ключ был один и лежал в настройках строкой. Когда на нём
+    заканчиваются деньги, встаёт всё: чат, картинки, видео и студия. Пополнение
+    идёт вручную и не всегда вовремя, поэтому клиенту нужен запасной аккаунт и
+    возможность переключиться на него за один клик, не трогая сервер.
+
+    Активный аккаунт ровно один — его и отдаёт ai.handlers._openrouter_config
+    всему коду. Если активного нет, всё работает как раньше: ключ берётся из
+    настроек, а затем из окружения. Так переход на модуль ничего не ломает.
+
+    Баланс хранится снимком, а не спрашивается у OpenRouter на каждый показ
+    страницы: список аккаунтов открывают часто, а лишний поход по сети на
+    каждый рендер — это секунда ожидания и лишняя нагрузка на их API.
+    """
+    title = models.CharField(
+        max_length=80, verbose_name="Название",
+        help_text="Как отличать аккаунты между собой: «Основной», «Резервный».")
+    api_key = models.CharField(max_length=200, verbose_name="Ключ API")
+    is_active = models.BooleanField(
+        default=False, verbose_name="Активный",
+        help_text="С этого аккаунта идут все запросы. Активным может быть только один.")
+    note = models.TextField(blank=True, default="", verbose_name="Заметка")
+
+    balance_usd = models.FloatField(null=True, blank=True, verbose_name="Осталось, $")
+    spent_usd = models.FloatField(null=True, blank=True, verbose_name="Потрачено, $")
+    limit_usd = models.FloatField(null=True, blank=True, verbose_name="Пополнено, $")
+    checked_at = models.DateTimeField(null=True, blank=True, verbose_name="Баланс проверен")
+    last_error = models.TextField(blank=True, default="", verbose_name="Последняя ошибка")
+
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def masked_key(self) -> str:
+        """Ключ для показа в панели. Целиком наружу не отдаём никогда."""
+        key = self.api_key or ""
+        return f"{key[:12]}…{key[-4:]}" if len(key) > 20 else "…"
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        # Активный ровно один: иначе непонятно, с какого аккаунта уходят деньги.
+        if self.is_active:
+            OpenRouterAccount.objects.exclude(pk=self.pk).filter(
+                is_active=True).update(is_active=False)
+
+    def __str__(self):
+        return f"{self.title}{' (активный)' if self.is_active else ''}"
+
+    class Meta:
+        ordering = ("-is_active", "title")
+        verbose_name = "Аккаунт OpenRouter"
+        verbose_name_plural = "Аккаунты OpenRouter"
