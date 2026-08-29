@@ -345,6 +345,13 @@ class OpenRouterAccount(models.Model):
     is_active = models.BooleanField(
         default=False, verbose_name="Активный",
         help_text="С этого аккаунта идут все запросы. Активным может быть только один.")
+    auto_switch = models.BooleanField(
+        default=False, verbose_name="Запасной",
+        help_text="Разрешить включить этот аккаунт автоматически, когда на рабочем "
+                  "закончатся деньги. Выбор рабочего вручную это не отменяет.")
+    auto_switched_at = models.DateTimeField(
+        null=True, blank=True, verbose_name="Включён автоматически",
+        help_text="Когда система сама переключилась на этот аккаунт.")
     note = models.TextField(blank=True, default="", verbose_name="Заметка")
 
     balance_usd = models.FloatField(null=True, blank=True, verbose_name="Осталось, $")

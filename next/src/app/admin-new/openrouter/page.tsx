@@ -30,6 +30,8 @@ type Account = {
   title: string;
   key_masked: string;
   is_active: boolean;
+  auto_switch: boolean;
+  auto_switched_at: string | null;
   note: string;
   balance_usd: number | null;
   spent_usd: number | null;
@@ -43,6 +45,8 @@ const INPUT =
 
 /** Ниже этой суммы аккаунт подсвечивается: пора пополнять или переключаться. */
 const LOW_BALANCE = 15;
+
+type Payload = { accounts: Account[]; auto_switch_below: number };
 
 function money(v: number | null): string {
   return v === null || v === undefined ? "—" : `$${v.toFixed(2)}`;
@@ -59,15 +63,43 @@ export default function AdminOpenRouterPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState<string>("");
+  const [below, setBelow] = useState<number>(2);
   const [title, setTitle] = useState("");
   const [key, setKey] = useState("");
   const [addError, setAddError] = useState("");
 
+  const apply = (d?: Payload | null) => {
+    if (!d) return false;
+    setAccounts(d.accounts || []);
+    if (typeof d.auto_switch_below === "number") setBelow(d.auto_switch_below);
+    return true;
+  };
+
   const load = async () => {
-    const res = await fetchData<Account[]>("manage/openrouter/", "GET", null, true);
-    if (res.ok && Array.isArray(res.data)) setAccounts(res.data);
-    else setError(res.error || "Не удалось загрузить аккаунты");
+    const res = await fetchData<Payload>("manage/openrouter/", "GET", null, true);
+    if (!(res.ok && apply(res.data))) setError(res.error || "Не удалось загрузить аккаунты");
     setLoading(false);
+  };
+
+  const saveBelow = async (value: number) => {
+    setBusy("below");
+    const res = await fetchData<Payload>(
+      "manage/openrouter/", "PATCH", { auto_switch_below: value }, true
+    );
+    setBusy("");
+    apply(res.data);
+  };
+
+  const toggleSpare = async (a: Account, on: boolean) => {
+    setBusy(`spare-${a.id}`);
+    const res = await fetchData<Account>(
+      `manage/openrouter/${a.id}/`, "PATCH", { auto_switch: on }, true
+    );
+    setBusy("");
+    if (res.ok && res.data) {
+      const updated = res.data as Account;
+      setAccounts((prev) => prev.map((x) => (x.id === updated.id ? updated : x)));
+    }
   };
 
   useEffect(() => {
@@ -94,18 +126,17 @@ export default function AdminOpenRouterPage() {
 
   const activate = async (a: Account) => {
     setBusy(`act-${a.id}`);
-    const res = await fetchData<Account[]>(`manage/openrouter/${a.id}/activate/`, "POST", {}, true);
+    const res = await fetchData<Payload>(`manage/openrouter/${a.id}/activate/`, "POST", {}, true);
     setBusy("");
-    if (res.ok && Array.isArray(res.data)) setAccounts(res.data);
-    else alert((res.data as any)?.detail || "Не удалось переключиться");
+    if (!(res.ok && apply(res.data))) alert((res.data as any)?.detail || "Не удалось переключиться");
   };
 
   const refresh = async (a?: Account) => {
     setBusy(a ? `ref-${a.id}` : "ref-all");
     const url = a ? `manage/openrouter/${a.id}/refresh/` : "manage/openrouter/refresh/";
-    const res = await fetchData<Account[]>(url, "POST", {}, true);
+    const res = await fetchData<Payload>(url, "POST", {}, true);
     setBusy("");
-    if (res.ok && Array.isArray(res.data)) setAccounts(res.data);
+    apply(res.data);
   };
 
   const remove = async (a: Account) => {
@@ -137,6 +168,21 @@ export default function AdminOpenRouterPage() {
             работать сразу, перезапуск не нужен.
           </p>
         </div>
+        <div className="flex items-center gap-2">
+          <label className="flex items-center gap-2 rounded-xl border border-border px-3 py-2 text-sm">
+            <span className="text-muted">Переключаться, когда меньше</span>
+            <span className="text-muted-2">$</span>
+            <input
+              type="number"
+              min={0}
+              step={1}
+              value={below}
+              onChange={(e) => setBelow(Number(e.target.value))}
+              onBlur={() => void saveBelow(below)}
+              className="w-16 bg-transparent text-foreground outline-none"
+            />
+            {busy === "below" && <FiLoader className="animate-spin text-muted-2" />}
+          </label>
         <button
           type="button"
           onClick={() => void refresh()}
@@ -146,6 +192,7 @@ export default function AdminOpenRouterPage() {
           {busy === "ref-all" ? <FiLoader className="animate-spin" /> : <FiRefreshCw />}
           Обновить балансы
         </button>
+        </div>
       </div>
 
       {error && (
@@ -209,7 +256,32 @@ export default function AdminOpenRouterPage() {
                 </div>
               )}
 
+              {a.auto_switched_at && (
+                <p className="mt-3 text-xs text-muted-2">
+                  Включён автоматически {when(a.auto_switched_at)}
+                </p>
+              )}
+
               {a.note && <p className="mt-3 text-xs text-muted">{a.note}</p>}
+
+              {/* Запасной. Молча увести расходы на чужой ключ, заведённый
+                  «на потом», нельзя — поэтому переключение только на
+                  отмеченные аккаунты. */}
+              <label className="mt-3 flex cursor-pointer items-start gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 h-4 w-4 accent-accent"
+                  checked={a.auto_switch}
+                  disabled={busy === `spare-${a.id}`}
+                  onChange={(e) => void toggleSpare(a, e.target.checked)}
+                />
+                <span>
+                  Запасной
+                  <span className="block text-xs text-muted-2">
+                    Включить автоматически, когда на рабочем останется меньше ${below}
+                  </span>
+                </span>
+              </label>
 
               <div className="mt-4 flex flex-wrap items-center gap-2">
                 {!a.is_active && (

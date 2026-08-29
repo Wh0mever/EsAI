@@ -76,6 +76,8 @@ def account_json(a: OpenRouterAccount) -> dict:
         "title": a.title,
         "key_masked": a.masked_key(),
         "is_active": a.is_active,
+        "auto_switch": a.auto_switch,
+        "auto_switched_at": a.auto_switched_at.isoformat() if a.auto_switched_at else None,
         "note": a.note,
         "balance_usd": a.balance_usd,
         "spent_usd": a.spent_usd,
@@ -85,11 +87,44 @@ def account_json(a: OpenRouterAccount) -> dict:
     }
 
 
+DEFAULT_SWITCH_BELOW = 2.0
+
+
+def _switch_below() -> float:
+    from adminapi.runtime import get_runtime
+
+    try:
+        return float(get_runtime("openrouter_auto_switch_below", DEFAULT_SWITCH_BELOW)
+                     or DEFAULT_SWITCH_BELOW)
+    except (TypeError, ValueError):
+        return DEFAULT_SWITCH_BELOW
+
+
+def _payload() -> dict:
+    return {
+        "accounts": [account_json(a) for a in OpenRouterAccount.objects.all()],
+        "auto_switch_below": _switch_below(),
+    }
+
+
 class AccountsView(StaffAPIView):
-    """GET — список аккаунтов. POST — подключить новый."""
+    """GET — аккаунты и настройки. POST — подключить новый. PATCH — порог."""
 
     def get(self, request):
-        return Response([account_json(a) for a in OpenRouterAccount.objects.all()])
+        return Response(_payload())
+
+    def patch(self, request):
+        """Порог, ниже которого включается запасной аккаунт."""
+        from adminapi.runtime import set_runtime
+
+        raw = (request.data or {}).get("auto_switch_below")
+        try:
+            value = max(0.0, round(float(raw), 2))
+        except (TypeError, ValueError):
+            return Response({"detail": "Порог должен быть числом"},
+                            status=status.HTTP_400_BAD_REQUEST)
+        set_runtime("openrouter_auto_switch_below", value)
+        return Response(_payload())
 
     def post(self, request):
         data = request.data or {}
@@ -136,6 +171,9 @@ class AccountDetailView(StaffAPIView):
         if "note" in data:
             account.note = str(data["note"] or "").strip()[:2000]
             fields.append("note")
+        if "auto_switch" in data:
+            account.auto_switch = bool(data["auto_switch"])
+            fields.append("auto_switch")
 
         key = str(data.get("api_key") or "").strip()
         if key and key != account.api_key:
@@ -175,8 +213,11 @@ class AccountActivateView(StaffAPIView):
             return Response({"detail": f"Аккаунт не отвечает: {account.last_error}"},
                             status=status.HTTP_400_BAD_REQUEST)
         account.is_active = True
-        account.save(update_fields=["is_active"])
-        return Response([account_json(a) for a in OpenRouterAccount.objects.all()])
+        # Отметка «включён автоматически» относится к прошлому переключению —
+        # после ручного выбора она вводила бы в заблуждение.
+        account.auto_switched_at = None
+        account.save(update_fields=["is_active", "auto_switched_at"])
+        return Response(_payload())
 
 
 class AccountRefreshView(StaffAPIView):
@@ -188,4 +229,4 @@ class AccountRefreshView(StaffAPIView):
         else:
             for a in OpenRouterAccount.objects.all():
                 refresh(a)
-        return Response([account_json(a) for a in OpenRouterAccount.objects.all()])
+        return Response(_payload())
