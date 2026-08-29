@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import blocks, views
+from . import blocks, openrouter, views
 
 app_name = "adminapi"
 
@@ -26,6 +26,12 @@ urlpatterns = [
     path("blocks/suspects/", blocks.BlockSuspectsView.as_view(), name="blocks-suspects"),
     path("blocks/<int:pk>/", blocks.BlockDetailView.as_view(), name="blocks-detail"),
     path("blocks/<int:pk>/accounts/", blocks.BlockAccountsView.as_view(), name="blocks-accounts"),
+    # Аккаунты OpenRouter: подключить запасной и переключиться в один клик.
+    path("openrouter/", openrouter.AccountsView.as_view(), name="openrouter-list"),
+    path("openrouter/refresh/", openrouter.AccountRefreshView.as_view(), name="openrouter-refresh-all"),
+    path("openrouter/<int:pk>/", openrouter.AccountDetailView.as_view(), name="openrouter-detail"),
+    path("openrouter/<int:pk>/activate/", openrouter.AccountActivateView.as_view(), name="openrouter-activate"),
+    path("openrouter/<int:pk>/refresh/", openrouter.AccountRefreshView.as_view(), name="openrouter-refresh"),
     path("settings/", views.SettingsView.as_view(), name="settings"),
     path("settings/test-openrouter/", views.SettingsTestOpenRouterView.as_view(), name="settings-test-openrouter"),
 ]

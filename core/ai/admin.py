@@ -16,6 +16,7 @@ from .models import (
     AiChatMessage,
     AiMessageFeedback,
     SharedVideo,
+    OpenRouterAccount,
 )
 
 class JSONTextarea(forms.Textarea):
@@ -258,3 +259,10 @@ class SharedVideoAdmin(admin.ModelAdmin):
     readonly_fields = ("slug", "video_path", "poster_path", "width", "height", "duration", "views", "created_at")
     list_editable = ("is_active",)
     ordering = ("-created_at",)
+
+@admin.register(OpenRouterAccount)
+class OpenRouterAccountAdmin(admin.ModelAdmin):
+    list_display = ("title", "is_active", "balance_usd", "spent_usd", "checked_at")
+    list_filter = ("is_active",)
+    search_fields = ("title", "note")
+    readonly_fields = ("balance_usd", "spent_usd", "limit_usd", "checked_at", "last_error")
