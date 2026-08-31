@@ -117,10 +117,34 @@ export default function TokenPackages({
   // пустым, просто не рендерим доп.блок — покупка (цена/кнопка) должна
   // работать в любом случае.
   const [valueById, setValueById] = useState<Record<string, PackageValue>>({});
+  // Незавершённая оплата. Разбор воронки показал, что половина брошенных
+  // платежей — это повторные нажатия одних и тех же людей: страница оплаты
+  // закрылась, и продолжить было нечем, кроме как начать заново.
+  const [pending, setPending] = useState<{
+    package: string;
+    amount: string;
+    currency: string;
+    redirect_url: string;
+  } | null>(null);
+  const [pendingHidden, setPendingHidden] = useState(false);
 
   useEffect(() => {
     setAuthed(Boolean(Cookies.get("access")));
   }, []);
+
+  useEffect(() => {
+    if (!authed) return;
+    let alive = true;
+    (async () => {
+      const res = await fetchData<{ pending: typeof pending }>(
+        "plans/purchase/pending/", "GET", null, true
+      );
+      if (alive && res.ok && res.data?.pending) setPending(res.data.pending);
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [authed]);
 
   useEffect(() => {
     let cancelled = false;
@@ -246,6 +270,36 @@ export default function TokenPackages({
 
   return (
     <div className="w-full px-4 sm:px-8 lg:px-16 xl:px-24 2xl:px-40 py-10">
+      {/* Вернуть человека туда, откуда он ушёл. Без этого единственным
+          способом продолжить было начать оплату заново — и один человек в
+          разборе воронки нажал «Пополнить» десять раз подряд. */}
+      {pending && !pendingHidden && (
+        <div className="mx-auto mb-6 flex max-w-2xl flex-col gap-3 rounded-2xl border border-accent/50 bg-accent/5 p-4 sm:flex-row sm:items-center">
+          <div className="flex-1">
+            <p className="text-sm font-semibold text-foreground">
+              {t("packages.pending_title", { defaultValue: "У вас есть незавершённая оплата" })}
+            </p>
+            <p className="mt-0.5 text-sm text-muted">
+              {pending.package} — {Number(pending.amount).toLocaleString("ru-RU")}{" "}
+              {pending.currency === "KGS" ? t("topup.som", { defaultValue: "сом" }) : pending.currency}
+            </p>
+          </div>
+          <a
+            href={pending.redirect_url}
+            className="inline-flex shrink-0 items-center justify-center rounded-xl bg-accent px-4 py-2.5 text-sm font-semibold text-on-accent transition-colors hover:bg-accent-strong"
+          >
+            {t("packages.pending_continue", { defaultValue: "Продолжить оплату" })}
+          </a>
+          <button
+            type="button"
+            onClick={() => setPendingHidden(true)}
+            className="shrink-0 text-sm text-muted transition-colors hover:text-foreground cursor-pointer"
+          >
+            {t("packages.pending_dismiss", { defaultValue: "Скрыть" })}
+          </button>
+        </div>
+      )}
+
       {loading && (
         <div className="py-10 text-center text-muted">{t("common.loading", { defaultValue: "Загрузка..." })}</div>
       )}
