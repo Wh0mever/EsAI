@@ -94,7 +94,10 @@ def preset_json(p: CartoonPreset, lang: str = "ru") -> dict:
         "slug": p.slug,
         "title": _tr(p, "title", lang),
         "subtitle": _tr(p, "subtitle", lang),
-        "preview_video": p.preview_video.url if p.preview_video else "",
+        # В ленту уходит облегчённая копия: там превью играют сами, и полный
+        # ролик на 3.5 МБ съел бы мобильный трафик за пару экранов.
+        "preview_video": (p.preview_clip.url if p.preview_clip
+                          else (p.preview_video.url if p.preview_video else "")),
         # В сетку отдаём лёгкую копию: оригинального кадра на мегабайт хватило
         # бы, чтобы страница не догрузилась вовсе.
         "preview_poster": (p.preview_thumb.url if p.preview_thumb

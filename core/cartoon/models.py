@@ -82,6 +82,12 @@ class CartoonPreset(models.Model):
     preview_thumb = models.ImageField(
         upload_to="cartoon/posters/thumbs/", blank=True, null=True,
         verbose_name="Обложка для списка (лёгкая)")
+    # В ленте превью играют сами, без звука. Снятый ролик для этого слишком
+    # тяжёл — шесть штук на экране съели бы двадцать мегабайт трафика,
+    # поэтому там крутится облегчённая копия (см. cartoon/clips.py).
+    preview_clip = models.FileField(
+        upload_to="cartoon/previews/clips/", blank=True, null=True,
+        verbose_name="Ролик для ленты (лёгкий)")
 
     # --- то, что уходит моделям ---
     scene_prompt = models.TextField(
