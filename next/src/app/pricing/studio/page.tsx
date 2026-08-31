@@ -10,6 +10,7 @@ import CurrencySwitch from "@/components/pricing/CurrencySwitch";
 import Breadcrumb from "@/components/global/AnimatedCircleBg";
 import { useCurrency } from "@/hooks/useCurrency";
 import { fetchData } from "@/tools/fetchData";
+import { trackFunnel } from "@/tools/funnel";
 
 /**
  * Тарифы Cartoon Studio — отдельная витрина тех же разовых пакетов.
@@ -38,6 +39,11 @@ type StudioPricing = {
 const SCENES_PER_MOVIE = 4;
 
 export default function StudioPricing() {
+
+	// Счётчик воронки: сколько людей вообще дошло до тарифов.
+	useEffect(() => {
+		trackFunnel("pricing_view");
+	}, []);
 	const { t } = useTranslation("common");
 	const { currency, setCurrency, convert } = useCurrency();
 	const [pricing, setPricing] = useState<StudioPricing | null>(null);

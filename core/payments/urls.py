@@ -1,5 +1,6 @@
 from django.urls import path
 
+from .funnel import FunnelEventView
 from .views import (
     StartBindCardAPIView,
     FreedomPayCallbackAPIView,
@@ -26,6 +27,9 @@ from .views import (
 app_name = "payments"
 
 urlpatterns = [
+    # Шаги воронки оплаты с фронта (открыт всем: до оплаты человек ещё гость).
+    path('funnel/event/', FunnelEventView.as_view(), name='funnel-event'),
+
     path('card/bind/start/', StartBindCardAPIView.as_view(), name='card-bind-start'),
     path('card/bind/callback/', FreedomPayCallbackAPIView.as_view(), name='card-bind-callback'),
     path('card/remove/', RemoveCardAPIView.as_view(), name='card-remove'),
