@@ -1807,6 +1807,7 @@
 		"cat_popular": "Popular",
 		"cat_pick": "EsAI picks",
 		"download_scene": "Download the scene",
-		"short_note_character": "Your own character costs {{required}}, your balance is {{balance}}. For now you can take any character from the library — they are free."
+		"short_note_character": "Your own character costs {{required}}, your balance is {{balance}}. For now you can take any character from the library — they are free.",
+		"show_more": "Show more"
 	}
 }
