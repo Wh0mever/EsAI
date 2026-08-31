@@ -4,7 +4,7 @@ from .views import (
     MeSubscriptionView, MeUsageView, MeAddonsView,
     ActivatePlanView, UnsubscribeView, ResumeSubscriptionView,
     TokenBalanceView, TokenPackageListView, TokenPackageValueListView,
-    TokenTransactionListView, TokenPurchaseView, CurrencyRateView,
+    TokenTransactionListView, PendingPaymentView, TokenPurchaseView, CurrencyRateView,
     PublicBonusSettingsView,
 )
 from .exit_discount import (
@@ -23,6 +23,9 @@ urlpatterns = [
     path("bonus-settings/", PublicBonusSettingsView.as_view(), name="public-bonus-settings"),
     path("transactions/", TokenTransactionListView.as_view(), name="token-transactions"),
     path("purchase/", TokenPurchaseView.as_view(), name="token-purchase"),
+    # Незавершённая оплата: вернуть человека туда, откуда он ушёл.
+    path("purchase/pending/", PendingPaymentView.as_view(), name="token-purchase-pending"),
+
     # Exit-intent скидка на pricing. Объявлены ДО "<int:pk>/", чтобы не перехватывались.
     path("exit-discount/status/", ExitDiscountStatusView.as_view(), name="exit-discount-status"),
     path("exit-discount/show/", ExitDiscountShowView.as_view(), name="exit-discount-show"),

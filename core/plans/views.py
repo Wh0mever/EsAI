@@ -30,7 +30,7 @@ from users.models import User, UserCardBind
 from django.db import transaction
 from payments.freedompay import FreedomPay, FreedomPayError, make_api_signature
 from decimal import Decimal
-from core.langutils import request_lang
+from core.langutils import request_lang as _lang
 
 
 @method_decorator(cache_page(60), name="dispatch")               # page cache
@@ -429,6 +429,69 @@ class TokenTransactionListView(generics.ListAPIView):
         )
 
 
+# Сколько ссылка на оплату считается живой. Полчаса — компромисс: человек
+# успевает сходить за картой, но не наткнётся завтра на вчерашнюю сумму.
+RESUME_WINDOW_MINUTES = 30
+
+
+def pending_token_payment(user, package_id=None):
+    """Незавершённая оплата пакета, к которой можно вернуться.
+
+    Разбор воронки показал, зачем это нужно: 73 брошенные попытки — это всего
+    47 человек, один нажимал «Пополнить» десять раз подряд. Каждое нажатие
+    заводило новый платёж и новую ссылку, а человек всё это время смотрел в
+    одну и ту же не открывшуюся страницу.
+
+    Незавершённой считаем ту, по которой платёжная система не прислала ни
+    одного ответа: пришёл ответ — значит человек до формы дошёл, и продолжать
+    там уже нечего.
+    """
+    from datetime import timedelta
+
+    from django.utils import timezone as _tz
+    from payments.models import Payment
+
+    qs = Payment.objects.filter(
+        user=user, success=False,
+        request__token_purchase__isnull=False,
+        created_at__gte=_tz.now() - timedelta(minutes=RESUME_WINDOW_MINUTES),
+    ).order_by("-created_at")
+    if package_id:
+        qs = qs.filter(request__token_purchase__package_id=int(package_id))
+
+    for payment in qs[:20]:
+        response = payment.response or {}
+        if response.get("callbacks"):
+            continue
+        url = _redirect_url_of(response)
+        if url:
+            return payment, url
+    return None, ""
+
+
+def _redirect_url_of(response: dict) -> str:
+    """Ссылка на оплату из ответа платёжной системы.
+
+    Смотрим и в новое поле, и в исходные ответы: у платежей, созданных до
+    появления этой функции, верхнего поля нет, а вернуть человека к ним нужно
+    так же.
+    """
+    if not isinstance(response, dict):
+        return ""
+    direct = response.get("redirect_url")
+    if direct:
+        return str(direct)
+    init = response.get("token_purchase_init") or {}
+    if isinstance(init, dict) and init.get("pg_redirect_url"):
+        return str(init["pg_redirect_url"])
+    yk = response.get("yookassa_create") or {}
+    if isinstance(yk, dict):
+        url = (yk.get("confirmation") or {}).get("confirmation_url")
+        if url:
+            return str(url)
+    return ""
+
+
 def safe_return_path(value, default="/profile") -> str:
     """Куда вернуть человека после оплаты.
 
@@ -444,6 +507,32 @@ def safe_return_path(value, default="/profile") -> str:
     if "?" in raw or "#" in raw:
         return default
     return raw
+
+
+class PendingPaymentView(APIView):
+    """GET /api/plans/purchase/pending/ — незавершённая оплата, если она есть.
+
+    Нужна, чтобы вернуть человека туда, откуда он ушёл. Половина брошенных
+    платежей — это повторные нажатия одних и тех же людей: страница оплаты
+    закрылась, и единственным способом продолжить было начать всё заново.
+    """
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        payment, url = pending_token_payment(request.user)
+        if not url:
+            return Response({"pending": None})
+        pkg_id = ((payment.request or {}).get("token_purchase") or {}).get("package_id")
+        pkg = TokenPackage.objects.filter(pk=pkg_id).first() if pkg_id else None
+        return Response({"pending": {
+            "order_id": payment.order_id,
+            "amount": str(payment.amount),
+            "currency": payment.currency,
+            "package": pkg.name if pkg else "",
+            "redirect_url": url,
+            "created_at": payment.created_at.isoformat(),
+        }})
 
 
 class TokenPurchaseView(APIView):
@@ -482,6 +571,15 @@ class TokenPurchaseView(APIView):
         # проекта, и высаживать его в профиль вместо недоделанного мультфильма —
         # значит терять того, кто уже заплатил.
         return_to = safe_return_path((request.data or {}).get("return_to"))
+
+        # Тот же пакет, начатый минуту назад, — это не второй платёж, а тот же
+        # самый: человек вернулся и жмёт снова. Отдаём прежнюю ссылку.
+        existing, existing_url = pending_token_payment(request.user, package.id)
+        if existing_url:
+            return Response({"redirect_url": existing_url, "order_id": existing.order_id,
+                             "amount": str(existing.amount), "currency": existing.currency,
+                             "resumed": True})
+
         pay_currency = str((request.data or {}).get("pay_currency") or "").strip().upper()
         if pay_currency == "RUB":
             from payments import yookassa as yk
@@ -550,7 +648,12 @@ class TokenPurchaseView(APIView):
                 "pg_currency": currency,
                 "pg_order_id": order_id,
                 "pg_user_id": str(request.user.id),
-                "pg_description": f"Token package #{package.id} for user #{request.user.id}",
+                # Это человек видит на странице оплаты. Раньше там стояло
+                # «Token package #3 for user #958» — техническая строка ровно в
+                # ту секунду, когда решают, вводить ли карту.
+                "pg_description": f"EsAI: {package.name} — {int(package.tokens or 0)} кредитов",
+                "pg_language": "en" if _lang(request) == "en" else "ru",
+                "pg_user_contact_email": (request.user.email or "")[:120],
                 "pg_salt": uuid.uuid4().hex,
                 "pg_success_url": request.build_absolute_uri(reverse("payments:freedompay-tokens-success")),
                 "pg_failure_url": request.build_absolute_uri(reverse("payments:freedompay-tokens-failure")),
@@ -615,6 +718,9 @@ class TokenPurchaseView(APIView):
             payment.save(update_fields=["response", "error"])
             return Response({"detail": payment.error}, status=drf_status.HTTP_502_BAD_GATEWAY)
 
+        # Кладём ссылку наверх: по ней человека возвращают к незавершённой
+        # оплате, и искать её в сыром ответе платёжной системы неудобно.
+        payment.response["redirect_url"] = redirect_url
         payment.save(update_fields=["response"])
         return Response(
             {
@@ -691,7 +797,7 @@ class TokenPurchaseView(APIView):
 
         confirmation = (data or {}).get("confirmation") or {}
         redirect_url = confirmation.get("confirmation_url")
-        payment.response = {"yookassa_create": data}
+        payment.response = {"yookassa_create": data, "redirect_url": redirect_url}
         if not redirect_url:
             payment.error = "yookassa_confirmation_url_missing"
             payment.save(update_fields=["response", "error"])
