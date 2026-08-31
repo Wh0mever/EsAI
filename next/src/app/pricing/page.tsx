@@ -1,7 +1,7 @@
 "use client";
 
 import "@/assets/style.scss";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import TokenPackages from "@/components/pricing/TokenPackages";
 import PayAsYouGoBanner from "@/components/pricing/PayAsYouGoBanner";
 import WhatsEnoughCalculator from "@/components/pricing/WhatsEnoughCalculator";
@@ -13,6 +13,7 @@ import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { useExitDiscount } from "@/hooks/useExitDiscount";
 import { useCurrency } from "@/hooks/useCurrency";
+import { trackFunnel } from "@/tools/funnel";
 
 function formatMMSS(totalSeconds: number): string {
 	const s = Math.max(0, totalSeconds);
@@ -22,6 +23,11 @@ function formatMMSS(totalSeconds: number): string {
 }
 
 export default function Pricing() {
+
+	// Счётчик воронки: сколько людей вообще дошло до тарифов.
+	useEffect(() => {
+		trackFunnel("pricing_view");
+	}, []);
 	const { t } = useTranslation("common");
 	const [paymentInProgress, setPaymentInProgress] = useState(false);
 	const [claiming, setClaiming] = useState(false);

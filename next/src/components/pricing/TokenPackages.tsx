@@ -7,6 +7,7 @@ import { FiZap, FiGift } from "react-icons/fi";
 import Cookies from "js-cookie";
 import type { Currency } from "@/lib/currency";
 import { apiLang } from "@/lib/apiLang";
+import { trackFunnel } from "@/tools/funnel";
 
 type Pkg = {
   id: number | string;
@@ -173,6 +174,9 @@ export default function TokenPackages({
   }, [t, lang]);
 
   const onBuy = async (pkg: Pkg) => {
+    // Считаем НАЖАТИЕ, а не созданный платёж: между ними отсеиваются гости,
+    // которых уводит на вход, и именно этот разрыв нам и нужно видеть.
+    trackFunnel("topup_click", { package_id: pkg.id, currency, authed });
     // Guests must authenticate before topping up.
     if (!authed) {
       const next = encodeURIComponent(returnTo || "/pricing");

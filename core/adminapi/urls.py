@@ -32,6 +32,8 @@ urlpatterns = [
     path("openrouter/<int:pk>/", openrouter.AccountDetailView.as_view(), name="openrouter-detail"),
     path("openrouter/<int:pk>/activate/", openrouter.AccountActivateView.as_view(), name="openrouter-activate"),
     path("openrouter/<int:pk>/refresh/", openrouter.AccountRefreshView.as_view(), name="openrouter-refresh"),
+    # Воронка оплаты: на каком шаге отваливаются.
+    path("funnel/", views.FunnelView.as_view(), name="funnel"),
     path("settings/", views.SettingsView.as_view(), name="settings"),
     path("settings/test-openrouter/", views.SettingsTestOpenRouterView.as_view(), name="settings-test-openrouter"),
 ]

@@ -21,6 +21,7 @@ import {
   FiEye,
   FiEyeOff,
   FiKey,
+  FiFilter,
 } from "react-icons/fi";
 
 const NAV = [
@@ -29,6 +30,7 @@ const NAV = [
   { href: "/admin-new/packages", label: "Пакеты", icon: FiPackage },
   { href: "/admin-new/users", label: "Пользователи", icon: FiUsers },
   { href: "/admin-new/payments", label: "Платежи", icon: FiCreditCard },
+  { href: "/admin-new/funnel", label: "Воронка", icon: FiFilter },
   { href: "/admin-new/blocks", label: "Блокировки", icon: FiShield },
   { href: "/admin-new/blog", label: "Блог", icon: FiFileText },
   { href: "/admin-new/promo", label: "Промокоды", icon: FiTag },

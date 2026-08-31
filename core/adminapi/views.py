@@ -57,6 +57,33 @@ def _effective_openrouter_key() -> str:
     return runtime_key or (os.environ.get("OPENROUTER_API_KEY") or "").strip()
 
 
+def _openrouter_summary():
+    """Деньги OpenRouter: сумма по всем аккаунтам и сколько на рабочем.
+
+    Раньше на дашборде висел остаток одного ключа из настроек. С появлением
+    аккаунтов это стало прямой ложью: показывался счёт, с которого уже никто
+    не тратит. Клиент спросил «суммарно не?» — суммарно и показываем, а рядом
+    отдельной строкой рабочий счёт: тратится-то с него.
+    """
+    try:
+        from ai.models import OpenRouterAccount
+
+        rows = list(OpenRouterAccount.objects.all())
+    except Exception:
+        rows = []
+    if not rows:
+        return {"total": _openrouter_balance(), "active": None,
+                "active_title": "", "accounts": 0}
+    total = sum(float(a.balance_usd or 0) for a in rows)
+    active = next((a for a in rows if a.is_active), None)
+    return {
+        "total": round(total, 2),
+        "active": round(float(active.balance_usd or 0), 2) if active else None,
+        "active_title": active.title if active else "",
+        "accounts": len(rows),
+    }
+
+
 def _openrouter_balance():
     """Остаток на счёте OpenRouter в USD; None при любой ошибке (ключ/сеть/формат)."""
     try:
@@ -107,7 +134,7 @@ class SummaryView(StaffAPIView):
             "credits_spent_today": int(spent_today),
             "requests_today": chat_today_qs.count(),
             "requests_total": chat_qs.count(),
-            "balance_openrouter_usd": _openrouter_balance(),
+            "openrouter": _openrouter_summary(),
             "recent_payments": PaymentShortSerializer(recent, many=True).data,
         })
 
@@ -721,3 +748,16 @@ class AdminLoginAPIView(APIView):
             rate = "10/min"
 
         return [LoginThrottle()]
+
+
+class FunnelView(StaffAPIView):
+    """GET /api/manage/funnel/?days=30 — где теряются несостоявшиеся платежи."""
+
+    def get(self, request):
+        from payments.funnel import funnel_report
+
+        try:
+            days = max(1, min(365, int(request.query_params.get("days") or 30)))
+        except (TypeError, ValueError):
+            days = 30
+        return Response(funnel_report(days))

@@ -29,7 +29,12 @@ type Summary = {
   credits_spent_today: number;
   requests_today: number;
   requests_total: number;
-  balance_openrouter_usd: number | null;
+  openrouter: {
+    total: number | null;
+    active: number | null;
+    active_title: string;
+    accounts: number;
+  } | null;
   recent_payments: RecentPayment[];
 };
 
@@ -152,13 +157,19 @@ export default function AdminDashboardPage() {
     {
       icon: FiDollarSign,
       label: "Баланс OpenRouter",
+      // Сумма по всем аккаунтам, а рядом — рабочий: тратится-то с него.
       value:
-        data.balance_openrouter_usd === null
+        data.openrouter?.total == null
           ? "—"
-          : `$${data.balance_openrouter_usd.toLocaleString("ru-RU", {
+          : `$${data.openrouter.total.toLocaleString("ru-RU", {
               maximumFractionDigits: 2,
             })}`,
-      sub: "остаток на API-счёте",
+      sub:
+        data.openrouter?.accounts
+          ? `${data.openrouter.accounts} акк. · рабочий «${data.openrouter.active_title}»: $${(
+              data.openrouter.active ?? 0
+            ).toLocaleString("ru-RU", { maximumFractionDigits: 2 })}`
+          : "остаток на API-счёте",
     },
   ];
 
