@@ -893,6 +893,54 @@ def _openrouter_config() -> dict:
     }
 
 
+def _mark_cacheable(messages: list, model_name: str) -> list:
+    """Пометить неизменную часть промпта как кэшируемую.
+
+    У большинства провайдеров кэш промпта работает сам: OpenAI, DeepSeek,
+    Gemini и Grok узнают повторяющийся префикс без нашего участия. Anthropic —
+    исключение: Claude кэширует только то, что явно помечено, иначе каждый ход
+    длинного чата оплачивается целиком. А Claude у нас самые дорогие модели,
+    поэтому наценка именно здесь заметнее всего.
+
+    Метки ставим на последний системный блок и на предпоследнее сообщение:
+    последнее — это новая реплика человека, она меняется каждый ход, и кэш по
+    ней не совпал бы никогда. Всё, что раньше метки, при следующем ходе
+    считывается из кэша.
+
+    Слишком короткий префикс Anthropic просто не кэширует — ошибки не будет,
+    поэтому отдельная проверка длины не нужна.
+    """
+    if not str(model_name or "").startswith("anthropic/"):
+        return messages
+
+    def mark(message: dict) -> dict:
+        content = message.get("content")
+        if isinstance(content, str):
+            if not content.strip():
+                return message
+            return {**message, "content": [{
+                "type": "text", "text": content,
+                "cache_control": {"type": "ephemeral"},
+            }]}
+        if isinstance(content, list) and content:
+            parts = [dict(p) if isinstance(p, dict) else p for p in content]
+            if isinstance(parts[-1], dict):
+                parts[-1]["cache_control"] = {"type": "ephemeral"}
+            return {**message, "content": parts}
+        return message
+
+    out = [dict(m) for m in messages]
+    targets = set()
+    systems = [i for i, m in enumerate(out) if m.get("role") == "system"]
+    if systems:
+        targets.add(systems[-1])
+    if len(out) >= 3:
+        targets.add(len(out) - 2)
+    for i in targets:
+        out[i] = mark(out[i])
+    return out
+
+
 def _read_own_media(url: str) -> bytes | None:
     """Прочитать НАШ медиафайл по его публичному URL.
 
@@ -1063,7 +1111,7 @@ def _call_chat_completions_with_fallback(
     Raises the last exception if all attempts fail.
     """
     # Base params
-    base = {"model": model_name, "messages": messages}
+    base = {"model": model_name, "messages": _mark_cacheable(messages, model_name)}
 
     # Image-gen модели: просим OpenRouter вернуть картинку (modalities) и НЕ
     # ограничиваем вывод — изображение ~1300 output-токенов, cap 1000 его обрежет.
@@ -1674,7 +1722,7 @@ def _stream_chat_completion(client: OpenAI, model_name: str, messages: List[dict
     """
     params: dict = {
         "model": model_name,
-        "messages": messages,
+        "messages": _mark_cacheable(messages, model_name),
         "stream": True,
         "stream_options": {"include_usage": True},
     }
