@@ -27,6 +27,7 @@ from django.core.management.base import BaseCommand
 
 from cartoon.models import CartoonCharacter, CartoonPreset
 from cartoon.services import generate_keyframe, generate_scene_video
+from cartoon.clips import make_clip
 from cartoon.thumbs import CHARACTER_BOX, POSTER_BOX, make_thumb
 
 from cartoon.library import (CHARACTER_TRANSLATIONS, CHARACTERS, audience_of_character,
@@ -188,7 +189,13 @@ class Command(BaseCommand):
             from django.core.files.storage import default_storage
 
             with default_storage.open(video_path, "rb") as fh:
-                preset.preview_video.save(f"{preset.slug}.mp4", ContentFile(fh.read()), save=False)
+                video_blob = fh.read()
+            preset.preview_video.save(f"{preset.slug}.mp4", ContentFile(video_blob), save=False)
+            # Лёгкая копия для ленты: там превью играют сами, и полный ролик
+            # на 3.5 МБ съел бы мобильный трафик за пару экранов.
+            clip = make_clip(video_blob)
+            if clip:
+                preset.preview_clip.save(f"{preset.slug}.mp4", ContentFile(clip), save=False)
             # Обложкой берём тот же кадр, с которого начинается ролик: пока
             # видео не подгрузилось, карточка показывает ровно его первый кадр.
             with default_storage.open(keyframe, "rb") as fh:
@@ -199,7 +206,8 @@ class Command(BaseCommand):
             thumb = make_thumb(poster_blob, POSTER_BOX)
             if thumb:
                 preset.preview_thumb.save(f"{preset.slug}.jpg", ContentFile(thumb), save=False)
-            preset.save(update_fields=["preview_video", "preview_poster", "preview_thumb"])
+            preset.save(update_fields=["preview_video", "preview_clip",
+                                       "preview_poster", "preview_thumb"])
             done += 1
             self.stdout.write(self.style.SUCCESS(
                 f"    готово за {int(time.time() - started)} с: {preset.preview_video.url}"))

@@ -64,9 +64,16 @@ export default function CartoonStudio() {
   // реальным добавлениям, «Выбор EsAI» помечен у самих сцен в админке.
   const [popular, setPopular] = useState<string[]>([]);
   const [activeCat, setActiveCat] = useState("");
-  // Какая карточка сейчас проигрывается: ролик мы подставляем по одному,
-  // иначе сотня видео тянет свои постеры и душит загрузку страницы.
+  // Что сейчас играет. В ленте ролики заводятся сами, как только карточка
+  // появилась на экране, — по просьбе клиента, «как в мини-приложениях».
+  // Играют только видимые: держать сотню запущенных видео нельзя ни по
+  // трафику, ни по памяти телефона.
+  const [visibleIds, setVisibleIds] = useState<Set<number>>(new Set());
+  // Ручное проигрывание — запасной путь для тех, у кого автозапуск выключен
+  // (экономия трафика или системная просьба убрать анимации).
   const [previewing, setPreviewing] = useState<number | null>(null);
+  const [autoplay, setAutoplay] = useState(true);
+  const cardObserver = useRef<IntersectionObserver | null>(null);
   // Для кого снимаем. Разделов девятнадцать, героев больше двух десятков, и
   // взрослому сюжету нужен взрослый герой — поэтому один переключатель наверху
   // сужает сразу оба списка.
@@ -100,6 +107,40 @@ export default function CartoonStudio() {
   const [shareUrl, setShareUrl] = useState("");
   const [sharing, setSharing] = useState(false);
 
+  useEffect(() => {
+    // Системная просьба «меньше движения» и режим экономии трафика — повод не
+    // заводить ничего самому: человек попросил об этом на уровне устройства.
+    const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+    const saveData = Boolean((navigator as any)?.connection?.saveData);
+    if (reduce || saveData) {
+      setAutoplay(false);
+      return;
+    }
+    const io = new IntersectionObserver(
+      (entries) => {
+        setVisibleIds((prev) => {
+          const next = new Set(prev);
+          for (const e of entries) {
+            const id = Number((e.target as HTMLElement).dataset.presetId || 0);
+            if (!id) continue;
+            if (e.isIntersecting) next.add(id);
+            else next.delete(id);
+          }
+          return next;
+        });
+      },
+      // Половина карточки на экране: иначе ролики заводятся у самого края и
+      // гаснут, не успев показать ни кадра.
+      { threshold: 0.5 }
+    );
+    cardObserver.current = io;
+    return () => io.disconnect();
+  }, []);
+
+  const watchCard = useCallback((el: HTMLDivElement | null) => {
+    if (el) cardObserver.current?.observe(el);
+  }, []);
+
   const byAudience = (p: Preset) => audience === "all" || p.audience === audience;
 
   // Раздел показываем, только если в нём есть что смотреть при текущем выборе
@@ -129,7 +170,20 @@ export default function CartoonStudio() {
       ? presets.filter((p) => p.category === activeCat && byAudience(p))
       : presets.filter(byAudience);
 
+  // Сколько роликов крутим разом. На широком экране в поле зрения попадает до
+  // дюжины карточек, и заводить их все — лишний трафик без выигрыша: человек
+  // всё равно смотрит на две-три.
+  const MAX_PLAYING = 6;
+  const playingIds = new Set(
+    autoplay
+      ? visiblePresets.filter((p) => visibleIds.has(p.id)).slice(0, MAX_PLAYING).map((p) => p.id)
+      : []
+  );
+
   const pickAudience = (next: "all" | "kids" | "adults") => {
+    // Список карточек сменился целиком — прежние отметки видимости больше ни
+    // к чему не относятся.
+    setVisibleIds(new Set());
     setAudience(next);
     if (activeCat && !activeCat.startsWith("__") && next !== "all") {
       const still = presets.some((p) => p.category === activeCat && p.audience === next);
@@ -543,7 +597,10 @@ export default function CartoonStudio() {
                   <button
                     key={c.slug || "all"}
                     type="button"
-                    onClick={() => setActiveCat(c.slug)}
+                    onClick={() => {
+                      setVisibleIds(new Set());
+                      setActiveCat(c.slug);
+                    }}
                     className={`shrink-0 rounded-full border px-3 py-1.5 text-[13px] font-medium transition-colors cursor-pointer ${
                       activeCat === c.slug
                         ? "border-accent bg-accent text-on-accent"
@@ -558,24 +615,25 @@ export default function CartoonStudio() {
             )}
 
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-              {visiblePresets.map((p) => (
+              {visiblePresets.map((p) => {
+                const playing = playingIds.has(p.id) || previewing === p.id;
+                return (
                 <div
                   key={p.id}
                   className="flex flex-col overflow-hidden rounded-2xl border border-border bg-surface"
                 >
-                  {/* В сетке лежит картинка, а не видео. Полторы сотни
-                      элементов <video> тянули постеры разом — сто с лишним
-                      запросов забивали очередь, и портреты героев не
-                      доезжали вовсе (на телефоне вместо них серые «?»).
-                      Ролик подставляется только для той карточки, на которую
-                      навели мышью или нажали пальцем. */}
+                  {/* Ролик заводится, когда карточка попала на экран, и
+                      останавливается, когда ушла: сотня одновременно играющих
+                      видео не по силам ни трафику, ни памяти телефона.
+                      Пока ролика нет, стоит лёгкая картинка — она же остаётся
+                      единственным содержимым, если автозапуск выключен. */}
                   <div
+                    ref={watchCard}
+                    data-preset-id={p.id}
                     className="relative aspect-video cursor-pointer bg-surface-2"
-                    onMouseEnter={() => setPreviewing(p.id)}
-                    onMouseLeave={() => setPreviewing((cur) => (cur === p.id ? null : cur))}
                     onClick={() => setPreviewing((cur) => (cur === p.id ? null : p.id))}
                   >
-                    {previewing === p.id && p.preview_video ? (
+                    {playing && p.preview_video ? (
                       <video
                         src={p.preview_video}
                         poster={p.preview_poster || undefined}
@@ -583,6 +641,7 @@ export default function CartoonStudio() {
                         muted
                         loop
                         playsInline
+                        preload="auto"
                         className="h-full w-full object-cover"
                       />
                     ) : p.preview_poster ? (
@@ -595,7 +654,7 @@ export default function CartoonStudio() {
                           decoding="async"
                           className="h-full w-full object-cover"
                         />
-                        {p.preview_video && (
+                        {p.preview_video && !autoplay && (
                           <span className="pointer-events-none absolute inset-0 grid place-items-center">
                             <span className="grid size-10 place-items-center rounded-full bg-black/45 text-white backdrop-blur-sm">
                               <FiPlay className="ml-0.5" />
@@ -635,7 +694,8 @@ export default function CartoonStudio() {
                     </div>
                   </div>
                 </div>
-              ))}
+                );
+              })}
             </div>
           </section>
 
