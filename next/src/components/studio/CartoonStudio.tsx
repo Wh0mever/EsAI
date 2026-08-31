@@ -2,7 +2,7 @@
 
 import { useTranslation } from "react-i18next";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { FiFilm, FiLoader, FiPlay, FiPlus, FiZap } from "react-icons/fi";
+import { FiChevronDown, FiFilm, FiLoader, FiPlay, FiPlus, FiZap } from "react-icons/fi";
 import { fetchData } from "@/tools/fetchData";
 import SaveMediaButton from "@/components/ui/SaveMediaButton";
 import ShareButtons from "@/components/ui/ShareButtons";
@@ -56,6 +56,9 @@ type Project = {
 
 const WORKING: StudioScene["status"][] = ["new", "keyframe", "video"];
 
+/** Сколько сцен показываем за раз. Шесть — просьба клиента, ради медленного интернета. */
+const PAGE_SIZE = 6;
+
 export default function CartoonStudio() {
   const { t, i18n } = useTranslation("common");
   const [presets, setPresets] = useState<Preset[]>([]);
@@ -64,6 +67,10 @@ export default function CartoonStudio() {
   // реальным добавлениям, «Выбор EsAI» помечен у самих сцен в админке.
   const [popular, setPopular] = useState<string[]>([]);
   const [activeCat, setActiveCat] = useState("");
+  // Показываем по горсти карточек, остальное — по кнопке. У многих в Кыргызстане
+  // медленный мобильный интернет, а сразу полторы сотни превью — это и запросы,
+  // и память телефона на ровном месте.
+  const [shown, setShown] = useState(PAGE_SIZE);
   // Что сейчас играет. В ленте ролики заводятся сами, как только карточка
   // появилась на экране, — по просьбе клиента, «как в мини-приложениях».
   // Играют только видимые: держать сотню запущенных видео нельзя ни по
@@ -161,7 +168,7 @@ export default function CartoonStudio() {
       ? characters
       : characters.filter((c) => c.is_mine || c.audience === audience);
 
-  const visiblePresets =
+  const allPresets =
     activeCat === "__pick"
       ? picks
       : activeCat === "__popular"
@@ -169,6 +176,9 @@ export default function CartoonStudio() {
       : activeCat
       ? presets.filter((p) => p.category === activeCat && byAudience(p))
       : presets.filter(byAudience);
+
+  const visiblePresets = allPresets.slice(0, shown);
+  const restCount = Math.max(0, allPresets.length - visiblePresets.length);
 
   // Сколько роликов крутим разом. На широком экране в поле зрения попадает до
   // дюжины карточек, и заводить их все — лишний трафик без выигрыша: человек
@@ -182,8 +192,9 @@ export default function CartoonStudio() {
 
   const pickAudience = (next: "all" | "kids" | "adults") => {
     // Список карточек сменился целиком — прежние отметки видимости больше ни
-    // к чему не относятся.
+    // к чему не относятся, и показ начинаем с первой горсти.
     setVisibleIds(new Set());
+    setShown(PAGE_SIZE);
     setAudience(next);
     if (activeCat && !activeCat.startsWith("__") && next !== "all") {
       const still = presets.some((p) => p.category === activeCat && p.audience === next);
@@ -599,6 +610,7 @@ export default function CartoonStudio() {
                     type="button"
                     onClick={() => {
                       setVisibleIds(new Set());
+                      setShown(PAGE_SIZE);
                       setActiveCat(c.slug);
                     }}
                     className={`shrink-0 rounded-full border px-3 py-1.5 text-[13px] font-medium transition-colors cursor-pointer ${
@@ -697,6 +709,18 @@ export default function CartoonStudio() {
                 );
               })}
             </div>
+
+            {restCount > 0 && (
+              <button
+                type="button"
+                onClick={() => setShown((n) => n + PAGE_SIZE)}
+                className="mx-auto inline-flex items-center gap-2 rounded-full border border-border bg-surface px-5 py-2.5 text-sm font-medium text-muted transition-colors hover:border-accent hover:text-foreground cursor-pointer"
+              >
+                {t("studio_ui.show_more")}
+                <span className="text-muted-2">{restCount}</span>
+                <FiChevronDown />
+              </button>
+            )}
           </section>
 
           {character && (
