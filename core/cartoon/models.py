@@ -285,6 +285,12 @@ class CartoonScene(models.Model):
     preset = models.ForeignKey(
         CartoonPreset, on_delete=models.PROTECT, related_name="scenes",
         verbose_name="Пресет")
+    # Свой герой у отдельной сцены. Пусто — берётся герой мультфильма. Нужно,
+    # чтобы во второй сцене мог появиться другой персонаж: без этого история из
+    # двух героев не собирается вообще.
+    character = models.ForeignKey(
+        "CartoonCharacter", on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="scenes", verbose_name="Герой этой сцены")
     order = models.PositiveIntegerField(default=0, verbose_name="Позиция в таймлайне")
 
     keyframe = models.CharField(max_length=512, blank=True, default="",
@@ -309,3 +315,36 @@ class CartoonScene(models.Model):
         ordering = ("order", "id")
         verbose_name = "Сцена"
         verbose_name_plural = "Сцены"
+
+
+class CartoonKeyframe(models.Model):
+    """Кадр «этот герой в этой сцене» — общий на всех.
+
+    Зачем. Клиент попросил показывать сцены сразу с выбранным героем, ещё до
+    генерации. Нарисовать все полторы сотни сцен под каждого пользователя
+    невозможно: это шестьсот кредитов за один просмотр библиотеки.
+
+    Но пара «сцена + герой» повторяется у разных людей: героев в библиотеке
+    двадцать шесть, и кадр «кот-супергерой на крыше» одинаков для всех, кто
+    его выберет. Поэтому кадр рисуется один раз и дальше отдаётся бесплатно —
+    и в примерке, и при самой съёмке сцены, где он же идёт первым кадром.
+
+    Личные персонажи сюда тоже попадают: кадр принадлежит паре, а не человеку,
+    и чужому он не покажется просто потому, что чужого персонажа не выбрать.
+    """
+    preset = models.ForeignKey(
+        CartoonPreset, on_delete=models.CASCADE, related_name="keyframes",
+        verbose_name="Сцена")
+    character = models.ForeignKey(
+        CartoonCharacter, on_delete=models.CASCADE, related_name="keyframes",
+        verbose_name="Герой")
+    image = models.CharField(max_length=512, verbose_name="Кадр")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("preset", "character")
+        verbose_name = "Кадр героя в сцене"
+        verbose_name_plural = "Кадры героев в сценах"
+
+    def __str__(self):
+        return f"{self.character_id} в {self.preset_id}"

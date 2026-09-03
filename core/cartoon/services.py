@@ -205,3 +205,28 @@ def charge(user, amount: int, reason: str, meta: dict | None = None) -> None:
     """Списать кредиты. Ноль и меньше — молча ничего не делаем."""
     if amount and amount > 0:
         charge_tokens(user, int(amount), reason, meta=meta or {})
+
+
+def get_or_create_keyframe(preset, character, user=None):
+    """Кадр «герой в сцене»: из общего запаса или нарисовать.
+
+    Возвращает (путь, списано_кредитов). Уже нарисованный кадр отдаётся
+    бесплатно — тем же кадром потом снимается и сама сцена, поэтому дважды за
+    одно и то же человек не платит.
+    """
+    from .models import CartoonKeyframe
+
+    existing = CartoonKeyframe.objects.filter(
+        preset=preset, character=character).first()
+    if existing and existing.image:
+        return existing.image, 0
+
+    path = generate_keyframe(preset, character)
+    price = max(1, int(float(preset.image_model.markup_coefficient or 1)))
+    if user is not None:
+        charge(user, price, "cartoon_keyframe",
+               meta={"preset": preset.pk, "character": character.pk})
+    # get_or_create, а не create: два запроса на одну пару могли прийти разом.
+    CartoonKeyframe.objects.get_or_create(
+        preset=preset, character=character, defaults={"image": path})
+    return path, price
