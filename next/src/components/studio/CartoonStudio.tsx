@@ -2,7 +2,7 @@
 
 import { useTranslation } from "react-i18next";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { FiChevronDown, FiFilm, FiLoader, FiPlay, FiPlus, FiZap } from "react-icons/fi";
+import { FiChevronDown, FiFilm, FiLoader, FiPlay, FiPlus, FiUser, FiZap } from "react-icons/fi";
 import { fetchData } from "@/tools/fetchData";
 import SaveMediaButton from "@/components/ui/SaveMediaButton";
 import ShareButtons from "@/components/ui/ShareButtons";
@@ -111,6 +111,11 @@ export default function CartoonStudio() {
   const pollRef = useRef<number | null>(null);
   const heroRef = useRef<HTMLDivElement | null>(null);
   const timelineRef = useRef<HTMLDivElement | null>(null);
+  // Примерка героя: кадр «этот герой в этой сцене». Готовые пары приходят с
+  // сервера бесплатно и подставляются сами — клиент просил, чтобы выбранный
+  // герой сразу был виден в примерах. Недостающие рисуются по кнопке.
+  const [tryOn, setTryOn] = useState<Record<number, string>>({});
+  const [tryingOn, setTryingOn] = useState<number | null>(null);
   const [shareUrl, setShareUrl] = useState("");
   const [sharing, setSharing] = useState(false);
 
@@ -147,6 +152,59 @@ export default function CartoonStudio() {
   const watchCard = useCallback((el: HTMLDivElement | null) => {
     if (el) cardObserver.current?.observe(el);
   }, []);
+
+  // Готовые кадры выбранного героя. Их отдают бесплатно, поэтому подставляем
+  // сразу и молча: для человека это выглядит так, будто сцены сами
+  // перерисовались под его персонажа.
+  useEffect(() => {
+    if (!character) {
+      setTryOn({});
+      return;
+    }
+    let alive = true;
+    (async () => {
+      const res = await fetchData<Record<string, string>>(
+        `cartoon/keyframes/?character_id=${character.id}`, "GET", null, true
+      );
+      if (!alive || !res.ok || !res.data) return;
+      const map: Record<number, string> = {};
+      for (const [id, url] of Object.entries(res.data)) map[Number(id)] = url;
+      setTryOn(map);
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [character]);
+
+  /** Нарисовать кадр этой сцены с выбранным героем. */
+  const tryOnScene = async (preset: Preset) => {
+    if (!authed) {
+      setAuthFor("character");
+      return;
+    }
+    if (!character) {
+      setNeedHero(true);
+      heroRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
+    }
+    setTryingOn(preset.id);
+    const res = await fetchData<{ image: string; charged: number }>(
+      `cartoon/presets/${preset.id}/try-on/`, "POST", { character_id: character.id }, true
+    );
+    setTryingOn(null);
+    if (res.ok && res.data?.image) {
+      setTryOn((prev) => ({ ...prev, [preset.id]: res.data!.image }));
+      if (res.data.charged) void loadBalance();
+      return;
+    }
+    const d = res.data as any;
+    if (d?.required) {
+      setShortfall({ required: Number(d.required), balance: Number(d.balance ?? 0),
+                     kind: "character" });
+    } else {
+      setError(d?.detail || t("studio_ui.err_tryon"));
+    }
+  };
 
   const byAudience = (p: Preset) => audience === "all" || p.audience === audience;
 
@@ -362,6 +420,16 @@ export default function CartoonStudio() {
     } else {
       setError(d?.detail || t("studio_ui.err_scene"));
     }
+  };
+
+  /** Поставить на сцену другого героя. Работает, пока сцена не снята. */
+  const setSceneCharacter = async (scene: StudioScene, characterId: number) => {
+    if (!project) return;
+    markBusy(scene.id, true);
+    await fetchData(`cartoon/scenes/${scene.id}/`, "PATCH",
+                    { character_id: characterId }, true);
+    markBusy(scene.id, false);
+    await refresh(project.id);
   };
 
   const moveScene = async (scene: StudioScene, dir: -1 | 1) => {
@@ -645,7 +713,21 @@ export default function CartoonStudio() {
                     className="relative aspect-video cursor-pointer bg-surface-2"
                     onClick={() => setPreviewing((cur) => (cur === p.id ? null : p.id))}
                   >
-                    {playing && p.preview_video ? (
+                    {tryOn[p.id] ? (
+                      <>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={tryOn[p.id]}
+                          alt=""
+                          loading="lazy"
+                          decoding="async"
+                          className="h-full w-full object-cover"
+                        />
+                        <span className="pointer-events-none absolute left-2 top-2 rounded-full bg-black/55 px-2 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">
+                          {t("studio_ui.with_hero")}
+                        </span>
+                      </>
+                    ) : playing && p.preview_video ? (
                       <video
                         src={p.preview_video}
                         poster={p.preview_poster || undefined}
@@ -690,6 +772,22 @@ export default function CartoonStudio() {
                         <FiZap className="text-accent" />
                         {t("studio_ui.price", { credits: p.credits, duration: p.duration })}
                       </span>
+                      {character && !tryOn[p.id] && (
+                        <button
+                          type="button"
+                          onClick={() => void tryOnScene(p)}
+                          disabled={tryingOn !== null}
+                          title={t("studio_ui.try_on_hint")}
+                          className="inline-flex items-center gap-1 rounded-lg border border-border px-2 py-1 text-[11px] text-muted transition-colors hover:border-accent hover:text-foreground disabled:opacity-60 cursor-pointer"
+                        >
+                          {tryingOn === p.id ? (
+                            <FiLoader className="animate-spin" />
+                          ) : (
+                            <FiUser />
+                          )}
+                          {t("studio_ui.try_on")}
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={() => void addScene(p)}
@@ -753,6 +851,10 @@ export default function CartoonStudio() {
               onRetry={retryScene}
               onDelete={deleteScene}
               onRender={renderScene}
+              characters={visibleCharacters.map((c) => ({
+                id: c.id, name: c.name, image: c.image,
+              }))}
+              onPickCharacter={setSceneCharacter}
             />
 
             <div className="flex flex-wrap items-center gap-3">

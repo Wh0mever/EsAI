@@ -7,6 +7,9 @@ app_name = "cartoon"
 urlpatterns = [
     path("presets/", views.PresetsView.as_view(), name="presets"),
     path("pricing/", views.PricingView.as_view(), name="pricing"),
+    # Примерка героя на сцену: показать кадр до съёмки.
+    path("presets/<int:pk>/try-on/", views.PresetTryOnView.as_view(), name="preset-try-on"),
+    path("keyframes/", views.KeyframesView.as_view(), name="keyframes"),
     path("characters/", views.CharactersView.as_view(), name="characters"),
     path("characters/generate/", views.CharacterGenerateView.as_view(), name="character-generate"),
     path("projects/", views.ProjectsView.as_view(), name="projects"),

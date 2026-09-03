@@ -15,7 +15,7 @@ import logging
 from celery import shared_task
 
 from .models import CartoonProject, CartoonScene
-from .services import assemble_project, charge, generate_keyframe, generate_scene_video
+from .services import get_or_create_keyframe, assemble_project, charge, generate_keyframe, generate_scene_video
 
 logger = logging.getLogger(__name__)
 
@@ -24,13 +24,16 @@ logger = logging.getLogger(__name__)
 def render_scene(self, scene_id: int) -> dict:
     """Кадр → видео для одной сцены. Ошибки не роняют задачу, а пишутся в сцену."""
     scene = CartoonScene.objects.filter(pk=scene_id).select_related(
-        "project", "project__character", "preset", "preset__image_model", "preset__video_model"
+        "project", "project__character", "character",
+        "preset", "preset__image_model", "preset__video_model"
     ).first()
     if not scene:
         return {"status": "no_scene"}
 
     project = scene.project
-    character = project.character
+    # У сцены может быть свой герой — тогда мультфильм собирается из нескольких
+    # персонажей. Не задан — берём героя всего мультфильма.
+    character = scene.character or project.character
     preset = scene.preset
     user = project.user
 
@@ -45,10 +48,9 @@ def render_scene(self, scene_id: int) -> dict:
         scene.status = CartoonScene.STATUS_KEYFRAME
         scene.save(update_fields=["status", "updated_at"])
         try:
-            scene.keyframe = generate_keyframe(preset, character)
-            frame_price = max(1, int(float(preset.image_model.markup_coefficient or 1)))
-            charge(user, frame_price, "cartoon_keyframe",
-                   meta={"scene": scene.pk, "project": project.pk})
+            # Кадр мог быть нарисован раньше — при примерке героя на эту же
+            # сцену. Тогда он берётся из запаса, и человек не платит дважды.
+            scene.keyframe, frame_price = get_or_create_keyframe(preset, character, user)
             scene.credits_spent += frame_price
             scene.save(update_fields=["keyframe", "credits_spent", "updated_at"])
         except Exception as exc:

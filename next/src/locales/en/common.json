@@ -1813,6 +1813,12 @@
 		"cat_pick": "EsAI picks",
 		"download_scene": "Download the scene",
 		"short_note_character": "Your own character costs {{required}}, your balance is {{balance}}. For now you can take any character from the library — they are free.",
-		"show_more": "Show more"
+		"show_more": "Show more",
+		"try_on": "Try your hero",
+		"try_on_hint": "Draw this scene with your character — the same frame is used for the shoot, so you pay only once",
+		"with_hero": "your hero",
+		"err_tryon": "Could not try the hero on",
+		"scene_hero": "Scene character",
+		"scene_hero_change": "Change character"
 	}
 }

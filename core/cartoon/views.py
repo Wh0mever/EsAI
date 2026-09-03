@@ -138,6 +138,10 @@ def scene_json(s: CartoonScene, lang: str = "ru") -> dict:
                    # видеть, во что обойдётся кнопка, до нажатия.
                    "credits": s.preset.estimated_credits() if s.preset_id else 0,
                    "duration": s.preset.duration if s.preset_id else 0},
+        # Герой именно этой сцены: свой, если задан, иначе герой мультфильма.
+        # Фронту нужно показать, кем сцена снимется, ещё до съёмки.
+        "character": character_json(s.character or s.project.character, lang)
+                     if (s.character_id or s.project.character_id) else None,
         "keyframe": _media(s.keyframe),
         "video": _media(s.video),
         "status": s.status,
@@ -147,7 +151,8 @@ def scene_json(s: CartoonScene, lang: str = "ru") -> dict:
 
 
 def project_json(p: CartoonProject, lang: str = "ru") -> dict:
-    scenes = list(p.scenes.select_related("preset").order_by("order", "id"))
+    scenes = list(p.scenes.select_related(
+        "preset", "character", "project__character").order_by("order", "id"))
     return {
         "id": p.id,
         "title": p.title,
@@ -402,10 +407,86 @@ class ProjectScenesView(StudioAPIView):
         last = project.scenes.order_by("-order").first()
         scene = CartoonScene.objects.create(
             project=project, preset=preset,
+            character=_pick_character(request, request.data.get("character_id")),
             order=(last.order + 1) if last else 0,
             status=CartoonScene.STATUS_DRAFT,
         )
         return Response(scene_json(scene, _lang(request)), status=status.HTTP_201_CREATED)
+
+
+def _pick_character(request, character_id):
+    """Герой из запроса: библиотечный или свой. Чужого не отдаём."""
+    if not character_id:
+        return None
+    library = Q(is_public=True, user__isnull=True)
+    mine = Q(user=request.user) if request.user.is_authenticated else Q(pk__in=[])
+    return CartoonCharacter.objects.filter(library | mine).filter(pk=character_id).first()
+
+
+class KeyframesView(StudioPublicAPIView):
+    """GET — какие сцены уже нарисованы с этим героем.
+
+    Такие кадры отдаются бесплатно и мгновенно, поэтому витрина подставляет их
+    в карточки сама: человек выбрал героя и сразу видит его в тех сценах, где
+    пара уже встречалась. Остальные рисуются по кнопке.
+    """
+
+    def get(self, request):
+        character = _pick_character(request, request.query_params.get("character_id"))
+        if not character:
+            return Response({})
+
+        from .models import CartoonKeyframe
+
+        rows = CartoonKeyframe.objects.filter(character=character).exclude(image="")
+        return Response({str(r.preset_id): _media(r.image) for r in rows})
+
+
+class PresetTryOnView(StudioAPIView):
+    """POST — показать сцену с выбранным героем ещё до съёмки.
+
+    Клиент: «выбрал кота — и видно, как он будет выглядеть в сцене». Рисуем тот
+    же кадр, с которого потом начнётся сама сцена, поэтому дважды за него не
+    платят: при съёмке он берётся из запаса.
+
+    Уже нарисованная пара «сцена + герой» отдаётся бесплатно и мгновенно —
+    героев в библиотеке два десятка, и такие пары быстро повторяются у разных
+    людей.
+    """
+
+    def post(self, request, pk):
+        preset = CartoonPreset.objects.filter(
+            pk=pk, is_active=True).select_related("image_model").first()
+        if not preset:
+            return Response({"detail": "Сцена не найдена"},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        character = _pick_character(request, request.data.get("character_id"))
+        if not character:
+            return Response({"detail": "Сначала выберите героя"},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        from .models import CartoonKeyframe
+
+        ready = CartoonKeyframe.objects.filter(preset=preset, character=character).first()
+        if ready and ready.image:
+            return Response({"image": _media(ready.image), "charged": 0})
+
+        price = max(1, int(float(preset.image_model.markup_coefficient or 1)))
+        balance = int(getattr(request.user, "token_balance", 0) or 0)
+        if balance < price:
+            return Response({"detail": "Недостаточно кредитов", "required": price,
+                             "balance": balance}, status=status.HTTP_402_PAYMENT_REQUIRED)
+
+        from .services import get_or_create_keyframe
+
+        try:
+            path, charged = get_or_create_keyframe(preset, character, request.user)
+        except Exception as exc:
+            logger.exception("примерка героя: кадр не нарисовался")
+            return Response({"detail": f"Кадр не получился: {exc}"[:200]},
+                            status=status.HTTP_502_BAD_GATEWAY)
+        return Response({"image": _media(path), "charged": charged})
 
 
 class SceneRenderView(StudioAPIView):
@@ -449,6 +530,17 @@ class SceneDetailView(StudioAPIView):
             except (TypeError, ValueError):
                 return Response({"detail": "Неверная позиция"},
                                 status=status.HTTP_400_BAD_REQUEST)
+
+        if "character_id" in request.data:
+            # Менять героя можно, пока сцена не снята: после съёмки это была бы
+            # уже другая сцена, а деньги за неё уже списаны.
+            if scene.status not in (CartoonScene.STATUS_DRAFT, CartoonScene.STATUS_FAILED):
+                return Response({"detail": "Сцена уже снимается — героя не сменить"},
+                                status=status.HTTP_400_BAD_REQUEST)
+            scene.character = _pick_character(request, request.data.get("character_id"))
+            # Кадр рисовался под прежнего героя, с новым он не годится.
+            scene.keyframe = ""
+            scene.save(update_fields=["character", "keyframe", "updated_at"])
 
         if request.data.get("retry"):
             # Пересборка идёт с УЖЕ готовым кадром, если он есть: так персонаж

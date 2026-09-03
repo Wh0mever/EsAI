@@ -17,6 +17,8 @@ export type StudioScene = {
   id: number;
   order: number;
   preset: { id: number; title: string; credits?: number; duration?: number };
+  /** Кем снимается эта сцена: свой герой или герой всего мультфильма. */
+  character?: { id: number; name: string; image: string } | null;
   keyframe: string;
   video: string;
   status: "draft" | "new" | "keyframe" | "video" | "ready" | "failed";
@@ -53,6 +55,8 @@ export default function SceneTimeline({
   onRetry,
   onDelete,
   onRender,
+  characters = [],
+  onPickCharacter,
 }: {
   scenes: StudioScene[];
   busyIds: Set<number>;
@@ -60,6 +64,9 @@ export default function SceneTimeline({
   onRetry: (scene: StudioScene) => void;
   onDelete: (scene: StudioScene) => void;
   onRender: (scene: StudioScene) => void;
+  /** Кого можно поставить на эту сцену. */
+  characters?: { id: number; name: string; image: string }[];
+  onPickCharacter?: (scene: StudioScene, characterId: number) => void;
 }) {
   const { t } = useTranslation("common");
 
@@ -87,6 +94,36 @@ export default function SceneTimeline({
               </span>
               <span className="truncate font-medium text-foreground">{s.preset.title}</span>
             </div>
+
+            {/* Герой этой сцены. У черновика его можно сменить — так во второй
+                сцене появляется другой персонаж, и история собирается из
+                нескольких героев, а не одного. */}
+            {s.character && (
+              <div className="flex items-center gap-1.5">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={s.character.image}
+                  alt=""
+                  loading="lazy"
+                  className="size-5 shrink-0 rounded-full object-cover"
+                />
+                <span className="truncate text-[11px] text-muted-2">{s.character.name}</span>
+                {s.status === "draft" && characters.length > 1 && onPickCharacter && (
+                  <select
+                    value={s.character.id}
+                    onChange={(e) => onPickCharacter(s, Number(e.target.value))}
+                    title={t("studio_ui.scene_hero_change")}
+                    className="ml-auto max-w-[7rem] shrink-0 rounded-md border border-border bg-surface-2 px-1.5 py-0.5 text-[11px] text-muted outline-none focus:border-accent cursor-pointer"
+                  >
+                    {characters.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                )}
+              </div>
+            )}
 
             <div className="relative aspect-video overflow-hidden rounded-xl bg-surface-2">
               {s.video ? (
