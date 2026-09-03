@@ -1473,7 +1473,12 @@
 		"credits_free_note": "\"Free\" means the model is available at no cost on the starting balance; credits for the answer are still charged at its rate. Premium models become available after you top up your balance.",
 		"pending_title": "You have an unfinished payment",
 		"pending_continue": "Continue payment",
-		"pending_dismiss": "Hide"
+		"pending_dismiss": "Hide",
+		"currency_title": "Payment currency",
+		"currency_kgs": "SOM",
+		"currency_rub": "RUB",
+		"currency_kgs_title": "Kyrgyz som",
+		"currency_rub_title": "Russian ruble"
 	},
 	"paywall": {
 		"title_generic": "Top up your balance",
