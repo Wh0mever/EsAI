@@ -30,7 +30,7 @@ from users.models import User, UserCardBind
 from django.db import transaction
 from payments.freedompay import FreedomPay, FreedomPayError, make_api_signature
 from decimal import Decimal
-from core.langutils import request_lang as _lang
+from core.langutils import request_lang
 
 
 @method_decorator(cache_page(60), name="dispatch")               # page cache
@@ -652,7 +652,7 @@ class TokenPurchaseView(APIView):
                 # «Token package #3 for user #958» — техническая строка ровно в
                 # ту секунду, когда решают, вводить ли карту.
                 "pg_description": f"EsAI: {package.name} — {int(package.tokens or 0)} кредитов",
-                "pg_language": "en" if _lang(request) == "en" else "ru",
+                "pg_language": "en" if request_lang(request) == "en" else "ru",
                 "pg_user_contact_email": (request.user.email or "")[:120],
                 "pg_salt": uuid.uuid4().hex,
                 "pg_success_url": request.build_absolute_uri(reverse("payments:freedompay-tokens-success")),
