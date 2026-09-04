@@ -59,14 +59,16 @@ async function fetchRateOnce(): Promise<CurrencyRateResponse> {
     } catch {
       // сеть недоступна — тихо фолбэчимся ниже
     }
-    cachedRate = {
+    // Запрос не удался — отдаём заглушку, но НЕ запоминаем её: иначе одна
+    // неудачная секунда убирала бы способ оплаты до перезагрузки страницы.
+    inflightRatePromise = null;
+    return {
       base_currency: "KGS",
       rate_kgs_to_rub: FALLBACK_KGS_TO_RUB_RATE,
       rate_kgs_to_usd: FALLBACK_KGS_TO_USD_RATE,
       crypto_enabled: false,
       suggested_currency: "KGS",
     };
-    return cachedRate;
   })();
 
   return inflightRatePromise;

@@ -185,7 +185,11 @@ class NowPayments:
             raise ProviderError("процессор не дал адрес или сумму", code="incomplete_invoice")
 
         info = currencies.describe(str(data.get("pay_currency") or pay_currency))
-        network = str(data.get("network") or "").strip() or info.network
+        # Название сети берём своё: процессор отдаёт код («trc20»), а человек
+        # должен видеть «TRC-20» — и по этому же названию мы ищем обозреватель
+        # транзакций. Чужой код остаётся запасным вариантом для монет, которых
+        # ещё нет в нашей таблице.
+        network = info.network or str(data.get("network") or "").strip()
         return Invoice(
             provider=self.name,
             provider_id=provider_id,
