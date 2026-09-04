@@ -16,6 +16,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import timedelta
 from decimal import Decimal, ROUND_FLOOR
 
 from django.conf import settings
@@ -260,17 +261,27 @@ def _already_credited(payment, cumulative: int) -> bool:
     ).exists()
 
 
+# Сколько ждём после истечения счёта, прежде чем закрыть его самим: перевод
+# мог уйти в последнюю секунду и ещё не показаться процессору.
+LOCAL_EXPIRY_GRACE = timedelta(minutes=30)
+
+
 def mark_expired_locally(invoice) -> None:
     """Счёт, по которому никто не заплатил и время вышло.
 
     Процессор тоже пометит его просроченным, но иногда с задержкой, а человек
     не должен смотреть на живой таймер, которого уже нет.
+
+    Срок проверяется здесь же, а не только у вызывающего: закрыть действующий
+    счёт по ошибке — значит сказать человеку «не успели», когда он ещё успевал.
     """
     from ..models import CryptoInvoice
 
     with transaction.atomic():
         inv = CryptoInvoice.objects.select_for_update().get(pk=invoice.pk)
         if inv.status != CryptoInvoice.STATUS_WAITING or inv.actually_paid > 0:
+            return
+        if not inv.expires_at or timezone.now() < inv.expires_at + LOCAL_EXPIRY_GRACE:
             return
         inv.status = CryptoInvoice.STATUS_EXPIRED
         inv.finalized_at = inv.finalized_at or timezone.now()

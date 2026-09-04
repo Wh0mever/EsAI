@@ -297,8 +297,7 @@ def reconcile_crypto_invoices() -> dict:
             # Просроченный и неоплаченный счёт помечаем сами: процессор иногда
             # тянет со статусом, а человек не должен смотреть на таймер,
             # которого уже нет. Перепроверять его это не мешает.
-            if (invoice.status == CryptoInvoice.STATUS_WAITING and invoice.expires_at
-                    and now > invoice.expires_at + timedelta(minutes=30)
+            if (invoice.status == CryptoInvoice.STATUS_WAITING
                     and invoice.actually_paid == 0):
                 try:
                     crypto_credit.mark_expired_locally(invoice)
