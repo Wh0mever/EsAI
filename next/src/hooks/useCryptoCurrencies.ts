@@ -36,8 +36,10 @@ async function fetchOnce(): Promise<CryptoCurrenciesResponse> {
     } catch {
       // сеть недоступна — считаем, что способа оплаты нет
     }
-    cached = { enabled: false, currencies: [] };
-    return cached;
+    // Не запоминаем неудачу: иначе один сетевой сбой прятал бы способ
+    // оплаты до перезагрузки вкладки.
+    inflight = null;
+    return { enabled: false, currencies: [] };
   })();
 
   return inflight;

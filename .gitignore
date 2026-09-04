@@ -14,3 +14,6 @@ _deploy_backup*/
 backups/
 *.tgz
 *.testcopy
+
+# Локальные настройки для прогона тестов на машине разработчика.
+core/core/settings_localtest.py
