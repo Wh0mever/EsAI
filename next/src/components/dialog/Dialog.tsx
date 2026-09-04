@@ -25,6 +25,12 @@ type ModalProps = {
   size?: "full" | "lg" | "md" | "sm";
   onClose: () => void;
   open: boolean;
+  /**
+   * На телефоне открыть во весь экран. Нужно длинным окнам вроде оплаты:
+   * иначе содержимое живёт в узкой полосе посреди экрана и человек скроллит
+   * внутри окна, скроллящегося внутри страницы.
+   */
+  mobileFull?: boolean;
 };
 
 const sizeClasses = {
@@ -110,7 +116,7 @@ export function ConfirmationModal({
   );
 }
 
-export function Modal({ title, children, size = "md", onClose, open }: ModalProps) {
+export function Modal({ title, children, size = "md", onClose, open, mobileFull = false }: ModalProps) {
   if (typeof window === "undefined") return null;
 
   useEffect(() => {
@@ -134,7 +140,10 @@ export function Modal({ title, children, size = "md", onClose, open }: ModalProp
 
   const containerClasses = size === "full"
     ? "w-full h-full"
-    : `w-full ${sizeClasses[size]} mx-4 max-h-[85dvh]`; // важно: ограничение по высоте
+    : `w-full ${sizeClasses[size]} mx-4 max-h-[85dvh]` +
+      (mobileFull
+        ? " max-sm:mx-0 max-sm:h-[100dvh] max-sm:max-h-none max-sm:rounded-none max-sm:p-4"
+        : ""); // важно: ограничение по высоте
 
   return createPortal(
     <div
