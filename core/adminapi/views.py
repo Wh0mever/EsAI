@@ -237,8 +237,28 @@ class UserTransactionsView(StaffAPIView):
 # --------------------------------------------------------------- payments ---
 
 class PaymentsListView(StaffAPIView):
+    """Список платежей. Крипта живёт дольше карточной оплаты, поэтому здесь
+    появились фильтры: иначе незакрытый криптосчёт не найти среди сотен строк."""
+
     def get(self, request):
-        qs = Payment.objects.select_related("user").order_by("-created_at", "-id")
+        qs = (Payment.objects.select_related("user", "crypto_invoice")
+              .order_by("-created_at", "-id"))
+
+        provider = str(request.query_params.get("provider") or "").strip()
+        if provider:
+            qs = qs.filter(provider=provider)
+
+        success = str(request.query_params.get("success") or "").strip()
+        if success in ("0", "1"):
+            qs = qs.filter(success=(success == "1"))
+
+        if str(request.query_params.get("needs_review") or "") == "1":
+            qs = qs.filter(crypto_invoice__flags__has_key="needs_review")
+
+        query = str(request.query_params.get("q") or "").strip()
+        if query:
+            qs = qs.filter(Q(order_id__icontains=query) | Q(user__email__icontains=query))
+
         count, page_qs = _paginate(qs, request)
         return Response({
             "count": count,
@@ -431,6 +451,26 @@ def _settings_snapshot() -> dict:
         "currency_kgs_to_rub_rate",
         float(getattr(settings, "CURRENCY_KGS_TO_RUB_RATE", 0.95)),
     ))
+    # --- криптооплата ---
+    # Режим виден всегда: по нему сразу понятно, открыт ли способ оплаты и кому.
+    # Ключи наружу не отдаются никогда — только маска и признак «задан».
+    from payments.crypto import currencies as _crypto_currencies
+    from payments.crypto import rates as _crypto_rates
+    from payments.crypto import registry as _crypto_registry
+
+    snapshot["crypto_payments_mode"] = _crypto_registry.mode()
+    snapshot["crypto_configured"] = _crypto_registry.is_configured()
+    snapshot["nowpayments_key_masked"] = _mask_key(_crypto_registry.api_key())
+    snapshot["nowpayments_ipn_secret_masked"] = _mask_key(_crypto_registry.ipn_secret())
+    snapshot["nowpayments_sandbox"] = bool(getattr(settings, "NOWPAYMENTS_SANDBOX", False))
+    snapshot["crypto_allowed_currencies"] = ",".join(_crypto_currencies.allowed_codes())
+    # Курс, по которому реально выставляется счёт, и рядом — рыночный, чтобы
+    # админ видел, насколько зафиксированное вручную значение отстало.
+    snapshot["currency_kgs_to_usd_rate"] = float(_crypto_rates.kgs_to_usd_rate())
+    snapshot["currency_kgs_to_usd_manual"] = float(get_runtime("currency_kgs_to_usd_rate", 0.0))
+    market = _crypto_rates.market_rate()
+    snapshot["currency_kgs_to_usd_market"] = float(market) if market else None
+
     # Калькулятор ценности кредитов: эталонные модели по категориям (openrouter_id)
     # + размер "страницы" документа в токенах.
     for field, (rt_key, settings_attr, _category) in _CREDIT_CALC_MODEL_FIELDS.items():
@@ -602,6 +642,64 @@ class SettingsView(StaffAPIView):
                     )
                 set_runtime("credit_calc_text_tokens_per_reply", tokens_per_reply)
 
+        # --- криптооплата: режим, ключи, курс, монеты ---
+        if "crypto_payments_mode" in data:
+            from payments.crypto import registry as crypto_registry
+
+            mode = str(data["crypto_payments_mode"] or "").strip().lower()
+            if mode not in crypto_registry.MODES:
+                return Response(
+                    {"detail": "crypto_payments_mode: допустимо off, staff или on"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            set_runtime("crypto_payments_mode", mode)
+
+        # Ключи — write-only. Пустая строка означает «убрать значение из
+        # админки», чтобы снова действовал ключ из окружения.
+        for field, rt_key in (("nowpayments_api_key", "NOWPAYMENTS_API_KEY"),
+                              ("nowpayments_ipn_secret", "NOWPAYMENTS_IPN_SECRET")):
+            if field not in data:
+                continue
+            value = str(data[field] or "").strip()
+            if value:
+                set_runtime(rt_key, value)
+            else:
+                delete_runtime(rt_key)
+
+        if "currency_kgs_to_usd_rate" in data:
+            raw = data["currency_kgs_to_usd_rate"]
+            if raw is None or str(raw).strip() == "":
+                # Сброс на живой курс из CurrencyRate — так и должно быть по
+                # умолчанию, ручная фиксация нужна только в особых случаях.
+                delete_runtime("currency_kgs_to_usd_rate")
+            else:
+                try:
+                    usd_rate = float(raw)
+                except (TypeError, ValueError):
+                    return Response(
+                        {"detail": "currency_kgs_to_usd_rate должен быть числом"},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                # Один сом дороже доллара не бывает; ошибка в этом поле — это
+                # счёт в сто раз больше или меньше.
+                if not (0 < usd_rate <= 1):
+                    return Response(
+                        {"detail": "currency_kgs_to_usd_rate должен быть в диапазоне 0..1"},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                set_runtime("currency_kgs_to_usd_rate", usd_rate)
+
+        if "crypto_allowed_currencies" in data:
+            from django.core.cache import cache as _cache
+
+            raw = data["crypto_allowed_currencies"]
+            codes = raw if isinstance(raw, list) else str(raw or "").split(",")
+            cleaned = [str(c).strip().lower() for c in codes if str(c).strip()]
+            set_runtime("crypto_allowed_currencies", ",".join(cleaned))
+            # Список монет кэшируется на витрине — сбрасываем, иначе изменение
+            # доедет только через десять минут.
+            _cache.delete("crypto:currencies:v1")
+
         # --- ключ OpenRouter (write-only: назад отдаём только маску) ---
         if "openrouter_key" in data:
             key = str(data["openrouter_key"] or "").strip()
@@ -633,6 +731,59 @@ class SettingsView(StaffAPIView):
             site.save()
 
         return Response(_settings_snapshot())
+
+
+class PaymentRecheckView(StaffAPIView):
+    """POST /payments/<id>/recheck/ — спросить процессор заново.
+
+    Нужна, когда вебхук не дошёл, а деньги человек отправил: вместо ручного
+    начисления «на глаз» админ жмёт кнопку, и платёж проходит ровно тот же
+    путь, что и обычно, — со всеми проверками и идемпотентностью.
+    """
+
+    def post(self, request, pk):
+        payment = get_object_or_404(Payment, pk=pk)
+        invoice = getattr(payment, "crypto_invoice", None)
+
+        if invoice is None:
+            # Не крипта — отдаём задаче сверки FreedomPay, она умеет это сама.
+            from payments.tasks import reconcile_pending_token_payments
+
+            try:
+                reconcile_pending_token_payments.delay()
+            except Exception:  # noqa: BLE001
+                return Response({"detail": "Очередь недоступна"},
+                                status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            return Response({"queued": True})
+
+        from payments.crypto import credit as crypto_credit
+        from payments.crypto import registry as crypto_registry
+        from payments.crypto.base import ProviderError
+
+        try:
+            state = crypto_registry.get_adapter(invoice.provider).fetch_invoice(
+                invoice.provider_invoice_id)
+        except ProviderError as exc:
+            return Response({"detail": f"Процессор не ответил: {exc}"},
+                            status=status.HTTP_502_BAD_GATEWAY)
+        result = crypto_credit.apply_provider_status(invoice, state, source="admin")
+        payment.refresh_from_db()
+        return Response({"result": result,
+                         "payment": PaymentAdminSerializer(payment).data})
+
+
+class SettingsTestNowPaymentsView(StaffAPIView):
+    """Проверка подключения к крипто-процессору: {ok, error, coins}."""
+
+    def post(self, request):
+        from payments.crypto import registry as crypto_registry
+
+        if not crypto_registry.is_configured():
+            return Response({"ok": False, "error": "API-ключ NOWPayments не задан."})
+        try:
+            return Response(crypto_registry.get_adapter().healthcheck())
+        except Exception as exc:  # noqa: BLE001
+            return Response({"ok": False, "error": str(exc)[:200]})
 
 
 class SettingsTestOpenRouterView(StaffAPIView):

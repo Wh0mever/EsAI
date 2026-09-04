@@ -155,36 +155,13 @@ def _verify_and_credit(payment) -> str:
             logger.exception("exit_discount_redeem_mark_failed order=%s", order_id)
 
     # Реферальная revenue-share выплата пригласившему (ПОСЛЕ коммита покупки,
-    # отдельной транзакцией). Пригласивший получает % (REFERRAL_PERCENT,
-    # runtime-оверрайд в админке) от КУПЛЕННЫХ кредитов — пожизненно, при каждом
-    # пополнении. Всё завёрнуто в try/except: сбой реф-выплаты НЕ должен ронять
-    # и НЕ должен откатывать зачисление покупателю. Идемпотентно по order_id.
+    # отдельной транзакцией). Пригласивший получает % от КУПЛЕННЫХ кредитов —
+    # пожизненно, при каждом пополнении. Сама выплата живёт в payments/referral.py
+    # (общая для всех провайдеров), идемпотентна по order_id и не роняет покупку.
     if credited_now:
-        try:
-            ref = getattr(payment.user, "referred_by", None)
-            if ref and total > 0:
-                # Процент: лениво из рантайм-настроек админки, иначе из settings.
-                try:
-                    from adminapi.runtime import get_runtime
-                    percent = int(get_runtime("REFERRAL_PERCENT", getattr(settings, "REFERRAL_PERCENT", 10)))
-                except Exception:  # noqa: BLE001
-                    percent = int(getattr(settings, "REFERRAL_PERCENT", 10))
-                share = (total * percent) // 100
-                if share > 0:
-                    with transaction.atomic():
-                        # Идемпотентность: не платить дважды за один и тот же order_id.
-                        paid_already = TokenTransaction.objects.filter(
-                            user=ref, reason="referral", meta__order_id=order_id
-                        ).exists()
-                        if not paid_already:
-                            credit_tokens(ref, share, "referral", meta={
-                                "order_id": order_id,
-                                "from_user_id": payment.user.id,
-                                "percent": percent,
-                                "base_credits": total,
-                            })
-        except Exception as exc:  # noqa: BLE001
-            logger.exception("referral payout failed order=%s: %s", order_id, exc)
+        from .referral import pay_referral_share
+
+        pay_referral_share(payment.user, order_id, total)
 
     # После коммита — пометить платным + уведомить (не критично, не роняем кредит).
     if credited_now:
@@ -225,6 +202,10 @@ def reconcile_pending_token_payments() -> dict:
             Payment.objects
             .filter(order_id__startswith="tokpkg-", created_at__gte=window)
             .exclude(user=None)
+            # Крипту сверяет своя задача: у неё другой процессор, другой смысл
+            # статусов и начисление по частям. Спрашивать про неё FreedomPay
+            # бессмысленно, а «нет такого заказа» ещё и засоряет журнал.
+            .exclude(provider__startswith="crypto_")
             .order_by("-id")[:60]
         )
         checked = credited = 0
@@ -246,3 +227,93 @@ def reconcile_pending_token_payments() -> dict:
         return {"status": "ok", "checked": checked, "credited": credited}
     finally:
         cache.delete(_RECON_LOCK)
+
+
+# --------------------------------------------------------------- крипта ---
+
+_CRYPTO_LOCK = "payments:crypto_reconcile:lock"
+
+
+@shared_task(name="payments.tasks.check_crypto_invoice", bind=True,
+             max_retries=3, default_retry_delay=30)
+def check_crypto_invoice(self, invoice_id: int) -> str:
+    """Спросить процессор про один счёт и применить ответ.
+
+    Ставится из открытой вкладки (человек смотрит на таймер) и из сверки.
+    Недоступность процессора — повод повторить, а не потерять оплату.
+    """
+    from .crypto import credit as crypto_credit
+    from .crypto import registry as crypto_registry
+    from .crypto.base import ProviderError, ProviderUnavailable
+    from .models import CryptoInvoice
+
+    invoice = CryptoInvoice.objects.select_related("payment").filter(pk=invoice_id).first()
+    if invoice is None:
+        return "missing"
+    try:
+        state = crypto_registry.get_adapter(invoice.provider).fetch_invoice(
+            invoice.provider_invoice_id)
+    except ProviderUnavailable as exc:
+        raise self.retry(exc=exc)
+    except ProviderError as exc:
+        logger.warning("crypto: счёт %s не проверить: %s", invoice.provider_invoice_id, exc)
+        return "provider_error"
+    return crypto_credit.apply_provider_status(invoice, state, source="reconcile")
+
+
+@shared_task(name="payments.tasks.reconcile_crypto_invoices")
+def reconcile_crypto_invoices() -> dict:
+    """Сверка криптосчетов: деньги в блокчейне есть, а вебхук мог не дойти.
+
+    Смотрим живые счета и — редко, раз в несколько часов — те, что закрылись
+    без оплаты: перевод, отправленный после таймера, всё равно наш и должен
+    быть зачислен.
+    """
+    from django.db.models import Q
+
+    from .crypto import credit as crypto_credit
+    from .models import CryptoInvoice
+
+    if not cache.add(_CRYPTO_LOCK, "1", timeout=110):
+        return {"status": "busy"}
+    try:
+        now = timezone.now()
+        window = now - timedelta(days=7)
+        slow_sweep = now - timedelta(hours=6)
+        invoices = (
+            CryptoInvoice.objects
+            .select_related("payment")
+            .filter(
+                Q(status__in=list(CryptoInvoice.OPEN_STATES), created_at__gte=window)
+                | Q(status__in=[CryptoInvoice.STATUS_EXPIRED, CryptoInvoice.STATUS_FAILED],
+                    credited_tokens=0, created_at__gte=window)
+                & (Q(last_checked_at__isnull=True) | Q(last_checked_at__lt=slow_sweep))
+            )
+            .exclude(payment__user=None)
+            .order_by("last_checked_at")[:60]
+        )
+        checked = credited = 0
+        for invoice in invoices:
+            # Просроченный и неоплаченный счёт помечаем сами: процессор иногда
+            # тянет со статусом, а человек не должен смотреть на таймер,
+            # которого уже нет. Перепроверять его это не мешает.
+            if (invoice.status == CryptoInvoice.STATUS_WAITING and invoice.expires_at
+                    and now > invoice.expires_at + timedelta(minutes=30)
+                    and invoice.actually_paid == 0):
+                try:
+                    crypto_credit.mark_expired_locally(invoice)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("crypto: не пометить просроченным %s: %s",
+                                   invoice.provider_invoice_id, exc)
+            try:
+                result = check_crypto_invoice(invoice.id)
+                checked += 1
+                credited += 1 if result == "credited" else 0
+            except Exception as exc:  # noqa: BLE001 — один счёт не роняет сверку
+                logger.warning("crypto: сверка счёта %s не удалась: %s",
+                               invoice.provider_invoice_id, exc)
+        if credited:
+            logger.info("reconcile_crypto_invoices checked=%s credited=%s", checked, credited)
+        return {"status": "ok", "checked": checked, "credited": credited}
+    finally:
+        cache.delete(_CRYPTO_LOCK)

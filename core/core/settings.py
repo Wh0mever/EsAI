@@ -223,6 +223,12 @@ REST_FRAMEWORK = {
     "DEFAULT_THROTTLE_RATES": {
         "anon": env.str("DRF_THROTTLE_ANON", default="30/min"),
         "user": env.str("DRF_THROTTLE_USER", default="120/min"),
+        # Крипта. Создание счёта дёргает платный API процессора — держим редко.
+        # Опрос статуса делает открытая вкладка раз в 5-15 секунд, поэтому
+        # запас больше. Вебхуки процессора идут пачкой при подтверждении сети.
+        "crypto_purchase": env.str("DRF_THROTTLE_CRYPTO_PURCHASE", default="10/min"),
+        "crypto_status": env.str("DRF_THROTTLE_CRYPTO_STATUS", default="30/min"),
+        "crypto_ipn": env.str("DRF_THROTTLE_CRYPTO_IPN", default="120/min"),
     },
 }
 
@@ -390,6 +396,13 @@ LOGGING = {
         "level": "WARNING",
     },
     "loggers": {
+        # Криптооплата: создание счёта, вебхуки, начисления, аномалии. Пишем
+        # только идентификаторы и суммы — ни ключей, ни сырых тел вебхуков.
+        "payments.crypto": {
+            "handlers": ["file"],
+            "level": "INFO",
+            "propagate": False,
+        },
         "django": {
             "handlers": ["file"],
             "level": "WARNING",
@@ -480,6 +493,13 @@ CELERY_BEAT_SCHEDULE = {
     },
     "payments:reconcile_token_payments": {
         "task": "payments.tasks.reconcile_pending_token_payments",
+        "schedule": timedelta(minutes=2),
+    },
+    # Крипта: вебхук процессора может не дойти (наш 5xx, сеть, смена домена),
+    # а деньги в блокчейне уже лежат. Каждые 2 минуты сами спрашиваем статус
+    # по живым счетам и дозачисляем подтверждённое (идемпотентно по дельте).
+    "payments:reconcile_crypto_invoices": {
+        "task": "payments.tasks.reconcile_crypto_invoices",
         "schedule": timedelta(minutes=2),
     },
 }
@@ -723,3 +743,46 @@ FP_MERCHANT_ID = env.str("FP_MERCHANT_ID", default=FREEDOM_PAY_MERCHANT_ID)
 YOOKASSA_SHOP_ID = env.str("YOOKASSA_SHOP_ID", default="")
 YOOKASSA_SECRET_KEY = env.str("YOOKASSA_SECRET_KEY", default="")
 YOOKASSA_API_URL = env.str("YOOKASSA_API_URL", default="https://api.yookassa.ru/v3")
+
+# --- Криптооплата (NOWPayments) ----------------------------------------------
+# Процессор выдаёт адрес и точную сумму, следит за сетью и присылает
+# подписанный вебхук. Своих узлов и горячих кошельков у нас нет и не будет:
+# ключи от денег на нашем сервере — отдельная служба безопасности.
+# Ключи ТОЛЬКО из окружения (или из админки, adminapi.runtime), в репозиторий
+# не попадают. Общий выключатель — не булев, а режим: off / staff / on, чтобы
+# метод можно было завести на проде и проверить сотрудниками до открытия всем.
+CRYPTO_PAYMENTS_MODE = env.str("CRYPTO_PAYMENTS_MODE", default="off")
+NOWPAYMENTS_API_KEY = env.str("NOWPAYMENTS_API_KEY", default="")
+NOWPAYMENTS_IPN_SECRET = env.str("NOWPAYMENTS_IPN_SECRET", default="")
+NOWPAYMENTS_SANDBOX = env.bool("NOWPAYMENTS_SANDBOX", default=False)
+# Пусто — адрес выбирается по NOWPAYMENTS_SANDBOX (боевой или песочница).
+NOWPAYMENTS_API_URL = env.str("NOWPAYMENTS_API_URL", default="")
+# Комиссию процессора платит магазин: иначе к сумме перевода прибавляется
+# лишнее, и человек видит некруглое число, которого не ждал.
+NOWPAYMENTS_FEE_PAID_BY_USER = env.bool("NOWPAYMENTS_FEE_PAID_BY_USER", default=False)
+
+# Цены пакетов хранятся в сомах, счёт процессору выставляется в долларах.
+# Живой курс берётся из CurrencyRate (обновляется раз в час), это значение —
+# фолбэк и одновременно то, что админ может зафиксировать вручную
+# (AppSetting "currency_kgs_to_usd_rate").
+CURRENCY_KGS_TO_USD_RATE = env.float("CURRENCY_KGS_TO_USD_RATE", default=0.0115)
+
+# Сколько живёт счёт. Курс монеты к доллару зафиксирован на это время, поэтому
+# час — потолок: дольше держать чужой курс дорого, короче — человек не успеет
+# сходить в кошелёк.
+CRYPTO_INVOICE_TTL_MINUTES = env.int("CRYPTO_INVOICE_TTL_MINUTES", default=60)
+
+# Монеты, доступные на витрине (коды процессора). Правится в админке
+# (AppSetting "crypto_allowed_currencies"), env — стартовый набор.
+CRYPTO_ALLOWED_CURRENCIES = env.str(
+    "CRYPTO_ALLOWED_CURRENCIES",
+    default="usdttrc20,usdtton,usdterc20,usdtbsc,btc,eth,ton,ltc,trx,bnbbsc,sol,doge")
+
+# Недоплата в пределах этого процента считается полной оплатой: комиссию сети
+# платит отправитель, и потерять кредиты из-за копеечной разницы человек не
+# должен. Всё, что меньше, зачисляется пропорционально.
+CRYPTO_FULL_TOLERANCE_PERCENT = env.float("CRYPTO_FULL_TOLERANCE_PERCENT", default=0.5)
+# Переплату зачисляем пропорционально, но не больше этого потолка: перевод в
+# десять раз больше суммы — почти наверняка ошибка, и разбирать её должен
+# человек, а не автомат.
+CRYPTO_OVERPAY_CAP_PERCENT = env.int("CRYPTO_OVERPAY_CAP_PERCENT", default=200)

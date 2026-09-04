@@ -118,10 +118,40 @@ class PaymentShortSerializer(serializers.ModelSerializer):
 
 
 class PaymentAdminSerializer(PaymentShortSerializer):
-    """Полный платёж для списка /payments/."""
+    """Полный платёж для списка /payments/.
+
+    У крипты «неуспешно» и «ещё не оплачено» — разные вещи: счёт живёт до часа,
+    и всё это время платёж не успешен, но и не провален. Поэтому рядом с
+    success идёт pending и подробности счёта.
+    """
+
+    provider = serializers.CharField(read_only=True)
+    pending = serializers.SerializerMethodField()
+    crypto = serializers.SerializerMethodField()
 
     class Meta(PaymentShortSerializer.Meta):
-        fields = PaymentShortSerializer.Meta.fields + ["description", "error"]
+        fields = PaymentShortSerializer.Meta.fields + [
+            "description", "error", "provider", "pending", "crypto"]
+
+    def get_pending(self, obj) -> bool:
+        invoice = getattr(obj, "crypto_invoice", None)
+        return bool(invoice is not None and not obj.success and invoice.is_open)
+
+    def get_crypto(self, obj):
+        invoice = getattr(obj, "crypto_invoice", None)
+        if invoice is None:
+            return None
+        return {
+            "status": invoice.status,
+            "coin": invoice.pay_coin,
+            "network": invoice.pay_network,
+            "pay_amount": str(invoice.pay_amount.normalize()),
+            "actually_paid": str(invoice.actually_paid.normalize()),
+            "credited_tokens": int(invoice.credited_tokens or 0),
+            "tx_hash": invoice.tx_hash or "",
+            "expires_at": invoice.expires_at.isoformat() if invoice.expires_at else None,
+            "flags": invoice.flags or {},
+        }
 
 
 class BlogPostListSerializer(serializers.ModelSerializer):

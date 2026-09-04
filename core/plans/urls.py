@@ -7,6 +7,7 @@ from .views import (
     TokenTransactionListView, PendingPaymentView, TokenPurchaseView, CurrencyRateView,
     PublicBonusSettingsView,
 )
+from payments.crypto.views import CryptoInvoiceStatusView
 from .exit_discount import (
     ExitDiscountStatusView, ExitDiscountShowView, ExitDiscountClaimView, ExitDiscountDismissView,
 )
@@ -25,6 +26,9 @@ urlpatterns = [
     path("purchase/", TokenPurchaseView.as_view(), name="token-purchase"),
     # Незавершённая оплата: вернуть человека туда, откуда он ушёл.
     path("purchase/pending/", PendingPaymentView.as_view(), name="token-purchase-pending"),
+    # Криптосчёт: экран оплаты опрашивает его, пока идёт перевод.
+    path("purchase/crypto/<str:order_id>/", CryptoInvoiceStatusView.as_view(),
+         name="token-purchase-crypto-status"),
 
     # Exit-intent скидка на pricing. Объявлены ДО "<int:pk>/", чтобы не перехватывались.
     path("exit-discount/status/", ExitDiscountStatusView.as_view(), name="exit-discount-status"),

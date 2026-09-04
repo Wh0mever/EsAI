@@ -53,6 +53,14 @@ KEYS = (
     # Витринный курс пересчёта цен KGS -> RUB (задача клиента: ЮKassa/показ цен
     # в рублях). НЕ платёжный курс — см. комментарий у settings.CURRENCY_KGS_TO_RUB_RATE.
     "currency_kgs_to_rub_rate",
+    # Криптооплата. Режим off/staff/on, ключи процессора (наружу только маска),
+    # курс сом->доллар (в отличие от рублёвого — ПЛАТЁЖНЫЙ: по нему выставляется
+    # счёт) и список монет на витрине.
+    "crypto_payments_mode",
+    "NOWPAYMENTS_API_KEY",
+    "NOWPAYMENTS_IPN_SECRET",
+    "currency_kgs_to_usd_rate",
+    "crypto_allowed_currencies",
 )
 
 # Сентинел «в кэше пусто» — None невалиден: мы кэшируем и None («ключа нет в БД»).
