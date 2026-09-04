@@ -169,7 +169,7 @@ export default function CryptoCheckoutModal({
   const bonus = Number(pkg?.bonus_tokens || 0);
 
   return (
-    <Modal title={title} open={open} onClose={onClose} size="lg">
+    <Modal title={title} open={open} onClose={onClose} size="lg" mobileFull>
       <div className="flex flex-col gap-4 p-1 sm:p-2">
         <h3 ref={headingRef} tabIndex={-1} className="sr-only">
           {title}

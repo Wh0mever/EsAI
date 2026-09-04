@@ -97,9 +97,12 @@ export default function InvoiceView({
           {t("crypto.paid_title", { defaultValue: "Оплата получена" })}
         </div>
         <div className="text-sm text-muted">
+          {/* count оставляем для выбора формы слова, показываем credits:
+              «22000 кредитов» читается хуже, чем «22 000 кредитов». */}
           {t("crypto.credits_added", {
             count: invoice.credits.credited,
-            defaultValue: "Зачислено {{count}} кредитов",
+            credits: invoice.credits.credited.toLocaleString("ru-RU"),
+            defaultValue: "Зачислено {{credits}} кредитов",
           })}
         </div>
         {invoice.explorer_url && (
@@ -200,8 +203,8 @@ export default function InvoiceView({
           {invoice.credits.credited > 0 && (
             <div className="mt-1 text-xs text-muted">
               {t("crypto.partial_credits", {
-                credited: invoice.credits.credited,
-                total: invoice.credits.total,
+                credited: invoice.credits.credited.toLocaleString("ru-RU"),
+                total: invoice.credits.total.toLocaleString("ru-RU"),
                 defaultValue: "Зачислено {{credited}} из {{total}} кредитов",
               })}
             </div>
@@ -281,7 +284,7 @@ export default function InvoiceView({
         <div className="flex items-center gap-2 text-xs text-muted">
           <CoinIcon coin={invoice.pay.coin} size={22} />
           <span>
-            {invoice.pay.label} · {invoice.credits.total.toLocaleString()}{" "}
+            {invoice.pay.label} · {invoice.credits.total.toLocaleString("ru-RU")}{" "}
             {t("topup.credits", { defaultValue: "кредитов" })} · ${invoice.price.usd}
           </span>
         </div>
