@@ -137,7 +137,14 @@ def scene_json(s: CartoonScene, lang: str = "ru") -> dict:
                    # Цена нужна прямо в ленте: снимают оттуда, и человек должен
                    # видеть, во что обойдётся кнопка, до нажатия.
                    "credits": s.preset.estimated_credits() if s.preset_id else 0,
-                   "duration": s.preset.duration if s.preset_id else 0},
+                   "duration": s.preset.duration if s.preset_id else 0,
+                   # Обложка нужна черновику: своего кадра у него ещё нет, а
+                   # пустой прямоугольник с крутилкой выглядит так, будто
+                   # что-то грузится и зависло.
+                   "poster": (s.preset.preview_thumb.url if s.preset.preview_thumb
+                              else (s.preset.preview_poster.url
+                                    if s.preset.preview_poster else ""))
+                   if s.preset_id else ""},
         # Герой именно этой сцены: свой, если задан, иначе герой мультфильма.
         # Фронту нужно показать, кем сцена снимется, ещё до съёмки.
         "character": character_json(s.character or s.project.character, lang)
@@ -411,7 +418,27 @@ class ProjectScenesView(StudioAPIView):
             order=(last.order + 1) if last else 0,
             status=CartoonScene.STATUS_DRAFT,
         )
+        _attach_ready_keyframe(scene)
         return Response(scene_json(scene, _lang(request)), status=status.HTTP_201_CREATED)
+
+
+def _attach_ready_keyframe(scene) -> None:
+    """Подставить готовый кадр «герой в сцене», если он уже нарисован.
+
+    Такой кадр лежит в общем запасе и ничего не стоит. Человек добавил сцену и
+    сразу видит в ленте своего героя, а не обложку с чужим, — и при съёмке за
+    этот кадр не платит: он же пойдёт первым.
+    """
+    from .models import CartoonKeyframe
+
+    character = scene.character or scene.project.character
+    if not character or scene.keyframe:
+        return
+    ready = CartoonKeyframe.objects.filter(
+        preset_id=scene.preset_id, character=character).first()
+    if ready and ready.image:
+        scene.keyframe = ready.image
+        scene.save(update_fields=["keyframe", "updated_at"])
 
 
 def _pick_character(request, character_id):
@@ -541,6 +568,7 @@ class SceneDetailView(StudioAPIView):
             # Кадр рисовался под прежнего героя, с новым он не годится.
             scene.keyframe = ""
             scene.save(update_fields=["character", "keyframe", "updated_at"])
+            _attach_ready_keyframe(scene)
 
         if request.data.get("retry"):
             # Пересборка идёт с УЖЕ готовым кадром, если он есть: так персонаж
