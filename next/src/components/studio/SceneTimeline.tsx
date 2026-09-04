@@ -7,6 +7,7 @@ import {
   FiArrowLeft,
   FiArrowRight,
   FiCheck,
+  FiFilm,
   FiLoader,
   FiPlay,
   FiRefreshCw,
@@ -16,7 +17,14 @@ import {
 export type StudioScene = {
   id: number;
   order: number;
-  preset: { id: number; title: string; credits?: number; duration?: number };
+  preset: {
+    id: number;
+    title: string;
+    credits?: number;
+    duration?: number;
+    /** Обложка сцены из библиотеки — то, что видно у черновика. */
+    poster?: string;
+  };
   /** Кем снимается эта сцена: свой герой или герой всего мультфильма. */
   character?: { id: number; name: string; image: string } | null;
   keyframe: string;
@@ -135,13 +143,29 @@ export default function SceneTimeline({
                   poster={s.keyframe || undefined}
                   className="h-full w-full object-cover"
                 />
-              ) : s.keyframe ? (
+              ) : s.keyframe || s.preset.poster ? (
                 <>
+                  {/* Пока своего кадра нет, показываем обложку сцены: у
+                      черновика ничего не грузится, и крутилка на его месте
+                      читалась как зависшая загрузка (жалоба клиента). */}
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={s.keyframe} alt="" className="h-full w-full object-cover" />
+                  <img
+                    src={s.keyframe || s.preset.poster}
+                    alt=""
+                    loading="lazy"
+                    decoding="async"
+                    className={`h-full w-full object-cover ${
+                      s.keyframe ? "" : "opacity-70"
+                    }`}
+                  />
                   {working && (
                     <span className="absolute inset-0 grid place-items-center bg-black/45 text-white">
                       <FiLoader className="animate-spin text-2xl" />
+                    </span>
+                  )}
+                  {s.status === "failed" && (
+                    <span className="absolute inset-0 grid place-items-center bg-black/45">
+                      <FiAlertTriangle className="text-2xl text-red-400" />
                     </span>
                   )}
                 </>
@@ -149,8 +173,10 @@ export default function SceneTimeline({
                 <span className="grid h-full w-full place-items-center text-muted-2">
                   {s.status === "failed" ? (
                     <FiAlertTriangle className="text-2xl text-red-400" />
-                  ) : (
+                  ) : working ? (
                     <FiLoader className="animate-spin text-2xl" />
+                  ) : (
+                    <FiFilm className="text-2xl" />
                   )}
                 </span>
               )}
