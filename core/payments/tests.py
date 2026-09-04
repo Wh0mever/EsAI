@@ -6,7 +6,7 @@ from django.test import TestCase, override_settings
 from rest_framework.test import APIRequestFactory, force_authenticate
 
 from payments.freedompay import FreedomPay, FreedomPayError
-from plans.models import BillingPeriod, Plan
+from plans.models import BillingPeriod, Plan, SubscriptionStatus, UserSubscription
 from plans.views import ActivatePlanView
 from users.models import UserCardBind
 
@@ -98,7 +98,17 @@ class FreedomPayTests(TestCase):
         self.assertNotIn("pg_order_id", direct_payload)
 
     @patch("plans.views.FreedomPay.charge")
-    def test_activate_plan_returns_400_on_provider_decline(self, charge_mock):
+    def test_activate_plan_is_gone_and_never_charges_the_card(self, charge_mock):
+        """Активация подписки снята: 410 и ни одного обращения к деньгам.
+
+        Раньше этот тест проверял, что отказ банка превращается в 400. Той
+        ветки больше нет — подписки заменены на pay-as-you-go, и
+        ActivatePlanView сразу отвечает 410 (старый код сохранён рядом как
+        _legacy_post). Проверять исчезнувший ответ бессмысленно, а вот
+        обратное включение легаси-ветки — реальный риск: она списывает деньги
+        с привязанной карты. Поэтому здесь и стоят карта, платный план и
+        зеркало FreedomPay.charge: если кто-то вернёт списание, тест упадёт.
+        """
         plan = Plan.objects.create(
             is_active=True,
             is_free=False,
@@ -116,19 +126,14 @@ class FreedomPayTests(TestCase):
             card_country="KG",
             card_3ds=False,
         )
-        charge_mock.side_effect = FreedomPayError(
-            "direct_status_error:error",
-            kind="provider_decline",
-            script="direct",
-            status="error",
-            code="99999",
-            description="Неизвестная ошибка платежной системы",
-            response={"pg_status": "error", "pg_error_code": "99999"},
-        )
 
         request = APIRequestFactory().post(f"/api/plans/activate/{plan.id}/", {})
         force_authenticate(request, user=self.user)
         response = ActivatePlanView.as_view()(request, plan_id=plan.id)
 
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.data, {"message": "provider_declined"})
+        self.assertEqual(response.status_code, 410)
+        self.assertEqual(response.data, {"detail": "subscriptions_deprecated"})
+        charge_mock.assert_not_called()
+        self.assertFalse(
+            UserSubscription.objects.filter(
+                user=self.user, status=SubscriptionStatus.ACTIVE).exists())
