@@ -302,21 +302,24 @@ def adopt_orphan_invoice(provider_name: str, state):
     from . import currencies
 
     info = currencies.describe(state.pay_currency)
-    invoice = CryptoInvoice.objects.create(
-        payment=payment,
-        provider=provider_name,
-        provider_invoice_id=state.provider_id,
-        status=state.status if state.status != base.UNKNOWN else CryptoInvoice.STATUS_WAITING,
-        price_amount=payment.amount,
-        price_currency=(state.price_currency or "USD").upper(),
-        pay_currency=state.pay_currency,
-        pay_coin=info.coin,
-        pay_network=info.network,
-        pay_address=state.pay_address,
-        pay_extra_id=state.pay_extra_id,
-        pay_amount=state.pay_amount,
-        flags={"adopted": True},
-    )
+    # Точка сохранения: одновременно пришедшие вебхуки по одному счёту не
+    # должны ронять транзакцию запроса нарушением уникальности.
+    with transaction.atomic():
+        invoice = CryptoInvoice.objects.create(
+            payment=payment,
+            provider=provider_name,
+            provider_invoice_id=state.provider_id,
+            status=state.status if state.status != base.UNKNOWN else CryptoInvoice.STATUS_WAITING,
+            price_amount=payment.amount,
+            price_currency=(state.price_currency or "USD").upper(),
+            pay_currency=state.pay_currency,
+            pay_coin=info.coin,
+            pay_network=info.network,
+            pay_address=state.pay_address,
+            pay_extra_id=state.pay_extra_id,
+            pay_amount=state.pay_amount,
+            flags={"adopted": True},
+        )
     logger.info("crypto: принят осиротевший счёт order=%s invoice=%s",
                 state.order_id, state.provider_id)
     return invoice
