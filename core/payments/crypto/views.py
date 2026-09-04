@@ -6,7 +6,7 @@ import logging
 from decimal import Decimal
 
 from django.core.cache import cache
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 from rest_framework import status as drf_status
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -290,11 +290,16 @@ class NowPaymentsIpnView(APIView):
             .encode("utf-8")).hexdigest()
 
         try:
-            event = CryptoWebhookEvent.objects.create(
-                provider=adapter.name, provider_invoice_id=provider_id,
-                event_key=event_key, status=raw_status[:24],
-                actually_paid=Decimal(raw_paid or 0), payload=body, signature_ok=True,
-            )
+            # Точка сохранения обязательна: запросы обёрнуты в транзакцию
+            # (ATOMIC_REQUESTS), и без неё нарушение уникальности сломало бы
+            # всю транзакцию — повтор вебхука падал бы с ошибкой вместо
+            # тихого «уже обработано».
+            with transaction.atomic():
+                event = CryptoWebhookEvent.objects.create(
+                    provider=adapter.name, provider_invoice_id=provider_id,
+                    event_key=event_key, status=raw_status[:24],
+                    actually_paid=Decimal(raw_paid or 0), payload=body, signature_ok=True,
+                )
         except (IntegrityError, ValueError, TypeError):
             event = CryptoWebhookEvent.objects.filter(event_key=event_key).first()
             if event is not None and event.processed:

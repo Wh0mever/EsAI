@@ -36,6 +36,27 @@
 - `GET /api/plans/transactions/` (auth) → последние транзакции токенов
 - `POST /api/plans/purchase/` (auth) `{"package_id":1}` → `{redirect_url, order_id, amount, currency}` (FreedomPay)
 
+## Криптооплата (`/api/plans/`, `/api/payments/crypto/`)
+Оплата USDT/BTC/ETH/TON через процессор (NOWPayments). Кредиты начисляются
+только после того, как сервер сам перезапросил состояние счёта у процессора;
+телу вебхука не доверяем. Способ включается в админке (режим off/staff/on).
+
+- `GET /api/payments/crypto/currencies/` (public) →
+  `{enabled, rate_kgs_to_usd, currencies:[{code,coin,network,label,extra_id_required,network_cost,popular,min_usd}]}`.
+  `enabled:false` — метод выключен или не открыт этому человеку.
+- `POST /api/plans/purchase/` (auth) `{"package_id":1,"pay_currency":"USD","crypto_currency":"usdttrc20"}`
+  → счёт: `{kind:"crypto", order_id, ui_state, pay:{address,extra_id,amount,...},
+  price:{kgs,usd,rate_kgs_to_usd}, credits:{total,credited}, expires_at, seconds_left}`.
+  Повторный клик по тому же пакету и монете возвращает тот же счёт (`resumed:true`).
+  Ошибки: 403 `crypto_disabled`, 400 `crypto_currency_not_supported`,
+  400 `crypto_amount_below_min` (+`min_usd`), 429 `crypto_too_many_open_invoices`.
+- `GET /api/plans/purchase/crypto/<order_id>/` (auth, только владелец, иначе 404) —
+  то же тело; экран оплаты опрашивает его, пока идёт перевод.
+- `GET /api/plans/purchase/pending/` (auth) → `{"pending": {...}}` с `kind: "card" | "crypto"`.
+- `POST /api/payments/crypto/nowpayments/ipn/` (public) — уведомление процессора.
+  Подпись HMAC-SHA512 в заголовке `x-nowpayments-sig`; неверная — 400,
+  недоступный процессор — 503 (доставит ещё раз), повтор — 200 `duplicate`.
+
 ## FreedomPay callbacks (`/api/payments/`, public)
 - `POST /api/payments/tokens/postback/` — RESULT URL (начисление токенов, идемпотентно)
 - `GET/POST /api/payments/tokens/success/` — SUCCESS URL
