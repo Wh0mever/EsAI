@@ -37,7 +37,7 @@ export default function Pricing() {
 	// приоритет: ручной выбор > авто-детект по геолокации IP > KGS. См.
 	// next/src/hooks/useCurrency.ts. currency/convert прокидываются в
 	// TokenPackages — единственное место на /pricing, где показывается цена.
-	const { currency, setCurrency, convert } = useCurrency();
+	const { currency, setCurrency, convert, format, cryptoEnabled } = useCurrency();
 
 	const popupMinutesLeft = useMemo(() => {
 		if (!popupOffer?.expires_at) return null;
@@ -85,13 +85,19 @@ export default function Pricing() {
 			/>
 
 			<div className="flex flex-col items-center gap-3">
-				<CurrencySwitch value={currency} onChange={setCurrency} className="mb-1" />
+				<CurrencySwitch
+					value={currency}
+					onChange={setCurrency}
+					cryptoEnabled={cryptoEnabled}
+					className="mb-1"
+				/>
 
 				<TokenPackages
 					discountPercent={active && secondsLeft > 0 ? active.percent : null}
 					deviceKey={deviceKey}
 					currency={currency}
 					convert={convert}
+					format={format}
 					onPurchaseStart={() => setPaymentInProgress(true)}
 					onPurchaseEnd={() => setPaymentInProgress(false)}
 				/>

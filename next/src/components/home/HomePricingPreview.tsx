@@ -32,7 +32,7 @@ export default function HomePricingPreview() {
   // см. next/src/hooks/useCurrency.ts); здесь он тоже отрисовывается (не
   // только читается), чтобы валюту можно было переключить и не заходя на
   // /pricing (жалоба клиента: «не везде рубли есть»).
-  const { currency, setCurrency, convert } = useCurrency();
+  const { currency, setCurrency, convert, format, cryptoEnabled } = useCurrency();
 
   // Ничего не показываем без падения страницы, если данных нет (сеть/ошибка/пустой каталог).
   const nothingToShow = !loading && (errored || packages.length === 0);
@@ -42,7 +42,7 @@ export default function HomePricingPreview() {
       <PayAsYouGoBanner headingLevel="h2" />
 
       <div className="flex justify-center mb-4">
-        <CurrencySwitch value={currency} onChange={setCurrency} />
+        <CurrencySwitch value={currency} onChange={setCurrency} cryptoEnabled={cryptoEnabled} />
       </div>
 
       <div className="flex flex-col items-center gap-2 text-center mb-3">
@@ -135,10 +135,7 @@ export default function HomePricingPreview() {
                 </div>
 
                 <div className="text-lg font-bold text-foreground">
-                  {convert(Number(p.price)).toLocaleString()}{" "}
-                  <span className="text-sm font-normal text-muted">
-                    {currency === "RUB" ? "₽" : p.currency === "KGS" ? t("topup.som", { defaultValue: "сом" }) : p.currency}
-                  </span>
+                  {format(Number(p.price), t("topup.som", { defaultValue: "сом" }))}
                 </div>
 
                 {rows.length > 0 && (

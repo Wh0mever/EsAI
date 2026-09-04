@@ -20,7 +20,12 @@ export type FunnelStep =
   | "pricing_view"
   | "topup_click"
   | "studio_view"
-  | "studio_scene_add";
+  | "studio_scene_add"
+  // Крипта: между «выбрал монету» и «оплатил» человек уходит в свой кошелёк,
+  // и без этих шагов видно только начало и конец пути.
+  | "crypto_currency_pick"
+  | "crypto_invoice_created"
+  | "crypto_paid";
 
 export function trackFunnel(name: FunnelStep, meta?: Record<string, unknown>): void {
   try {

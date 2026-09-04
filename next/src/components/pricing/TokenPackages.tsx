@@ -2,12 +2,24 @@
 
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import dynamic from "next/dynamic";
 import { fetchData } from "@/tools/fetchData";
 import { FiZap, FiGift } from "react-icons/fi";
 import Cookies from "js-cookie";
 import type { Currency } from "@/lib/currency";
 import { apiLang } from "@/lib/apiLang";
 import { trackFunnel } from "@/tools/funnel";
+import { useCryptoCurrencies } from "@/hooks/useCryptoCurrencies";
+import { readCryptoSession } from "@/lib/cryptoSession";
+import CryptoPendingBanner from "@/components/payments/crypto/CryptoPendingBanner";
+import type { PendingPayment } from "@/types/crypto";
+
+// Экран криптооплаты тянет за собой QR и значки монет — грузим его только
+// тому, кто действительно выбрал крипту.
+const CryptoCheckoutModal = dynamic(
+  () => import("@/components/payments/crypto/CryptoCheckoutModal"),
+  { ssr: false }
+);
 
 type Pkg = {
   id: number | string;
@@ -62,6 +74,8 @@ type TokenPackagesProps = {
   currency?: Currency;
   /** Пересчёт цены из сомов в currency по курсу с бэкенда — identity по умолчанию. */
   convert?: (priceKgs: number) => number;
+  /** Готовая подпись цены с валютой («1 900 сом», «$21.66») — из useCurrency(). */
+  format?: (priceKgs: number, somLabel?: string) => string;
   /** вызывается сразу при клике "Купить", до похода на бэк — сигнал для useExitDiscount не показывать попап во время оплаты */
   onPurchaseStart?: () => void;
   /** вызывается после ответа/редиректа покупки (успех или ошибка) */
@@ -98,6 +112,7 @@ export default function TokenPackages({
   deviceKey,
   currency = "KGS",
   convert = (priceKgs: number) => priceKgs,
+  format,
   onPurchaseStart,
   onPurchaseEnd,
   returnTo,
@@ -120,13 +135,13 @@ export default function TokenPackages({
   // Незавершённая оплата. Разбор воронки показал, что половина брошенных
   // платежей — это повторные нажатия одних и тех же людей: страница оплаты
   // закрылась, и продолжить было нечем, кроме как начать заново.
-  const [pending, setPending] = useState<{
-    package: string;
-    amount: string;
-    currency: string;
-    redirect_url: string;
-  } | null>(null);
+  const [pending, setPending] = useState<PendingPayment | null>(null);
   const [pendingHidden, setPendingHidden] = useState(false);
+  // Крипта: список монет и открытый экран оплаты.
+  const crypto = useCryptoCurrencies();
+  const [checkout, setCheckout] = useState<
+    { pkg: Pkg | null; resumeOrderId?: string } | null
+  >(null);
 
   useEffect(() => {
     setAuthed(Boolean(Cookies.get("access")));
@@ -136,10 +151,28 @@ export default function TokenPackages({
     if (!authed) return;
     let alive = true;
     (async () => {
-      const res = await fetchData<{ pending: typeof pending }>(
+      const res = await fetchData<{ pending: PendingPayment | null }>(
         "plans/purchase/pending/", "GET", null, true
       );
-      if (alive && res.ok && res.data?.pending) setPending(res.data.pending);
+      if (!alive) return;
+      if (res.ok && res.data?.pending) {
+        setPending(res.data.pending);
+        return;
+      }
+      // Сервер не знает о счёте (например, ответ не успел дойти до перезагрузки) —
+      // подстраховываемся памятью вкладки: номер заказа хватит, чтобы открыть
+      // тот же экран.
+      const saved = readCryptoSession();
+      if (saved) {
+        setPending({
+          kind: "crypto", order_id: saved.order_id, amount: "", currency: "USD",
+          package: saved.package_name || "", redirect_url: null,
+          status_url: `/api/plans/purchase/crypto/${saved.order_id}/`,
+          coin: saved.coin || "", network: saved.network || "",
+          pay_amount: "", amount_remaining: "", expires_at: null,
+          created_at: new Date(saved.saved_at).toISOString(),
+        });
+      }
     })();
     return () => {
       alive = false;
@@ -207,6 +240,12 @@ export default function TokenPackages({
       window.location.href = `/auth/signin?next=${next}`;
       return;
     }
+    // Крипта: вместо ухода на страницу банка открываем свой экран оплаты.
+    if (currency === "USD" && crypto.enabled) {
+      onPurchaseStart?.();
+      setCheckout({ pkg });
+      return;
+    }
     if (buyingId != null) return;
     setBuyingId(pkg.id);
     setError("");
@@ -258,6 +297,14 @@ export default function TokenPackages({
     return packages.length >= 3 ? 1 : -1;
   })();
 
+  // Подпись валюты у цены. Раньше её склеивали прямо в разметке, но с
+  // долларом вариантов стало три, и в двух витринах они разошлись бы.
+  const priceText = (priceKgs: number): string => {
+    if (format) return format(priceKgs, t("topup.som", { defaultValue: "сом" }));
+    const shown = convert(priceKgs).toLocaleString();
+    return `${shown} ${currency === "RUB" ? "₽" : t("topup.som", { defaultValue: "сом" })}`;
+  };
+
   const tagline = (p: Pkg, idx: number): string => {
     if (p.description && p.description.trim()) return p.description;
     const defaults = [
@@ -273,7 +320,19 @@ export default function TokenPackages({
       {/* Вернуть человека туда, откуда он ушёл. Без этого единственным
           способом продолжить было начать оплату заново — и один человек в
           разборе воронки нажал «Пополнить» десять раз подряд. */}
-      {pending && !pendingHidden && (
+      {pending && !pendingHidden && pending.kind === "crypto" && (
+        <CryptoPendingBanner
+          packageName={pending.package}
+          coin={pending.coin}
+          network={pending.network}
+          payAmount={pending.amount_remaining || pending.pay_amount}
+          expiresAt={pending.expires_at}
+          onOpen={() => setCheckout({ pkg: null, resumeOrderId: pending.order_id })}
+          onDismiss={() => setPendingHidden(true)}
+        />
+      )}
+
+      {pending && !pendingHidden && pending.kind !== "crypto" && (
         <div className="mx-auto mb-6 flex max-w-2xl flex-col gap-3 rounded-2xl border border-accent/50 bg-accent/5 p-4 sm:flex-row sm:items-center">
           <div className="flex-1">
             <p className="text-sm font-semibold text-foreground">
@@ -314,6 +373,23 @@ export default function TokenPackages({
         <div className="py-10 text-center text-muted">
           {t("topup.empty", { defaultValue: "Пакеты пока недоступны" })}
         </div>
+      )}
+
+      {checkout && (
+        <CryptoCheckoutModal
+          open
+          pkg={checkout.pkg}
+          priceLabel={checkout.pkg ? priceText(checkout.pkg.price) : undefined}
+          currencies={crypto.currencies}
+          resumeOrderId={checkout.resumeOrderId || null}
+          deviceKey={deviceKey}
+          returnTo={returnTo}
+          onPaid={() => setPending(null)}
+          onClose={() => {
+            setCheckout(null);
+            onPurchaseEnd?.();
+          }}
+        />
       )}
 
       {!loading && packages.length > 0 && (
@@ -386,18 +462,15 @@ export default function TokenPackages({
                   {discountPercent ? (
                     <>
                       <span className="text-base text-muted line-through mr-2">
-                        {convert(p.price).toLocaleString()}
+                        {priceText(p.price)}
                       </span>
                       <span className="text-2xl font-bold text-accent">
-                        {convert(Math.round(p.price * (1 - discountPercent / 100) * 100) / 100).toLocaleString()}
+                        {priceText(Math.round(p.price * (1 - discountPercent / 100) * 100) / 100)}
                       </span>
                     </>
                   ) : (
-                    <span className="text-2xl font-bold text-foreground">{convert(p.price).toLocaleString()}</span>
-                  )}{" "}
-                  <span className="text-base text-muted">
-                    {currency === "RUB" ? "₽" : p.currency === "KGS" ? t("topup.som", { defaultValue: "сом" }) : p.currency}
-                  </span>
+                    <span className="text-2xl font-bold text-foreground">{priceText(p.price)}</span>
+                  )}
                 </div>
 
                 {/* Сырой счётчик кредитов — вторично, мелким текстом (п.8 ТЗ:

@@ -6,7 +6,9 @@ import {
   Currency,
   CurrencyRateResponse,
   FALLBACK_KGS_TO_RUB_RATE,
+  FALLBACK_KGS_TO_USD_RATE,
   convertFromKgs,
+  formatPrice,
   getInitialCurrency,
   isManualCurrency,
   persistCurrency,
@@ -41,11 +43,15 @@ async function fetchRateOnce(): Promise<CurrencyRateResponse> {
 
   inflightRatePromise = (async () => {
     try {
-      const res = await fetchData<CurrencyRateResponse>("plans/currency-rate/", "GET", null, false);
+      // auth=true: доступность крипты зависит от человека (режим «только
+      // сотрудникам» на время проверки боевых ключей).
+      const res = await fetchData<CurrencyRateResponse>("plans/currency-rate/", "GET", null, true);
       if (res.ok && res.data && Number.isFinite(Number(res.data.rate_kgs_to_rub))) {
         cachedRate = {
           base_currency: "KGS",
           rate_kgs_to_rub: Number(res.data.rate_kgs_to_rub),
+          rate_kgs_to_usd: Number(res.data.rate_kgs_to_usd) || FALLBACK_KGS_TO_USD_RATE,
+          crypto_enabled: Boolean(res.data.crypto_enabled),
           suggested_currency: res.data.suggested_currency === "RUB" ? "RUB" : "KGS",
         };
         return cachedRate;
@@ -56,6 +62,8 @@ async function fetchRateOnce(): Promise<CurrencyRateResponse> {
     cachedRate = {
       base_currency: "KGS",
       rate_kgs_to_rub: FALLBACK_KGS_TO_RUB_RATE,
+      rate_kgs_to_usd: FALLBACK_KGS_TO_USD_RATE,
+      crypto_enabled: false,
       suggested_currency: "KGS",
     };
     return cachedRate;
@@ -67,6 +75,12 @@ async function fetchRateOnce(): Promise<CurrencyRateResponse> {
 export function useCurrency() {
   const [currency, setCurrencyState] = useState<Currency>(() => getInitialCurrency());
   const [rate, setRate] = useState<number>(cachedRate?.rate_kgs_to_rub ?? FALLBACK_KGS_TO_RUB_RATE);
+  const [usdRate, setUsdRate] = useState<number>(
+    cachedRate?.rate_kgs_to_usd ?? FALLBACK_KGS_TO_USD_RATE
+  );
+  const [cryptoEnabled, setCryptoEnabled] = useState<boolean>(
+    cachedRate?.crypto_enabled ?? false
+  );
   const [rateReady, setRateReady] = useState(cachedRate !== null);
 
   useEffect(() => {
@@ -75,7 +89,17 @@ export function useCurrency() {
       const data = await fetchRateOnce();
       if (cancelled) return;
       setRate(data.rate_kgs_to_rub);
+      setUsdRate(data.rate_kgs_to_usd);
+      setCryptoEnabled(data.crypto_enabled);
       setRateReady(true);
+
+      // Доллар выбирается только ради крипты. Если способ выключили (или
+      // человек вышел из аккаунта), молча возвращаем сомы — иначе на витрине
+      // остались бы долларовые цены без возможности заплатить.
+      if (!data.crypto_enabled && currency === "USD") {
+        setCurrencyState("KGS");
+        persistCurrency("KGS", false);
+      }
 
       // Авто-детект по геолокации применяется, ТОЛЬКО если пользователь ещё
       // ни разу не переключал валюту вручную — ручной выбор не трогаем.
@@ -98,9 +122,16 @@ export function useCurrency() {
   }, []);
 
   const convert = useCallback(
-    (priceKgs: number) => convertFromKgs(priceKgs, currency, rate),
-    [currency, rate]
+    (priceKgs: number) => convertFromKgs(priceKgs, currency, rate, usdRate),
+    [currency, rate, usdRate]
   );
 
-  return { currency, setCurrency, rate, rateReady, convert };
+  /** Цена с подписью валюты — «1 900 сом», «1 805 ₽», «$21.66». */
+  const format = useCallback(
+    (priceKgs: number, somLabel?: string) =>
+      formatPrice(convertFromKgs(priceKgs, currency, rate, usdRate), currency, somLabel),
+    [currency, rate, usdRate]
+  );
+
+  return { currency, setCurrency, rate, usdRate, cryptoEnabled, rateReady, convert, format };
 }
