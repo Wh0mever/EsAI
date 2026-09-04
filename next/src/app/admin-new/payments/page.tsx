@@ -3,6 +3,18 @@
 import { useCallback, useEffect, useState } from "react";
 import { fetchData } from "@/tools/fetchData";
 
+type CryptoInfo = {
+  status: string;
+  coin: string;
+  network: string;
+  pay_amount: string;
+  actually_paid: string;
+  credited_tokens: number;
+  tx_hash: string;
+  expires_at: string | null;
+  flags: Record<string, unknown>;
+};
+
 type Payment = {
   id: number;
   created_at: string;
@@ -10,14 +22,33 @@ type Payment = {
   amount: number;
   currency: string;
   success: boolean;
+  /** крипта: счёт ещё живой, «неуспешно» тут означало бы неправду */
+  pending?: boolean;
+  provider?: string;
   order_id: string;
   description: string;
   error: string;
+  crypto?: CryptoInfo | null;
 };
 
 type PaymentsResponse = { count: number; results: Payment[] };
 
 const nf = (n: number) => (n ?? 0).toLocaleString("ru-RU");
+
+const PROVIDERS: Record<string, string> = {
+  freedompay: "FreedomPay",
+  yookassa: "ЮKassa",
+  crypto_nowpayments: "Крипта",
+};
+
+const FILTERS: { key: string; label: string; query: string }[] = [
+  { key: "all", label: "Все", query: "" },
+  { key: "crypto", label: "Крипта", query: "provider=crypto_nowpayments" },
+  { key: "card", label: "Карты (сом)", query: "provider=freedompay" },
+  { key: "rub", label: "Карты (₽)", query: "provider=yookassa" },
+  { key: "unpaid", label: "Без оплаты", query: "success=0" },
+  { key: "review", label: "Нужен разбор", query: "needs_review=1" },
+];
 
 const fmtDate = (s: string) => {
   const d = new Date(s);
@@ -35,48 +66,83 @@ export default function AdminPaymentsPage() {
   const [payments, setPayments] = useState<Payment[]>([]);
   const [count, setCount] = useState(0);
   const [page, setPage] = useState(1);
+  const [filter, setFilter] = useState("all");
+  const [query, setQuery] = useState("");
+  const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  const [rechecking, setRechecking] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async (pageNum: number, append: boolean) => {
-    if (append) setLoadingMore(true);
-    else setLoading(true);
-    const res = await fetchData<PaymentsResponse>(
-      `manage/payments/?page=${pageNum}`,
-      "GET",
-      null,
-      true
-    );
-    if (res.ok && res.data) {
-      const results = res.data.results || [];
-      setCount(res.data.count || 0);
-      setPayments((prev) => (append ? [...prev, ...results] : results));
-      setPage(pageNum);
-    } else if (!append) {
-      setError(res.error || "Не удалось загрузить платежи");
-    }
-    setLoading(false);
-    setLoadingMore(false);
-  }, []);
+  const load = useCallback(
+    async (pageNum: number, append: boolean, filterKey = filter, q = search) => {
+      if (append) setLoadingMore(true);
+      else setLoading(true);
+      const extra = FILTERS.find((f) => f.key === filterKey)?.query || "";
+      const url =
+        `manage/payments/?page=${pageNum}` +
+        (extra ? `&${extra}` : "") +
+        (q ? `&q=${encodeURIComponent(q)}` : "");
+      const res = await fetchData<PaymentsResponse>(url, "GET", null, true);
+      if (res.ok && res.data) {
+        const results = res.data.results || [];
+        setCount(res.data.count || 0);
+        setPayments((prev) => (append ? [...prev, ...results] : results));
+        setPage(pageNum);
+        setError(null);
+      } else if (!append) {
+        setError(res.error || "Не удалось загрузить платежи");
+      }
+      setLoading(false);
+      setLoadingMore(false);
+    },
+    [filter, search]
+  );
 
   useEffect(() => {
     load(1, false);
-  }, [load]);
+    // Первая загрузка; дальше список перезапрашивается по кнопкам фильтра.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const applyFilter = (key: string) => {
+    setFilter(key);
+    load(1, false, key, search);
+  };
+
+  const applySearch = (value: string) => {
+    setSearch(value);
+    load(1, false, filter, value);
+  };
+
+  /**
+   * Перепроверить платёж у процессора. Нужно, когда вебхук не дошёл, а деньги
+   * человек отправил: вместо ручного начисления «на глаз» платёж проходит тот
+   * же путь, что и обычно, со всеми проверками.
+   */
+  const recheck = async (id: number) => {
+    setRechecking(id);
+    const res = await fetchData<{ payment?: Payment; queued?: boolean; detail?: string }>(
+      `manage/payments/${id}/recheck/`,
+      "POST",
+      {},
+      true
+    );
+    setRechecking(null);
+    if (res.ok && res.data?.payment) {
+      const fresh = res.data.payment;
+      setPayments((prev) => prev.map((p) => (p.id === id ? fresh : p)));
+      return;
+    }
+    if (res.ok) return; // поставили в очередь (не крипта)
+    setError(res.data?.detail || res.error || "Не удалось перепроверить платёж");
+  };
 
   if (loading) {
     return (
       <div className="space-y-4">
         <div className="h-8 w-40 animate-pulse rounded-lg bg-surface-2" />
         <div className="h-96 animate-pulse rounded-2xl bg-surface-2" />
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="rounded-2xl border border-border bg-surface p-6 text-sm text-muted">
-        Ошибка загрузки: {error}
       </div>
     );
   }
@@ -90,53 +156,136 @@ export default function AdminPaymentsPage() {
         </p>
       </div>
 
+      <div className="flex flex-wrap items-center gap-2">
+        {FILTERS.map((f) => (
+          <button
+            key={f.key}
+            onClick={() => applyFilter(f.key)}
+            className={`rounded-lg border px-3 py-1.5 text-xs transition-colors ${
+              filter === f.key
+                ? "border-accent bg-accent/10 text-accent"
+                : "border-border text-muted hover:text-foreground"
+            }`}
+          >
+            {f.label}
+          </button>
+        ))}
+        <form
+          className="ml-auto flex items-center gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            applySearch(query.trim());
+          }}
+        >
+          <input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Заказ или email"
+            className="rounded-lg border border-border bg-surface-2 px-3 py-1.5 text-sm outline-none focus:border-accent"
+          />
+          <button
+            type="submit"
+            className="rounded-lg border border-border px-3 py-1.5 text-xs text-muted transition-colors hover:text-foreground"
+          >
+            Найти
+          </button>
+        </form>
+      </div>
+
+      {error && (
+        <div className="rounded-xl border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-300">
+          {error}
+        </div>
+      )}
+
       <div className="overflow-x-auto rounded-2xl border border-border bg-surface">
-        <table className="w-full min-w-[820px] text-sm">
+        <table className="w-full min-w-[980px] text-sm">
           <thead>
             <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-2">
               <th className="px-4 py-3 font-medium">Дата</th>
               <th className="px-4 py-3 font-medium">Email</th>
               <th className="px-4 py-3 font-medium">Сумма</th>
+              <th className="px-4 py-3 font-medium">Способ</th>
               <th className="px-4 py-3 font-medium">Статус</th>
               <th className="px-4 py-3 font-medium">Заказ</th>
               <th className="px-4 py-3 font-medium">Ошибка</th>
+              <th className="px-4 py-3 font-medium" />
             </tr>
           </thead>
           <tbody>
             {payments.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-muted">
+                <td colSpan={8} className="px-4 py-8 text-center text-muted">
                   Платежей пока нет.
                 </td>
               </tr>
             )}
-            {payments.map((p) => (
-              <tr
-                key={p.id}
-                className="border-b border-border last:border-0 hover:bg-surface-2"
-              >
-                <td className="whitespace-nowrap px-4 py-3 text-muted">
-                  {fmtDate(p.created_at)}
-                </td>
-                <td className="px-4 py-3">{p.user_email}</td>
-                <td className="whitespace-nowrap px-4 py-3 font-medium">
-                  {nf(p.amount)} {p.currency}
-                </td>
-                <td className="whitespace-nowrap px-4 py-3">
-                  {p.success ? (
-                    <span className="text-emerald-400">✓ Успешно</span>
-                  ) : (
-                    <span className="text-rose-400">✗ Неуспешно</span>
-                  )}
-                </td>
-                <td className="max-w-[180px] truncate px-4 py-3 font-mono text-xs text-muted-2">
-                  {p.order_id}
-                </td>
-                <td className="max-w-[220px] truncate px-4 py-3 text-xs text-rose-400/80">
-                  {p.error || ""}
-                </td>
-              </tr>
-            ))}
+            {payments.map((p) => {
+              const needsReview = Boolean(p.crypto?.flags?.needs_review);
+              return (
+                <tr
+                  key={p.id}
+                  className={`border-b border-border last:border-0 hover:bg-surface-2 ${
+                    needsReview ? "bg-status-wait/5" : ""
+                  }`}
+                >
+                  <td className="whitespace-nowrap px-4 py-3 text-muted">
+                    {fmtDate(p.created_at)}
+                  </td>
+                  <td className="px-4 py-3">{p.user_email}</td>
+                  <td className="whitespace-nowrap px-4 py-3 font-medium">
+                    {nf(p.amount)} {p.currency}
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-3 text-xs">
+                    <div>{PROVIDERS[p.provider || ""] || p.provider || "—"}</div>
+                    {p.crypto && (
+                      <div
+                        className="text-muted-2"
+                        title={`${p.crypto.coin} · ${p.crypto.network}${
+                          p.crypto.tx_hash ? ` · tx: ${p.crypto.tx_hash}` : ""
+                        }`}
+                      >
+                        {p.crypto.coin} · {p.crypto.network}
+                      </div>
+                    )}
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-3">
+                    {p.success ? (
+                      <span className="text-status-ok">✓ Успешно</span>
+                    ) : p.pending ? (
+                      <span className="text-status-wait">⏳ Ждём перевод</span>
+                    ) : (
+                      <span className="text-status-fail">✗ Неуспешно</span>
+                    )}
+                    {p.crypto && p.crypto.credited_tokens > 0 && !p.success && (
+                      <div className="text-[11px] text-muted-2">
+                        зачислено {nf(p.crypto.credited_tokens)} кр.
+                      </div>
+                    )}
+                    {needsReview && (
+                      <div className="text-[11px] text-status-wait">
+                        разбор: {String(p.crypto?.flags?.needs_review)}
+                      </div>
+                    )}
+                  </td>
+                  <td className="max-w-[180px] truncate px-4 py-3 font-mono text-xs text-muted-2">
+                    {p.order_id}
+                  </td>
+                  <td className="max-w-[200px] truncate px-4 py-3 text-xs text-rose-400/80">
+                    {p.error || ""}
+                  </td>
+                  <td className="whitespace-nowrap px-4 py-3 text-right">
+                    <button
+                      onClick={() => recheck(p.id)}
+                      disabled={rechecking === p.id}
+                      className="rounded-lg border border-border px-2.5 py-1 text-xs text-muted transition-colors hover:border-accent hover:text-accent disabled:opacity-50"
+                    >
+                      {rechecking === p.id ? "Проверяю…" : "Перепроверить"}
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

@@ -34,8 +34,51 @@ type Settings = {
   paid_daily_requests: number;
   image_auto_route: boolean;
   currency_kgs_to_rub_rate: number;
+  // --- криптооплата ---
+  crypto_payments_mode: "off" | "staff" | "on";
+  crypto_configured: boolean;
+  nowpayments_key_masked: string | null;
+  nowpayments_ipn_secret_masked: string | null;
+  nowpayments_sandbox: boolean;
+  crypto_allowed_currencies: string;
+  /** курс, по которому реально выставляется криптосчёт */
+  currency_kgs_to_usd_rate: number;
+  /** зафиксированный админом вручную (0 — не задан, берётся живой) */
+  currency_kgs_to_usd_manual: number;
+  /** живой рыночный курс — для сравнения */
+  currency_kgs_to_usd_market: number | null;
   site: SiteContacts;
 };
+
+type CryptoTestResult = {
+  ok: boolean;
+  error?: string | null;
+  sandbox?: boolean;
+  coins?: number;
+  ipn_secret_set?: boolean;
+};
+
+/** Монеты, которые можно включить. Коды — как их называет процессор. */
+const CRYPTO_COINS: { code: string; label: string }[] = [
+  { code: "usdttrc20", label: "USDT · TRON (TRC-20)" },
+  { code: "usdtton", label: "USDT · TON" },
+  { code: "usdtbsc", label: "USDT · BNB Smart Chain" },
+  { code: "usdterc20", label: "USDT · Ethereum (дорогая сеть)" },
+  { code: "btc", label: "Bitcoin" },
+  { code: "eth", label: "Ethereum" },
+  { code: "ton", label: "Toncoin" },
+  { code: "ltc", label: "Litecoin" },
+  { code: "trx", label: "TRON" },
+  { code: "bnbbsc", label: "BNB" },
+  { code: "sol", label: "Solana" },
+  { code: "doge", label: "Dogecoin" },
+];
+
+const CRYPTO_MODES: { value: "off" | "staff" | "on"; label: string; hint: string }[] = [
+  { value: "off", label: "Выключено", hint: "способа оплаты нет ни у кого" },
+  { value: "staff", label: "Только сотрудникам", hint: "для проверки боевых ключей" },
+  { value: "on", label: "Включено", hint: "видно всем" },
+];
 
 type TestResult = {
   ok: boolean;
@@ -147,6 +190,18 @@ export default function AdminSettingsPage() {
   const [rateError, setRateError] = useState<string | null>(null);
   const [rateFlash, setRateFlash] = useState(false);
 
+  // --- Секция: криптооплата ---
+  const [cryptoMode, setCryptoMode] = useState<"off" | "staff" | "on">("off");
+  const [cryptoCoins, setCryptoCoins] = useState<string[]>([]);
+  const [usdRateDraft, setUsdRateDraft] = useState("");
+  const [npKey, setNpKey] = useState("");
+  const [npSecret, setNpSecret] = useState("");
+  const [cryptoSaving, setCryptoSaving] = useState(false);
+  const [cryptoError, setCryptoError] = useState<string | null>(null);
+  const [cryptoFlash, setCryptoFlash] = useState(false);
+  const [cryptoTesting, setCryptoTesting] = useState(false);
+  const [cryptoTest, setCryptoTest] = useState<CryptoTestResult | null>(null);
+
   // --- Секция 4: контакты сайта ---
   const [siteDraft, setSiteDraft] = useState<SiteContacts>({
     email: "",
@@ -174,6 +229,15 @@ export default function AdminSettingsPage() {
     });
     setImageAutoRoute(Boolean(s.image_auto_route));
     setRateDraft(String(s.currency_kgs_to_rub_rate ?? ""));
+    setCryptoMode(s.crypto_payments_mode ?? "off");
+    setCryptoCoins(
+      String(s.crypto_allowed_currencies || "")
+        .split(",")
+        .map((c) => c.trim())
+        .filter(Boolean)
+    );
+    // Пустое поле означает «брать живой курс» — так и показываем.
+    setUsdRateDraft(s.currency_kgs_to_usd_manual ? String(s.currency_kgs_to_usd_manual) : "");
     setSiteDraft({
       email: s.site?.email ?? "",
       phone: s.site?.phone ?? "",
@@ -329,6 +393,81 @@ export default function AdminSettingsPage() {
     } else {
       setRateError(res.error || "Не удалось сохранить курс");
     }
+  };
+
+  // ---------- Криптооплата ----------
+
+  const cryptoDirty =
+    settings !== null &&
+    (cryptoMode !== settings.crypto_payments_mode ||
+      cryptoCoins.join(",") !== settings.crypto_allowed_currencies ||
+      Boolean(npKey.trim()) ||
+      Boolean(npSecret.trim()) ||
+      usdRateDraft.trim() !==
+        (settings.currency_kgs_to_usd_manual ? String(settings.currency_kgs_to_usd_manual) : ""));
+
+  const saveCrypto = async () => {
+    if (!settings) return;
+    const patch: Record<string, unknown> = {};
+    if (cryptoMode !== settings.crypto_payments_mode) {
+      if (cryptoMode !== "off" && !(settings.crypto_configured || npKey.trim())) {
+        setCryptoError("Сначала введите API-ключ NOWPayments.");
+        return;
+      }
+      patch.crypto_payments_mode = cryptoMode;
+    }
+    if (cryptoCoins.join(",") !== settings.crypto_allowed_currencies) {
+      patch.crypto_allowed_currencies = cryptoCoins.join(",");
+    }
+    if (npKey.trim()) patch.nowpayments_api_key = npKey.trim();
+    if (npSecret.trim()) patch.nowpayments_ipn_secret = npSecret.trim();
+
+    const manual = usdRateDraft.trim().replace(",", ".");
+    const currentManual = settings.currency_kgs_to_usd_manual
+      ? String(settings.currency_kgs_to_usd_manual)
+      : "";
+    if (manual !== currentManual) {
+      if (manual === "") {
+        patch.currency_kgs_to_usd_rate = "";
+      } else {
+        const n = Number(manual);
+        if (!Number.isFinite(n) || n <= 0 || n > 1) {
+          setCryptoError("Курс сом → доллар: число от 0 до 1, например 0.0114");
+          return;
+        }
+        patch.currency_kgs_to_usd_rate = n;
+      }
+    }
+    if (Object.keys(patch).length === 0) return;
+
+    setCryptoSaving(true);
+    setCryptoError(null);
+    const res = await fetchData<Settings>("manage/settings/", "PATCH", patch, true);
+    setCryptoSaving(false);
+    if (res.ok && res.data) {
+      applySnapshot(res.data);
+      setNpKey("");
+      setNpSecret("");
+      setCryptoFlash(true);
+      setTimeout(() => setCryptoFlash(false), 2000);
+    } else {
+      setCryptoError(res.error || "Не удалось сохранить");
+    }
+  };
+
+  const testCrypto = async () => {
+    setCryptoTesting(true);
+    setCryptoTest(null);
+    const res = await fetchData<CryptoTestResult>(
+      "manage/settings/test-nowpayments/",
+      "POST",
+      {},
+      true
+    );
+    setCryptoTesting(false);
+    setCryptoTest(
+      res.ok && res.data ? res.data : { ok: false, error: res.error || "Нет связи" }
+    );
   };
 
   // ---------- Контакты сайта ----------
@@ -565,6 +704,147 @@ export default function AdminSettingsPage() {
           />
         </div>
         {rateError && <div className="mt-3 text-sm text-red-400">{rateError}</div>}
+      </section>
+
+      {/* 3.6 Криптооплата (NOWPayments) */}
+      <section className="rounded-2xl border border-border bg-surface p-5">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <FiDollarSign className="h-4 w-4 text-accent" />
+            <h2 className="text-base font-semibold">Криптооплата (NOWPayments)</h2>
+          </div>
+          <div className="flex items-center gap-3">
+            {cryptoFlash && <SavedFlash />}
+            <button
+              onClick={testCrypto}
+              disabled={cryptoTesting}
+              className="rounded-lg border border-border bg-surface-2 px-3 py-1.5 text-xs font-semibold text-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+            >
+              {cryptoTesting ? "Проверка…" : "Проверить подключение"}
+            </button>
+            {cryptoDirty && (
+              <button
+                onClick={saveCrypto}
+                disabled={cryptoSaving}
+                className="rounded-lg bg-accent px-4 py-2 text-xs font-semibold text-on-accent transition-opacity hover:opacity-90 disabled:opacity-50"
+              >
+                {cryptoSaving ? "Сохранение…" : "Сохранить"}
+              </button>
+            )}
+          </div>
+        </div>
+        <p className="mt-1 text-xs text-muted-2">
+          Адрес и сумму выдаёт процессор, он же следит за сетью. Кредиты начисляются только
+          после подтверждения перевода. {settings.nowpayments_sandbox
+            ? "Сейчас включена ПЕСОЧНИЦА (NOWPAYMENTS_SANDBOX=1): настоящие деньги не принимаются."
+            : "Режим боевой."}
+        </p>
+
+        {cryptoTest && (
+          <div className={`mt-3 text-sm ${cryptoTest.ok ? "text-emerald-400" : "text-red-400"}`}>
+            {cryptoTest.ok
+              ? `Подключение работает · монет включено у процессора: ${cryptoTest.coins ?? "—"}` +
+                (cryptoTest.ipn_secret_set ? "" : " · ВНИМАНИЕ: не задан IPN-секрет")
+              : `Не работает: ${cryptoTest.error || "неизвестная ошибка"}`}
+          </div>
+        )}
+
+        <div className="mt-4 flex flex-wrap gap-2">
+          {CRYPTO_MODES.map((m) => (
+            <button
+              key={m.value}
+              onClick={() => setCryptoMode(m.value)}
+              title={m.hint}
+              className={`rounded-lg border px-3 py-1.5 text-xs transition-colors ${
+                cryptoMode === m.value
+                  ? "border-accent bg-accent/10 text-accent"
+                  : "border-border text-muted hover:text-foreground"
+              }`}
+            >
+              {m.label}
+            </button>
+          ))}
+        </div>
+
+        <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-muted">
+              API-ключ (текущий: {settings.nowpayments_key_masked || "не задан"})
+            </label>
+            <input
+              type="password"
+              value={npKey}
+              onChange={(e) => setNpKey(e.target.value)}
+              placeholder="новый ключ"
+              autoComplete="off"
+              className={`${INPUT} font-mono`}
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-muted">
+              IPN-секрет (текущий: {settings.nowpayments_ipn_secret_masked || "не задан"})
+            </label>
+            <input
+              type="password"
+              value={npSecret}
+              onChange={(e) => setNpSecret(e.target.value)}
+              placeholder="новый секрет"
+              autoComplete="off"
+              className={`${INPUT} font-mono`}
+            />
+          </div>
+        </div>
+
+        <div className="mt-4 flex flex-col gap-1 max-w-sm">
+          <label className="text-xs text-muted">
+            Курс: 1 сом = ? долларов (пусто — брать живой курс)
+          </label>
+          <input
+            type="text"
+            inputMode="decimal"
+            value={usdRateDraft}
+            onChange={(e) => setUsdRateDraft(e.target.value)}
+            placeholder={String(settings.currency_kgs_to_usd_market ?? 0.0115)}
+            className={INPUT}
+          />
+          <span className="text-[11px] text-muted-2">
+            Сейчас счёт выставляется по {settings.currency_kgs_to_usd_rate}
+            {settings.currency_kgs_to_usd_market
+              ? ` · рыночный ${settings.currency_kgs_to_usd_market}`
+              : " · живой курс недоступен"}
+            . В отличие от рублёвого, этот курс ПЛАТЁЖНЫЙ: по нему человек переводит деньги.
+          </span>
+        </div>
+
+        <div className="mt-4">
+          <div className="text-xs text-muted">Монеты на витрине</div>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {CRYPTO_COINS.map((c) => {
+              const on = cryptoCoins.includes(c.code);
+              return (
+                <button
+                  key={c.code}
+                  onClick={() =>
+                    setCryptoCoins((prev) =>
+                      prev.includes(c.code)
+                        ? prev.filter((x) => x !== c.code)
+                        : [...prev, c.code]
+                    )
+                  }
+                  className={`rounded-lg border px-3 py-1.5 text-xs transition-colors ${
+                    on
+                      ? "border-accent bg-accent/10 text-accent"
+                      : "border-border text-muted hover:text-foreground"
+                  }`}
+                >
+                  {c.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {cryptoError && <div className="mt-3 text-sm text-red-400">{cryptoError}</div>}
       </section>
 
       {/* 4. Контакты сайта */}

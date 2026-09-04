@@ -37,6 +37,15 @@
   /* Цвет АКЦЕНТНОГО ТЕКСТА. На тёмном фоне яркое золото читается отлично,
      поэтому здесь совпадает с --accent (см. переопределение для light ниже). */
   --accent-text: var(--esai-accent);
+
+  /* Состояния оплаты: ждём перевод / идёт подтверждение / оплачено /
+     не прошло. Отдельные токены нужны потому, что тема здесь переключается
+     атрибутом data-theme, а не системной настройкой, — вариант dark: у
+     Tailwind смотрел бы на систему и в светлой теме давал бы тёмные цвета. */
+  --status-wait: #f5b027;
+  --status-progress: #38bdf8;
+  --status-ok: #34d399;
+  --status-fail: #fb7185;
 }
 
 [data-theme="light"] {
@@ -60,6 +69,12 @@
      нечитаем. Для акцентного ТЕКСТА в светлой теме берём тёмное золото
      (тот же брендовый оттенок, но приглушённый до читаемого уровня). */
   --accent-text: #6b5200;
+
+  /* На белом фоне те же оттенки слишком светлые — берём насыщеннее. */
+  --status-wait: #b45309;
+  --status-progress: #0369a1;
+  --status-ok: #047857;
+  --status-fail: #be123c;
 }
 
 /* Один токен --accent обслуживает и текст (text-accent, 120+ мест), и заливку
@@ -106,6 +121,18 @@
   --color-on-accent: var(--on-accent);
   --color-bubble-user: var(--bubble-user);
   --color-bubble-assistant: var(--bubble-assistant);
+  --color-status-wait: var(--status-wait);
+  --color-status-progress: var(--status-progress);
+  --color-status-ok: var(--status-ok);
+  --color-status-fail: var(--status-fail);
+}
+
+/* Галочка на экране успешной оплаты: короткий «прыжок», чтобы человек
+   заметил смену состояния, даже если смотрел в телефон. */
+@keyframes pop {
+  0% { transform: scale(0.7); opacity: 0; }
+  70% { transform: scale(1.08); opacity: 1; }
+  100% { transform: scale(1); opacity: 1; }
 }
 
 video::-webkit-media-controls {

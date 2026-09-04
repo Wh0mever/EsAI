@@ -23,9 +23,15 @@ type Props = {
   value: Currency;
   onChange: (code: Currency) => void;
   className?: string;
+  /**
+   * Показывать ли «КРИПТА». Способ оплаты может быть выключен совсем или
+   * открыт только сотрудникам (проверка боевых ключей на проде), и тогда
+   * третьей кнопки быть не должно — обещать оплату, которой нет, нельзя.
+   */
+  cryptoEnabled?: boolean;
 };
 
-export default function CurrencySwitch({ value, onChange, className }: Props) {
+export default function CurrencySwitch({ value, onChange, className, cryptoEnabled = false }: Props) {
   const { t } = useTranslation("common");
 
   const currencies: { code: Currency; label: string; title: string }[] = [
@@ -40,6 +46,16 @@ export default function CurrencySwitch({ value, onChange, className }: Props) {
       title: t("packages.currency_rub_title", { defaultValue: "Российский рубль" }),
     },
   ];
+
+  if (cryptoEnabled) {
+    currencies.push({
+      code: "USD",
+      label: t("packages.currency_crypto", { defaultValue: "КРИПТА" }),
+      title: t("packages.currency_crypto_title", {
+        defaultValue: "USDT, BTC, ETH, TON — цены в долларах",
+      }),
+    });
+  }
 
   return (
     <div className={clsx("flex flex-col items-center gap-2", className)}>

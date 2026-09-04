@@ -17,6 +17,14 @@ export type CurrencySource = "manual" | "auto";
 export type CurrencyRateResponse = {
   base_currency: "KGS";
   rate_kgs_to_rub: number;
+  /**
+   * Курс сом -> доллар. В отличие от рублёвого он ПЛАТЁЖНЫЙ: по нему
+   * выставляется криптосчёт, поэтому показанная цена и есть та, что человек
+   * переведёт (сервер фиксирует её в момент создания счёта).
+   */
+  rate_kgs_to_usd: number;
+  /** доступна ли оплата криптой этому человеку (режим off/staff/on) */
+  crypto_enabled: boolean;
   suggested_currency: "KGS" | "RUB";
 };
 
@@ -27,6 +35,9 @@ export type CurrencyRateResponse = {
 // админке (Настройки -> Валюта), это значение — просто чтобы UI не сломался
 // при недоступности бэкенда.
 export const FALLBACK_KGS_TO_RUB_RATE = 0.95;
+// Тот же смысл, что и у рублёвого фолбэка: заглушка на случай, когда бэкенд
+// недоступен. Настоящий курс приходит с /api/plans/currency-rate/.
+export const FALLBACK_KGS_TO_USD_RATE = 0.0115;
 
 function readCookie(name: string): string | null {
   if (typeof document === "undefined") return null;
@@ -106,8 +117,36 @@ export function isManualCurrency(): boolean {
  * всегда списывается в сомах по TokenPackage.currency на бэкенде — этот
  * пересчёт не участвует в платеже никак.
  */
-export function convertFromKgs(priceKgs: number, currency: Currency, rateKgsToRub: number): number {
-  if (currency !== "RUB") return priceKgs;
-  const rate = Number.isFinite(rateKgsToRub) && rateKgsToRub > 0 ? rateKgsToRub : FALLBACK_KGS_TO_RUB_RATE;
-  return Math.round(priceKgs * rate * 100) / 100;
+export function convertFromKgs(
+  priceKgs: number,
+  currency: Currency,
+  rateKgsToRub: number,
+  rateKgsToUsd?: number
+): number {
+  if (currency === "RUB") {
+    const rate = Number.isFinite(rateKgsToRub) && rateKgsToRub > 0 ? rateKgsToRub : FALLBACK_KGS_TO_RUB_RATE;
+    return Math.round(priceKgs * rate * 100) / 100;
+  }
+  if (currency === "USD") {
+    const rate =
+      Number.isFinite(rateKgsToUsd as number) && (rateKgsToUsd as number) > 0
+        ? (rateKgsToUsd as number)
+        : FALLBACK_KGS_TO_USD_RATE;
+    return Math.round(priceKgs * rate * 100) / 100;
+  }
+  return priceKgs;
+}
+
+/**
+ * Цена с подписью валюты. Вынесено сюда, потому что раньше каждая витрина
+ * склеивала её сама («₽», «сом»), и доллар пришлось бы дописывать в четырёх
+ * местах по-разному.
+ */
+export function formatPrice(value: number, currency: Currency, somLabel = "сом"): string {
+  if (currency === "USD") {
+    // Доллары показываем как в кассе: два знака и знак впереди.
+    return `$${value.toFixed(2)}`;
+  }
+  const shown = value.toLocaleString("ru-RU");
+  return currency === "RUB" ? `${shown} ₽` : `${shown} ${somLabel}`;
 }

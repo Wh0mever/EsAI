@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import dynamic from "next/dynamic";
 import { Modal } from "@/components/dialog/Dialog";
 import { fetchData } from "@/tools/fetchData";
 import { FiZap, FiGift } from "react-icons/fi";
@@ -11,6 +12,14 @@ import type { PackageValue } from "@/types/pricing";
 import CurrencySwitch from "@/components/pricing/CurrencySwitch";
 import PayAsYouGoBanner from "@/components/pricing/PayAsYouGoBanner";
 import { apiLang } from "@/lib/apiLang";
+import { useCryptoCurrencies } from "@/hooks/useCryptoCurrencies";
+
+// Значки монет и QR нужны только тому, кто выбрал крипту, — в общий бандл
+// чата они не попадают.
+const CryptoCheckoutModal = dynamic(
+  () => import("@/components/payments/crypto/CryptoCheckoutModal"),
+  { ssr: false }
+);
 
 type Pkg = {
   id: number | string;
@@ -57,7 +66,9 @@ export default function TopUpModal({ open, onClose }: Props) {
   // клиента: при клике на баланс в чате открывалось без рублей — раньше
   // тут читалась только уже выбранная валюта, сменить её можно было лишь
   // на /pricing).
-  const { currency, setCurrency, convert } = useCurrency();
+  const { currency, setCurrency, cryptoEnabled, format } = useCurrency();
+  const crypto = useCryptoCurrencies(open);
+  const [checkout, setCheckout] = useState<Pkg | null>(null);
   const valueById = useMemo(() => {
     const map: Record<string, PackageValue> = {};
     for (const item of valuePackages) {
@@ -88,6 +99,11 @@ export default function TopUpModal({ open, onClose }: Props) {
   }, [open, t, i18n.language]);
 
   const purchase = async (pkg: Pkg) => {
+    // Крипта: свой экран оплаты вместо ухода на страницу банка.
+    if (currency === "USD" && crypto.enabled) {
+      setCheckout(pkg);
+      return;
+    }
     if (buyingId != null) return;
     setBuyingId(pkg.id);
     setError("");
@@ -113,6 +129,24 @@ export default function TopUpModal({ open, onClose }: Props) {
     }
   };
 
+  if (checkout) {
+    // Две модалки одновременно ломают друг другу Escape и блокировку
+    // прокрутки — свою прячем, пока открыт экран оплаты.
+    return (
+      <CryptoCheckoutModal
+        open
+        pkg={checkout}
+        priceLabel={format(checkout.price, t("topup.som", { defaultValue: "сом" }))}
+        currencies={crypto.currencies}
+        onPaid={() => {
+          setCheckout(null);
+          onClose();
+        }}
+        onClose={() => setCheckout(null)}
+      />
+    );
+  }
+
   return (
     <Modal title={t("topup.title", { defaultValue: "Выберите пакет кредитов" })} open={open} onClose={onClose} size="lg">
       <div className="p-1 sm:p-2">
@@ -121,7 +155,7 @@ export default function TopUpModal({ open, onClose }: Props) {
         </div>
 
         <div className="flex justify-center mb-3">
-          <CurrencySwitch value={currency} onChange={setCurrency} />
+          <CurrencySwitch value={currency} onChange={setCurrency} cryptoEnabled={cryptoEnabled} />
         </div>
 
         {loading && (
@@ -202,8 +236,7 @@ export default function TopUpModal({ open, onClose }: Props) {
                   </div>
                 )}
                 <div className="mt-3 text-lg font-semibold text-foreground">
-                  {convert(p.price).toLocaleString()}{" "}
-                  {currency === "RUB" ? "₽" : p.currency === "KGS" ? t("topup.som", { defaultValue: "сом" }) : p.currency}
+                  {format(p.price, t("topup.som", { defaultValue: "сом" }))}
                 </div>
                 {valueRows.length > 0 && (
                   <div className="mt-3 rounded-xl bg-surface-2 border border-border px-3 py-2.5 flex flex-col gap-1">

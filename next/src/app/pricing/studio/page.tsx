@@ -45,7 +45,7 @@ export default function StudioPricing() {
 		trackFunnel("pricing_view");
 	}, []);
 	const { t } = useTranslation("common");
-	const { currency, setCurrency, convert } = useCurrency();
+	const { currency, setCurrency, convert, format, cryptoEnabled } = useCurrency();
 	const [pricing, setPricing] = useState<StudioPricing | null>(null);
 
 	useEffect(() => {
@@ -144,11 +144,12 @@ export default function StudioPricing() {
 					)}
 				</section>
 
-				<CurrencySwitch value={currency} onChange={setCurrency} />
+				<CurrencySwitch value={currency} onChange={setCurrency} cryptoEnabled={cryptoEnabled} />
 
 				<TokenPackages
 					currency={currency}
 					convert={convert}
+					format={format}
 					returnTo="/studio"
 					valueOverride={(p) => {
 						if (!scene) return null;
