@@ -7,11 +7,13 @@
 import hashlib
 import hmac
 import json
+from datetime import timedelta
 from decimal import Decimal
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
+from django.utils import timezone
 from rest_framework.test import APIRequestFactory, force_authenticate
 
 from payments.crypto import base, credit
@@ -453,3 +455,55 @@ class PurchaseTests(TestCase):
         force_authenticate(request, user=stranger)
         response = CryptoInvoiceStatusView.as_view()(request, order_id=created.data["order_id"])
         self.assertEqual(response.status_code, 404)
+
+# ------------------------------------------------------------------ сроки ---
+
+class LocalExpiryTests(TestCase):
+    """Счёт закрываем сами, только когда он действительно просрочен.
+
+    Закрыть действующий счёт по ошибке — значит сказать человеку «не успели»,
+    когда он ещё успевал, и потерять оплату, которая уже в пути.
+    """
+
+    def setUp(self):
+        self.user = get_user_model().objects.create_user(
+            email="expiry@example.com", password="testpass123")
+        payment = Payment.objects.create(
+            user=self.user, provider="crypto_nowpayments", amount=Decimal("10.00"),
+            currency="USD", order_id="tokpkg-1-1-exp",
+            request={"token_purchase": {"package_id": 1, "tokens": 1000, "bonus_tokens": 0}},
+            response={},
+        )
+        self.invoice = CryptoInvoice.objects.create(
+            payment=payment, provider="nowpayments", provider_invoice_id="np-exp",
+            price_amount=Decimal("10.00"), pay_currency="usdttrc20", pay_coin="USDT",
+            pay_network="TRC-20", pay_address="TX", pay_amount=Decimal("10.5"),
+            expires_at=timezone.now() + timedelta(minutes=30),
+        )
+
+    def test_live_invoice_is_left_alone(self):
+        credit.mark_expired_locally(self.invoice)
+        self.invoice.refresh_from_db()
+        self.assertEqual(self.invoice.status, CryptoInvoice.STATUS_WAITING)
+
+    def test_just_expired_still_waits_out_the_grace(self):
+        self.invoice.expires_at = timezone.now() - timedelta(minutes=5)
+        self.invoice.save(update_fields=["expires_at"])
+        credit.mark_expired_locally(self.invoice)
+        self.invoice.refresh_from_db()
+        self.assertEqual(self.invoice.status, CryptoInvoice.STATUS_WAITING)
+
+    def test_long_expired_is_closed(self):
+        self.invoice.expires_at = timezone.now() - timedelta(hours=2)
+        self.invoice.save(update_fields=["expires_at"])
+        credit.mark_expired_locally(self.invoice)
+        self.invoice.refresh_from_db()
+        self.assertEqual(self.invoice.status, CryptoInvoice.STATUS_EXPIRED)
+
+    def test_paid_invoice_is_never_closed_locally(self):
+        self.invoice.expires_at = timezone.now() - timedelta(hours=2)
+        self.invoice.actually_paid = Decimal("10.5")
+        self.invoice.save(update_fields=["expires_at", "actually_paid"])
+        credit.mark_expired_locally(self.invoice)
+        self.invoice.refresh_from_db()
+        self.assertEqual(self.invoice.status, CryptoInvoice.STATUS_WAITING)
