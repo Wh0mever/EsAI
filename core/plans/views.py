@@ -30,7 +30,7 @@ from users.models import User, UserCardBind
 from django.db import transaction
 from payments.freedompay import FreedomPay, FreedomPayError, make_api_signature
 from decimal import Decimal
-from core.langutils import request_lang
+from core.langutils import request_lang, tr
 
 
 @method_decorator(cache_page(60), name="dispatch")               # page cache
@@ -371,9 +371,25 @@ class CurrencyRateView(APIView):
         except Exception:  # noqa: BLE001 — гео-подсказка не должна ронять эндпоинт
             suggested_currency = "KGS"
 
+        # Крипта: курс сом -> доллар и виден ли вообще этот способ оплаты.
+        # Пока режим «только сотрудникам», обычный человек его не увидит.
+        crypto_enabled = False
+        rate_kgs_to_usd = 0.0
+        try:
+            from payments.crypto import rates as crypto_rates
+            from payments.crypto import registry as crypto_registry
+
+            user = request.user if request.user.is_authenticated else None
+            crypto_enabled = crypto_registry.is_enabled_for(user)
+            rate_kgs_to_usd = float(crypto_rates.kgs_to_usd_rate())
+        except Exception:  # noqa: BLE001 — витрина не должна падать из-за крипты
+            crypto_enabled = False
+
         return Response({
             "base_currency": "KGS",
             "rate_kgs_to_rub": rate,
+            "rate_kgs_to_usd": rate_kgs_to_usd,
+            "crypto_enabled": crypto_enabled,
             "suggested_currency": suggested_currency,
         })
 
@@ -469,6 +485,35 @@ def pending_token_payment(user, package_id=None):
     return None, ""
 
 
+def pending_token_resume(user, package_id=None):
+    """Незавершённая оплата любого вида, к которой можно вернуться.
+
+    Карточная — это ссылка на страницу банка, крипта — счёт с адресом и
+    таймером; общее у них одно: человек ушёл платить и не закончил. Если
+    незакрытыми оказались обе, показываем ту, что новее: она и есть текущее
+    намерение.
+    """
+    from payments.models import CryptoInvoice
+
+    payment, url = pending_token_payment(user, package_id)
+    card = {"kind": "card", "payment": payment, "redirect_url": url} if url else None
+
+    invoices = CryptoInvoice.objects.select_related("payment").filter(
+        payment__user=user,
+        status__in=list(CryptoInvoice.OPEN_STATES),
+        expires_at__gt=timezone.now(),
+    )
+    if package_id:
+        invoices = invoices.filter(
+            payment__request__token_purchase__package_id=int(package_id))
+    invoice = invoices.order_by("-created_at").first()
+    crypto = {"kind": "crypto", "payment": invoice.payment, "invoice": invoice} if invoice else None
+
+    if card and crypto:
+        return card if card["payment"].created_at >= crypto["payment"].created_at else crypto
+    return card or crypto
+
+
 def _redirect_url_of(response: dict) -> str:
     """Ссылка на оплату из ответа платёжной системы.
 
@@ -520,19 +565,42 @@ class PendingPaymentView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
-        payment, url = pending_token_payment(request.user)
-        if not url:
+        found = pending_token_resume(request.user)
+        if not found:
             return Response({"pending": None})
+
+        payment = found["payment"]
         pkg_id = ((payment.request or {}).get("token_purchase") or {}).get("package_id")
         pkg = TokenPackage.objects.filter(pk=pkg_id).first() if pkg_id else None
-        return Response({"pending": {
+        pending = {
+            "kind": found["kind"],
             "order_id": payment.order_id,
             "amount": str(payment.amount),
             "currency": payment.currency,
-            "package": pkg.name if pkg else "",
-            "redirect_url": url,
+            "package": tr(pkg, "name", request_lang(request)) if pkg else "",
             "created_at": payment.created_at.isoformat(),
-        }})
+        }
+
+        if found["kind"] == "crypto":
+            from payments.crypto.views import amount_str
+
+            invoice = found["invoice"]
+            remaining = max(Decimal(0), invoice.pay_amount - invoice.actually_paid)
+            pending.update({
+                "redirect_url": None,
+                # Экран оплаты открывается по этому адресу — ссылки на чужую
+                # страницу у крипты нет.
+                "status_url": f"/api/plans/purchase/crypto/{payment.order_id}/",
+                "coin": invoice.pay_coin,
+                "network": invoice.pay_network,
+                "pay_amount": amount_str(invoice.pay_amount),
+                "amount_remaining": amount_str(remaining),
+                "expires_at": invoice.expires_at.isoformat() if invoice.expires_at else None,
+            })
+        else:
+            pending["redirect_url"] = found["redirect_url"]
+
+        return Response({"pending": pending})
 
 
 class TokenPurchaseView(APIView):
@@ -572,6 +640,13 @@ class TokenPurchaseView(APIView):
         # значит терять того, кто уже заплатил.
         return_to = safe_return_path((request.data or {}).get("return_to"))
 
+        pay_currency = str((request.data or {}).get("pay_currency") or "").strip().upper()
+
+        # Крипта идёт своим путём с самого начала: там не ссылка на банк, а
+        # счёт с адресом и таймером, и возвращаться к нему надо иначе.
+        if pay_currency == "USD":
+            return self._purchase_via_crypto(request, package, base_amount, return_to)
+
         # Тот же пакет, начатый минуту назад, — это не второй платёж, а тот же
         # самый: человек вернулся и жмёт снова. Отдаём прежнюю ссылку.
         existing, existing_url = pending_token_payment(request.user, package.id)
@@ -580,7 +655,6 @@ class TokenPurchaseView(APIView):
                              "amount": str(existing.amount), "currency": existing.currency,
                              "resumed": True})
 
-        pay_currency = str((request.data or {}).get("pay_currency") or "").strip().upper()
         if pay_currency == "RUB":
             from payments import yookassa as yk
 
@@ -732,6 +806,161 @@ class TokenPurchaseView(APIView):
             },
             status=drf_status.HTTP_200_OK,
         )
+
+    def _purchase_via_crypto(self, request, package, base_amount, return_to="/profile"):
+        """Выставить счёт на оплату криптовалютой.
+
+        Ссылки на чужую страницу оплаты здесь нет: процессор даёт адрес и
+        точную сумму, экран оплаты рисуем сами. Кредиты начисляются не здесь,
+        а после подтверждения сети — на вебхуке и в сверке (payments/crypto).
+
+        Скидка «при уходе» сознательно не применяется, как и у ЮKassa: её
+        механика забронирована за FreedomPay-путём, и смешивать её с другой
+        валютой — прямой риск неверных сумм.
+        """
+        from payments.crypto import base as crypto_base
+        from payments.crypto import currencies as crypto_currencies
+        from payments.crypto import rates as crypto_rates
+        from payments.crypto import registry as crypto_registry
+        from payments.crypto.views import invoice_json
+        from payments.models import CryptoInvoice, Payment
+        from payments.views import _log_payment_event
+
+        if not crypto_registry.is_enabled_for(request.user):
+            return Response({"detail": "crypto_disabled"}, status=drf_status.HTTP_403_FORBIDDEN)
+        if not crypto_registry.is_configured():
+            return Response({"detail": "crypto_config_missing"},
+                            status=drf_status.HTTP_502_BAD_GATEWAY)
+
+        code = str((request.data or {}).get("crypto_currency") or "").strip().lower()
+        if not crypto_currencies.is_allowed(code):
+            return Response({"detail": "crypto_currency_not_supported"},
+                            status=drf_status.HTTP_400_BAD_REQUEST)
+
+        # Каждый счёт — это запрос к платному API процессора. Десяти попыток в
+        # минуту хватит любому живому человеку.
+        from django.core.cache import cache as _cache
+
+        bucket = f"crypto:purchase:{request.user.id}"
+        if not _cache.add(bucket, 1, 60):
+            try:
+                hits = _cache.incr(bucket)
+            except ValueError:
+                hits = 1
+            if hits > 10:
+                return Response({"detail": "crypto_too_often"},
+                                status=drf_status.HTTP_429_TOO_MANY_REQUESTS)
+
+        now = timezone.now()
+        open_invoices = CryptoInvoice.objects.filter(
+            payment__user=request.user,
+            status__in=list(CryptoInvoice.OPEN_STATES),
+            expires_at__gt=now,
+        )
+        # Тот же пакет той же монетой — это не второй счёт, а тот же самый:
+        # человек закрыл вкладку и вернулся. Заводить новый адрес нельзя, он
+        # может уже отправить деньги на старый.
+        same = (open_invoices.filter(
+            pay_currency=code,
+            payment__request__token_purchase__package_id=package.id)
+            .select_related("payment").order_by("-created_at").first())
+        if same is not None:
+            return Response(invoice_json(same, resumed=True))
+        # Больше трёх живых счетов на человека — это уже не покупка, а перебор
+        # адресов: каждый счёт стоит нам запроса к процессору.
+        if open_invoices.count() >= 3:
+            return Response({"detail": "crypto_too_many_open_invoices"},
+                            status=drf_status.HTTP_429_TOO_MANY_REQUESTS)
+
+        try:
+            amount_usd, rate = crypto_rates.kgs_to_usd(base_amount)
+        except crypto_base.ProviderError as exc:
+            return Response({"detail": exc.code}, status=drf_status.HTTP_502_BAD_GATEWAY)
+
+        adapter = crypto_registry.get_adapter()
+        min_usd = None
+        try:
+            min_usd = adapter.min_amount_usd(code)
+        except crypto_base.ProviderError:
+            # Минимум не узнали — пусть решает процессор при создании счёта.
+            min_usd = None
+        if min_usd and amount_usd < min_usd:
+            return Response({"detail": "crypto_amount_below_min",
+                             "min_usd": str(min_usd), "amount_usd": str(amount_usd)},
+                            status=drf_status.HTTP_400_BAD_REQUEST)
+
+        try:
+            callback_url = crypto_registry.ipn_url(request)
+        except crypto_base.ProviderError as exc:
+            logging.getLogger("payments.crypto").error("crypto: %s", exc)
+            return Response({"detail": "crypto_config_missing"},
+                            status=drf_status.HTTP_502_BAD_GATEWAY)
+
+        order_id = f"tokpkg-{request.user.id}-{package.id}-{uuid.uuid4().hex[:10]}"
+        payment = Payment.objects.create(
+            user=request.user,
+            provider=crypto_registry.provider_code(adapter.name),
+            amount=amount_usd,
+            currency="USD",
+            order_id=order_id,
+            description=f"Token package purchase #{package.id} (crypto)",
+            is_test=bool(settings.DEBUG or getattr(settings, "NOWPAYMENTS_SANDBOX", False)),
+            request={
+                "provider": crypto_registry.provider_code(adapter.name),
+                "pay_method": "crypto",
+                "token_purchase": {
+                    "package_id": package.id,
+                    "tokens": int(package.tokens or 0),
+                    "bonus_tokens": int(package.bonus_tokens or 0),
+                },
+                "kgs_price": str(base_amount),
+                "rate_kgs_to_usd": str(rate),
+                "amount_usd": str(amount_usd),
+                "pay_currency": code,
+                "return_to": return_to,
+            },
+            response={},
+        )
+
+        try:
+            created = adapter.create_invoice(
+                order_id=order_id,
+                amount_usd=amount_usd,
+                pay_currency=code,
+                ipn_url=callback_url,
+                description=f"EsAI credits package {package.id}",
+            )
+        except crypto_base.ProviderError as exc:
+            # В ошибке платежа не должно быть ни ключей, ни сырых ответов —
+            # её видно в админке.
+            payment.error = f"crypto_create_failed:{exc.code}"
+            payment.save(update_fields=["error"])
+            return Response({"detail": "crypto_request_failed"},
+                            status=drf_status.HTTP_502_BAD_GATEWAY)
+
+        ttl_minutes = int(getattr(settings, "CRYPTO_INVOICE_TTL_MINUTES", 60))
+        own_deadline = now + timedelta(minutes=ttl_minutes)
+        expires_at = min(created.expires_at, own_deadline) if created.expires_at else own_deadline
+
+        invoice = CryptoInvoice.objects.create(
+            payment=payment,
+            provider=created.provider,
+            provider_invoice_id=created.provider_id,
+            price_amount=amount_usd,
+            price_currency="USD",
+            pay_currency=created.pay_currency,
+            pay_coin=created.pay_coin,
+            pay_network=created.pay_network,
+            pay_address=created.pay_address,
+            pay_extra_id=created.pay_extra_id,
+            pay_amount=created.pay_amount,
+            expires_at=expires_at,
+        )
+        payment.response = {"crypto_create": created.raw}
+        payment.save(update_fields=["response"])
+        _log_payment_event(payment, "crypto_created")
+        invoice.payment = payment
+        return Response(invoice_json(invoice), status=drf_status.HTTP_200_OK)
 
     def _purchase_via_yookassa(self, request, package, base_amount, rate, return_to="/profile"):
         """Оплата пакета в рублях через ЮKassa.

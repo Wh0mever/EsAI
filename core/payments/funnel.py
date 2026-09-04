@@ -62,6 +62,20 @@ def _payment_stage(p: Payment) -> str:
     """
     if p.success:
         return "paid"
+
+    # Крипта живёт по своим правилам: там нет «ответа платёжной системы», зато
+    # есть счёт, который час ждёт перевода, и частичная оплата. Считать всё это
+    # «ушёл и не вернулся» — значит смотреть на выдуманную картину.
+    invoice = getattr(p, "crypto_invoice", None)
+    if invoice is not None:
+        if invoice.credited_tokens > 0:
+            return "partial"
+        if invoice.status in ("failed", "refunded"):
+            return "declined"
+        if invoice.is_open and invoice.expires_at and invoice.expires_at > timezone.now():
+            return "pending"
+        return "left"
+
     callbacks = (p.response or {}).get("callbacks") or []
     if p.error and "canceled" in str(p.error):
         return "canceled"
@@ -85,13 +99,18 @@ def funnel_report(days: int = 30) -> dict:
     payments = list(
         Payment.objects.filter(created_at__gte=since,
                                request__token_purchase__isnull=False)
+        .select_related("crypto_invoice")
     )
-    stages = {"paid": 0, "declined": 0, "canceled": 0, "left": 0}
+    stages = {"paid": 0, "declined": 0, "canceled": 0, "left": 0,
+              "partial": 0, "pending": 0}
     for p in payments:
         stages[_payment_stage(p)] += 1
 
     started = len(payments)
-    returned = stages["paid"] + stages["declined"] + stages["canceled"]
+    # Частично оплативший и ждущий перевода — это тоже «вернулся»: он до формы
+    # дошёл и деньги отправил или отправляет.
+    returned = (stages["paid"] + stages["declined"] + stages["canceled"]
+                + stages["partial"] + stages["pending"])
 
     steps = [
         {"key": "pricing_view", "label": "Открыли тарифы",
@@ -120,6 +139,14 @@ def funnel_report(days: int = 30) -> dict:
         {"key": "canceled", "label": "Отменили в платёжной системе",
          "count": stages["canceled"],
          "hint": "Человек дошёл до формы и нажал «отмена»."},
+        {"key": "partial", "label": "Оплатили частично (крипта)",
+         "count": stages["partial"],
+         "hint": "Перевели меньше суммы — обычно не учли комиссию сети. "
+                 "Кредиты начислены пропорционально, счёт ждёт доплаты."},
+        {"key": "pending", "label": "Ждём перевод (крипта)",
+         "count": stages["pending"],
+         "hint": "Счёт выставлен и ещё действует — человек в этот момент "
+                 "может стоять в своём кошельке."},
     ]
 
     by_currency = list(

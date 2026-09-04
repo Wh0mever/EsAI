@@ -933,6 +933,51 @@ def _notify_balance_topup(user: User, credited: int) -> None:
         logger.exception("token_topup_email_failed user=%s", getattr(user, "id", None))
 
 
+def _apply_purchase_credit(payment: "Payment", order_id: str, total: int,
+                           *, meta_extra: dict | None = None) -> None:
+    """Начислить кредиты за оплаченный заказ и сделать всё, что идёт следом.
+
+    Вынесено из _credit_token_package_for_payment, чтобы крипта начисляла тем
+    же кодом. Отличие крипты одно: она может звать это несколько раз за один
+    заказ (недоплата, потом доплата), передавая ДЕЛЬТУ и подробности в
+    meta_extra. Проверку «не начисляли ли уже» делает вызывающий — здесь
+    только само начисление.
+    """
+    from plans.wallet import credit_tokens
+    from .referral import pay_referral_share
+
+    info = (payment.request or {}).get("token_purchase") or {}
+    meta = {
+        "order_id": order_id,
+        "package_id": info.get("package_id"),
+        "tokens": int(info.get("tokens") or 0),
+        "bonus_tokens": int(info.get("bonus_tokens") or 0),
+    }
+    if meta_extra:
+        meta.update(meta_extra)
+
+    credit_tokens(payment.user, total, "purchase", meta=meta)
+
+    # Exit-discount: пометить redeemed_at, если скидка была применена к этому
+    # платежу. Best-effort — сбой НЕ должен ронять уже совершённое начисление.
+    try:
+        _mark_exit_discount_redeemed(payment)
+    except Exception:
+        logger.exception("exit_discount_redeem_mark_failed order=%s", order_id)
+
+    # Первая оплата → пользователь становится платным (ТЗ 2). Идемпотентно.
+    _mark_user_paid(payment.user)
+
+    # Уведомление пользователю об успешном пополнении (in-app + email).
+    _notify_balance_topup(payment.user, total)
+
+    # Доля пригласившего. Раньше платилась только на пути сверки, поэтому
+    # покупки, подтверждённые постбэком, реферера обходили стороной. Здесь
+    # она достаётся всем провайдерам сразу; идемпотентна по order_id.
+    pay_referral_share(payment.user, order_id, total,
+                       idem_suffix=str((meta_extra or {}).get("idem") or ""))
+
+
 def _credit_token_package_for_payment(payment: "Payment", order_id: str) -> None:
     """Начислить токены за оплаченный пакет. Идемпотентно по order_id.
 
@@ -987,30 +1032,7 @@ def _credit_token_package_for_payment(payment: "Payment", order_id: str) -> None
     if total <= 0:
         raise ValueError("token_package_zero_amount")
 
-    credit_tokens(
-        payment.user,
-        total,
-        "purchase",
-        meta={
-            "order_id": order_id,
-            "package_id": package_id,
-            "tokens": int(info.get("tokens") or 0),
-            "bonus_tokens": int(info.get("bonus_tokens") or 0),
-        },
-    )
-
-    # Exit-discount: пометить redeemed_at, если скидка была применена к этому
-    # платежу. Best-effort — сбой НЕ должен ронять уже совершённое начисление.
-    try:
-        _mark_exit_discount_redeemed(payment)
-    except Exception:
-        logger.exception("exit_discount_redeem_mark_failed order=%s", order_id)
-
-    # Первая оплата → пользователь становится платным (ТЗ 2). Идемпотентно.
-    _mark_user_paid(payment.user)
-
-    # Уведомление пользователю об успешном пополнении (in-app + email).
-    _notify_balance_topup(payment.user, total)
+    _apply_purchase_credit(payment, order_id, total)
 
     response["token_purchase_applied"] = True
     payment.response = response

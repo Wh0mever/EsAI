@@ -1,5 +1,6 @@
 from django.urls import path
 
+from .crypto.views import CryptoCurrenciesView, NowPaymentsIpnView
 from .funnel import FunnelEventView
 from .views import (
     StartBindCardAPIView,
@@ -53,4 +54,10 @@ urlpatterns = [
     # поэтому вью перезапрашивает статус платежа в их API — см. YooKassaWebhookView.
     path('yookassa/webhook/', YooKassaWebhookView.as_view(), name='yookassa-webhook'),
     path('tokens/refund/', FreedomPayTokenRefundPostbackView.as_view(), name='freedompay-tokens-refund'),
+
+    # Крипта. Список монет открыт всем (витрина показывает способ оплаты и
+    # гостю). Уведомление процессора приходит без авторизации — его
+    # подлинность проверяется подписью, а суммы всё равно перезапрашиваются.
+    path('crypto/currencies/', CryptoCurrenciesView.as_view(), name='crypto-currencies'),
+    path('crypto/nowpayments/ipn/', NowPaymentsIpnView.as_view(), name='crypto-nowpayments-ipn'),
 ]
