@@ -151,14 +151,22 @@ export default function CryptoCheckoutModal({
       return;
     }
     if (data.detail === "crypto_amount_below_min") {
+      const coinName = coin?.coin || currencyCode.toUpperCase();
       setPickError({
         kind: "generic",
-        text: t("crypto.err_min_amount", {
-          coin: coin?.coin || currencyCode.toUpperCase(),
-          min: data.min_usd || "",
-          defaultValue:
-            "Минимальная сумма для {{coin}} — ${{min}}. Выберите пакет побольше или другую сеть.",
-        }),
+        // Процессор может отказать «мало», не назвав порог, — тогда без «$».
+        text: data.min_usd
+          ? t("crypto.err_min_amount", {
+              coin: coinName,
+              min: data.min_usd,
+              defaultValue:
+                "Минимальная сумма для {{coin}} — ${{min}}. Выберите пакет побольше или другую сеть.",
+            })
+          : t("crypto.err_min_amount_unknown", {
+              coin: coinName,
+              defaultValue:
+                "Для {{coin}} эта сумма слишком мала у процессора. Выберите другую сеть или пакет побольше.",
+            }),
       });
       return;
     }

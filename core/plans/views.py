@@ -932,10 +932,20 @@ class TokenPurchaseView(APIView):
                 description=f"EsAI credits package {package.id}",
             )
         except crypto_base.ProviderError as exc:
-            # В ошибке платежа не должно быть ни ключей, ни сырых ответов —
-            # её видно в админке.
-            payment.error = f"crypto_create_failed:{exc.code}"
+            # В ошибке платежа не должно быть ни ключей, ни сырых ответов, но
+            # текст отказа процессора нужен: без него в админке восемнадцать
+            # «http_400» подряд, и непонятно, что процессор считал сумму малой.
+            reason = str(exc)[:120]
+            payment.error = f"crypto_create_failed:{exc.code}: {reason}"
             payment.save(update_fields=["error"])
+            if "too small" in reason.lower():
+                # Процессор считает минимум по-своему (с комиссией на
+                # покупателе он заметно выше того, что отдаёт /min-amount).
+                # Человеку нужен ответ «мало», а не «ошибка шлюза».
+                return Response({"detail": "crypto_amount_below_min",
+                                 "min_usd": str(min_usd) if min_usd else None,
+                                 "amount_usd": str(amount_usd)},
+                                status=drf_status.HTTP_400_BAD_REQUEST)
             return Response({"detail": "crypto_request_failed"},
                             status=drf_status.HTTP_502_BAD_GATEWAY)
 

@@ -1900,6 +1900,7 @@
 		"fee_high": "high network fee",
 		"err_too_often": "Too many attempts — wait a minute and try again.",
 		"loading_invoice": "Loading the invoice…",
-		"invoice_not_found": "Invoice not found — it may already be closed. Create a new one."
+		"invoice_not_found": "Invoice not found — it may already be closed. Create a new one.",
+		"err_min_amount_unknown": "This amount is too small for {{coin}} at the processor. Pick another network or a bigger package."
 	}
 }

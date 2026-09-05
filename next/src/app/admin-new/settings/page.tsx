@@ -195,7 +195,7 @@ export default function AdminSettingsPage() {
   // --- Секция: криптооплата ---
   const [cryptoMode, setCryptoMode] = useState<"off" | "staff" | "on">("off");
   const [cryptoCoins, setCryptoCoins] = useState<string[]>([]);
-  const [feeByUser, setFeeByUser] = useState(true);
+  const [feeByUser, setFeeByUser] = useState(false);
   const [usdRateDraft, setUsdRateDraft] = useState("");
   const [npKey, setNpKey] = useState("");
   const [npSecret, setNpSecret] = useState("");
@@ -815,6 +815,13 @@ export default function AdminSettingsPage() {
             <span className="text-[11px] text-muted-2">
               Включено: комиссия NOWPayments (0.5%) и сети добавляется к сумме перевода, и вы
               получаете полную цену пакета. Выключено: комиссия вычитается из выручки.
+            </span>
+            <span className="text-[11px] text-status-wait">
+              Осторожно: с включённым флагом процессор поднимает минимальную сумму счёта
+              примерно до $6–11 — пакеты дешевле перестают оплачиваться криптой (проверено
+              6 сентября: $2.17 и $5.60 отвергались, без флага $2.17 принимался).
+            </span>
+            <span className="text-[11px] text-muted-2">
               {settings.nowpayments_fixed_rate
                 ? " Курс на время счёта фиксируется (NOWPAYMENTS_FIXED_RATE=1) — минимальные суммы выше."
                 : " Курс плавающий: так минимальная сумма у процессора почти вдвое ниже."}
