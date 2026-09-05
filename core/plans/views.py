@@ -938,10 +938,11 @@ class TokenPurchaseView(APIView):
             reason = str(exc)[:120]
             payment.error = f"crypto_create_failed:{exc.code}: {reason}"
             payment.save(update_fields=["error"])
-            if "too small" in reason.lower():
-                # Процессор считает минимум по-своему (с комиссией на
-                # покупателе он заметно выше того, что отдаёт /min-amount).
-                # Человеку нужен ответ «мало», а не «ошибка шлюза».
+            # Процессор считает минимум по-своему и говорит об этом разными
+            # словами: «amountTo is too small» в обычном режиме, «Crypto amount
+            # … is less than minimal» в Custody. Человеку в любом случае нужен
+            # ответ «мало», а не «ошибка шлюза».
+            if any(k in reason.lower() for k in ("too small", "less than min", "minimal", "minimum")):
                 return Response({"detail": "crypto_amount_below_min",
                                  "min_usd": str(min_usd) if min_usd else None,
                                  "amount_usd": str(amount_usd)},

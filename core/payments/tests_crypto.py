@@ -493,14 +493,18 @@ class PurchaseTests(TestCase):
         восемнадцать попыток подряд, и все показывали человеку «попробуйте
         ещё раз», хотя пробовать было бессмысленно.
         """
-        adapter = self._adapter(
-            fail=base.ProviderError("amountTo is too small", code="http_400"))
-        with patch("payments.crypto.registry.get_adapter", return_value=adapter):
-            response = self._buy()
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(response.data["detail"], "crypto_amount_below_min")
-        self.assertEqual(CryptoInvoice.objects.count(), 0)
-        self.assertIn("too small", Payment.objects.get().error)
+        # Два реальных текста отказа: обычный режим и Custody.
+        for reason in ("amountTo is too small",
+                       "Crypto amount 2.165431 is less than minimal"):
+            with self.subTest(reason=reason):
+                Payment.objects.all().delete()
+                adapter = self._adapter(fail=base.ProviderError(reason, code="http_400"))
+                with patch("payments.crypto.registry.get_adapter", return_value=adapter):
+                    response = self._buy()
+                self.assertEqual(response.status_code, 400)
+                self.assertEqual(response.data["detail"], "crypto_amount_below_min")
+                self.assertEqual(CryptoInvoice.objects.count(), 0)
+                self.assertIn(reason, Payment.objects.get().error)
 
     def test_status_of_foreign_order_is_hidden(self):
         adapter = self._adapter()
