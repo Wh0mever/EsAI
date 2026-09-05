@@ -464,6 +464,8 @@ def _settings_snapshot() -> dict:
     snapshot["nowpayments_ipn_secret_masked"] = _mask_key(_crypto_registry.ipn_secret())
     snapshot["nowpayments_sandbox"] = bool(getattr(settings, "NOWPAYMENTS_SANDBOX", False))
     snapshot["crypto_allowed_currencies"] = ",".join(_crypto_currencies.allowed_codes())
+    snapshot["crypto_fee_paid_by_user"] = _crypto_registry.fee_paid_by_user()
+    snapshot["nowpayments_fixed_rate"] = _crypto_registry.fixed_rate()
     # Курс, по которому реально выставляется счёт, и рядом — рыночный, чтобы
     # админ видел, насколько зафиксированное вручную значение отстало.
     snapshot["currency_kgs_to_usd_rate"] = float(_crypto_rates.kgs_to_usd_rate())
@@ -689,6 +691,28 @@ class SettingsView(StaffAPIView):
                     )
                 set_runtime("currency_kgs_to_usd_rate", usd_rate)
 
+        if "crypto_fee_paid_by_user" in data:
+            from django.core.cache import cache as _cache
+            from payments.crypto.views import currencies_cache_key as _cur_key
+
+            raw = data["crypto_fee_paid_by_user"]
+            # Строка "false" из формы превращалась бы bool()-ом в True — а это
+            # флаг, по которому у покупателя берут комиссию сверху.
+            if isinstance(raw, bool):
+                fee_by_user = raw
+            elif str(raw).strip().lower() in ("1", "true", "yes", "on"):
+                fee_by_user = True
+            elif str(raw).strip().lower() in ("0", "false", "no", "off"):
+                fee_by_user = False
+            else:
+                return Response(
+                    {"detail": "crypto_fee_paid_by_user должен быть булевым"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            set_runtime("crypto_fee_paid_by_user", fee_by_user)
+            # Флаг отдаётся вместе со списком монет — сбрасываем его кэш.
+            _cache.delete(_cur_key())
+
         if "crypto_allowed_currencies" in data:
             from django.core.cache import cache as _cache
 
@@ -698,7 +722,9 @@ class SettingsView(StaffAPIView):
             set_runtime("crypto_allowed_currencies", ",".join(cleaned))
             # Список монет кэшируется на витрине — сбрасываем, иначе изменение
             # доедет только через десять минут.
-            _cache.delete("crypto:currencies:v1")
+            from payments.crypto.views import currencies_cache_key as _cur_key2
+
+            _cache.delete(_cur_key2())
 
         # --- ключ OpenRouter (write-only: назад отдаём только маску) ---
         if "openrouter_key" in data:

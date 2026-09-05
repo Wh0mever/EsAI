@@ -22,7 +22,37 @@ logger = logging.getLogger("payments.crypto")
 # Больше этого тело вебхука быть не может: всё, что крупнее, даже не разбираем.
 MAX_IPN_BODY = 64 * 1024
 
-CURRENCIES_CACHE_KEY = "crypto:currencies:v1"
+# Версия в ключе: при смене правил (плавающий курс, комиссия) старый кэш
+# должен умереть с деплоем, а не через полчаса.
+CURRENCIES_CACHE_KEY = "crypto:currencies:v2"
+
+
+def _rate_mode() -> str:
+    return "fixed" if registry.fixed_rate() else "float"
+
+
+def currencies_cache_key() -> str:
+    """Ключ кэша витрины.
+
+    Режим курса — часть ключа: минимумы у процессора для фиксированного и
+    плавающего курса разные, и после смены флага витрина не должна полчаса
+    показывать чужие цифры. Админка сбрасывает кэш этим же ключом.
+    """
+    return f"{CURRENCIES_CACHE_KEY}:{_rate_mode()}"
+
+
+def _rate_mode() -> str:
+    return "fixed" if registry.fixed_rate() else "float"
+
+
+def currencies_cache_key() -> str:
+    """Ключ кэша витрины.
+
+    Режим курса — часть ключа: минимумы у процессора для фиксированного и
+    плавающего курса разные, и после смены флага витрина не должна полчаса
+    показывать чужие цифры. Админка сбрасывает кэш этим же ключом.
+    """
+    return f"{CURRENCIES_CACHE_KEY}:{_rate_mode()}"
 CURRENCIES_CACHE_TTL = 600
 MIN_AMOUNT_CACHE_TTL = 1800
 
@@ -138,7 +168,7 @@ def currencies_payload(user=None) -> dict:
     if not registry.is_enabled_for(user):
         return {"enabled": False, "currencies": []}
 
-    cached = cache.get(CURRENCIES_CACHE_KEY)
+    cached = cache.get(currencies_cache_key())
     if cached is None:
         allowed = currencies.allowed_codes()
         enabled_at_provider = None
@@ -166,18 +196,21 @@ def currencies_payload(user=None) -> dict:
                 "min_usd": str(info.min_amount_usd) if info.min_amount_usd else None,
             })
         cached = rows
-        cache.set(CURRENCIES_CACHE_KEY, cached, CURRENCIES_CACHE_TTL)
+        cache.set(currencies_cache_key(), cached, CURRENCIES_CACHE_TTL)
 
     return {
         "enabled": True,
         "rate_kgs_to_usd": str(rates.kgs_to_usd_rate()),
+        # Витрине нужно знать, включена ли комиссия в сумму: от этого зависит
+        # подпись под суммой к переводу.
+        "fee_paid_by_user": registry.fee_paid_by_user(),
         "currencies": cached,
     }
 
 
 def _min_amount(code: str):
     """Минимальная сумма для монеты — с кэшем: она меняется медленно."""
-    key = f"crypto:min:{code}"
+    key = f"crypto:min:v2:{_rate_mode()}:{code}"
     value = cache.get(key)
     if value is not None:
         return Decimal(value) if value != "" else None

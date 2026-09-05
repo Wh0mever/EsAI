@@ -45,6 +45,20 @@ def ipn_secret() -> str:
                         str(getattr(settings, "NOWPAYMENTS_IPN_SECRET", "")))).strip()
 
 
+def fee_paid_by_user() -> bool:
+    """Добавлять ли комиссию процессора к сумме покупателя."""
+    value = _runtime("crypto_fee_paid_by_user",
+                     bool(getattr(settings, "NOWPAYMENTS_FEE_PAID_BY_USER", True)))
+    if isinstance(value, str):
+        return value.strip().lower() in ("1", "true", "yes", "on")
+    return bool(value)
+
+
+def fixed_rate() -> bool:
+    """Фиксировать ли курс на время счёта (дороже по минимальной сумме)."""
+    return bool(getattr(settings, "NOWPAYMENTS_FIXED_RATE", False))
+
+
 def get_adapter(name: str = "nowpayments"):
     """Адаптер процессора. Пока он один, но точка расширения — здесь."""
     from .nowpayments import NowPayments
@@ -56,6 +70,8 @@ def get_adapter(name: str = "nowpayments"):
         ipn_secret=ipn_secret(),
         api_url=str(getattr(settings, "NOWPAYMENTS_API_URL", "") or ""),
         sandbox=bool(getattr(settings, "NOWPAYMENTS_SANDBOX", False)),
+        fixed_rate=fixed_rate(),
+        fee_paid_by_user=fee_paid_by_user(),
     )
 
 

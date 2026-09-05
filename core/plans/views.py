@@ -866,9 +866,10 @@ class TokenPurchaseView(APIView):
             .select_related("payment").order_by("-created_at").first())
         if same is not None:
             return Response(invoice_json(same, resumed=True))
-        # Больше трёх живых счетов на человека — это уже не покупка, а перебор
-        # адресов: каждый счёт стоит нам запроса к процессору.
-        if open_invoices.count() >= 3:
+        # Счёт создаётся по клику на монету, и человек, сравнивающий три-четыре
+        # сети, честно наберёт несколько живых счетов. А вот больше шести —
+        # это уже перебор адресов: каждый счёт стоит нам запроса к процессору.
+        if open_invoices.count() >= 6:
             return Response({"detail": "crypto_too_many_open_invoices"},
                             status=drf_status.HTTP_429_TOO_MANY_REQUESTS)
 

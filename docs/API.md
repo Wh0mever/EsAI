@@ -42,12 +42,15 @@
 телу вебхука не доверяем. Способ включается в админке (режим off/staff/on).
 
 - `GET /api/payments/crypto/currencies/` (public) →
-  `{enabled, rate_kgs_to_usd, currencies:[{code,coin,network,label,extra_id_required,network_cost,popular,min_usd}]}`.
-  `enabled:false` — метод выключен или не открыт этому человеку.
+  `{enabled, rate_kgs_to_usd, fee_paid_by_user, currencies:[{code,coin,network,label,extra_id_required,network_cost,popular,min_usd}]}`.
+  `enabled:false` — метод выключен или не открыт этому человеку. `min_usd` —
+  минимум процессора для этой монеты; витрина гасит монеты, у которых он выше
+  цены пакета. `fee_paid_by_user` — комиссия процессора уже в сумме к переводу.
 - `POST /api/plans/purchase/` (auth) `{"package_id":1,"pay_currency":"USD","crypto_currency":"usdttrc20"}`
   → счёт: `{kind:"crypto", order_id, ui_state, pay:{address,extra_id,amount,...},
   price:{kgs,usd,rate_kgs_to_usd}, credits:{total,credited}, expires_at, seconds_left}`.
-  Повторный клик по тому же пакету и монете возвращает тот же счёт (`resumed:true`).
+  Счёт создаётся кликом по монете. Повторный клик по тому же пакету и монете
+  возвращает тот же счёт (`resumed:true`); живых счетов у человека может быть до шести.
   Ошибки: 403 `crypto_disabled`, 400 `crypto_currency_not_supported`,
   400 `crypto_amount_below_min` (+`min_usd`), 429 `crypto_too_many_open_invoices`.
 - `GET /api/plans/purchase/crypto/<order_id>/` (auth, только владелец, иначе 404) —

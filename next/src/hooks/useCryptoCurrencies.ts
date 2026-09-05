@@ -29,6 +29,7 @@ async function fetchOnce(): Promise<CryptoCurrenciesResponse> {
         cached = {
           enabled: res.data.enabled,
           rate_kgs_to_usd: res.data.rate_kgs_to_usd,
+          fee_paid_by_user: Boolean(res.data.fee_paid_by_user),
           currencies: Array.isArray(res.data.currencies) ? res.data.currencies : [],
         };
         return cached;
@@ -54,6 +55,10 @@ export function resetCryptoCurrenciesCache(): void {
 export function useCryptoCurrencies(active = true) {
   const [enabled, setEnabled] = useState<boolean | null>(cached ? cached.enabled : null);
   const [currencies, setCurrencies] = useState<CryptoCurrency[]>(cached?.currencies || []);
+  const [rateKgsToUsd, setRateKgsToUsd] = useState<number | null>(
+    cached?.rate_kgs_to_usd ? Number(cached.rate_kgs_to_usd) || null : null
+  );
+  const [feePaidByUser, setFeePaidByUser] = useState<boolean>(Boolean(cached?.fee_paid_by_user));
   const [loading, setLoading] = useState(!cached);
 
   useEffect(() => {
@@ -65,6 +70,8 @@ export function useCryptoCurrencies(active = true) {
       if (!alive) return;
       setEnabled(data.enabled);
       setCurrencies(data.currencies);
+      setRateKgsToUsd(data.rate_kgs_to_usd ? Number(data.rate_kgs_to_usd) || null : null);
+      setFeePaidByUser(Boolean(data.fee_paid_by_user));
       setLoading(false);
     })();
     return () => {
@@ -72,5 +79,5 @@ export function useCryptoCurrencies(active = true) {
     };
   }, [active]);
 
-  return { enabled, currencies, loading };
+  return { enabled, currencies, loading, rateKgsToUsd, feePaidByUser };
 }

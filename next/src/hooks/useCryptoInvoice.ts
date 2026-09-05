@@ -86,6 +86,8 @@ export function useCryptoInvoice(
     if (res.status === 404) {
       setNotFound(true);
       stopped.current = true;
+      // Счёта больше нет — баннеру «незавершённая оплата» не за что цепляться.
+      clearCryptoSession();
       return;
     }
     if (!res.ok || !res.data) {

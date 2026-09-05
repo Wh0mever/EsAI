@@ -1,18 +1,25 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { FiArrowLeft, FiGift, FiLoader } from "react-icons/fi";
+import { FiCreditCard, FiGift, FiShield } from "react-icons/fi";
 import { Modal } from "@/components/dialog/Dialog";
 import { fetchData } from "@/tools/fetchData";
 import { trackFunnel } from "@/tools/funnel";
 import { saveCryptoSession } from "@/lib/cryptoSession";
+import { useCryptoCurrencies } from "@/hooks/useCryptoCurrencies";
 import type { CryptoCurrency, CryptoInvoice, CryptoPurchaseError } from "@/types/crypto";
+import CoinIcon from "./CoinIcon";
 import CoinPicker from "./CoinPicker";
 import InvoiceView from "./InvoiceView";
 
 /**
- * Оплата криптовалютой: выбор монеты -> счёт.
+ * Окно пополнения: слева — что покупаем и чем платим, справа — монеты, а
+ * после клика по монете — адрес, сумма и QR.
+ *
+ * Устройство подсмотрено у площадок, где криптой платят каждый день: человек
+ * не должен листать шаги, всё в одном окне. Способы оплаты картой стоят в той
+ * же левой колонке — переключиться на карту можно, не закрывая окно.
  *
  * Модалка здесь ровно одна. Две открытые одновременно ломают друг другу
  * Escape и блокировку прокрутки (обе вешают свои обработчики), поэтому тот,
@@ -25,12 +32,16 @@ type Pkg = {
   bonus_tokens?: number;
 };
 
+type CardCurrency = "KGS" | "RUB";
+
 type Props = {
   open: boolean;
   onClose: () => void;
   /** null в режиме возврата к счёту: пакет тогда известен только серверу */
   pkg?: Pkg | null;
-  /** цена в валюте витрины — «1 900 сом» / «$21.66» */
+  /** цена пакета в сомах — базовая валюта всех пакетов (API отдаёт строкой) */
+  priceKgs?: number | string;
+  /** цена в валюте витрины — «1 900 сом» / «$21.66» (подпись под долларами) */
   priceLabel?: string;
   currencies: CryptoCurrency[];
   /** открыть сразу счёт (незавершённая оплата) */
@@ -38,43 +49,45 @@ type Props = {
   deviceKey?: string;
   returnTo?: string;
   onPaid?: () => void;
+  /** переключение на карту прямо из окна; нет — строки карт не показываем */
+  onCardPurchase?: (currency: CardCurrency) => void;
 };
 
 type Stage =
   | { name: "pick" }
-  | { name: "creating" }
-  | { name: "invoice"; orderId: string; initial: CryptoInvoice | null }
-  | { name: "error"; kind: "min_amount" | "unsupported" | "auth" | "generic"; text: string };
+  | { name: "invoice"; orderId: string; initial: CryptoInvoice | null };
+
+type PickError = { kind: "auth" | "generic"; text: string } | null;
 
 export default function CryptoCheckoutModal({
   open,
   onClose,
   pkg = null,
+  priceKgs,
   priceLabel,
   currencies,
   resumeOrderId = null,
   deviceKey,
   returnTo,
   onPaid,
+  onCardPurchase,
 }: Props) {
   const { t } = useTranslation("common");
+  // Курс и флаг комиссии приходят вместе со списком монет — из кэша, без
+  // второго запроса.
+  const { rateKgsToUsd, feePaidByUser } = useCryptoCurrencies();
   const [stage, setStage] = useState<Stage>(
     resumeOrderId ? { name: "invoice", orderId: resumeOrderId, initial: null } : { name: "pick" }
   );
-  const [code, setCode] = useState<string | null>(null);
+  const [busyCode, setBusyCode] = useState<string | null>(null);
+  const [pickError, setPickError] = useState<PickError>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
-
-  // Первой предлагаем ту монету, которой платят чаще всего (её процессор
-  // отдаёт первой в списке популярных) — но выбор всегда за человеком.
-  const defaultCode = useMemo(
-    () => currencies.find((c) => c.popular)?.code || currencies[0]?.code || null,
-    [currencies]
-  );
 
   useEffect(() => {
     if (!open) return;
     setStage(resumeOrderId ? { name: "invoice", orderId: resumeOrderId, initial: null } : { name: "pick" });
-    setCode(null);
+    setBusyCode(null);
+    setPickError(null);
   }, [open, resumeOrderId]);
 
   // Фокус на заголовок шага: у Modal нет ловушки фокуса, и без этого
@@ -83,11 +96,16 @@ export default function CryptoCheckoutModal({
     headingRef.current?.focus();
   }, [stage.name]);
 
-  const selected = currencies.find((c) => c.code === code) || null;
+  // Цена приходит из API строкой («190.00») — считаем через Number, иначе
+  // плитки с минимумом выше цены никогда не погаснут.
+  const kgs = priceKgs === undefined || priceKgs === null ? NaN : Number(priceKgs);
+  const priceUsd =
+    Number.isFinite(kgs) && rateKgsToUsd ? Math.round(kgs * rateKgsToUsd * 100) / 100 : null;
 
   const createInvoice = async (currencyCode: string) => {
-    if (!pkg) return;
-    setStage({ name: "creating" });
+    if (!pkg || busyCode) return;
+    setBusyCode(currencyCode);
+    setPickError(null);
     trackFunnel("crypto_currency_pick", { package_id: pkg.id, pay_currency: currencyCode });
 
     const res = await fetchData<CryptoInvoice & CryptoPurchaseError>(
@@ -102,6 +120,7 @@ export default function CryptoCheckoutModal({
       true,
       deviceKey ? { "X-Device-Key": deviceKey } : undefined
     );
+    setBusyCode(null);
 
     if (res.ok && res.data && res.data.order_id) {
       const invoice = res.data as CryptoInvoice;
@@ -121,9 +140,9 @@ export default function CryptoCheckoutModal({
     }
 
     const data = (res.data || {}) as CryptoPurchaseError;
+    const coin = currencies.find((c) => c.code === currencyCode);
     if (res.status === 401) {
-      setStage({
-        name: "error",
+      setPickError({
         kind: "auth",
         text: t("crypto.err_unauthorized", {
           defaultValue: "Сессия истекла. Войдите снова, чтобы продолжить.",
@@ -132,11 +151,10 @@ export default function CryptoCheckoutModal({
       return;
     }
     if (data.detail === "crypto_amount_below_min") {
-      setStage({
-        name: "error",
-        kind: "min_amount",
+      setPickError({
+        kind: "generic",
         text: t("crypto.err_min_amount", {
-          coin: selected?.coin || currencyCode.toUpperCase(),
+          coin: coin?.coin || currencyCode.toUpperCase(),
           min: data.min_usd || "",
           defaultValue:
             "Минимальная сумма для {{coin}} — ${{min}}. Выберите пакет побольше или другую сеть.",
@@ -144,141 +162,265 @@ export default function CryptoCheckoutModal({
       });
       return;
     }
+    if (data.detail === "crypto_too_often") {
+      setPickError({
+        kind: "generic",
+        text: t("crypto.err_too_often", {
+          defaultValue: "Слишком много попыток — подождите минуту и попробуйте снова.",
+        }),
+      });
+      return;
+    }
+    if (data.detail === "crypto_too_many_open_invoices") {
+      setPickError({
+        kind: "generic",
+        text: t("crypto.err_too_many", {
+          defaultValue:
+            "У вас уже несколько открытых счетов. Оплатите один из них или подождите, пока они истекут.",
+        }),
+      });
+      return;
+    }
     if (data.detail === "crypto_currency_not_supported" || data.detail === "crypto_disabled") {
-      setStage({
-        name: "error",
-        kind: "unsupported",
+      setPickError({
+        kind: "generic",
         text: t("crypto.err_unsupported", {
           defaultValue: "Эта монета временно недоступна. Выберите другую.",
         }),
       });
       return;
     }
-    setStage({
-      name: "error",
+    setPickError({
       kind: "generic",
       text: t("crypto.err_generic", { defaultValue: "Не удалось создать счёт. Попробуйте ещё раз." }),
     });
   };
 
-  const title =
-    stage.name === "invoice"
-      ? t("crypto.title_invoice", { defaultValue: "Оплата криптовалютой" })
-      : t("crypto.title_pick", { defaultValue: "Выберите монету" });
-
+  const title = t("crypto.title", { defaultValue: "Пополнение баланса" });
   const bonus = Number(pkg?.bonus_tokens || 0);
+  const cryptoCount = currencies.length;
+
+  const methodRow = (
+    key: string,
+    icon: React.ReactNode,
+    label: string,
+    hint: string,
+    active: boolean,
+    onClick?: () => void
+  ) => (
+    <button
+      key={key}
+      type="button"
+      onClick={onClick}
+      disabled={active || !onClick}
+      aria-pressed={active}
+      className={`flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors ${
+        active
+          ? "border-accent bg-accent-soft"
+          : "cursor-pointer border-border bg-surface hover:border-accent/60"
+      }`}
+    >
+      <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface-3 text-foreground">
+        {icon}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-sm font-medium text-foreground">{label}</span>
+        <span className="block truncate text-[11px] text-muted">{hint}</span>
+      </span>
+    </button>
+  );
 
   return (
     <Modal title={title} open={open} onClose={onClose} size="lg" mobileFull>
-      <div className="flex flex-col gap-4 p-1 sm:p-2">
+      <div className="grid gap-4 md:grid-cols-[236px_minmax(0,1fr)]">
         <h3 ref={headingRef} tabIndex={-1} className="sr-only">
-          {title}
+          {stage.name === "invoice"
+            ? t("crypto.title_invoice", { defaultValue: "Оплата криптовалютой" })
+            : t("crypto.pick_title", { defaultValue: "Выберите монету для оплаты" })}
         </h3>
 
-        {stage.name === "pick" && (
-          <div className="grid gap-5 md:grid-cols-[minmax(0,1fr)_280px]">
-            <CoinPicker
-              currencies={currencies}
-              value={code ?? defaultCode}
-              onChange={setCode}
-            />
-
-            <div className="flex flex-col gap-3 rounded-2xl border border-border bg-surface-2 p-4 md:sticky md:top-0 md:self-start">
-              {pkg && (
-                <>
-                  <div className="text-sm font-semibold text-foreground">{pkg.name}</div>
-                  <div className="flex items-baseline gap-1.5 text-sm text-muted">
-                    <span className="text-lg font-bold text-foreground">
-                      {pkg.tokens.toLocaleString()}
-                    </span>
-                    {t("topup.credits", { defaultValue: "кредитов" })}
+        {/* ------------------------------------------ телефон: сжатая шапка */}
+        {/* На узком экране боковая колонка целиком заняла бы первый экран, и
+            адрес оказался бы под сгибом. Поэтому тут одна строка про пакет и
+            способы оплаты фишками — суть та же, места втрое меньше. */}
+        <div className="flex flex-col gap-2 md:hidden">
+          {pkg && (
+            <div className="flex items-center justify-between gap-3 rounded-xl border border-border bg-surface-2 px-3 py-2">
+              <div className="min-w-0">
+                <div className="truncate text-sm font-semibold text-foreground">{pkg.name}</div>
+                <div className="text-[11px] text-muted">
+                  {pkg.tokens.toLocaleString("ru-RU")} {t("topup.credits", { defaultValue: "кредитов" })}
+                  {bonus > 0 ? ` +${bonus.toLocaleString("ru-RU")}` : ""}
+                </div>
+              </div>
+              <div className="text-right">
+                <div className="text-lg font-bold tabular-nums text-foreground">
+                  {priceUsd !== null ? `$${priceUsd.toFixed(2)}` : priceLabel || ""}
+                </div>
+                {priceUsd !== null && Number.isFinite(kgs) && (
+                  <div className="text-[10px] text-muted-2">
+                    {kgs.toLocaleString("ru-RU")} {t("topup.som", { defaultValue: "сом" })}
                   </div>
-                  {bonus > 0 && (
-                    <div className="inline-flex items-center gap-1 text-xs text-accent">
-                      <FiGift /> +{bonus.toLocaleString()} {t("topup.bonus", { defaultValue: "бонус" })}
-                    </div>
-                  )}
-                </>
-              )}
-              {priceLabel && (
-                <div className="text-xl font-bold text-foreground">{priceLabel}</div>
-              )}
-              <p className="text-xs text-muted-2">
-                {t("crypto.price_usd_note", {
-                  defaultValue:
-                    "Точная сумма в монете зафиксируется при создании счёта и не изменится, пока он действует.",
-                })}
-              </p>
-              <button
-                type="button"
-                disabled={!(code ?? defaultCode)}
-                onClick={() => void createInvoice((code ?? defaultCode) as string)}
-                className="mt-1 inline-flex items-center justify-center rounded-xl bg-accent px-4 py-2.5 text-sm font-semibold text-on-accent transition-colors hover:bg-accent-strong disabled:opacity-60 disabled:cursor-not-allowed cursor-pointer"
-              >
-                {t("crypto.create_invoice", { defaultValue: "Перейти к оплате" })}
-              </button>
+                )}
+              </div>
             </div>
-          </div>
-        )}
-
-        {stage.name === "creating" && (
-          <div className="flex flex-col items-center gap-3 py-14 text-muted">
-            <FiLoader className="animate-spin text-2xl" />
-            {t("crypto.creating", { defaultValue: "Создаём счёт…" })}
-          </div>
-        )}
-
-        {stage.name === "invoice" && (
-          <InvoiceView
-            orderId={stage.orderId}
-            initial={stage.initial}
-            returnTo={returnTo}
-            onPaid={onPaid}
-            onNewInvoice={pkg ? () => setStage({ name: "pick" }) : undefined}
-            onClose={onClose}
-          />
-        )}
-
-        {stage.name === "error" && (
-          <div className="flex flex-col items-center gap-4 py-10 text-center">
-            <p className="max-w-md text-sm text-status-fail">{stage.text}</p>
-            <div className="flex flex-wrap justify-center gap-2">
-              {stage.kind === "auth" ? (
-                <a
-                  href={`/auth/signin?next=${encodeURIComponent(returnTo || "/pricing")}`}
-                  className="rounded-xl bg-accent px-5 py-2.5 text-sm font-semibold text-on-accent transition-colors hover:bg-accent-strong"
-                >
-                  {t("crypto.sign_in", { defaultValue: "Войти" })}
-                </a>
-              ) : (
+          )}
+          {stage.name === "pick" && onCardPurchase && (
+            <div className="flex gap-2 overflow-x-auto pb-0.5">
+              {/* Активный способ — первым: строка прокручивается, и то, что
+                  выбрано сейчас, не должно прятаться за краем экрана. */}
+              <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-accent bg-accent-soft px-3 py-1 text-xs font-medium text-foreground">
+                <CoinIcon coin="USDT" size={14} />
+                {t("crypto.method_crypto", { defaultValue: "Криптовалюта" })}
+              </span>
+              {(
+                [
+                  ["KGS", t("crypto.method_card_kgs", { defaultValue: "Карта · сом" })],
+                  ["RUB", t("crypto.method_card_rub", { defaultValue: "Карта · рубли" })],
+                ] as [CardCurrency, string][]
+              ).map(([cur, label]) => (
                 <button
+                  key={cur}
                   type="button"
-                  onClick={() => setStage({ name: "pick" })}
-                  className="rounded-xl bg-accent px-5 py-2.5 text-sm font-semibold text-on-accent transition-colors hover:bg-accent-strong cursor-pointer"
+                  onClick={() => onCardPurchase(cur)}
+                  className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-surface px-3 py-1 text-xs text-muted transition-colors hover:border-accent/60 hover:text-foreground cursor-pointer"
                 >
-                  {t("crypto.change_coin", { defaultValue: "Выбрать другую монету" })}
+                  <FiCreditCard /> {label}
                 </button>
-              )}
-              <button
-                type="button"
-                onClick={onClose}
-                className="rounded-xl border border-border px-5 py-2.5 text-sm text-muted transition-colors hover:text-foreground cursor-pointer"
-              >
-                {t("crypto.other_package", { defaultValue: "Другой пакет" })}
-              </button>
+              ))}
             </div>
-          </div>
-        )}
+          )}
+        </div>
 
-        {stage.name === "invoice" && pkg && (
-          <button
-            type="button"
-            onClick={() => setStage({ name: "pick" })}
-            className="inline-flex items-center gap-1.5 self-start text-xs text-muted transition-colors hover:text-foreground cursor-pointer"
-          >
-            <FiArrowLeft /> {t("crypto.back_to_coins", { defaultValue: "Выбрать другую монету" })}
-          </button>
-        )}
+        {/* ---------------------------------------------------- левая колонка */}
+        <aside className="hidden flex-col gap-4 rounded-2xl border border-border bg-surface-2 p-4 md:flex md:self-start">
+          {pkg ? (
+            <div className="flex flex-col gap-1">
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-muted">
+                {t("crypto.sidebar_package", { defaultValue: "Пакет" })}
+              </div>
+              <div className="text-sm font-semibold text-foreground">{pkg.name}</div>
+              <div className="flex items-baseline gap-1.5 text-xs text-muted">
+                <span className="text-base font-bold text-foreground">
+                  {pkg.tokens.toLocaleString("ru-RU")}
+                </span>
+                {t("topup.credits", { defaultValue: "кредитов" })}
+              </div>
+              {bonus > 0 && (
+                <div className="inline-flex items-center gap-1 text-xs text-accent">
+                  <FiGift /> +{bonus.toLocaleString("ru-RU")} {t("topup.bonus", { defaultValue: "бонус" })}
+                </div>
+              )}
+              <div className="mt-1 text-2xl font-bold tabular-nums text-foreground">
+                {priceUsd !== null ? `$${priceUsd.toFixed(2)}` : priceLabel || ""}
+              </div>
+              {priceUsd !== null && Number.isFinite(kgs) && (
+                <div className="text-[11px] text-muted-2">
+                  {kgs.toLocaleString("ru-RU")} {t("topup.som", { defaultValue: "сом" })}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="text-sm text-muted">
+              {t("crypto.sidebar_resume", { defaultValue: "Возвращаемся к вашему счёту" })}
+            </div>
+          )}
+
+          <div className="flex flex-col gap-2">
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-muted">
+              {t("crypto.sidebar_method", { defaultValue: "Способ оплаты" })}
+            </div>
+            {onCardPurchase &&
+              methodRow(
+                "kgs",
+                <FiCreditCard />,
+                t("crypto.method_card_kgs", { defaultValue: "Карта · сом" }),
+                t("crypto.method_card_kgs_hint", { defaultValue: "Visa, Mastercard, Элкарт" }),
+                false,
+                () => onCardPurchase("KGS")
+              )}
+            {onCardPurchase &&
+              methodRow(
+                "rub",
+                <FiCreditCard />,
+                t("crypto.method_card_rub", { defaultValue: "Карта · рубли" }),
+                t("crypto.method_card_rub_hint", { defaultValue: "Российские карты" }),
+                false,
+                () => onCardPurchase("RUB")
+              )}
+            {methodRow(
+              "crypto",
+              <span className="flex -space-x-1.5">
+                <CoinIcon coin="USDT" size={16} />
+                <CoinIcon coin="BTC" size={16} />
+              </span>,
+              t("crypto.method_crypto", { defaultValue: "Криптовалюта" }),
+              t("crypto.method_crypto_hint", {
+                count: cryptoCount,
+                defaultValue: "{{count}} монет",
+              }),
+              true
+            )}
+          </div>
+
+          <p className="flex items-start gap-1.5 text-[11px] leading-snug text-muted-2">
+            <FiShield className="mt-px shrink-0" />
+            {t("crypto.sidebar_note", {
+              defaultValue:
+                "Кредиты зачисляются автоматически после подтверждения сети. Вывести их или передать другому аккаунту нельзя.",
+            })}
+          </p>
+        </aside>
+
+        {/* --------------------------------------------------- правая колонка */}
+        <section className="flex min-w-0 flex-col gap-3">
+          {stage.name === "pick" && (
+            <>
+              <div className="text-sm font-medium text-muted">
+                {t("crypto.pick_title", { defaultValue: "Выберите монету для оплаты" })}
+              </div>
+              {pickError && (
+                <div
+                  role="alert"
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-status-fail/40 bg-status-fail/10 px-3 py-2 text-sm text-foreground"
+                >
+                  <span>{pickError.text}</span>
+                  {pickError.kind === "auth" && (
+                    <a
+                      href={`/auth/signin?next=${encodeURIComponent(returnTo || "/pricing")}`}
+                      className="rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-on-accent transition-colors hover:bg-accent-strong"
+                    >
+                      {t("crypto.sign_in", { defaultValue: "Войти" })}
+                    </a>
+                  )}
+                </div>
+              )}
+              <CoinPicker
+                currencies={currencies}
+                priceUsd={priceUsd}
+                busyCode={busyCode}
+                onPick={(code) => void createInvoice(code)}
+              />
+              {busyCode && (
+                <div className="text-xs text-muted" aria-live="polite">
+                  {t("crypto.creating", { defaultValue: "Создаём счёт…" })}
+                </div>
+              )}
+            </>
+          )}
+
+          {stage.name === "invoice" && (
+            <InvoiceView
+              orderId={stage.orderId}
+              initial={stage.initial}
+              returnTo={returnTo}
+              feePaidByUser={feePaidByUser}
+              onPaid={onPaid}
+              onBack={pkg ? () => setStage({ name: "pick" }) : undefined}
+              onClose={onClose}
+            />
+          )}
+        </section>
       </div>
     </Modal>
   );
