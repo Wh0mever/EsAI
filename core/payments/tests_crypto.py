@@ -24,6 +24,13 @@ from payments.models import CryptoInvoice, CryptoWebhookEvent, Payment
 from plans.models import TokenPackage, TokenTransaction
 from plans.views import TokenPurchaseView
 
+# Тесты не должны видеть боевой кэш: прогон в контейнере на проде однажды
+# положил в общий Redis заглушку витрины — три монеты с минимумом $1 — и
+# люди десять минут видели её вместо настоящих двенадцати.
+TEST_CACHES = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+                           "LOCATION": "crypto-tests"}}
+
+
 IPN_SECRET = "test-ipn-secret"
 
 
@@ -80,6 +87,7 @@ def make_state(**over):
 
 # --------------------------------------------------------------- подпись ---
 
+@override_settings(CACHES=TEST_CACHES)
 class SignatureTests(TestCase):
     def setUp(self):
         self.adapter = NowPayments(api_key="k", ipn_secret=IPN_SECRET)
@@ -125,6 +133,7 @@ class SignatureTests(TestCase):
 # ------------------------------------------------------------ арифметика ---
 
 @override_settings(CRYPTO_FULL_TOLERANCE_PERCENT=0.5, CRYPTO_OVERPAY_CAP_PERCENT=200)
+@override_settings(CACHES=TEST_CACHES)
 class EntitledCreditsTests(TestCase):
     def check(self, paid, expected_credits, expected_kind, total=1000, expected=Decimal("10")):
         credits, kind = credit.entitled_credits(total, expected, Decimal(str(paid)))
@@ -163,6 +172,7 @@ class EntitledCreditsTests(TestCase):
 
 # ----------------------------------------------------------- стейт-машина ---
 
+@override_settings(CACHES=TEST_CACHES)
 class CreditFlowTests(TestCase):
     def setUp(self):
         self.user = get_user_model().objects.create_user(
@@ -270,6 +280,7 @@ class CreditFlowTests(TestCase):
 
 # ----------------------------------------------------------------- вебхук ---
 
+@override_settings(CACHES=TEST_CACHES)
 class IpnViewTests(TestCase):
     def setUp(self):
         self.user = get_user_model().objects.create_user(
@@ -365,6 +376,7 @@ class IpnViewTests(TestCase):
 @override_settings(SITE_BASE_URL="https://esai.test", CRYPTO_PAYMENTS_MODE="on",
                    NOWPAYMENTS_API_KEY="k",
                    CRYPTO_ALLOWED_CURRENCIES="usdttrc20,btc,ton")
+@override_settings(CACHES=TEST_CACHES)
 class PurchaseTests(TestCase):
     def setUp(self):
         self.user = get_user_model().objects.create_user(
@@ -488,6 +500,7 @@ class PurchaseTests(TestCase):
 
 # ------------------------------------------------------------------ сроки ---
 
+@override_settings(CACHES=TEST_CACHES)
 class LocalExpiryTests(TestCase):
     """Счёт закрываем сами, только когда он действительно просрочен.
 
@@ -541,6 +554,7 @@ class LocalExpiryTests(TestCase):
 
 # ------------------------------------------------- комиссия и курс счёта ---
 
+@override_settings(CACHES=TEST_CACHES)
 class FeeAndRateTests(TestCase):
     """Кто платит комиссию и фиксируется ли курс — это настройки, и они
     должны доезжать до процессора ровно в том виде, в каком их выставили."""
