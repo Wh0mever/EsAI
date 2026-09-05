@@ -40,6 +40,8 @@ type Settings = {
   nowpayments_key_masked: string | null;
   nowpayments_ipn_secret_masked: string | null;
   nowpayments_sandbox: boolean;
+  crypto_fee_paid_by_user: boolean;
+  nowpayments_fixed_rate: boolean;
   crypto_allowed_currencies: string;
   /** курс, по которому реально выставляется криптосчёт */
   currency_kgs_to_usd_rate: number;
@@ -193,6 +195,7 @@ export default function AdminSettingsPage() {
   // --- Секция: криптооплата ---
   const [cryptoMode, setCryptoMode] = useState<"off" | "staff" | "on">("off");
   const [cryptoCoins, setCryptoCoins] = useState<string[]>([]);
+  const [feeByUser, setFeeByUser] = useState(true);
   const [usdRateDraft, setUsdRateDraft] = useState("");
   const [npKey, setNpKey] = useState("");
   const [npSecret, setNpSecret] = useState("");
@@ -230,6 +233,7 @@ export default function AdminSettingsPage() {
     setImageAutoRoute(Boolean(s.image_auto_route));
     setRateDraft(String(s.currency_kgs_to_rub_rate ?? ""));
     setCryptoMode(s.crypto_payments_mode ?? "off");
+    setFeeByUser(Boolean(s.crypto_fee_paid_by_user));
     setCryptoCoins(
       String(s.crypto_allowed_currencies || "")
         .split(",")
@@ -400,6 +404,7 @@ export default function AdminSettingsPage() {
   const cryptoDirty =
     settings !== null &&
     (cryptoMode !== settings.crypto_payments_mode ||
+      feeByUser !== Boolean(settings.crypto_fee_paid_by_user) ||
       cryptoCoins.join(",") !== settings.crypto_allowed_currencies ||
       Boolean(npKey.trim()) ||
       Boolean(npSecret.trim()) ||
@@ -418,6 +423,9 @@ export default function AdminSettingsPage() {
     }
     if (cryptoCoins.join(",") !== settings.crypto_allowed_currencies) {
       patch.crypto_allowed_currencies = cryptoCoins.join(",");
+    }
+    if (feeByUser !== Boolean(settings.crypto_fee_paid_by_user)) {
+      patch.crypto_fee_paid_by_user = feeByUser;
     }
     if (npKey.trim()) patch.nowpayments_api_key = npKey.trim();
     if (npSecret.trim()) patch.nowpayments_ipn_secret = npSecret.trim();
@@ -794,6 +802,25 @@ export default function AdminSettingsPage() {
             />
           </div>
         </div>
+
+        <label className="mt-4 flex max-w-xl cursor-pointer items-start gap-3 rounded-xl border border-border bg-surface-2 px-3 py-2.5">
+          <input
+            type="checkbox"
+            checked={feeByUser}
+            onChange={(e) => setFeeByUser(e.target.checked)}
+            className="mt-0.5 h-4 w-4 accent-[var(--accent)]"
+          />
+          <span className="flex flex-col gap-0.5">
+            <span className="text-sm text-foreground">Комиссию процессора платит покупатель</span>
+            <span className="text-[11px] text-muted-2">
+              Включено: комиссия NOWPayments (0.5%) и сети добавляется к сумме перевода, и вы
+              получаете полную цену пакета. Выключено: комиссия вычитается из выручки.
+              {settings.nowpayments_fixed_rate
+                ? " Курс на время счёта фиксируется (NOWPAYMENTS_FIXED_RATE=1) — минимальные суммы выше."
+                : " Курс плавающий: так минимальная сумма у процессора почти вдвое ниже."}
+            </span>
+          </span>
+        </label>
 
         <div className="mt-4 flex flex-col gap-1 max-w-sm">
           <label className="text-xs text-muted">

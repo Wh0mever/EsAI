@@ -759,7 +759,14 @@ NOWPAYMENTS_SANDBOX = env.bool("NOWPAYMENTS_SANDBOX", default=False)
 NOWPAYMENTS_API_URL = env.str("NOWPAYMENTS_API_URL", default="")
 # Комиссию процессора платит магазин: иначе к сумме перевода прибавляется
 # лишнее, и человек видит некруглое число, которого не ждал.
-NOWPAYMENTS_FEE_PAID_BY_USER = env.bool("NOWPAYMENTS_FEE_PAID_BY_USER", default=False)
+# Комиссию процессора и сети добавляем к сумме покупателя: клиент получает
+# полную цену пакета. Переключается из админки (crypto_fee_paid_by_user).
+NOWPAYMENTS_FEE_PAID_BY_USER = env.bool("NOWPAYMENTS_FEE_PAID_BY_USER", default=True)
+# Курс счёта. С фиксацией процессор страхует себя и поднимает минимальную
+# сумму почти вдвое (USDT TRC-20: $19.7 против $11.4) — а сумма в монете и
+# так называется один раз при создании счёта, и человек переводит ровно её.
+# Разница курса за час ложится на продавца, и на $2–20 она копеечная.
+NOWPAYMENTS_FIXED_RATE = env.bool("NOWPAYMENTS_FIXED_RATE", default=False)
 
 # Цены пакетов хранятся в сомах, счёт процессору выставляется в долларах.
 # Живой курс берётся из CurrencyRate (обновляется раз в час), это значение —
@@ -767,9 +774,9 @@ NOWPAYMENTS_FEE_PAID_BY_USER = env.bool("NOWPAYMENTS_FEE_PAID_BY_USER", default=
 # (AppSetting "currency_kgs_to_usd_rate").
 CURRENCY_KGS_TO_USD_RATE = env.float("CURRENCY_KGS_TO_USD_RATE", default=0.0115)
 
-# Сколько живёт счёт. Курс монеты к доллару зафиксирован на это время, поэтому
-# час — потолок: дольше держать чужой курс дорого, короче — человек не успеет
-# сходить в кошелёк.
+# Сколько живёт счёт. Час: короче — человек не успеет сходить в кошелёк,
+# дольше — сумма в монете, названная при создании, разойдётся с курсом
+# настолько, что продавец получит заметно меньше.
 CRYPTO_INVOICE_TTL_MINUTES = env.int("CRYPTO_INVOICE_TTL_MINUTES", default=60)
 
 # Монеты, доступные на витрине (коды процессора). Правится в админке

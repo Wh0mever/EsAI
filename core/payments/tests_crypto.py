@@ -4,6 +4,7 @@
 Ни один тест не ходит в сеть: процессор подменяется заглушкой, поэтому
 проверяется именно наша логика — деньги, идемпотентность и отказы.
 """
+import dataclasses
 import hashlib
 import hmac
 import json
@@ -432,6 +433,35 @@ class PurchaseTests(TestCase):
         self.assertEqual(response.data["detail"], "crypto_amount_below_min")
         self.assertEqual(response.data["min_usd"], "50")
 
+    @override_settings(CRYPTO_ALLOWED_CURRENCIES="usdttrc20,usdtton,usdtbsc,usdterc20,ton,btc,eth")
+    def test_six_open_invoices_allowed_seventh_refused(self):
+        """Счёт создаётся кликом по плитке — человек, сравнивающий сети, честно
+        набирает несколько. Шесть — предел, дальше это перебор адресов."""
+        codes = ["usdttrc20", "usdtton", "usdtbsc", "usdterc20", "ton", "btc", "eth"]
+
+        class Many(FakeAdapter):
+            counter = 0
+
+            def list_currencies(self):
+                # Витрина сверяет монету со списком процессора — заглушка
+                # должна знать все семь, иначе отказ будет не про лимит.
+                return codes
+
+            def create_invoice(self, **kwargs):
+                Many.counter += 1
+                return dataclasses.replace(
+                    self._invoice, provider_id=f"np-{Many.counter}",
+                    pay_currency=kwargs["pay_currency"])
+
+        adapter = Many(invoice=self._adapter()._invoice)
+        with patch("payments.crypto.registry.get_adapter", return_value=adapter):
+            responses = [self._buy(crypto_currency=c) for c in codes]
+        self.assertEqual([r.status_code for r in responses[:6]], [200] * 6,
+                         [r.data for r in responses[:6]])
+        self.assertEqual(responses[6].status_code, 429)
+        self.assertEqual(responses[6].data["detail"], "crypto_too_many_open_invoices")
+        self.assertEqual(CryptoInvoice.objects.count(), 6)
+
     def test_provider_failure_leaves_no_invoice(self):
         adapter = self._adapter(fail=base.ProviderError("нет монеты", code="http_400"))
         with patch("payments.crypto.registry.get_adapter", return_value=adapter):
@@ -507,3 +537,111 @@ class LocalExpiryTests(TestCase):
         credit.mark_expired_locally(self.invoice)
         self.invoice.refresh_from_db()
         self.assertEqual(self.invoice.status, CryptoInvoice.STATUS_WAITING)
+
+
+# ------------------------------------------------- комиссия и курс счёта ---
+
+class FeeAndRateTests(TestCase):
+    """Кто платит комиссию и фиксируется ли курс — это настройки, и они
+    должны доезжать до процессора ровно в том виде, в каком их выставили."""
+
+    def _runtime(self, values):
+        return patch("payments.crypto.registry._runtime",
+                     side_effect=lambda key, default: values.get(key, default))
+
+    def test_fee_flag_reads_strings_from_admin(self):
+        from payments.crypto import registry
+
+        with self._runtime({"crypto_fee_paid_by_user": "false"}):
+            self.assertFalse(registry.fee_paid_by_user())
+        with self._runtime({"crypto_fee_paid_by_user": "1"}):
+            self.assertTrue(registry.fee_paid_by_user())
+        with self._runtime({"crypto_fee_paid_by_user": False}):
+            self.assertFalse(registry.fee_paid_by_user())
+
+    @override_settings(NOWPAYMENTS_FEE_PAID_BY_USER=True, NOWPAYMENTS_FIXED_RATE=False)
+    def test_defaults_come_from_settings(self):
+        from payments.crypto import registry
+
+        with self._runtime({}):
+            self.assertTrue(registry.fee_paid_by_user())
+        self.assertFalse(registry.fixed_rate())
+
+    def test_flags_reach_the_processor(self):
+        adapter = NowPayments(api_key="k", ipn_secret="s", fixed_rate=False, fee_paid_by_user=True)
+        sent = {}
+
+        def fake_post(path, body):
+            sent["path"], sent["body"] = path, body
+            return {"payment_id": "np-9", "pay_address": "TX", "pay_amount": "11.45",
+                    "order_id": body["order_id"], "price_currency": "usd",
+                    "price_amount": body["price_amount"], "pay_currency": body["pay_currency"]}
+
+        with patch.object(NowPayments, "_post", side_effect=fake_post):
+            invoice = adapter.create_invoice(
+                order_id="tokpkg-1-1-x", amount_usd=Decimal("11.39"), pay_currency="usdttrc20",
+                ipn_url="https://esai.kg/ipn/", description="EsAI")
+        self.assertEqual(invoice.pay_address, "TX")
+        self.assertIs(sent["body"]["is_fixed_rate"], False)
+        self.assertIs(sent["body"]["is_fee_paid_by_user"], True)
+
+    def test_minimum_is_asked_with_the_same_rate_mode(self):
+        """Спросить минимум про фиксированный курс, а счёт создать с плавающим —
+        значит отказывать в суммах, которые процессор принял бы."""
+        seen = {}
+
+        def fake_get(path, params=None, attempts=1):
+            seen["params"] = params
+            return {"fiat_equivalent": "11.36"}
+
+        for fixed in (False, True):
+            adapter = NowPayments(api_key="k", fixed_rate=fixed)
+            with patch.object(NowPayments, "_get", side_effect=fake_get):
+                self.assertEqual(adapter.min_amount_usd("usdttrc20"), Decimal("11.36"))
+            self.assertEqual(seen["params"]["is_fixed_rate"], "true" if fixed else "false")
+
+    def test_admin_toggle_validates_and_clears_storefront(self):
+        """Строка "false" из формы не должна включать комиссию, а смена монет
+        или флага обязана сбросить кэш витрины — иначе десять минут люди
+        видят монету, которой уже нельзя платить."""
+        from django.core.cache import cache
+        from adminapi.views import SettingsView
+        from payments.crypto.views import currencies_cache_key
+
+        staff = get_user_model().objects.create_user(
+            email="staff@example.com", password="testpass123", is_staff=True)
+
+        def send(body):
+            request = APIRequestFactory().patch("/manage/settings/", body, format="json")
+            force_authenticate(request, user=staff)
+            return SettingsView.as_view()(request)
+
+        cache.set(currencies_cache_key(), [{"code": "stale"}], 600)
+        self.assertEqual(send({"crypto_fee_paid_by_user": "surely"}).status_code, 400)
+        self.assertIsNotNone(cache.get(currencies_cache_key()))
+
+        self.assertEqual(send({"crypto_fee_paid_by_user": "false"}).status_code, 200)
+        from payments.crypto import registry
+        self.assertFalse(registry.fee_paid_by_user())
+        self.assertIsNone(cache.get(currencies_cache_key()))
+
+        cache.set(currencies_cache_key(), [{"code": "stale"}], 600)
+        self.assertEqual(send({"crypto_allowed_currencies": "btc"}).status_code, 200)
+        self.assertIsNone(cache.get(currencies_cache_key()))
+
+    @override_settings(CRYPTO_PAYMENTS_MODE="on", NOWPAYMENTS_API_KEY="k",
+                       NOWPAYMENTS_FEE_PAID_BY_USER=True)
+    def test_storefront_tells_who_pays_the_fee(self):
+        from django.core.cache import cache
+        from payments.crypto.views import currencies_payload
+
+        cache.clear()
+        with patch("payments.crypto.registry.get_adapter", return_value=FakeAdapter()), \
+             self._runtime({}):
+            payload = currencies_payload(user=None)
+        self.assertTrue(payload["enabled"])
+        self.assertTrue(payload["fee_paid_by_user"])
+        by_code = {row["code"]: row for row in payload["currencies"]}
+        # Заглушка знает три монеты — витрина показывает только их, с минимумом.
+        self.assertEqual(set(by_code), {"usdttrc20", "btc", "ton"})
+        self.assertEqual(by_code["usdttrc20"]["min_usd"], "1.00")

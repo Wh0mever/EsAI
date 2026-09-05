@@ -24,6 +24,8 @@ export type CryptoCurrency = {
 export type CryptoCurrenciesResponse = {
   enabled: boolean;
   rate_kgs_to_usd?: string;
+  /** комиссия процессора уже в сумме к переводу */
+  fee_paid_by_user?: boolean;
   currencies: CryptoCurrency[];
 };
 

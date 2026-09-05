@@ -84,10 +84,13 @@ class NowPayments:
     name = "nowpayments"
 
     def __init__(self, *, api_key: str = "", ipn_secret: str = "",
-                 api_url: str = "", sandbox: bool = False):
+                 api_url: str = "", sandbox: bool = False,
+                 fixed_rate: bool = False, fee_paid_by_user: bool = True):
         self._api_key = (api_key or "").strip()
         self._ipn_secret = (ipn_secret or "").strip()
         self._sandbox = bool(sandbox)
+        self._fixed_rate = bool(fixed_rate)
+        self._fee_paid_by_user = bool(fee_paid_by_user)
         self._api_url = (api_url or "").strip().rstrip("/") or (
             _SANDBOX_URL if sandbox else _LIVE_URL)
 
@@ -165,10 +168,14 @@ class NowPayments:
             "order_id": order_id,
             "order_description": _ascii(description),
             "ipn_callback_url": ipn_url,
-            # Фиксированный курс: сумма в монете не должна плыть, пока человек
-            # копирует адрес и открывает кошелёк.
-            "is_fixed_rate": True,
-            "is_fee_paid_by_user": False,
+            # Сумму в монете процессор называет один раз, при создании счёта, —
+            # плывёт она или нет, человек переводит ровно её. Фиксация курса
+            # лишь страхует процессор и почти вдвое поднимает минимальную сумму
+            # (см. NOWPAYMENTS_FIXED_RATE), поэтому по умолчанию выключена.
+            "is_fixed_rate": self._fixed_rate,
+            # Комиссия процессора и сети — сверху, чтобы продавец получил
+            # полную цену пакета (настройка админки).
+            "is_fee_paid_by_user": self._fee_paid_by_user,
         }
         data = self._post("/payment", body)
 
@@ -301,7 +308,10 @@ class NowPayments:
                 "currency_from": str(pay_currency).lower(),
                 "currency_to": "usd",
                 "fiat_equivalent": "usd",
-                "is_fixed_rate": "true",
+                # Минимум зависит от того же флага, что и создание счёта:
+                # спросить про фиксированный курс, а создать с плавающим —
+                # значит отказывать людям в суммах, которые процессор принял бы.
+                "is_fixed_rate": "true" if self._fixed_rate else "false",
             }, attempts=2)
         except ProviderError:
             return None

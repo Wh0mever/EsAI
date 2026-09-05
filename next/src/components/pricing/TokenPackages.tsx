@@ -241,11 +241,22 @@ export default function TokenPackages({
       return;
     }
     // Крипта: вместо ухода на страницу банка открываем свой экран оплаты.
-    if (currency === "USD" && crypto.enabled) {
+    if (currency === "USD") {
+      // Список монет ещё не пришёл или метод закрыт — молча увести человека
+      // на страницу банка в сомах нельзя: он выбрал крипту.
+      if (!crypto.enabled) {
+        setError(t("crypto.no_coins", { defaultValue: "Монеты пока недоступны. Попробуйте позже." }));
+        return;
+      }
       onPurchaseStart?.();
       setCheckout({ pkg });
       return;
     }
+    await startCardPurchase(pkg, currency === "RUB" ? "RUB" : "KGS");
+  };
+
+  /** Оплата картой: уходим на страницу банка. Валюта решает, какого. */
+  const startCardPurchase = async (pkg: Pkg, payCurrency: "KGS" | "RUB") => {
     if (buyingId != null) return;
     setBuyingId(pkg.id);
     setError("");
@@ -255,7 +266,7 @@ export default function TokenPackages({
         "plans/purchase/",
         "POST",
         // Валюта решает платёжный путь: RUB -> ЮKassa, KGS -> FreedomPay.
-        { package_id: pkg.id, pay_currency: currency, ...(returnTo ? { return_to: returnTo } : {}) },
+        { package_id: pkg.id, pay_currency: payCurrency, ...(returnTo ? { return_to: returnTo } : {}) },
         true,
         deviceKey ? { "X-Device-Key": deviceKey } : undefined
       );
@@ -379,12 +390,22 @@ export default function TokenPackages({
         <CryptoCheckoutModal
           open
           pkg={checkout.pkg}
+          priceKgs={checkout.pkg?.price}
           priceLabel={checkout.pkg ? priceText(checkout.pkg.price) : undefined}
           currencies={crypto.currencies}
           resumeOrderId={checkout.resumeOrderId || null}
           deviceKey={deviceKey}
           returnTo={returnTo}
           onPaid={() => setPending(null)}
+          onCardPurchase={
+            checkout.pkg
+              ? (payCurrency) => {
+                  const pkg = checkout.pkg as Pkg;
+                  setCheckout(null);
+                  void startCardPurchase(pkg, payCurrency);
+                }
+              : undefined
+          }
           onClose={() => {
             setCheckout(null);
             onPurchaseEnd?.();

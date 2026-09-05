@@ -1,158 +1,151 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { FiChevronDown } from "react-icons/fi";
+import { FiLoader } from "react-icons/fi";
 import CoinIcon from "./CoinIcon";
 import type { CryptoCurrency } from "@/types/crypto";
 
 /**
- * Выбор монеты и сети.
+ * Плитки монет — как на витринах пополнения у игровых площадок: каждая сеть
+ * отдельной плиткой, под названием сразу минимум («от $12»).
  *
- * Монеты сгруппированы: у USDT четыре сети, и показывать их четырьмя
- * равноправными строками — верный способ получить перевод в Ethereum за
- * двадцать долларов комиссии. Поэтому сначала монета, потом сеть, и рядом с
- * сетью честно написано, дорогая она или дешёвая.
+ * Клик по плитке — это уже создание счёта, отдельной кнопки «дальше» нет:
+ * человек выбрал, чем платит, и сразу видит адрес. Плитки, которыми этот
+ * пакет оплатить нельзя (минимум процессора выше цены), не прячутся, а
+ * гаснут с объяснением: спрятанная монета читается как «у них нет TON»,
+ * погашенная — как «TON есть, но не на такую сумму».
  */
 type Props = {
   currencies: CryptoCurrency[];
-  value: string | null;
-  onChange: (code: string) => void;
+  /** цена пакета в долларах — чтобы погасить монеты с минимумом выше неё */
+  priceUsd: number | null;
+  /** код монеты, по которой сейчас создаётся счёт */
+  busyCode: string | null;
+  onPick: (code: string) => void;
 };
 
-type Group = { coin: string; networks: CryptoCurrency[]; popular: boolean };
+// Цвет уровня комиссии: дешёвая сеть — спокойный зелёный, дорогая — тот же
+// янтарный, что и у остальных предупреждений про деньги.
+const FEE_CLASS: Record<string, string> = {
+  low: "text-status-ok",
+  medium: "text-muted",
+  high: "text-status-wait",
+};
 
-function groupByCoin(currencies: CryptoCurrency[]): Group[] {
-  const map = new Map<string, Group>();
-  for (const row of currencies) {
-    const key = row.coin || row.code.toUpperCase();
-    const group = map.get(key) || { coin: key, networks: [], popular: false };
-    group.networks.push(row);
-    group.popular = group.popular || row.popular;
-    map.set(key, group);
-  }
-  return [...map.values()];
+function tileTitle(row: CryptoCurrency): string {
+  // У стейблкоинов сеть — часть имени («USDT (TRC-20)»): монета одна, а
+  // адреса в разных сетях несовместимы. У остальных сеть и так одна.
+  if (row.coin === "USDT" || row.coin === "USDC") return `${row.coin} (${row.network})`;
+  return row.label || row.coin;
 }
 
-export default function CoinPicker({ currencies, value, onChange }: Props) {
+function money(value: string | null): string | null {
+  if (!value) return null;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  // Минимум показываем с запасом вверх: «от $11.36» при пороге 11.3634 —
+  // честнее, чем «от $11.36», за которым прячется отказ на $11.36 ровно.
+  return (Math.ceil(n * 100) / 100).toFixed(2);
+}
+
+export default function CoinPicker({ currencies, priceUsd, busyCode, onPick }: Props) {
   const { t } = useTranslation("common");
-  const groups = useMemo(() => groupByCoin(currencies), [currencies]);
-  const selectedCoin = currencies.find((c) => c.code === value)?.coin || null;
-  const [openCoin, setOpenCoin] = useState<string | null>(selectedCoin);
 
-  const popular = groups.filter((g) => g.popular);
-  const rest = groups.filter((g) => !g.popular);
+  const rows = useMemo(() => {
+    // Популярные — первыми, но порядок внутри групп оставляем серверный:
+    // там он выстроен по тому, чем реально платят в наших краях.
+    const popular = currencies.filter((c) => c.popular);
+    const rest = currencies.filter((c) => !c.popular);
+    return [...popular, ...rest];
+  }, [currencies]);
 
-  const pickCoin = (group: Group) => {
-    if (group.networks.length === 1) {
-      setOpenCoin(group.coin);
-      onChange(group.networks[0].code);
-      return;
-    }
-    setOpenCoin((prev) => (prev === group.coin ? null : group.coin));
-  };
-
-  const renderGroup = (group: Group) => {
-    const expanded = openCoin === group.coin && group.networks.length > 1;
-    const active = group.coin === selectedCoin;
-    const single = group.networks[0];
-
+  if (rows.length === 0) {
     return (
-      <div key={group.coin} className="flex flex-col gap-1.5">
-        <button
-          type="button"
-          onClick={() => pickCoin(group)}
-          aria-pressed={active}
-          className={`flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors cursor-pointer ${
-            active
-              ? "border-accent bg-accent-soft"
-              : "border-border bg-surface-2 hover:border-accent/60"
-          }`}
-        >
-          <CoinIcon coin={group.coin} size={36} />
-          <span className="min-w-0 flex-1">
-            <span className="block text-sm font-semibold text-foreground">{group.coin}</span>
-            <span className="block truncate text-xs text-muted">
-              {group.networks.length > 1
-                ? t("crypto.networks_count", {
-                    count: group.networks.length,
-                    defaultValue: "{{count}} сети на выбор",
-                  })
-                : single.label}
-            </span>
-          </span>
-          {group.networks.length > 1 ? (
-            <FiChevronDown
-              className={`shrink-0 text-muted transition-transform ${expanded ? "rotate-180" : ""}`}
-            />
-          ) : (
-            <span className="shrink-0 rounded-full bg-surface-3 px-2 py-0.5 text-[11px] text-muted">
-              {single.network}
-            </span>
-          )}
-        </button>
+      <div className="rounded-xl border border-border bg-surface-2 px-4 py-6 text-center text-sm text-muted">
+        {t("crypto.no_coins", { defaultValue: "Монеты пока недоступны. Попробуйте позже." })}
+      </div>
+    );
+  }
 
-        {expanded && (
-          <div className="flex flex-col gap-1.5 pl-3">
-            {group.networks.map((row) => (
-              <button
-                key={row.code}
-                type="button"
-                onClick={() => onChange(row.code)}
-                aria-pressed={row.code === value}
-                className={`flex w-full items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left transition-colors cursor-pointer ${
-                  row.code === value
-                    ? "border-accent bg-accent-soft"
-                    : "border-border bg-surface hover:border-accent/60"
-                }`}
-              >
-                <span className="min-w-0">
-                  <span className="block text-sm text-foreground">{row.network}</span>
-                  <span className="block text-[11px] text-muted-2">
-                    {row.network_cost === "high"
-                      ? t("crypto.network_high_fee", { defaultValue: "Высокая комиссия сети" })
-                      : row.network_cost === "low"
-                      ? t("crypto.network_cheap", { defaultValue: "Низкая комиссия сети" })
-                      : ""}
-                    {row.min_usd
-                      ? `${row.network_cost !== "medium" ? " · " : ""}${t("crypto.min_amount", {
-                          min: row.min_usd,
-                          defaultValue: "минимум ${{min}}",
-                        })}`
-                      : ""}
-                  </span>
+  return (
+    <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 xl:grid-cols-3">
+      {rows.map((row) => {
+        const min = money(row.min_usd);
+        const tooSmall =
+          priceUsd !== null && min !== null && Number(min) > priceUsd;
+        const busy = busyCode === row.code;
+        const disabled = tooSmall || busyCode !== null;
+
+        return (
+          <button
+            key={row.code}
+            type="button"
+            onClick={() => !disabled && onPick(row.code)}
+            disabled={disabled}
+            aria-disabled={disabled}
+            title={
+              tooSmall
+                ? t("crypto.tile_below_min_hint", {
+                    min,
+                    defaultValue: "Процессор не принимает этой монетой меньше ${{min}}",
+                  })
+                : undefined
+            }
+            className={`group flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors ${
+              tooSmall
+                ? "cursor-not-allowed border-border bg-surface-2 opacity-45"
+                : busy
+                ? "border-accent bg-accent-soft"
+                : "cursor-pointer border-border bg-surface-2 hover:border-accent/70 hover:bg-surface-3 disabled:cursor-wait"
+            }`}
+          >
+            <CoinIcon coin={row.coin} size={30} />
+            <span className="min-w-0 flex-1">
+              <span className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                <span className="text-sm font-semibold leading-tight text-foreground">
+                  {tileTitle(row)}
                 </span>
                 {row.extra_id_required && (
-                  <span className="shrink-0 rounded-full bg-status-wait/15 px-2 py-0.5 text-[10px] text-status-wait">
+                  <span className="shrink-0 rounded-full bg-status-wait/15 px-1.5 py-px text-[10px] font-medium uppercase tracking-wide text-status-wait">
                     memo
                   </span>
                 )}
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-    );
-  };
-
-  return (
-    <div className="flex flex-col gap-4">
-      {popular.length > 0 && (
-        <div className="flex flex-col gap-1.5">
-          <div className="text-xs font-semibold uppercase tracking-wide text-muted">
-            {t("crypto.popular", { defaultValue: "Популярные" })}
-          </div>
-          {popular.map(renderGroup)}
-        </div>
-      )}
-      {rest.length > 0 && (
-        <div className="flex flex-col gap-1.5">
-          <div className="text-xs font-semibold uppercase tracking-wide text-muted">
-            {t("crypto.all_coins", { defaultValue: "Все монеты" })}
-          </div>
-          {rest.map(renderGroup)}
-        </div>
-      )}
+              </span>
+              {/* Вторая строка: минимум процессора и уровень комиссии сети.
+                  Цифра подписана как минимум, а не «от», — иначе при
+                  фиксированной цене пакета она читается как комиссия. */}
+              <span
+                className={`block text-xs leading-snug ${
+                  tooSmall ? "text-status-wait" : "text-muted"
+                }`}
+              >
+                {tooSmall ? (
+                  t("crypto.tile_below_min", {
+                    min,
+                    defaultValue: "минимум ${{min}} — больше цены пакета",
+                  })
+                ) : (
+                  <>
+                    {min
+                      ? t("crypto.tile_min", { min, defaultValue: "мин. ${{min}}" })
+                      : t("crypto.tile_min_unknown", { defaultValue: "минимум уточняется" })}
+                    {" · "}
+                    <span className={FEE_CLASS[row.network_cost] || FEE_CLASS.medium}>
+                      {row.network_cost === "high"
+                        ? t("crypto.fee_high", { defaultValue: "комиссия сети высокая" })
+                        : row.network_cost === "low"
+                        ? t("crypto.fee_low", { defaultValue: "комиссия сети низкая" })
+                        : t("crypto.fee_medium", { defaultValue: "комиссия сети средняя" })}
+                    </span>
+                  </>
+                )}
+              </span>
+            </span>
+            {busy && <FiLoader className="shrink-0 animate-spin text-accent" />}
+          </button>
+        );
+      })}
     </div>
   );
 }

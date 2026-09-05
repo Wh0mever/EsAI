@@ -100,15 +100,26 @@ export default function TopUpModal({ open, onClose }: Props) {
 
   const purchase = async (pkg: Pkg) => {
     // Крипта: свой экран оплаты вместо ухода на страницу банка.
-    if (currency === "USD" && crypto.enabled) {
+    if (currency === "USD") {
+      // Список монет ещё не пришёл или метод закрыт — на банк в сомах
+      // человека, выбравшего крипту, не уводим.
+      if (!crypto.enabled) {
+        setError(t("crypto.no_coins", { defaultValue: "Монеты пока недоступны. Попробуйте позже." }));
+        return;
+      }
       setCheckout(pkg);
       return;
     }
+    await startCardPurchase(pkg, currency === "RUB" ? "RUB" : "KGS");
+  };
+
+  /** Оплата картой: уходим на страницу банка. Валюта решает, какого. */
+  const startCardPurchase = async (pkg: Pkg, payCurrency: "KGS" | "RUB") => {
     if (buyingId != null) return;
     setBuyingId(pkg.id);
     setError("");
     try {
-      const res = await fetchData<any>("plans/purchase/", "POST", { package_id: pkg.id, pay_currency: currency }, true);
+      const res = await fetchData<any>("plans/purchase/", "POST", { package_id: pkg.id, pay_currency: payCurrency }, true);
       if (!res?.ok) {
         setError(res?.error || t("topup.purchase_error", { defaultValue: "Не удалось начать оплату" }));
         return;
@@ -136,8 +147,14 @@ export default function TopUpModal({ open, onClose }: Props) {
       <CryptoCheckoutModal
         open
         pkg={checkout}
+        priceKgs={checkout.price}
         priceLabel={format(checkout.price, t("topup.som", { defaultValue: "сом" }))}
         currencies={crypto.currencies}
+        onCardPurchase={(payCurrency) => {
+          const pkg = checkout;
+          setCheckout(null);
+          void startCardPurchase(pkg, payCurrency);
+        }}
         onPaid={() => {
           setCheckout(null);
           onClose();
