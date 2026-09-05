@@ -29,7 +29,10 @@ KNOWN = {
     "usdcsol": ("USDC", "Solana", "USDC · Solana", False, "low", False),
     "btc": ("BTC", "Bitcoin", "Bitcoin", False, "medium", True),
     "eth": ("ETH", "ERC-20", "Ethereum", False, "high", True),
-    "ton": ("TON", "TON", "Toncoin", True, "low", True),
+    # Клиент просит звать монету «GRAM» (так называлась монета Telegram до
+    # 2020 года), Toncoin — в скобках. Тикер остаётся TON: на экране счёта
+    # человек видит «отправьте TON», и перепутать с жетоном GRAM сложнее.
+    "ton": ("TON", "TON", "GRAM (Toncoin)", True, "low", True),
     "ltc": ("LTC", "Litecoin", "Litecoin", False, "low", False),
     "trx": ("TRX", "TRC-20", "TRON", False, "low", False),
     "bnbbsc": ("BNB", "BEP-20", "BNB · BNB Smart Chain", False, "low", False),
