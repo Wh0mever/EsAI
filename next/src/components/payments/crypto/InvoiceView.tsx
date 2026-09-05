@@ -13,7 +13,7 @@ import {
 } from "react-icons/fi";
 import CopyField from "@/components/ui/CopyField";
 import QrCode from "@/components/ui/QrCode";
-import { buildWalletUri, formatCountdown } from "@/lib/cryptoUri";
+import { buildWalletUri, displayCoin, displayCoinLong, formatCountdown } from "@/lib/cryptoUri";
 import { useCryptoInvoice } from "@/hooks/useCryptoInvoice";
 import CoinIcon from "./CoinIcon";
 import InvoiceStatusPill from "./InvoiceStatusPill";
@@ -62,6 +62,9 @@ export default function InvoiceView({
   const [redirectIn, setRedirectIn] = useState<number | null>(null);
 
   const state = notFound ? "failed" : invoice?.ui_state || "awaiting_payment";
+  // Имя монеты для текста; иконке и ссылке кошелька нужен настоящий тикер.
+  const coinName = displayCoin(invoice?.pay.coin || "");
+  const coinLong = displayCoinLong(invoice?.pay.coin || "");
   const partial = state === "partially_paid";
 
   // Что кодируем в QR: остаток, если часть денег уже пришла, — иначе человек
@@ -294,7 +297,7 @@ export default function InvoiceView({
           <div className="text-[11px] text-muted">
             {partial
               ? t("crypto.amount_remaining_title", { defaultValue: "Доплатить" })
-              : t("crypto.amount_in_coin", { coin: invoice.pay.coin, defaultValue: "К оплате в {{coin}}" })}
+              : t("crypto.amount_in_coin", { coin: coinName, defaultValue: "К оплате в {{coin}}" })}
           </div>
           <div className="flex items-center justify-between gap-2">
             <span className="truncate text-lg font-semibold tabular-nums text-foreground">{amountToSend}</span>
@@ -308,7 +311,7 @@ export default function InvoiceView({
           {t("crypto.partial_paid", {
             paid: invoice.pay.amount_paid,
             total: invoice.pay.amount,
-            coin: invoice.pay.coin,
+            coin: coinName,
             defaultValue: "Получено {{paid}} из {{total}} {{coin}}",
           })}
           {invoice.credits.credited > 0 && (
@@ -327,7 +330,7 @@ export default function InvoiceView({
         <Trans
           t={t}
           i18nKey="crypto.send_instruction"
-          values={{ coin: invoice.pay.coin, network: invoice.pay.network }}
+          values={{ coin: coinLong, network: invoice.pay.network }}
           components={{ hl: <span className="font-semibold text-foreground" /> }}
           defaults="Отправьте <hl>{{coin}}</hl> в сети <hl>{{network}}</hl> на указанный адрес или отсканируйте QR-код"
         />
@@ -335,11 +338,15 @@ export default function InvoiceView({
 
       <div className="grid gap-4 sm:grid-cols-[auto_minmax(0,1fr)]">
         <div className="flex flex-col items-center gap-2">
+          {/* В QR — голый адрес, как у процессора и lis-skins: ссылку
+              ton://transfer/… кошельки понимают, а сканер биржи или обычная
+              камера показывают человеку строку, похожую на чужой адрес.
+              Ссылка с суммой живёт на кнопке «Открыть в кошельке». */}
           <QrCode
-            value={wallet.uri || invoice.pay.address}
+            value={invoice.pay.address}
             size={132}
             label={t("crypto.qr_label", {
-              coin: invoice.pay.coin,
+              coin: coinName,
               defaultValue: "QR-код для оплаты {{coin}}",
             })}
           />
@@ -364,7 +371,7 @@ export default function InvoiceView({
             display={
               <span className="inline-flex items-baseline gap-2 text-base font-semibold">
                 {amountToSend}
-                <span className="text-xs font-normal text-muted">{invoice.pay.coin}</span>
+                <span className="text-xs font-normal text-muted">{coinName}</span>
               </span>
             }
           />
