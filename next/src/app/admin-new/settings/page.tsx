@@ -68,7 +68,7 @@ const CRYPTO_COINS: { code: string; label: string }[] = [
   { code: "usdterc20", label: "USDT · Ethereum (дорогая сеть)" },
   { code: "btc", label: "Bitcoin" },
   { code: "eth", label: "Ethereum" },
-  { code: "ton", label: "Toncoin" },
+  { code: "ton", label: "GRAM (Toncoin)" },
   { code: "ltc", label: "Litecoin" },
   { code: "trx", label: "TRON" },
   { code: "bnbbsc", label: "BNB" },
