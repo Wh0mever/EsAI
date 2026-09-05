@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { formatCountdown } from "@/lib/cryptoUri";
+import { displayCoin, formatCountdown } from "@/lib/cryptoUri";
 import CoinIcon from "./CoinIcon";
 
 /**
@@ -52,7 +52,7 @@ export default function CryptoPendingBanner({
         </p>
         <p className="mt-0.5 text-sm text-muted">
           {packageName}
-          {payAmount && coin ? ` — ${payAmount} ${coin}` : ""}
+          {payAmount && coin ? ` — ${payAmount} ${displayCoin(coin)}` : ""}
           {network ? ` (${network})` : ""}
           {left !== null && left > 0
             ? ` · ${t("crypto.pending_left", {

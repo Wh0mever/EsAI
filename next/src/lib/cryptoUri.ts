@@ -78,6 +78,23 @@ export function buildWalletUri(input: WalletUriInput): WalletUri {
 }
 
 /** Короткий вид адреса — только для тесных мест (баннер), не для экрана оплаты. */
+/**
+ * Как монета называется на экране. Тикер у процессора — TON, но клиент
+ * хочет звать её GRAM (так называлась монета Telegram до 2020 года). В
+ * кошельках она по-прежнему TON, поэтому длинная форма напоминает об этом.
+ */
+const COIN_DISPLAY: Record<string, { short: string; long: string }> = {
+  TON: { short: "GRAM", long: "GRAM (в кошельке — TON)" },
+};
+
+export function displayCoin(coin: string): string {
+  return COIN_DISPLAY[coin]?.short || coin;
+}
+
+export function displayCoinLong(coin: string): string {
+  return COIN_DISPLAY[coin]?.long || coin;
+}
+
 export function shortAddress(address: string, head = 6, tail = 6): string {
   const value = String(address || "");
   if (value.length <= head + tail + 3) return value;
