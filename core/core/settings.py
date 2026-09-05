@@ -757,11 +757,12 @@ NOWPAYMENTS_IPN_SECRET = env.str("NOWPAYMENTS_IPN_SECRET", default="")
 NOWPAYMENTS_SANDBOX = env.bool("NOWPAYMENTS_SANDBOX", default=False)
 # Пусто — адрес выбирается по NOWPAYMENTS_SANDBOX (боевой или песочница).
 NOWPAYMENTS_API_URL = env.str("NOWPAYMENTS_API_URL", default="")
-# Комиссию процессора платит магазин: иначе к сумме перевода прибавляется
-# лишнее, и человек видит некруглое число, которого не ждал.
-# Комиссию процессора и сети добавляем к сумме покупателя: клиент получает
-# полную цену пакета. Переключается из админки (crypto_fee_paid_by_user).
-NOWPAYMENTS_FEE_PAID_BY_USER = env.bool("NOWPAYMENTS_FEE_PAID_BY_USER", default=True)
+# Комиссию процессора платит магазин. Переложить её на покупателя можно из
+# админки (crypto_fee_paid_by_user), но с этим флагом NOWPayments поднимает
+# минимальную сумму счёта примерно до $6–11 — проверено 6 сентября 2026:
+# $2.17 и $5.60 отвергались с «amountTo is too small», без флага $2.17
+# принимался. То есть флаг делает дешёвые пакеты неоплачиваемыми.
+NOWPAYMENTS_FEE_PAID_BY_USER = env.bool("NOWPAYMENTS_FEE_PAID_BY_USER", default=False)
 # Курс счёта. С фиксацией процессор страхует себя и поднимает минимальную
 # сумму почти вдвое (USDT TRC-20: $19.7 против $11.4) — а сумма в монете и
 # так называется один раз при создании счёта, и человек переводит ровно её.

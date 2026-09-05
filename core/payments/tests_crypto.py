@@ -481,8 +481,26 @@ class PurchaseTests(TestCase):
         self.assertEqual(response.status_code, 502)
         self.assertEqual(CryptoInvoice.objects.count(), 0)
         payment = Payment.objects.get()
-        self.assertEqual(payment.error, "crypto_create_failed:http_400")
+        # В ошибке — и код, и текст отказа: по одному «http_400» в админке
+        # не понять, что случилось.
+        self.assertEqual(payment.error, "crypto_create_failed:http_400: нет монеты")
         self.assertFalse(payment.success)
+
+    def test_provider_too_small_is_reported_as_minimum(self):
+        """«amountTo is too small» — это «мало», а не «ошибка шлюза».
+
+        Так процессор отвечал на $2.17 при включённой комиссии на покупателе:
+        восемнадцать попыток подряд, и все показывали человеку «попробуйте
+        ещё раз», хотя пробовать было бессмысленно.
+        """
+        adapter = self._adapter(
+            fail=base.ProviderError("amountTo is too small", code="http_400"))
+        with patch("payments.crypto.registry.get_adapter", return_value=adapter):
+            response = self._buy()
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.data["detail"], "crypto_amount_below_min")
+        self.assertEqual(CryptoInvoice.objects.count(), 0)
+        self.assertIn("too small", Payment.objects.get().error)
 
     def test_status_of_foreign_order_is_hidden(self):
         adapter = self._adapter()
