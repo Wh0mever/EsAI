@@ -72,7 +72,7 @@ class TranscribeApiTests(TestCase):
 
     def test_insufficient_balance_before_model_call(self):
         user = _user(balance=0)
-        with patch.object(stt, "convert_to_mp3", return_value=(b"mp3", 30.0)), \
+        with patch.object(stt, "convert_to_mp3", return_value=(b"mp3", 30.0, -20.0)), \
                 patch.object(stt, "transcribe_audio") as model:
             response = _post(user)
         self.assertEqual(response.status_code, 402)
@@ -81,7 +81,7 @@ class TranscribeApiTests(TestCase):
 
     def test_success_charges_once(self):
         user = _user(balance=10)
-        with patch.object(stt, "convert_to_mp3", return_value=(b"mp3", 30.0)), \
+        with patch.object(stt, "convert_to_mp3", return_value=(b"mp3", 30.0, -20.0)), \
                 patch.object(stt, "transcribe_audio", return_value="привет мир"):
             response = _post(user)
         self.assertEqual(response.status_code, 200, response.data)
@@ -94,7 +94,7 @@ class TranscribeApiTests(TestCase):
 
     def test_failure_costs_nothing(self):
         user = _user(balance=10)
-        with patch.object(stt, "convert_to_mp3", return_value=(b"mp3", 30.0)), \
+        with patch.object(stt, "convert_to_mp3", return_value=(b"mp3", 30.0, -20.0)), \
                 patch.object(stt, "transcribe_audio", side_effect=stt.SttError("boom")):
             response = _post(user)
         self.assertEqual(response.status_code, 502)
@@ -104,15 +104,33 @@ class TranscribeApiTests(TestCase):
 
     def test_empty_speech_is_free(self):
         user = _user(balance=10)
-        with patch.object(stt, "convert_to_mp3", return_value=(b"mp3", 5.0)), \
+        with patch.object(stt, "convert_to_mp3", return_value=(b"mp3", 5.0, -20.0)), \
                 patch.object(stt, "transcribe_audio", return_value=""):
             response = _post(user)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.data["tokens_charged"], 0)
 
+    def test_silence_is_free_and_skips_model(self):
+        """2 секунды тишины на проде превратились в выдуманную фразу за 1 кредит."""
+        user = _user(balance=10)
+        with patch.object(stt, "convert_to_mp3", return_value=(b"mp3", 2.0, -91.0)), \
+                patch.object(stt, "transcribe_audio") as model:
+            response = _post(user)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["text"], "")
+        self.assertEqual(response.data["tokens_charged"], 0)
+        self.assertTrue(response.data["silent"])
+        model.assert_not_called()
+
+    def test_is_silent_rules(self):
+        self.assertTrue(stt.is_silent(-60.0, 3.0))
+        self.assertFalse(stt.is_silent(-20.0, 3.0))
+        self.assertTrue(stt.is_silent(-20.0, 0.2))
+        self.assertFalse(stt.is_silent(None, 3.0))
+
     def test_too_long_rejected(self):
         user = _user(balance=10)
-        with patch.object(stt, "convert_to_mp3", return_value=(b"mp3", 500.0)):
+        with patch.object(stt, "convert_to_mp3", return_value=(b"mp3", 500.0, -20.0)):
             response = _post(user)
         self.assertEqual(response.status_code, 400)
         self.assertEqual(response.data["detail"], "too_long")
@@ -143,6 +161,9 @@ class FfmpegTests(TestCase):
             wav.setsampwidth(2)
             wav.setframerate(8000)
             wav.writeframes(b"".join(struct.pack("<h", 0) for _ in range(8000 * 2)))
-        mp3, seconds = stt.convert_to_mp3(buffer.getvalue())
+        mp3, seconds, volume = stt.convert_to_mp3(buffer.getvalue())
         self.assertTrue(mp3.startswith(b"ID3") or mp3[:2] == b"\xff\xfb" or len(mp3) > 100)
         self.assertAlmostEqual(seconds, 2.0, delta=0.3)
+        # Тишина: ffmpeg показывает очень низкую среднюю громкость.
+        self.assertIsNotNone(volume)
+        self.assertTrue(stt.is_silent(volume, seconds))

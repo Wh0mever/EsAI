@@ -51,7 +51,7 @@ class TranscribeAPIView(APIView):
         lang = str(request.data.get("lang") or "ru")[:5]
 
         try:
-            mp3, seconds = stt.convert_to_mp3(upload.read())
+            mp3, seconds, volume = stt.convert_to_mp3(upload.read())
         except stt.SttError as exc:
             logger.warning("stt: конвертация не удалась: %s", exc)
             return Response({"detail": "bad_audio"}, status=status.HTTP_400_BAD_REQUEST)
@@ -59,6 +59,11 @@ class TranscribeAPIView(APIView):
             return Response({"detail": "too_long", "max_seconds": stt.max_seconds(),
                              "seconds": round(seconds, 1)},
                             status=status.HTTP_400_BAD_REQUEST)
+        if stt.is_silent(volume, seconds):
+            # Тишину модели не показываем: она выдумает текст, а человек заплатит.
+            return Response({"text": "", "seconds": round(seconds, 1), "tokens_charged": 0,
+                             "balance_tokens": int(getattr(request.user, "token_balance", 0) or 0),
+                             "silent": True})
 
         price = stt.price_for(seconds)
         try:
