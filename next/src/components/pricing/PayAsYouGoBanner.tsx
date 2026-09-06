@@ -2,6 +2,7 @@
 
 import { useTranslation } from "react-i18next";
 import { FiCheck } from "react-icons/fi";
+import { useCurrency } from "@/hooks/useCurrency";
 
 /**
  * PAY-AS-YOU-GO banner — клиентский референс (скрин с другого сайта),
@@ -28,12 +29,18 @@ type Props = {
 
 export default function PayAsYouGoBanner({ headingLevel = "h1", compact = false }: Props) {
   const { t } = useTranslation("common");
+  const { cryptoEnabled } = useCurrency();
   const Heading = headingLevel;
 
   const checks = [
     t("packages.payg_check_no_subscription", { defaultValue: "Без подписок" }),
     t("packages.payg_check_no_hidden_fees", { defaultValue: "Без скрытых платежей" }),
     t("packages.payg_check_starts_from", { defaultValue: "Старт от 190 сом" }),
+    // Плашка про крипту живёт вместе с самим способом оплаты: выключили
+    // крипту в админке — обещание с витрины исчезло само.
+    ...(cryptoEnabled
+      ? [t("packages.payg_check_crypto", { defaultValue: "От ≈ 2,2 USDT в криптовалюте" })]
+      : []),
   ];
 
   if (compact) {
