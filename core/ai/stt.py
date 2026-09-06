@@ -64,19 +64,32 @@ def price_for(seconds: float) -> int:
 
 
 _DURATION_RE = re.compile(r"Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)")
+_MEAN_VOLUME_RE = re.compile(r"mean_volume:\s*(-?\d+(?:\.\d+)?)\s*dB")
+
+# Тише этого — тишина или шум микрофона: модели на такое отвечают выдуманным
+# текстом (проверено: 2 секунды тишины → «Привет, это я, я не смогу прийти»),
+# а человек платит за распознавание того, чего не говорил.
+SILENCE_DB = -45.0
 
 
-def convert_to_mp3(raw: bytes) -> tuple[bytes, float]:
+def silence_threshold_db() -> float:
+    try:
+        return float(_setting("STT_SILENCE_DB", SILENCE_DB))
+    except (TypeError, ValueError):
+        return SILENCE_DB
+
+
+def convert_to_mp3(raw: bytes) -> tuple[bytes, float, float | None]:
     """Любой формат Telegram (ogg/opus, m4a, mp4) → mp3 16 кГц моно.
 
-    Длительность читаем из отчёта самого ffmpeg — второй проход через ffprobe
-    не нужен. Если её там нет, оцениваем по битрейту: для тарификации по
-    минутам этого достаточно.
+    Возвращает (mp3, секунды, средняя громкость в дБ). Длительность и
+    громкость читаем из отчёта самого ffmpeg за один проход — ни ffprobe, ни
+    второго прогона не нужно. Если длительности нет, оцениваем по битрейту.
     """
     try:
         proc = subprocess.run(
             ["ffmpeg", "-hide_banner", "-nostdin", "-i", "pipe:0", "-vn", "-ac", "1",
-             "-ar", "16000", "-b:a", "48k", "-f", "mp3", "pipe:1"],
+             "-ar", "16000", "-af", "volumedetect", "-b:a", "48k", "-f", "mp3", "pipe:1"],
             input=raw, capture_output=True, timeout=60, check=False,
         )
     except FileNotFoundError as exc:
@@ -86,14 +99,26 @@ def convert_to_mp3(raw: bytes) -> tuple[bytes, float]:
     if proc.returncode != 0 or not proc.stdout:
         raise SttError(f"ffmpeg: {proc.stderr.decode('utf-8', 'ignore')[-200:]}")
 
+    report = proc.stderr.decode("utf-8", "ignore")
     seconds = 0.0
-    match = _DURATION_RE.search(proc.stderr.decode("utf-8", "ignore"))
+    match = _DURATION_RE.search(report)
     if match:
         hours, minutes, secs = match.groups()
         seconds = int(hours) * 3600 + int(minutes) * 60 + float(secs)
     if seconds <= 0:
         seconds = len(proc.stdout) * 8 / 48000.0
-    return proc.stdout, seconds
+    volume = None
+    match = _MEAN_VOLUME_RE.search(report)
+    if match:
+        volume = float(match.group(1))
+    return proc.stdout, seconds, volume
+
+
+def is_silent(volume: float | None, seconds: float) -> bool:
+    """Нечего распознавать: тишина или запись короче полсекунды."""
+    if seconds < 0.5:
+        return True
+    return volume is not None and volume <= silence_threshold_db()
 
 
 _LANG_NAMES = {"ru": "Russian", "en": "English", "kg": "Kyrgyz", "ky": "Kyrgyz"}
@@ -108,7 +133,8 @@ def transcribe_audio(mp3: bytes, *, lang: str = "ru") -> str:
     instruction = (
         "Transcribe this voice message verbatim. Reply with the transcription only, "
         "without quotes, comments or translation. Keep the original language "
-        f"(most likely {hint}). If there is no speech, reply with an empty string."
+        f"(most likely {hint}). If there is no intelligible speech (silence, noise, music), "
+        "reply with exactly: NO_SPEECH"
     )
     try:
         result = client.chat.completions.create(
@@ -133,4 +159,7 @@ def transcribe_audio(mp3: bytes, *, lang: str = "ru") -> str:
         text = (result.choices[0].message.content or "").strip()
     except Exception as exc:  # noqa: BLE001
         raise SttError("пустой ответ модели") from exc
-    return text.strip().strip('"').strip()
+    text = text.strip().strip('"').strip()
+    if text.upper().replace(" ", "_").strip("[]") == "NO_SPEECH":
+        return ""
+    return text
