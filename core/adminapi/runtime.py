@@ -62,6 +62,7 @@ KEYS = (
     "currency_kgs_to_usd_rate",
     "crypto_allowed_currencies",
     "crypto_fee_paid_by_user",
+    "crypto_settlement_currency",
 )
 
 # Сентинел «в кэше пусто» — None невалиден: мы кэшируем и None («ключа нет в БД»).

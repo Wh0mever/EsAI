@@ -1,3 +1,4 @@
+import re
 """Кастомная админ-панель (/api/manage/): только staff, JWT Bearer.
 
 Идиома кодовой базы — APIView (см. ai/views.py), без вьюсетов и DRF-пагинаторов.
@@ -466,6 +467,7 @@ def _settings_snapshot() -> dict:
     snapshot["crypto_allowed_currencies"] = ",".join(_crypto_currencies.allowed_codes())
     snapshot["crypto_fee_paid_by_user"] = _crypto_registry.fee_paid_by_user()
     snapshot["nowpayments_fixed_rate"] = _crypto_registry.fixed_rate()
+    snapshot["crypto_settlement_currency"] = _crypto_registry.settlement_currency()
     # Курс, по которому реально выставляется счёт, и рядом — рыночный, чтобы
     # админ видел, насколько зафиксированное вручную значение отстало.
     snapshot["currency_kgs_to_usd_rate"] = float(_crypto_rates.kgs_to_usd_rate())
@@ -712,6 +714,24 @@ class SettingsView(StaffAPIView):
             set_runtime("crypto_fee_paid_by_user", fee_by_user)
             # Флаг отдаётся вместе со списком монет — сбрасываем его кэш.
             _cache.delete(_cur_key())
+
+        if "crypto_settlement_currency" in data:
+            from django.core.cache import cache as _cache
+            from payments.crypto.views import currencies_cache_key as _cur_key3
+
+            # Кэш сбрасываем ДО смены значения: ключ включает валюту выплат,
+            # и после смены старый ключ уже не найти.
+            _cache.delete(_cur_key3())
+            code = str(data["crypto_settlement_currency"] or "").strip().lower()
+            if code and not re.fullmatch(r"[a-z0-9]{2,20}", code):
+                return Response(
+                    {"detail": "crypto_settlement_currency: код монеты процессора, например usdtbsc"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if code:
+                set_runtime("crypto_settlement_currency", code)
+            else:
+                delete_runtime("crypto_settlement_currency")
 
         if "crypto_allowed_currencies" in data:
             from django.core.cache import cache as _cache

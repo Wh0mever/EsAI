@@ -85,8 +85,11 @@ class NowPayments:
 
     def __init__(self, *, api_key: str = "", ipn_secret: str = "",
                  api_url: str = "", sandbox: bool = False,
-                 fixed_rate: bool = False, fee_paid_by_user: bool = True):
+                 fixed_rate: bool = False, fee_paid_by_user: bool = True,
+                 settlement_currency: str = ""):
         self._api_key = (api_key or "").strip()
+        # Куда процессор выплачивает: от этой пары зависит его минимум.
+        self._settlement = (settlement_currency or "").strip().lower()
         self._ipn_secret = (ipn_secret or "").strip()
         self._sandbox = bool(sandbox)
         self._fixed_rate = bool(fixed_rate)
@@ -306,7 +309,10 @@ class NowPayments:
         try:
             data = self._get("/min-amount", params={
                 "currency_from": str(pay_currency).lower(),
-                "currency_to": "usd",
+                # Минимум у процессора — по паре «чем платят → куда
+                # выплачивается». «→ usd» показывал $12 для монет, которыми
+                # $2 принимались; без валюты выплат ближе всего «→ та же».
+                "currency_to": self._settlement or str(pay_currency).lower(),
                 "fiat_equivalent": "usd",
                 # Минимум зависит от того же флага, что и создание счёта:
                 # спросить про фиксированный курс, а создать с плавающим —
