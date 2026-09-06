@@ -237,11 +237,8 @@ class TestStreamAccept:
             accept = request.headers.get("Accept", "")
             if "application/json" not in accept and "*/*" not in accept:
                 return httpx.Response(406, json={"detail": "Not Acceptable"})
-            body = 'data: {"delta": "ok"}
-
-data: {"done": true}
-
-'
+            body = "".join(f"data: {json.dumps(frame)}" + chr(10) * 2
+                           for frame in ({"delta": "ok"}, {"done": True}))
             return httpx.Response(200, content=body.encode(),
                                   headers={"content-type": "text/event-stream"})
 
