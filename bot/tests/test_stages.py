@@ -5,7 +5,7 @@ import pytest
 import bot.routers.account  # noqa: F401 — регистрирует тексты профиля
 from bot.keyboards.common import MENU_ACTIONS, MENU_ROWS, main_menu, more_menu, paywall
 from bot.routers.billing import _value_line, balance_keyboard
-from bot.routers.image import ASPECT_RATIOS, _card_keyboard, result_keyboard
+from bot.routers.image import ASPECT_RATIOS, _card_keyboard, result_keyboard, wizard_prompt
 from bot.routers.start import _parse_link, _parse_payload, _parse_shortcut
 from bot.routers.studio import _filter_presets
 from bot.routers.video import _cost, _status_label
@@ -156,3 +156,16 @@ class TestTexts:
 
     def test_faq_is_list(self):
         assert isinstance(t("ru", "faq"), list) and len(t("ru", "faq")) >= 5
+
+
+class TestImagePrompt:
+    def test_bare_topic_becomes_single_image_request(self):
+        assert wizard_prompt("ru", "Самарканд", editing=False) == "Нарисуй одну картинку, без текста: Самарканд"
+        assert wizard_prompt("en", "a cat", editing=False).startswith("Draw one image")
+
+    def test_explicit_verb_kept_as_is(self):
+        assert wizard_prompt("ru", "Нарисуй кота", editing=False) == "Нарисуй кота"
+        assert wizard_prompt("en", "draw a cat", editing=False) == "draw a cat"
+
+    def test_editing_keeps_instruction(self):
+        assert wizard_prompt("ru", "убери фон", editing=True) == "убери фон"

@@ -7,6 +7,7 @@ image-модель. Мастер нужен, когда человек хоче�
 from __future__ import annotations
 
 import logging
+import re
 
 from aiogram import F, Router
 from aiogram.filters import Command, CommandObject
@@ -241,13 +242,32 @@ async def got_edit_prompt(message: Message, token: str, lang: str, state: FSMCon
                                           "model": DEFAULT_EDIT_MODEL, "ar": ""})
 
 
+INTENT_RE = re.compile(r"^\s*(?:пере)?(?:нарисуй|сгенерируй|создай|сделай|draw|paint|generate|create|make|сүрөт|тарт)",
+                       re.IGNORECASE)
+ONE_IMAGE = {
+    "ru": "Нарисуй одну картинку, без текста: {prompt}",
+    "en": "Draw one image, no text: {prompt}",
+    "kg": "Бир сүрөт тарт, текстсиз: {prompt}",
+}
+
+
+def wizard_prompt(lang: str, prompt: str, *, editing: bool) -> str:
+    """Голая тема («Самарканд») для модели — повод для рассказа с тремя
+    картинками за тройную цену. В мастере просим ровно одну картинку."""
+    prompt = (prompt or "").strip()
+    if editing or INTENT_RE.match(prompt):
+        return prompt
+    return ONE_IMAGE.get(lang, ONE_IMAGE["ru"]).format(prompt=prompt)
+
+
 async def _generate(message: Message, token: str, lang: str, draft: dict) -> None:
     telegram_id = message.chat.id
     extra = {}
     if draft.get("ar"):
         extra["aspect_ratio"] = draft["ar"]
     attachments = [draft["attachment"]] if draft.get("attachment") else None
-    done = await run_chat(message, token, lang, draft.get("prompt", ""),
+    text = wizard_prompt(lang, draft.get("prompt", ""), editing=bool(attachments))
+    done = await run_chat(message, token, lang, text,
                           attachments=attachments, model=draft.get("model") or DEFAULT_EDIT_MODEL,
                           extra=extra, placeholder=t(lang, "drawing"),
                           result_markup=result_keyboard(lang), remember_prompt=False)
