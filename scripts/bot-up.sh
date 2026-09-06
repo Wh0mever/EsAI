@@ -83,7 +83,14 @@ set_env TELEGRAM_NOTIFY_ENABLED 1
 say ""
 say "Перезапускаю сервисы…"
 docker compose up -d --force-recreate --no-deps core >/dev/null
+# Воркер долгих генераций: видео из бота и сцены студии идут через него.
+docker compose up -d celery_media >/dev/null
 docker compose up -d --build bot
+
+# 6. Цены пакетов в Telegram Stars по курсу (только тем, у кого цены ещё нет).
+say ""
+say "Цены пакетов в Stars:"
+docker compose exec -T core python manage.py set_stars_prices --apply || true
 
 say ""
 say "Проверка окружения:"

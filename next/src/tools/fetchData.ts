@@ -48,6 +48,43 @@ async function parseResponse(res: Response): Promise<any | null> {
 	}
 }
 
+
+// Внутри Telegram (Mini App в iframe web.telegram.org) cookie могут быть
+// заблокированы браузером как сторонние. Токены дублируются в sessionStorage,
+// и все места, которые читают cookie, читают через эти помощники.
+function safeSession(): Storage | null {
+    try {
+        return typeof window !== "undefined" ? window.sessionStorage : null;
+    } catch {
+        return null;
+    }
+}
+
+export function getToken(name: "access" | "refresh"): string | undefined {
+    const fromCookie = Cookies.get(name);
+    if (fromCookie) return fromCookie;
+    return safeSession()?.getItem(`tg_${name}`) || undefined;
+}
+
+export function setSessionTokens(access: string, refresh: string): void {
+    // SameSite=None — иначе cookie не уйдёт из iframe Telegram в /api/.
+    try {
+        if (access) Cookies.set("access", access, { expires: 0.5, secure: true, sameSite: "none" });
+        if (refresh) Cookies.set("refresh", refresh, { expires: 15, secure: true, sameSite: "none" });
+    } catch {}
+    const session = safeSession();
+    if (session) {
+        if (access) session.setItem("tg_access", access);
+        if (refresh) session.setItem("tg_refresh", refresh);
+    }
+}
+
+function clearSessionTokens(): void {
+    const session = safeSession();
+    session?.removeItem("tg_access");
+    session?.removeItem("tg_refresh");
+}
+
 // Normalize method to uppercase and build RequestInit
 function buildInit(method: HttpMethodAny, auth: boolean, body?: BodyLike, extra?: Record<string, string>): RequestInit {
     const m = (method || "GET").toString().toUpperCase() as HttpMethod;
@@ -60,7 +97,7 @@ function buildInit(method: HttpMethodAny, auth: boolean, body?: BodyLike, extra?
     const init: RequestInit = { method: m, headers };
 
     if (auth) {
-        const token = Cookies.get("access");
+        const token = getToken("access");
         if (token) headers.Authorization = `Bearer ${token}`;
     }
 
@@ -91,7 +128,7 @@ function buildInit(method: HttpMethodAny, auth: boolean, body?: BodyLike, extra?
 }
 
 async function refreshAuth(): Promise<boolean> {
-    const refresh = Cookies.get("refresh");
+    const refresh = getToken("refresh");
     if (!refresh) return false;
 
     try {
@@ -107,8 +144,13 @@ async function refreshAuth(): Promise<boolean> {
 		const newRefresh = data?.refresh;
 
         // Cookie-хардненинг: secure + sameSite lax (lax переживает возврат из OAuth); access короткоживущий.
-        if (newAccess) Cookies.set("access", newAccess, { expires: 0.5, secure: true, sameSite: "lax" });
-        if (newRefresh) Cookies.set("refresh", newRefresh, { expires: 15, secure: true, sameSite: "lax" });
+        if (safeSession()?.getItem("tg_access")) {
+            // Сессия Mini App: обновляем там же, где она живёт.
+            setSessionTokens(newAccess || "", newRefresh || "");
+        } else {
+            if (newAccess) Cookies.set("access", newAccess, { expires: 0.5, secure: true, sameSite: "lax" });
+            if (newRefresh) Cookies.set("refresh", newRefresh, { expires: 15, secure: true, sameSite: "lax" });
+        }
         return Boolean(newAccess);
     } catch {
         return false;
@@ -175,7 +217,7 @@ export async function fetchData<T = any>(
 
     // Была ли у пользователя сессия (токены) ДО рефреша? Если гость без токенов —
     // не редиректим на /auth/signin (он вправе пользоваться гостевым режимом на «/»).
-    const hadSession = Boolean(Cookies.get("access") || Cookies.get("refresh"));
+    const hadSession = Boolean(getToken("access") || getToken("refresh"));
     const refreshed = await refreshAuth();
     if (!refreshed) {
         // Гость без сессии: тихо возвращаем 401 вызывающему (покажет пустые данные),
@@ -189,6 +231,7 @@ export async function fetchData<T = any>(
             Cookies.remove("refresh");
             Cookies.remove("user");
             Cookies.remove("sessionid");
+            clearSessionTokens();
         } catch {}
         if (typeof window !== "undefined") {
             const loc = window.location;
