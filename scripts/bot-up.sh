@@ -68,9 +68,15 @@ if ! have BOT_ACCESS; then
 fi
 if ! have BOT_STAFF_IDS; then
   say ""
-  say "Ваш Telegram id (узнать: напишите @userinfobot). Пусто — пропустить:"
+  say "Ваш Telegram id — только цифры, например 123456789 (узнать: напишите @userinfobot)."
+  say "Пусто — пропустить, тогда id возьмём из лога бота после вашего /start:"
   read -r STAFF
-  [ -n "${STAFF:-}" ] && set_env BOT_STAFF_IDS "$STAFF"
+  STAFF="$(printf '%s' "${STAFF:-}" | tr -d '[:space:]')"
+  if [ -n "$STAFF" ] && printf '%s' "$STAFF" | grep -Eq '^[0-9]+(,[0-9]+)*$'; then
+    set_env BOT_STAFF_IDS "$STAFF"
+  elif [ -n "$STAFF" ]; then
+    say "Это не похоже на id (нужны только цифры) — пропускаю. Добавить потом: scripts/bot-staff.sh <id>"
+  fi
 fi
 say "Режим доступа: $(grep '^BOT_ACCESS=' "$ENV_FILE" | cut -d= -f2)"
 say "  staff — отвечает только своим (для обкатки)"
@@ -85,7 +91,7 @@ say "Перезапускаю сервисы…"
 docker compose up -d --force-recreate --no-deps core >/dev/null
 # Воркер долгих генераций: видео из бота и сцены студии идут через него.
 docker compose up -d celery_media >/dev/null
-docker compose up -d --build bot
+docker compose up -d --build --no-deps bot
 
 # 6. Цены пакетов в Telegram Stars по курсу (только тем, у кого цены ещё нет).
 say ""
