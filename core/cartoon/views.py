@@ -516,6 +516,26 @@ class PresetTryOnView(StudioAPIView):
         return Response({"image": _media(path), "charged": charged})
 
 
+def _scene_price(scene, *, keyframe_ready: bool) -> int:
+    """Во сколько обойдётся съёмка сцены ПРЯМО СЕЙЧАС.
+
+    Готовый кадр заново не рисуется (см. tasks.render_scene), поэтому при
+    пересъёмке с ним платится только видео-часть. Считаем её той же формулой,
+    что и списание в задаче: разойдись гейт со счётом — человек либо не смог бы
+    переснять при достаточном балансе, либо ушёл бы в минус.
+    """
+    preset = scene.preset
+    if not keyframe_ready:
+        return preset.estimated_credits()
+    return max(1, round(int(preset.duration or 5)
+                        * float(preset.video_model.markup_coefficient or 1)))
+
+
+def _no_credits(need: int, balance: int) -> Response:
+    return Response({"detail": "Недостаточно кредитов", "required": need,
+                     "balance": balance}, status=status.HTTP_402_PAYMENT_REQUIRED)
+
+
 class SceneRenderView(StudioAPIView):
     """POST — снять сцену из ленты. Здесь и происходит проверка баланса.
 
@@ -534,8 +554,7 @@ class SceneRenderView(StudioAPIView):
         need = scene.preset.estimated_credits()
         balance = int(getattr(request.user, "token_balance", 0) or 0)
         if balance < need:
-            return Response({"detail": "Недостаточно кредитов", "required": need,
-                             "balance": balance}, status=status.HTTP_402_PAYMENT_REQUIRED)
+            return _no_credits(need, balance)
 
         scene.status = CartoonScene.STATUS_NEW
         scene.error = ""
@@ -548,7 +567,9 @@ class SceneDetailView(StudioAPIView):
     """PATCH — переставить в таймлайне или пересобрать. DELETE — убрать."""
 
     def patch(self, request, pk):
-        scene = get_object_or_404(CartoonScene, pk=pk, project__user=request.user)
+        scene = get_object_or_404(
+            CartoonScene.objects.select_related("preset__image_model", "preset__video_model"),
+            pk=pk, project__user=request.user)
 
         if "order" in request.data:
             try:
@@ -571,9 +592,24 @@ class SceneDetailView(StudioAPIView):
             _attach_ready_keyframe(scene)
 
         if request.data.get("retry"):
+            # Сцена уже в работе — второй задачи не ставим: обе сняли бы видео и
+            # обе списали бы деньги, а человек видел бы одну сцену.
+            if scene.status in (CartoonScene.STATUS_NEW, CartoonScene.STATUS_KEYFRAME,
+                                CartoonScene.STATUS_VIDEO):
+                return Response(scene_json(scene, _lang(request)))
+
             # Пересборка идёт с УЖЕ готовым кадром, если он есть: так персонаж
             # и композиция не сдвинутся, а заплатит человек только за видео.
-            if request.data.get("new_keyframe"):
+            new_keyframe = bool(request.data.get("new_keyframe"))
+            # Баланс проверяем ЗДЕСЬ, а не в задаче: провайдеру за генерацию мы
+            # платим сразу, а списание в Celery упало бы уже после — видео
+            # потеряно, деньги студии сгорели.
+            need = _scene_price(scene, keyframe_ready=bool(scene.keyframe) and not new_keyframe)
+            balance = int(getattr(request.user, "token_balance", 0) or 0)
+            if balance < need:
+                return _no_credits(need, balance)
+
+            if new_keyframe:
                 scene.keyframe = ""
             scene.status = CartoonScene.STATUS_NEW
             scene.error = ""
