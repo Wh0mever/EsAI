@@ -345,6 +345,16 @@ QUICK_PROMPTS: dict[str, dict[str, str]] = {
 }
 
 
+def register_texts(extra: dict[str, dict[str, str]]) -> None:
+    """Досыпать тексты из другого модуля.
+
+    Каждый экран держит свои строки у себя и регистрирует их при импорте —
+    так один общий словарь не превращается в файл, который правят все сразу.
+    """
+    for lang, bundle in (extra or {}).items():
+        TEXTS.setdefault(lang, {}).update(bundle or {})
+
+
 def t(lang: str, key: str, **kwargs) -> str:
     """Текст на языке человека; если перевода нет — по-русски."""
     bundle = TEXTS.get(lang) or TEXTS["ru"]
