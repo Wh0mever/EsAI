@@ -909,6 +909,18 @@ def _notify_balance_topup(user: User, credited: int) -> None:
     title = "Баланс пополнен"
     body = f"Ваш баланс пополнен на {int(credited)} токенов. Спасибо за покупку!"
 
+    # Сообщение в Telegram: человеку, который пришёл из бота, письмо на
+    # почту-заглушку @social.esai.local не дойдёт никогда.
+    try:
+        from botapi.tasks import notify
+
+        notify(
+            user, "topup",
+            f"✅ <b>Баланс пополнен</b>\n+{int(credited)} кредитов уже на счету.",
+        )
+    except Exception:
+        logger.exception("telegram topup notify failed user=%s", getattr(user, "id", None))
+
     # in-app уведомление
     try:
         from users.models import Notification

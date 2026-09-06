@@ -433,6 +433,12 @@ class TokenTransactionReason(models.TextChoices):
     TRANSFER_IN = "transfer_in", "Перевод получен"
     TRANSFER_OUT = "transfer_out", "Перевод отправлен"
     PROMO = "promo", "Промокод"
+    # Студия и распознавание речи писали свои причины мимо этого списка —
+    # в базе они лежат давно, а в фильтрах и подписях админки их не было.
+    CARTOON_KEYFRAME = "cartoon_keyframe", "Студия: кадр"
+    CARTOON_SCENE = "cartoon_scene", "Студия: сцена"
+    CARTOON_CHARACTER = "cartoon_character", "Студия: свой герой"
+    STT = "stt", "Распознавание голоса"
 
 
 class TokenTransaction(models.Model):

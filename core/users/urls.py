@@ -1,10 +1,11 @@
-from django.urls import path, include
+﻿from django.urls import path, include
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from django.http import HttpResponseRedirect
 from django.conf import settings
 import json
 from django.utils.http import urlencode
 from rest_framework_simplejwt.tokens import RefreshToken
+from botapi.views import WebAppAuthView
 from .views import *
 
 
@@ -111,6 +112,8 @@ urlpatterns = [
     # path('card/bind/', BindCardView.as_view(), name='card-bind'),
     # path('card/unbind/', UnbindCardView.as_view(), name='card-unbind'),
     path('telegram-config/', TelegramConfigApiView.as_view(), name='telegram-config'),
+    # Вход из Mini App: доверяем данным, подписанным токеном бота.
+    path('auth/telegram/webapp/', WebAppAuthView.as_view(), name='telegram-webapp-auth'),
     path('question/', QuestionAPIView.as_view(), name='question'),
     path('feedback/', FeedbackView.as_view(), name='feedback'),
     path('currency/', CurrencyPreferenceView.as_view(), name='currency-preference'),

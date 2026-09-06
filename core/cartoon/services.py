@@ -43,7 +43,7 @@ def _site_url(path: str) -> str:
     """Абсолютная ссылка на наш медиафайл — моделям нужен публичный URL."""
     from django.conf import settings
 
-    base = (getattr(settings, "SITE_URL", "") or "https://esai.kg").rstrip("/")
+    base = (getattr(settings, "SITE_BASE_URL", "") or "https://esai.kg").rstrip("/")
     return path if path.startswith("http") else base + path
 
 

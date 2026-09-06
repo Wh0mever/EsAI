@@ -455,6 +455,7 @@ def apply_daily_retention_bonus(self) -> dict:
                     meta={"task": "daily_retention"},
                 )
                 processed += 1
+                bonus_user_ids.append(user.pk)
                 # Web-push «зачислен бонус». Ленивый импорт + мягкая обработка:
                 # сбой пуша НЕ должен ронять задачу начисления.
                 try:
@@ -475,6 +476,24 @@ def apply_daily_retention_bonus(self) -> dict:
                     "daily_retention_bonus_failed user=%s: %s", getattr(user, "id", None), exc
                 )
                 continue
+
+        # Рассылка в Telegram — одной задачей после цикла: тысяча отдельных
+        # отправок подряд упрётся в лимит Telegram, и часть людей ничего не получит.
+        if bonus_user_ids:
+            try:
+                from botapi.tasks import broadcast_telegram
+
+                broadcast_telegram.delay(
+                    "bonus",
+                    {
+                        "ru": f"🎁 <b>Ежедневный бонус зачислён!</b>\nБаланс пополнен до {target} кредитов. Время воспользоваться EsAI ✨",
+                        "en": f"🎁 <b>Daily bonus credited!</b>\nYour balance is topped up to {target} credits.",
+                        "kg": f"🎁 <b>Кундeлук бонус кошулду!</b>\nБалансыңыз {target} кредитке чейин толтурулду.",
+                    },
+                    bonus_user_ids,
+                )
+            except Exception:
+                logger.exception("telegram daily bonus broadcast failed")
 
         logger.info(
             "daily_retention_bonus done processed=%s failed=%s threshold=%s target=%s",
