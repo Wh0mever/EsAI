@@ -20,6 +20,7 @@ from aiogram.types import BotCommand
 from bot.config import settings
 from bot.middlewares.auth import AuthMiddleware, DedupMiddleware, ErrorsMiddleware
 from bot.routers import chat as chat_router
+from bot.routers import media as media_router
 from bot.routers import models as models_router
 from bot.routers import start as start_router
 from bot.services.api import api
@@ -116,6 +117,7 @@ def build_dispatcher() -> Dispatcher:
 
     dispatcher.include_router(start_router.router)
     dispatcher.include_router(models_router.router)
+    dispatcher.include_router(media_router.router)
     dispatcher.include_router(chat_router.router)
     return dispatcher
 
