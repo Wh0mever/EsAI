@@ -425,6 +425,8 @@
 					"• SberPay",
 					"• T-Pay",
 					"• YooMoney",
+					"Cryptocurrency:",
+					"You can top up your balance with cryptocurrency. Choose a coin at checkout and send the exact amount to the address shown. Once the payment is confirmed, the credits are added to your balance.",
 					"All payments go through the secure Freedom Pay and YooKassa payment systems."
 				]
 			},
@@ -432,7 +434,8 @@
 				"q": "Is payment secure?",
 				"a": [
 					"Yes. Payments are processed by the secure Freedom Pay and YooKassa payment systems.",
-					"EsAI does not store users' bank card data."
+					"EsAI does not store users' bank card data.",
+					"Crypto payments are processed by a specialised payment provider. EsAI never receives or stores your bank card or crypto wallet details."
 				]
 			},
 			"8": {
@@ -1480,7 +1483,8 @@
 		"currency_kgs_title": "Kyrgyz som",
 		"currency_rub_title": "Russian ruble",
 		"currency_crypto": "CRYPTO",
-		"currency_crypto_title": "USDT, BTC, ETH, TON — prices in US dollars"
+		"currency_crypto_title": "USDT, BTC, ETH, TON — prices in US dollars",
+		"payg_check_crypto": "From ≈ 2.2 USDT in crypto"
 	},
 	"paywall": {
 		"title_generic": "Top up your balance",
@@ -1624,7 +1628,7 @@
 				},
 				"6": {
 					"title": "Convenient payment",
-					"desc": "🇰🇬 Kyrgyzstan: Visa, Mastercard, local wallets\n🇷🇺 Russia: cards, SberPay, YooMoney, T-Pay"
+					"desc": "🇰🇬 Kyrgyzstan: Visa, Mastercard, local wallets\n🇷🇺 Russia: cards, SberPay, YooMoney, T-Pay\n🪙 Crypto: fast payment with cryptocurrency"
 				},
 				"7": {
 					"title": "All AI in one place",
