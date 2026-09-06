@@ -141,6 +141,10 @@ async def run_chat(message: Message, token: str, lang: str, text: str, *,
                 break
     except ApiError as exc:
         stop_typing.set()
+        # Причина отказа нужна в логе: человеку показываем короткий текст,
+        # а разбираться потом приходится по этой строке.
+        logger.warning("чат: отказ API для %s — http %s %s %s", user_id, exc.status,
+                       exc.code or "-", (exc.message or "")[:200])
         if exc.is_paywall:
             await renderer.fail(
                 _paywall_text(lang, exc.code, exc.payload),
