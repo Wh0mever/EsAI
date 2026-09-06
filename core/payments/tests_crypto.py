@@ -639,6 +639,7 @@ class FeeAndRateTests(TestCase):
     def test_minimum_is_asked_against_settlement_currency(self):
         """Минимум спрашиваем по паре «монета → валюта выплат»: справочник
         «→ usd» показывал $12 для монет, которыми $2 принимались."""
+        from payments.crypto import registry
         from payments.crypto.nowpayments import NowPayments
 
         seen = []
