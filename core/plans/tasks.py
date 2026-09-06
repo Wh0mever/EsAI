@@ -481,8 +481,18 @@ def apply_daily_retention_bonus(self) -> dict:
         # отправок подряд упрётся в лимит Telegram, и часть людей ничего не получит.
         if bonus_user_ids:
             try:
-                from botapi.tasks import broadcast_telegram
+                from botapi.tasks import _enabled, broadcast_telegram
 
+                # Пока бот не подключён, ставить рассылку некуда — и это не
+                # ошибка, поэтому просто ничего не делаем.
+                if not _enabled():
+                    bonus_user_ids = []
+            except Exception:
+                logger.exception("telegram: проверка рассылки бонуса")
+                bonus_user_ids = []
+
+        if bonus_user_ids:
+            try:
                 broadcast_telegram.delay(
                     "bonus",
                     {
