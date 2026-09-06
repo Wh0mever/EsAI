@@ -38,6 +38,17 @@ REFERRAL_BONUS_TOKENS = env.int("REFERRAL_BONUS_TOKENS", default=3)
 # "REFERRAL_PERCENT", см. adminapi.runtime) — env здесь лишь fallback.
 REFERRAL_PERCENT = env.int("REFERRAL_PERCENT", default=10)
 
+# --- Telegram-бот -------------------------------------------------------
+# Токен ТОВАРНОГО бота (не того, через который вход на сайте): у него свой
+# токен, но id пользователя в Telegram один на все боты, поэтому аккаунт с
+# сайтом остаётся общим. Пусто — бот выключен, сервисные эндпоинты закрыты.
+TELEGRAM_PRODUCT_BOT_TOKEN = env.str("TELEGRAM_PRODUCT_BOT_TOKEN", default="")
+TELEGRAM_PRODUCT_BOT_USERNAME = env.str("TELEGRAM_PRODUCT_BOT_USERNAME", default="")
+# Общий секрет, которым бот подписывает сервисные запросы к нам.
+BOT_SERVICE_SECRET = env.str("BOT_SERVICE_SECRET", default="")
+# Рубильник исходящих сообщений: на стенде их слать некуда.
+TELEGRAM_NOTIFY_ENABLED = env.bool("TELEGRAM_NOTIFY_ENABLED", default=False)
+
 # Скидка при попытке ухода со страницы тарифов (exit-intent discount).
 # Реализована как СНИЖЕНИЕ СУММЫ ОПЛАТЫ за тот же пакет (не бонусные кредиты).
 # EXIT_DISCOUNT_PERCENT — размер скидки в %, EXIT_DISCOUNT_MINUTES — время
@@ -107,6 +118,7 @@ INSTALLED_APPS = [
     "payments.apps.PaymentsConfig",
     "audit.apps.AuditConfig",
     "adminapi.apps.AdminapiConfig",
+    "botapi.apps.BotapiConfig",
     "cartoon.apps.CartoonConfig",
 ]
 
@@ -229,6 +241,8 @@ REST_FRAMEWORK = {
         "crypto_purchase": env.str("DRF_THROTTLE_CRYPTO_PURCHASE", default="10/min"),
         "crypto_status": env.str("DRF_THROTTLE_CRYPTO_STATUS", default="30/min"),
         "crypto_ipn": env.str("DRF_THROTTLE_CRYPTO_IPN", default="120/min"),
+        # Бот ходит из одного контейнера: анонимного лимита по IP ему мало.
+        "bot_service": env.str("DRF_THROTTLE_BOT_SERVICE", default="600/min"),
     },
 }
 

@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import logging
 from datetime import timedelta
@@ -37,12 +37,17 @@ def activate_free_plan_for_user(user: User) -> Tuple[bool, str]:
     return False, "subscriptions_deprecated"
 
 
-def maybe_link_referrer(request, new_user) -> None:
+def maybe_link_referrer(request, new_user, code: str = "") -> None:
     """Привязать реферера к новому пользователю при регистрации по реф-ссылке.
 
-    Реф-код берём из cookie `esai_ref` (его ставит фронт при переходе по
-    реф-ссылке) — так атрибуция переживает и email-OTP, и соц-вход (cookie уходит
-    на тот же origin /api).
+    Реф-код берём из аргумента (так его передаёт бот из ссылки
+    t.me/<bot>?start=ref_XXX), иначе из cookie `esai_ref` (её ставит фронт при
+    переходе по реф-ссылке — атрибуция переживает и email-OTP, и соц-вход),
+    иначе из поля `ref` в теле запроса.
+
+    Привязываем ТОЛЬКО что созданному аккаунту (моложе 10 минут). Иначе
+    достаточно разослать свою ссылку старым пользователям — и получать процент
+    с чужих покупок, к которым приглашение отношения не имело.
 
     РЕШЕНИЕ КЛИЕНТА: разовый бонус за регистрацию УБРАН. Вместо этого просто
     фиксируем реферера в new_user.referred_by. Начисление 10% происходит позже —
@@ -57,12 +62,29 @@ def maybe_link_referrer(request, new_user) -> None:
         # Идемпотентность: реферер ставится один раз и не переписывается.
         if getattr(new_user, "referred_by_id", None):
             return
-        try:
-            code = (request.COOKIES.get("esai_ref") or "").strip()
-        except Exception:
-            code = ""
+        code = (code or "").strip()
+        if not code:
+            try:
+                code = (request.COOKIES.get("esai_ref") or "").strip()
+            except Exception:
+                code = ""
+        if not code:
+            try:
+                code = str(((getattr(request, "data", None) or {}).get("ref") or "")).strip()
+            except Exception:
+                code = ""
         if not code:
             return
+        # Только для свежего аккаунта: реферер — тот, по чьей ссылке пришли
+        # регистрироваться, а не тот, кто прислал ссылку год спустя.
+        joined = getattr(new_user, "date_joined", None)
+        if joined is not None:
+            from datetime import timedelta
+
+            from django.utils import timezone as _tz
+
+            if _tz.now() - joined > timedelta(minutes=10):
+                return
         referrer = User.objects.filter(referral_uid__iexact=code).first()
         if not referrer and code.isdigit():
             referrer = User.objects.filter(pk=int(code)).first()

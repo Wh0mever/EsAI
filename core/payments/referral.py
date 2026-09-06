@@ -65,6 +65,16 @@ def pay_referral_share(buyer, order_id: str, base_credits: int, *, idem_suffix: 
             if idem_suffix:
                 meta["idem"] = str(idem_suffix)
             credit_tokens(ref, share, "referral", meta=meta)
+        try:
+            from botapi.tasks import notify
+
+            notify(
+                ref, "referral",
+                f"🤝 <b>+{int(share)} кредитов</b>\nВаш друг пополнил баланс — "
+                f"вам начислена доля с этой покупки.",
+            )
+        except Exception:
+            logger.exception("telegram referral notify failed order=%s", order_id)
         return share
     except Exception as exc:  # noqa: BLE001 — реферал не важнее покупки
         logger.exception("referral payout failed order=%s: %s", order_id, exc)
