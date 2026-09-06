@@ -55,6 +55,9 @@ class AuthMiddleware(BaseMiddleware):
             return None
 
         if not settings.allowed(user.id):
+            # В режиме «только свои» id стучащегося нужен в логе: так его
+            # можно добавить в BOT_STAFF_IDS, не спрашивая человека.
+            logger.info("доступ закрыт: telegram id %s (@%s)", user.id, user.username or "-")
             lang = user.language_code or "ru"
             lang = "ru" if lang.startswith("ru") else ("kg" if lang.startswith("ky") else "en")
             await self._reply(event, t(lang, "not_allowed"))
