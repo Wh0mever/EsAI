@@ -14,7 +14,7 @@ from bot.config import settings
 from bot.keyboards.common import language_choice, main_menu, more_menu, rows_of
 from bot.services.api import ApiError, api
 from bot.services.state import store
-from bot.services.tg_format import esc
+from bot.services.tg_format import CHUNK_LIMIT, esc
 from bot.texts import register_texts, t
 
 logger = logging.getLogger(__name__)
@@ -51,7 +51,13 @@ register_texts({
         "link_fail_paid": ("Не получилось объединить: у аккаунта из бота есть платежи. "
                            "Напишите в поддержку — разберём вручную."),
         "link_fail": "Не получилось связать: {reason}",
-        "link_already": "Этот Telegram уже связан с аккаунтом сайта.",
+        "link_already": ("К этому аккаунту сайта уже привязан Telegram. Если это ваш — "
+                         "всё уже работает, привязывать заново не нужно. Если не ваш — "
+                         "напишите в поддержку: /support"),
+        "link_fail_code": "Код не подошёл или уже устарел. Запросите новый.",
+        "link_fail_attempts": "Слишком много попыток. Подождите час и попробуйте снова.",
+        "link_fail_tg": ("Не удалось прочитать данные вашего Telegram. "
+                         "Попробуйте ещё раз или напишите в поддержку."),
         "link_deep_ok": "✅ Telegram привязан к вашему аккаунту сайта. Баланс и чаты общие.",
         "link_deep_merged": "✅ Аккаунты объединены: всё из бота переехало в аккаунт сайта.",
         "link_deep_bad": "Ссылка для привязки устарела. Откройте профиль на сайте и создайте новую.",
@@ -120,7 +126,13 @@ register_texts({
         "link_fail_paid": ("Could not merge: the bot account has payments. "
                            "Contact support — we will sort it out manually."),
         "link_fail": "Could not link: {reason}",
-        "link_already": "This Telegram is already linked to a site account.",
+        "link_already": ("This site account already has a Telegram linked. If it is yours, "
+                         "everything already works — no need to link again. If it is not, "
+                         "contact support: /support"),
+        "link_fail_code": "The code is wrong or has expired. Request a new one.",
+        "link_fail_attempts": "Too many attempts. Wait an hour and try again.",
+        "link_fail_tg": ("Could not read your Telegram data. "
+                         "Try again or contact support."),
         "link_deep_ok": "✅ Telegram linked to your site account. Balance and chats are shared.",
         "link_deep_merged": "✅ Accounts merged: everything from the bot moved to the site account.",
         "link_deep_bad": "The link has expired. Open your profile on the site and create a new one.",
@@ -189,7 +201,13 @@ register_texts({
         "link_fail_paid": ("Бириктирүү мүмкүн эмес: боттогу аккаунтта төлөмдөр бар. "
                            "Колдоо кызматына жазыңыз."),
         "link_fail": "Байланыштыруу мүмкүн болгон жок: {reason}",
-        "link_already": "Бул Telegram мурда эле сайт аккаунтуна байланышкан.",
+        "link_already": ("Бул сайт аккаунтуна Telegram буга чейин байланышкан. Эгер ал "
+                         "сиздики болсо — баары иштеп жатат. Болбосо, колдоо кызматына "
+                         "жазыңыз: /support"),
+        "link_fail_code": "Код туура эмес же эскирген. Жаңы код сураңыз.",
+        "link_fail_attempts": "Аракет өтө көп болду. Бир сааттан кийин кайра аракет кылыңыз.",
+        "link_fail_tg": ("Telegram маалыматтарыңызды окуй албадык. "
+                         "Кайра аракет кылыңыз же колдоо кызматына жазыңыз."),
         "link_deep_ok": "✅ Telegram сайт аккаунтуңузга байланышты. Баланс жана чаттар жалпы.",
         "link_deep_merged": "✅ Аккаунттар бириктирилди.",
         "link_deep_bad": "Шилтеме эскирди. Сайттагы профилден жаңысын түзүңүз.",
@@ -316,8 +334,23 @@ async def inbox(call: CallbackQuery, token: str, lang: str) -> None:
         return
     lines = [t(lang, "inbox_title")]
     for r in rows:
-        lines.append(f"• <b>{esc(r.get('title', ''))}</b>\n{esc((r.get('body') or '')[:300])}")
-    await call.message.answer("\n\n".join(lines), parse_mode="HTML")
+        # Режем ДО экранирования: после — можно разрубить «&amp;» пополам.
+        lines.append(f"• <b>{esc(str(r.get('title') or '')[:120])}</b>\n"
+                     f"{esc(str(r.get('body') or '')[:300])}")
+    # Десять уведомлений с длинными телами не влезают в лимит сообщения, и тогда
+    # Telegram отвергает его целиком: не приходит НИЧЕГО, а исключение внутри
+    # callback-а гасит middleware — человек даже ошибки не видит. Режем по
+    # уведомлениям: так тег не рвётся пополам.
+    chunk: list[str] = []
+    size = 0
+    for line in lines:
+        if chunk and size + len(line) + 2 > CHUNK_LIMIT:
+            await call.message.answer("\n\n".join(chunk), parse_mode="HTML")
+            chunk, size = [], 0
+        chunk.append(line)
+        size += len(line) + 2
+    if chunk:
+        await call.message.answer("\n\n".join(chunk), parse_mode="HTML")
 
 
 # ------------------------------------------------------------ «☰ Ещё» ---
@@ -344,7 +377,9 @@ async def more(call: CallbackQuery, token: str, lang: str, state: FSMContext) ->
     elif action == "transfer":
         await start_transfer(message, token, lang, state)
     elif action == "promo":
-        await message.answer("Введите промокод так: <code>/promo КОД</code>", parse_mode="HTML")
+        from bot.routers.profile import promo_hint
+
+        await promo_hint(message, lang)
     elif action == "lang":
         await message.answer(t(lang, "lang_pick"), reply_markup=language_choice())
     elif action == "notify":
@@ -413,6 +448,24 @@ async def toggle_notify(call: CallbackQuery, lang: str) -> None:
 
 # ------------------------------------------------------------- привязка ---
 
+# Коды из core/botapi/linking.py. Каждый значит своё, и путать их нельзя:
+# already_linked — у аккаунта САЙТА уже висит Telegram (свой или чужой), а не
+# «этот Telegram уже связан»; отвязать его человек сам не может: на сайте нет
+# ни кнопки, ни эндпоинта — единственный живой выход тут поддержка;
+# telegram_bound_to_paid_account — у аккаунта, из которого пишет бот, есть
+# платежи или своя почта, слить его молча нельзя — нужен ручной разбор.
+LINK_ERROR_TEXTS = {
+    "already_linked": "link_already",
+    "telegram_bound_to_paid_account": "link_fail_paid",
+    "code_invalid": "link_fail_code",
+    "too_many_attempts": "link_fail_attempts",
+    "bad_telegram_user": "link_fail_tg",
+}
+# В сценарии со ссылки с сайта «код не найден» означает протухшую ссылку —
+# и человеку полезнее знать, что новую делают в профиле на сайте.
+LINK_DEEP_ERROR_TEXTS = {**LINK_ERROR_TEXTS, "code_invalid": "link_deep_bad"}
+
+
 async def start_link(message: Message, lang: str, state: FSMContext) -> None:
     await state.set_state(AccountWizard.link_email)
     await message.answer(t(lang, "link_intro"), parse_mode="HTML")
@@ -433,7 +486,7 @@ async def link_email(message: Message, lang: str, state: FSMContext) -> None:
         await api.signin(email, telegram_id=message.from_user.id)
     except ApiError as exc:
         await state.clear()
-        await message.answer(t(lang, "link_fail", reason=exc.message or exc.code))
+        await message.answer(t(lang, "link_fail", reason=esc(exc.message or exc.code)))
         return
     await state.update_data(email=email)
     await state.set_state(AccountWizard.link_code)
@@ -448,7 +501,7 @@ async def link_code(message: Message, lang: str, state: FSMContext, tg_user: dic
     try:
         auth = await api.signin_confirm(email, code, telegram_id=message.from_user.id)
     except ApiError as exc:
-        await message.answer(t(lang, "link_code_bad", reason=exc.message or exc.code))
+        await message.answer(t(lang, "link_code_bad", reason=esc(exc.message or exc.code)))
         return
     await state.clear()
     site_token = ((auth or {}).get("data") or {}).get("access") or ""
@@ -459,12 +512,10 @@ async def link_code(message: Message, lang: str, state: FSMContext, tg_user: dic
         start = await api.link_start(site_token, telegram_id=message.from_user.id)
         result = await api.link_confirm(start["code"], tg_user, chat_id=message.chat.id)
     except ApiError as exc:
-        if exc.code == "already_linked":
-            await message.answer(t(lang, "link_already"))
-        elif exc.code == "telegram_bound_to_paid_account":
-            await message.answer(t(lang, "link_fail_paid"))
-        else:
-            await message.answer(t(lang, "link_fail", reason=exc.message or exc.code))
+        key = LINK_ERROR_TEXTS.get(exc.code)
+        # Причина от сервера уходит в HTML-сообщение — экранируем её.
+        await message.answer(t(lang, key) if key else
+                             t(lang, "link_fail", reason=esc(exc.message or exc.code)))
         return
     await _apply_link_result(message, lang, result, email)
 
@@ -486,12 +537,7 @@ async def link_from_deep_link(message: Message, lang: str, code: str, tg_user: d
     try:
         result = await api.link_confirm(code, tg_user, chat_id=message.chat.id)
     except ApiError as exc:
-        if exc.code == "telegram_bound_to_paid_account":
-            await message.answer(t(lang, "link_fail_paid"))
-        elif exc.code == "already_linked":
-            await message.answer(t(lang, "link_already"))
-        else:
-            await message.answer(t(lang, "link_deep_bad"))
+        await message.answer(t(lang, LINK_DEEP_ERROR_TEXTS.get(exc.code, "link_deep_bad")))
         return
     chat_id = message.chat.id
     await store.set_token(chat_id, result["access"])
@@ -703,9 +749,15 @@ async def support_text(message: Message, token: str, lang: str, state: FSMContex
         email = ""
     who = f"@{tg_user.get('username')}" if tg_user.get("username") else f"tg:{tg_user.get('id')}"
     body = f"[Telegram {who}, тема: {data.get('topic', 'general')}]\n{text}"
+    # UserQuestions.name — CharField(max_length=50), а имя в Telegram бывает до
+    # 64 символов: без обрезки сервер отвечал 400 и обращение пропадало вовсе.
+    name = (tg_user.get("first_name") or who)[:50]
+    # Почта-заглушка должна совпадать с той, что делает бэкенд
+    # (botapi.services.fallback_email): по ней поддержка находит человека,
+    # а формат «tg_<id>@…» не совпадал ни с одним реальным аккаунтом.
+    fallback_email = f"telegram_{tg_user.get('id')}@social.esai.local"
     try:
-        result = await api.question(email or f"tg_{tg_user.get('id')}@social.esai.local",
-                                    tg_user.get("first_name") or who, body[:4000])
+        result = await api.question(email or fallback_email, name, body[:4000])
     except ApiError:
         await message.answer(t(lang, "server_down"))
         return

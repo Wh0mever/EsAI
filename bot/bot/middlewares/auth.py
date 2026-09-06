@@ -11,9 +11,24 @@ from aiogram.types import CallbackQuery, Message, TelegramObject, Update
 from bot.config import settings
 from bot.services.api import ApiError, api
 from bot.services.state import store
-from bot.texts import t
+from bot.texts import register_texts, t
 
 logger = logging.getLogger(__name__)
+
+# Свой текст на случай, когда даже свежий токен API не принимает: «сервер не
+# отвечает» тут врёт (сервер как раз ответил), а «доступ закрыт» обещает больше,
+# чем мы знаем. Имя с префиксом auth_ — чтобы не спорить с общими ключами.
+register_texts({
+    "ru": {"auth_session_lost": (
+        "Не удалось подтвердить вход. Попробуйте /start, а если не поможет — "
+        "напишите в поддержку: /help")},
+    "en": {"auth_session_lost": (
+        "Could not confirm your sign-in. Try /start, and if that does not help — "
+        "contact support: /help")},
+    "kg": {"auth_session_lost": (
+        "Кирүүнү ырастоо мүмкүн болгон жок. /start аракет кылыңыз, жардам бербесе — "
+        "колдоого жазыңыз: /help")},
+})
 
 COMMAND_RE = re.compile(r"^/([A-Za-z0-9_]{1,32})(?:@[A-Za-z0-9_]+)?(?:\s|$)")
 
@@ -79,7 +94,8 @@ class AuthMiddleware(BaseMiddleware):
     """Токен человека и его язык — в каждый обработчик.
 
     Токен кэшируется: обменивать данные Telegram на него при каждом сообщении
-    незачем. Если токен протух, молча берём новый — человек этого не замечает.
+    незачем. Если токен перестал приниматься (401), молча берём новый и
+    повторяем обработчик — человек этого не замечает.
     """
 
     async def __call__(self, handler: Callable[[TelegramObject, dict], Awaitable[Any]],
@@ -110,6 +126,8 @@ class AuthMiddleware(BaseMiddleware):
             token = None
 
         payment = self._is_payment(event)
+        # Токен, добытый прямо сейчас: если API отвергнет и его, менять не на что.
+        minted_now = False
         if not token:
             try:
                 payload = await api.auth_telegram(
@@ -137,6 +155,7 @@ class AuthMiddleware(BaseMiddleware):
                     return None
             else:
                 token = payload["access"]
+                minted_now = True
                 await store.set_token(user.id, token)
                 data["auth_payload"] = payload
                 if not lang:
@@ -146,7 +165,56 @@ class AuthMiddleware(BaseMiddleware):
         data["token"] = token or ""
         data["lang"] = lang or "ru"
         data["tg_user"] = _tg_user_dict(user)
-        return await handler(event, data)
+
+        try:
+            return await handler(event, data)
+        except ApiError as exc:
+            if exc.status != 401 or payment or minted_now or not token:
+                raise
+            return await self._retry_with_fresh_token(handler, event, data, user,
+                                                      lang or "ru")
+
+    async def _retry_with_fresh_token(self, handler, event: TelegramObject, data: dict,
+                                      user, lang: str) -> Any:
+        """401 из обработчика — кэшированный токен API больше не принимает.
+
+        Кэш в Redis живёт 11 часов, а JWT — 12, поэтому «просто протух» почти не
+        бывает; 401 означает, что токен отозван: сменили SECRET_KEY, аккаунт
+        деактивировали, токен пришёл из другого стенда. Раньше такой ответ никто
+        не превращал в новый обмен — человек до конца TTL получал ошибку на любое
+        действие, а лечилось это только ожиданием.
+
+        Повтор обработчика безопасен для денег: 401 отдаёт аутентификация, до
+        бизнес-логики и до списания запрос не доходит. Токен, полученный в этом
+        же апдейте, не обновляем — второй такой же ничего не изменит.
+        """
+        await store.drop_token(user.id)
+        try:
+            payload = await api.auth_telegram(
+                _tg_user_dict(user), chat_id=self._chat_id(event) or user.id)
+        except ApiError as exc:
+            if exc.status == 403:
+                await self._reply(event, t(lang, "blocked"))
+            else:
+                logger.exception("не удалось обновить токен для %s", user.id)
+                await self._reply(event, t(lang, "server_down"))
+            return None
+
+        token = payload["access"]
+        await store.set_token(user.id, token)
+        data["token"] = token
+        # auth_payload намеренно не трогаем: по нему cmd_start понимает, что
+        # обмен в этом апдейте был и код из ссылки бэкенд уже видел. Починочный
+        # обмен ни ref, ни промокода не нёс — выдавать его за первый нельзя.
+        try:
+            return await handler(event, data)
+        except ApiError as exc:
+            if exc.status != 401:
+                raise
+            # Свежий токен тоже не приняли — дело не в токене, и молчать нельзя.
+            logger.warning("свежий токен для %s тоже отвергнут API", user.id)
+            await self._reply(event, t(lang, "auth_session_lost"))
+            return None
 
     @staticmethod
     def _deep_link(event: TelegramObject) -> tuple[str, str]:
@@ -175,13 +243,28 @@ class AuthMiddleware(BaseMiddleware):
 
     @staticmethod
     async def _reply(event: TelegramObject, text: str) -> None:
-        try:
-            if isinstance(event, Message):
+        if isinstance(event, Message):
+            try:
                 await event.answer(text)
-            elif isinstance(event, CallbackQuery):
-                await event.answer(text, show_alert=True)
+            except Exception:
+                logger.exception("не удалось ответить пользователю")
+            return
+        if not isinstance(event, CallbackQuery):
+            return
+        try:
+            # У всплывашки лимит 200 символов; длиннее Telegram не примет вовсе.
+            await event.answer(text[:200], show_alert=True)
+            return
         except Exception:
-            logger.exception("не удалось ответить пользователю")
+            # Всплывашка полагается одна на нажатие. В починочной ветке
+            # обработчик уже успел ответить на кнопку до того, как упал, —
+            # значит про потерянный вход человек не узнал бы вообще ничего.
+            logger.warning("всплывашка не прошла — пишем в чат", exc_info=True)
+        if event.message is not None:
+            try:
+                await event.message.answer(text)
+            except Exception:
+                logger.exception("не удалось ответить пользователю")
 
 
 class CommandResetMiddleware(BaseMiddleware):
@@ -213,10 +296,34 @@ class ErrorsMiddleware(BaseMiddleware):
             raise
         except Exception:
             logger.exception("обработчик упал")
-            lang = data.get("lang", "ru")
-            if isinstance(event, Message):
-                try:
-                    await event.answer(t(lang, "failed"))
-                except Exception:
-                    pass
+            await self._notify(event, t(data.get("lang", "ru"), "failed"))
             return None
+
+    @staticmethod
+    async def _notify(event: TelegramObject, text: str) -> None:
+        """Сказать об ошибке и тому, кто нажал кнопку.
+
+        Раньше отвечали только на Message: упавший callback-обработчик оставлял
+        нажатую кнопку в состоянии «часики» до таймаута Telegram, и человек не
+        понимал, услышал его бот или нет. Сначала гасим «крутилку» коротким
+        всплывающим текстом (у него лимит 200 символов), потом пишем в чат —
+        всплывашка пропадает через пару секунд, а ошибку нужно иметь возможность
+        перечитать. Каждый шаг отдельно: сообщение могло быть удалено, но
+        крутилку снять всё равно обязаны.
+        """
+        if isinstance(event, Message):
+            try:
+                await event.answer(text)
+            except Exception:
+                logger.exception("не удалось сообщить об ошибке")
+            return
+        if isinstance(event, CallbackQuery):
+            try:
+                await event.answer(text[:200])
+            except Exception:
+                logger.exception("не удалось погасить «крутилку» кнопки")
+            if event.message is not None:
+                try:
+                    await event.message.answer(text)
+                except Exception:
+                    logger.exception("не удалось сообщить об ошибке")

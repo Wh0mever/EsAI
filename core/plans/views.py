@@ -280,14 +280,24 @@ class TokenBalanceView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
-        from .tiers import user_tier
+        from .tiers import is_unlimited, user_tier
 
         balance = int(getattr(request.user, "token_balance", 0) or 0)
+        unlimited = is_unlimited(request.user)
+        # По правам безлимитный аккаунт совпадает с платным, но человеку это
+        # надо показывать иначе: подпись «Платный» на экране безлимита выглядит
+        # как ошибка биллинга. Поэтому отдельное значение тира собирается
+        # ЗДЕСЬ, а plans/tiers.py намеренно не трогаем: на его TIER_PAID завязан
+        # допуск к премиум-моделям (is_paid_tier → can_use_model), и лишнее
+        # значение молча закрыло бы безлимитному человеку все платные модели.
+        # Флаг is_unlimited отдаём рядом — потребителю, который тир не разбирает,
+        # хватит булева поля.
         return Response(
             {
                 "balance_tokens": balance,
-                "tier": user_tier(request.user),
+                "tier": "unlimited" if unlimited else user_tier(request.user),
                 "is_paid": bool(getattr(request.user, "is_paid", False)),
+                "is_unlimited": unlimited,
             },
             status=200,
         )

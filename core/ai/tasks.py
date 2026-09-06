@@ -232,11 +232,24 @@ def _notify_job_result(job) -> None:
     Шлём прямо отсюда, а не через очередь уведомлений: так мы точно знаем,
     дошло ли сообщение, и можем отметить это в задаче — бот по этой отметке
     понимает, что дублировать ролик не нужно.
+
+    Отметка означает НАМЕРЕНИЕ отправить, а не факт доставки. Раньше она
+    ставилась после ответа Telegram, а статус задачи становился done до вызова:
+    бот, опросив задачу в этом промежутке, видел «ядро ничего не слало» и
+    отправлял ролик сам — человек получал видео дважды. Теперь помечаем перед
+    обращением к Telegram.
+
+    Плата за это — бот больше не подстрахует: он возвращается, как только
+    увидит отметку, то есть почти сразу, и снятая позже отметка его уже не
+    догонит. Поэтому запасной путь у отправки ролика свой (ссылка сообщением),
+    а отметка снимается только когда не прошло вообще ничего: тогда доставит
+    бот, если ещё ждёт, и в логе останется след.
     """
     from django.utils import timezone
 
     if job.notify != "telegram":
         return
+    marked = False
     try:
         from botapi.models import TelegramChat
         from botapi.tasks import _enabled
@@ -247,6 +260,9 @@ def _notify_job_result(job) -> None:
         chat = TelegramChat.objects.filter(user_id=job.user_id, is_blocked=False).first()
         if not chat:
             return
+        # С этой секунды доставка — наша ответственность, и бот про это знает.
+        type(job).objects.filter(pk=job.pk).update(notified_at=timezone.now())
+        marked = True
         result = job.result or {}
         lang = (job.params or {}).get("lang") or chat.lang or "ru"
         if job.status == job.STATUS_DONE:
@@ -271,8 +287,25 @@ def _notify_job_result(job) -> None:
                  "callback_data": f"v:sh:{job.uid}"},
             ]]}
             if url:
-                tg_api("sendVideo", chat_id=chat.chat_id, video=url, caption=caption,
-                       supports_streaming=True, reply_markup=markup)
+                try:
+                    tg_api("sendVideo", chat_id=chat.chat_id, video=url, caption=caption,
+                           supports_streaming=True, reply_markup=markup)
+                except TelegramError as exc:
+                    if exc.blocked:
+                        raise  # писать больше некому — снимаем отметку выше
+                    # Ролик Telegram не взял: по ссылке он тянет не больше
+                    # 20 МБ и рвёт долгую закачку (наш таймаут — 30 секунд).
+                    # Раньше подстраховкой был бот, но теперь он уходит, едва
+                    # увидев отметку, а она стоит с начала отправки — снятая
+                    # позже, она его уже не догонит. Поэтому запасной путь
+                    # делаем сами и тем же способом, что бот в deliver():
+                    # отдаём ссылку сообщением. Если ролик всё-таки дошёл
+                    # (обрыв по таймауту), человек увидит лишнюю ссылку — это
+                    # дешевле, чем оплаченное видео, которое не пришло совсем.
+                    logger.warning("job %s: sendVideo отказал (%s) — шлём ссылку",
+                                   job.uid, exc.description)
+                    tg_api("sendMessage", chat_id=chat.chat_id,
+                           text=f"{caption}\n{url}", reply_markup=markup)
             else:
                 tg_api("sendMessage", chat_id=chat.chat_id, text=caption, reply_markup=markup)
         else:
@@ -283,10 +316,13 @@ def _notify_job_result(job) -> None:
             tg_api("sendMessage", chat_id=chat.chat_id, text=text, reply_markup={
                 "inline_keyboard": [[{"text": {"en": "🔁 Retry", "kg": "🔁 Кайра"}.get(lang, "🔁 Повторить"),
                                       "callback_data": f"v:re:{job.uid}"}]]})
-        type(job).objects.filter(pk=job.pk).update(notified_at=timezone.now())
     except TelegramError as exc:
+        if marked:
+            type(job).objects.filter(pk=job.pk).update(notified_at=None)
         logger.warning("job %s: telegram отказал: %s", job.uid, exc.description)
     except Exception:
+        if marked:
+            type(job).objects.filter(pk=job.pk).update(notified_at=None)
         logger.exception("job %s: уведомление не ушло", job.uid)
 
 

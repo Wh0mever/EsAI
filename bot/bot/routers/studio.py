@@ -1,12 +1,13 @@
 """Студия мультфильмов: герой → сцены → лента → съёмка → сборка.
 
 Тот же конвейер, что на сайте, теми же словами. Экран с кнопками всегда
-последнее сообщение, превью уходят медиа-группой перед ним. Готовность сцен
+последнее сообщение, превью уходят лентой картинок перед ним. Готовность сцен
 и мультфильма приходит пушем от ядра — опрашивать ничего не нужно.
 """
 from __future__ import annotations
 
 import logging
+import time
 
 from aiogram import F, Router
 from aiogram.enums import ChatAction
@@ -95,6 +96,13 @@ register_texts({
         "st_no_project": "Сначала начните мультфильм: /studio",
         "st_empty_heroes": "Библиотека героев пуста — загрузите своё фото.",
         "st_empty_scenes": "В этом разделе пока нет сцен.",
+        "st_empty_audience": "В этом разделе нет сцен для выбранной аудитории.",
+        "st_audience_off": "👨‍👩‍👧 Показать сцены для всех",
+        "st_wait_photo": "📷 Жду фото героя — пришлите картинку. Текст здесь не подойдёт.",
+        "st_wizard_cancel": "✖ Отмена",
+        "st_wizard_cancelled": "Загрузка героя отменена.",
+        "st_wizard_expired": ("📷 Я слишком долго ждал фото героя и больше его не жду. "
+                              "Начните заново: /studio"),
         "st_back": "↩ Разделы",
         "st_result": "🎞 Мультфильм «{title}» · сцен {n}",
         "st_removed": "Сцена убрана из ленты.",
@@ -159,6 +167,13 @@ register_texts({
         "st_no_project": "Start a cartoon first: /studio",
         "st_empty_heroes": "The hero library is empty — upload your photo.",
         "st_empty_scenes": "No scenes in this section yet.",
+        "st_empty_audience": "No scenes in this section for the chosen audience.",
+        "st_audience_off": "👨‍👩‍👧 Show scenes for everyone",
+        "st_wait_photo": "📷 I'm waiting for the hero's photo — send an image. Text won't do here.",
+        "st_wizard_cancel": "✖ Cancel",
+        "st_wizard_cancelled": "Hero upload cancelled.",
+        "st_wizard_expired": ("📷 I waited too long for the hero's photo and stopped waiting. "
+                              "Start again: /studio"),
         "st_back": "↩ Sections",
         "st_result": "🎞 Cartoon “{title}” · scenes {n}",
         "st_removed": "Scene removed from the timeline.",
@@ -223,6 +238,13 @@ register_texts({
         "st_no_project": "Адегенде мультфильм баштаңыз: /studio",
         "st_empty_heroes": "Каармандар китепканасы бош — өз сүрөтүңүздү жүктөңүз.",
         "st_empty_scenes": "Бул бөлүмдө азырынча сцена жок.",
+        "st_empty_audience": "Бул бөлүмдө тандалган аудитория үчүн сцена жок.",
+        "st_audience_off": "👨‍👩‍👧 Баары үчүн сценаларды көрсөтүү",
+        "st_wait_photo": "📷 Каармандын сүрөтүн күтүп жатам — сүрөт жөнөтүңүз. Текст бул жерде жарабайт.",
+        "st_wizard_cancel": "✖ Жокко чыгаруу",
+        "st_wizard_cancelled": "Каарманды жүктөө жокко чыгарылды.",
+        "st_wizard_expired": ("📷 Каармандын сүрөтүн өтө көп күттүм, эми күтпөйм. "
+                              "Кайра баштаңыз: /studio"),
         "st_back": "↩ Бөлүмдөр",
         "st_result": "🎞 «{title}» мультфильми · сцена {n}",
         "st_removed": "Сцена лентадан алынды.",
@@ -276,13 +298,55 @@ def _webapp_url(project_id: int | None = None) -> str:
 
 
 async def _send_media_group(message: Message, urls: list[str]) -> None:
-    media = [InputMediaPhoto(media=site_url(u)) for u in urls if u][:10]
+    """Показать превью списка одной лентой картинок.
+
+    Telegram принимает медиа-группу только из 2–10 элементов. На группе из
+    одного он отвечает Bad Request, и превью пропадали молча — в лог, а не
+    человеку. Ловилось это ровно там, где обиднее всего: на последней странице
+    героев или сцен, где часто остаётся один элемент.
+    """
+    media = [InputMediaPhoto(media=site_url(u)) for u in urls if u]
     if not media:
         return
+    for start in range(0, len(media), 10):
+        batch = media[start:start + 10]
+        try:
+            if len(batch) == 1:
+                await message.answer_photo(batch[0].media)
+            else:
+                await message.answer_media_group(batch)
+        except Exception:
+            logger.exception("превью не отправились")
+
+
+def _fail(lang: str, exc: ApiError) -> str:
+    """Текст ошибки бэкенда, безопасный для HTML-режима.
+
+    В detail прилетает сырой ответ провайдера — вплоть до HTML-страницы от
+    прокси. Без экранирования первый же «<» ломает СООБЩЕНИЕ ЦЕЛИКОМ, и
+    человек не узнаёт даже того, что именно не получилось. Длину режем: экран
+    ошибки не место для чужой вёрстки.
+    """
+    return esc(str(exc.message)[:300]) if exc.message else t(lang, "failed")
+
+
+# Состояние FSM живёт в Redis без срока, поэтому мастер героя надо закрывать
+# самим: иначе фото, присланное на следующий день, молча становится героем.
+WIZARD_TTL = 3600
+
+
+async def _wizard_started(chat_id: int) -> None:
+    """Запомнить момент входа в мастер героя."""
+    await store.set(chat_id, "st_wizard_at", int(time.time()), ttl=24 * 3600)
+
+
+async def _wizard_stale(chat_id: int) -> bool:
+    """Мастер уже не ждёт? Отметки нет — значит, состояние осталось от прошлого раза."""
+    started = await store.get(chat_id, "st_wizard_at")
     try:
-        await message.answer_media_group(media)
-    except Exception:
-        logger.exception("медиа-группа не отправилась")
+        return (time.time() - float(started)) > WIZARD_TTL
+    except (TypeError, ValueError):
+        return True
 
 
 # ------------------------------------------------------------- вход ---
@@ -401,7 +465,7 @@ async def pick_hero(call: CallbackQuery, token: str, lang: str) -> None:
         project = await api.create_project(token, hero_id, lang=lang, telegram_id=chat_id)
     except ApiError as exc:
         await call.answer()
-        await call.message.answer(exc.message or t(lang, "failed"))
+        await call.message.answer(_fail(lang, exc))
         return
     await store.set(chat_id, "st_project", project["id"])
     await store.set(chat_id, "st_char", hero_id)
@@ -412,19 +476,61 @@ async def pick_hero(call: CallbackQuery, token: str, lang: str) -> None:
     await show_categories(call.message, token, lang)
 
 
+def _wizard_kb(lang: str) -> InlineKeyboardMarkup:
+    """Из ожидания фото должен быть выход, и он должен быть виден."""
+    return InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text=t(lang, "st_wizard_cancel"), callback_data="st:wx")]])
+
+
 @router.callback_query(F.data == "st:hu")
 async def hero_upload(call: CallbackQuery, lang: str, state: FSMContext) -> None:
+    await _wizard_started(_tid(call))
     await state.set_state(StudioWizard.hero_photo)
     await call.answer()
-    await call.message.answer(t(lang, "st_hero_upload_ask"))
+    await call.message.answer(t(lang, "st_hero_upload_ask"), reply_markup=_wizard_kb(lang))
+
+
+@router.callback_query(F.data == "st:wx")
+async def hero_upload_cancel(call: CallbackQuery, lang: str, state: FSMContext) -> None:
+    # Кнопка остаётся в старом сообщении: нажатие через час не должно обрывать
+    # ДРУГОЙ мастер, в котором человек уже успел оказаться (описание картинки,
+    # промпт видео) — иначе отмена героя молча съедает чужой ввод.
+    if await state.get_state() == StudioWizard.hero_photo.state:
+        await state.clear()
+    await store.drop(_tid(call), "st_wizard_at")
+    await call.answer()
+    await call.message.answer(t(lang, "st_wizard_cancelled"))
+
+
+@router.message(StudioWizard.hero_photo, F.text & ~F.text.startswith("/"))
+async def hero_photo_text(message: Message, lang: str, state: FSMContext) -> None:
+    """Текст вместо фото: подсказать, а не молча ронять его в общий чат.
+
+    Раньше такое сообщение уходило мимо, состояние оставалось висеть, и
+    человек не понимал, почему студия его не слышит.
+    """
+    if await _wizard_stale(message.chat.id):
+        await state.clear()
+        await store.drop(message.chat.id, "st_wizard_at")
+        await message.answer(t(lang, "st_wizard_expired"))
+        return
+    await message.answer(t(lang, "st_wait_photo"), reply_markup=_wizard_kb(lang))
 
 
 @router.message(StudioWizard.hero_photo, F.photo)
 async def hero_photo(message: Message, token: str, lang: str, state: FSMContext) -> None:
     from bot.routers.media import download
 
-    await state.clear()
     chat_id = message.chat.id
+    # Просроченный мастер не должен превращать случайную картинку в героя и
+    # заводить под неё проект — тем более через сутки после входа.
+    if await _wizard_stale(chat_id):
+        await state.clear()
+        await store.drop(chat_id, "st_wizard_at")
+        await message.answer(t(lang, "st_wizard_expired"))
+        return
+    await state.clear()
+    await store.drop(chat_id, "st_wizard_at")
     photo = message.photo[-1]
     content = await download(message, photo.file_id, photo.file_size or 0, lang)
     if content is None:
@@ -444,7 +550,7 @@ async def _use_hero(message: Message, token: str, lang: str, hero_id: int) -> No
     try:
         project = await api.create_project(token, hero_id, lang=lang, telegram_id=chat_id)
     except ApiError as exc:
-        await message.answer(exc.message or t(lang, "failed"))
+        await message.answer(_fail(lang, exc))
         return
     await store.set(chat_id, "st_project", project["id"])
     await store.set(chat_id, "st_char", hero_id)
@@ -459,6 +565,7 @@ async def _use_hero(message: Message, token: str, lang: str, hero_id: int) -> No
 async def hero_draw(call: CallbackQuery, token: str, lang: str, state: FSMContext) -> None:
     pricing = await _pricing(token, lang, _tid(call))
     await state.set_state(StudioWizard.hero_prompt)
+    await _wizard_started(_tid(call))
     await call.answer()
     await call.message.answer(t(lang, "st_hero_draw_ask", price=pricing.get("character", 4)))
 
@@ -470,8 +577,16 @@ async def hero_prompt(message: Message, token: str, lang: str, state: FSMContext
     if message.text in MENU_ACTIONS:
         await state.clear()
         return
-    await state.clear()
     chat_id = message.chat.id
+    # Рисование героя платное. Забытый со вчера мастер не должен превращать
+    # обычную фразу в списание: просроченное состояние закрываем молча.
+    if await _wizard_stale(chat_id):
+        await state.clear()
+        await store.drop(chat_id, "st_wizard_at")
+        await message.answer(t(lang, "st_wizard_expired"))
+        return
+    await state.clear()
+    await store.drop(chat_id, "st_wizard_at")
     status = await message.answer(t(lang, "st_hero_drawing"))
     await message.bot.send_chat_action(chat_id, ChatAction.UPLOAD_PHOTO)
     try:
@@ -486,7 +601,7 @@ async def hero_prompt(message: Message, token: str, lang: str, state: FSMContext
                                                        payload={"balance_tokens": exc.payload.get("balance"),
                                                                 "required": exc.payload.get("required")}))
         else:
-            await message.answer(exc.message or t(lang, "failed"))
+            await message.answer(_fail(lang, exc))
         return
     try:
         await status.delete()
@@ -520,8 +635,14 @@ async def show_categories(message: Message, token: str, lang: str) -> None:
         await message.answer(t(lang, "server_down"))
         return
     cats = data.get("categories") or []
+    # Slug раздела в базе — до 90 символов, а вся callback_data ограничена 64
+    # байтами. Телеграм на длинной кнопке отвергает не её одну, а ВЕСЬ набор:
+    # один раздел с длинным кодом убивал экран разделов целиком. Поэтому в
+    # кнопке едет номер раздела, а сами коды лежат в памяти бота.
+    await store.set(chat_id, "st_cats", [c.get("slug", "") for c in cats], ttl=6 * 3600)
     buttons = [InlineKeyboardButton(text=f"{c.get('emoji', '')} {c.get('title')}".strip(),
-                                    callback_data=f"st:cat:{c['slug']}:0") for c in cats]
+                                    callback_data=f"st:cat:c{i}:0")
+               for i, c in enumerate(cats)]
     rows = []
     top = [InlineKeyboardButton(text=t(lang, "st_cat_all"), callback_data="st:cat:all:0")]
     if data.get("popular"):
@@ -549,8 +670,27 @@ async def categories(call: CallbackQuery, token: str, lang: str) -> None:
     await show_categories(call.message, token, lang)
 
 
-def _filter_presets(data: dict, slug: str) -> tuple[str, list]:
-    presets = data.get("presets") or []
+async def _cat_slug(chat_id: int, code: str) -> str:
+    """Развернуть код из callback_data в настоящий slug раздела.
+
+    Виртуальные разделы (all/popular/picks) и кнопки из старых сообщений, где
+    ещё лежал сам slug, проходят как есть.
+    """
+    if not (code.startswith("c") and code[1:].isdigit()):
+        return code
+    slugs = await store.get(chat_id, "st_cats") or []
+    index = int(code[1:])
+    # Список мог протухнуть в Redis — тогда честнее показать всё, чем пустоту.
+    return slugs[index] if 0 <= index < len(slugs) else "all"
+
+
+def _for_audience(item: dict, audience: str) -> bool:
+    """Сцена подходит выбранной аудитории или помечена универсальной."""
+    return audience == "all" or (item.get("audience") or "all") in (audience, "all")
+
+
+def _filter_presets(data: dict, slug: str, audience: str = "all") -> tuple[str, list]:
+    presets = [p for p in (data.get("presets") or []) if _for_audience(p, audience)]
     if slug == "all":
         return "🗂", presets
     if slug == "popular":
@@ -580,21 +720,49 @@ async def _ready_keyframes(token: str, lang: str, chat_id: int) -> dict:
 
 @router.callback_query(F.data.startswith("st:cat:"))
 async def scenes(call: CallbackQuery, token: str, lang: str) -> None:
-    _, _, slug, page = call.data.split(":")
+    _, _, code, page = call.data.split(":")
     await call.answer()
-    await show_scenes(call.message, token, lang, slug, int(page))
+    await show_scenes(call.message, token, lang, code, int(page))
 
 
-async def show_scenes(message: Message, token: str, lang: str, slug: str, page: int) -> None:
+@router.callback_query(F.data.startswith("st:audoff:"))
+async def scenes_any_audience(call: CallbackQuery, token: str, lang: str) -> None:
+    """Снять фильтр аудитории и вернуться в тот же раздел."""
+    await store.set(_tid(call), "st_audience", "all", ttl=6 * 3600)
+    await call.answer()
+    await show_scenes(call.message, token, lang, call.data.split(":")[2], 0)
+
+
+async def show_scenes(message: Message, token: str, lang: str, code: str, page: int) -> None:
     chat_id = message.chat.id
     try:
         data = await _presets(token, lang, chat_id)
     except ApiError:
         await message.answer(t(lang, "server_down"))
         return
-    title, presets = _filter_presets(data, slug)
+    # Из кода раздела мы соберём ещё и кнопки этого экрана, а на всю
+    # callback_data дано 64 байта. Слишком длинный код (сырой slug из кнопки
+    # старого сообщения) откатываем на «все разделы» — иначе клавиатура
+    # уедет за лимит и Телеграм не покажет экран вовсе.
+    if len(code.encode()) > 24:
+        code = "all"
+    slug = await _cat_slug(chat_id, code)
+    # Аудиторию человек выбирал в начале мастера, и раньше она резала только
+    # героев: ребёнку в тех же разделах показывались взрослые сцены.
+    audience = await store.get(chat_id, "st_audience") or "all"
+    title, presets = _filter_presets(data, slug, audience)
     if not presets:
-        await message.answer(t(lang, "st_empty_scenes"))
+        # Раздел пуст сам по себе или это фильтр отсёк всё? Во втором случае
+        # молчать нечестно — предлагаем снять фильтр, а не гадать.
+        if audience != "all" and _filter_presets(data, slug)[1]:
+            await message.answer(
+                t(lang, "st_empty_audience"),
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text=t(lang, "st_audience_off"),
+                                          callback_data=f"st:audoff:{code}")],
+                    [InlineKeyboardButton(text=t(lang, "st_back"), callback_data="st:cats")]]))
+        else:
+            await message.answer(t(lang, "st_empty_scenes"))
         return
     ready = await _ready_keyframes(token, lang, chat_id)
     pages = max(1, (len(presets) + PAGE - 1) // PAGE)
@@ -610,9 +778,9 @@ async def show_scenes(message: Message, token: str, lang: str, slug: str, page: 
     rows = rows_of(buttons, 4)
     nav = []
     if page > 0:
-        nav.append(InlineKeyboardButton(text="◀", callback_data=f"st:cat:{slug}:{page - 1}"))
+        nav.append(InlineKeyboardButton(text="◀", callback_data=f"st:cat:{code}:{page - 1}"))
     if page < pages - 1:
-        nav.append(InlineKeyboardButton(text="▶", callback_data=f"st:cat:{slug}:{page + 1}"))
+        nav.append(InlineKeyboardButton(text="▶", callback_data=f"st:cat:{code}:{page + 1}"))
     if nav:
         rows.append(nav)
     rows.append([InlineKeyboardButton(text=t(lang, "st_back"), callback_data="st:cats"),
@@ -666,7 +834,7 @@ async def add_scene(call: CallbackQuery, token: str, lang: str) -> None:
         scene = await api.add_scene(token, project_id, preset_id, lang=lang, telegram_id=chat_id)
     except ApiError as exc:
         await call.answer()
-        await call.message.answer(exc.message or t(lang, "failed"))
+        await call.message.answer(_fail(lang, exc))
         return
     title = (scene.get("preset") or {}).get("title", "")
     # Всплывашка — обычный текст, разметку там не разбирают; сообщение — HTML.
@@ -697,7 +865,7 @@ async def try_on(call: CallbackQuery, token: str, lang: str) -> None:
                                                             payload={"balance_tokens": exc.payload.get("balance"),
                                                                      "required": exc.payload.get("required")}))
         else:
-            await call.message.answer(exc.message or t(lang, "failed"))
+            await call.message.answer(_fail(lang, exc))
         return
     await store.drop(chat_id, "st_keyframes")
     charged = int(result.get("charged") or 0)
@@ -856,7 +1024,7 @@ async def _render(call: CallbackQuery, token: str, lang: str, scene_id: int, *, 
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
                     InlineKeyboardButton(text=t(lang, "btn_topup"), callback_data="b:topup")]]))
         elif not quiet:
-            await call.message.answer(exc.message or t(lang, "failed"))
+            await call.message.answer(_fail(lang, exc))
         return False
     if not quiet:
         await call.message.answer(
@@ -889,7 +1057,8 @@ async def render_all(call: CallbackQuery, token: str, lang: str) -> None:
     # после генерации — деньги за них человек считает потраченными зря. Считаем
     # сумму заранее и ставим в очередь ровно то, на что хватает.
     have = await _balance(token, lang, chat_id)
-    if have is not None and have < need:
+    paywalled = have is not None and have < need
+    if paywalled:
         # Здесь {need} — сумма за ВСЕ не снятые сцены, а не за одну: обычный
         # пейвол студии сказал бы «сцена стоит 90 кр» и назвал бы цену впятеро
         # выше настоящей.
@@ -910,7 +1079,16 @@ async def render_all(call: CallbackQuery, token: str, lang: str) -> None:
         if not await _render(call, token, lang, scene["id"], quiet=True):
             break
         queued += 1
-    await call.message.answer(t(lang, "st_render_all_done", n=queued))
+    if queued:
+        await call.message.answer(t(lang, "st_render_all_done", n=queued))
+    elif pending and not paywalled:
+        # «Поставил в очередь: 0» после пейвола — издевательство: человеку уже
+        # сказали, что денег не хватает. А вот молча проглотить сбой нельзя:
+        # тихие попытки _render ничего не показывают сами.
+        # Пустой pending — это не сбой: кнопка живёт в старом сообщении, и
+        # второе нажатие приходит, когда снимать уже нечего. Сказать там «не
+        # получилось» — соврать про деньги, которые как раз списались.
+        await call.message.answer(t(lang, "failed"))
 
 
 @router.callback_query(F.data.startswith("st:rt:"))
@@ -930,7 +1108,7 @@ async def retry_scene(call: CallbackQuery, token: str, lang: str) -> None:
         scene = await api.patch_scene(token, int(scene_id), {"retry": True, "new_keyframe": new_frame == "1"},
                                       lang=lang, telegram_id=chat_id)
     except ApiError as exc:
-        await call.message.answer(exc.message or t(lang, "failed"))
+        await call.message.answer(_fail(lang, exc))
         return
     await call.message.answer(
         t(lang, "st_rendering", title=esc((scene.get("preset") or {}).get("title", ""))))
@@ -1051,7 +1229,7 @@ async def _assemble(call: CallbackQuery, token: str, lang: str, project_id: int)
     try:
         await api.assemble(token, project_id, lang=lang, telegram_id=_tid(call))
     except ApiError as exc:
-        await call.message.answer(exc.message or t(lang, "failed"))
+        await call.message.answer(_fail(lang, exc))
         return
     await call.message.answer(t(lang, "st_assembling"))
 
