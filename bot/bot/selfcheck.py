@@ -67,7 +67,7 @@ async def check_backend() -> bool:
     ok = True
     try:
         models = await api.models("", lang="ru")
-        line(OK, f"каталог моделей отвечает", f"{len(models)} моделей")
+        line(OK, "каталог моделей отвечает", f"{len(models)} моделей")
     except ApiError as exc:
         line(NO, "каталог моделей недоступен", f"http {exc.status}")
         ok = False

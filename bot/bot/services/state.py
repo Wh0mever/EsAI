@@ -84,6 +84,31 @@ class Store:
     async def release_lock(self, name: str) -> None:
         await self._redis.delete(f"bot:lock:{name}")
 
+    # ---------------------------------------------------- очередь оплат ---
+
+    async def push_pending(self, name: str, item: dict) -> None:
+        """Отложить то, что не удалось довести до сервера: подтверждение оплаты."""
+        await self._redis.rpush(f"bot:pending:{name}", json.dumps(item))
+
+    async def pop_pending(self, name: str, limit: int = 50) -> list[dict]:
+        out = []
+        for _ in range(limit):
+            raw = await self._redis.lpop(f"bot:pending:{name}")
+            if raw is None:
+                break
+            try:
+                out.append(json.loads(raw))
+            except ValueError:
+                continue
+        return out
+
+    async def pending_size(self, name: str) -> int:
+        return int(await self._redis.llen(f"bot:pending:{name}") or 0)
+
+    async def once(self, key: str, ttl: int = 86400) -> bool:
+        """True, если ключ увиден впервые: защита от повторных апдейтов."""
+        return bool(await self._redis.set(f"bot:once:{key}", "1", ex=ttl, nx=True))
+
     async def cache_file_id(self, url: str, file_id: str) -> None:
         """Телеграм умеет пересылать уже загруженный файл по id — экономим трафик."""
         import hashlib
