@@ -116,9 +116,13 @@ def broadcast_telegram(kind, text_by_lang, user_ids=None):
 
 
 def notify(user, kind, text, **kwargs) -> None:
-    """Безопасная точка вызова из чужого кода: никогда не роняет вызвавшего."""
+    """Безопасная точка вызова из чужого кода: никогда не роняет вызвавшего.
+
+    Проверяем рубильник до постановки в очередь: пока бот не подключён,
+    задачам незачем копиться и падать у воркера.
+    """
     try:
-        if not user or not getattr(user, "pk", None):
+        if not user or not getattr(user, "pk", None) or not _enabled():
             return
         notify_user_telegram.delay(user.pk, kind, text, **kwargs)
     except Exception:
