@@ -20,6 +20,8 @@ services:
     image: redis:7-alpine
     restart: always
     command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redisdata:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -157,6 +159,29 @@ services:
       retries: 10
     networks: [web]
 
+  bot:
+    build:
+      context: .
+      dockerfile: bot/Dockerfile
+    env_file: .env
+    environment:
+      # Ходим прямо в core внутри сети: nginx и TLS тут лишние.
+      BOT_API_BASE: "http://core:8000"
+      BOT_PUBLIC_HOST: "esai.kg"
+      BOT_REDIS_URL: "redis://redis:6379/3"
+      BOT_MODE: "${BOT_MODE:-polling}"
+      BOT_LOG_FILE: "/app/logs/bot.log"
+    depends_on:
+      core:
+        condition: service_started
+      redis:
+        condition: service_started
+    volumes:
+      - ./logs:/app/logs
+    restart: always
+    stop_grace_period: 30s
+    networks: [web]
+
   nginx:
     image: nginx:1.27-alpine
     depends_on:
@@ -185,6 +210,7 @@ services:
 
 volumes:
   pgdata:
+  redisdata:
   certbot-etc:
   certbot-var:
 
