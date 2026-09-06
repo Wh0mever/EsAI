@@ -818,6 +818,31 @@ class PaymentRecheckView(StaffAPIView):
                          "payment": PaymentAdminSerializer(payment).data})
 
 
+class PaymentRefundStarsView(StaffAPIView):
+    """POST /payments/<id>/refund-stars/ {reason, force} — вернуть Stars покупателю.
+
+    Возврат в Telegram только полный; кредиты изымаются тем же клобэком, что
+    и при возврате карточной оплаты. Если человек уже потратил кредиты, без
+    force возврат не делаем — это спор, а не кнопка.
+    """
+
+    def post(self, request, pk):
+        from botapi import stars as stars_service
+
+        payment = get_object_or_404(Payment, pk=pk)
+        invoice = getattr(payment, "star_invoice", None)
+        if invoice is None:
+            return Response({"detail": "not_stars_payment"}, status=status.HTTP_400_BAD_REQUEST)
+        reason = str((request.data or {}).get("reason") or "admin")[:120]
+        force = bool((request.data or {}).get("force"))
+        try:
+            result = stars_service.refund(invoice, reason=reason, by=request.user, force=force)
+        except stars_service.StarsError as exc:
+            return Response({"detail": exc.code, **exc.extra}, status=exc.http)
+        payment.refresh_from_db()
+        return Response({"result": result, "payment": PaymentAdminSerializer(payment).data})
+
+
 class SettingsTestNowPaymentsView(StaffAPIView):
     """Проверка подключения к крипто-процессору: {ok, error, coins}."""
 

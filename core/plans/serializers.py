@@ -196,6 +196,7 @@ class TokenPackageSerializer(serializers.ModelSerializer):
         fields = (
             "id", "name", "tokens", "bonus_tokens", "price", "currency",
             "description", "badge", "featured", "sort_order",
+            "stars_price", "stars_bonus_tokens",
         )
 
     def _lang(self) -> str:

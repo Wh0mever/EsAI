@@ -222,3 +222,178 @@ def openrouter_autoswitch() -> dict:
                    active.title, active.balance_usd, winner.title, winner.balance_usd)
     return {"status": "switched", "from": active.title, "to": winner.title,
             "balance": winner.balance_usd}
+
+
+# === Долгие генерации из очереди (видео для бота) =========================
+
+def _notify_job_result(job) -> None:
+    """Прислать ролик в Telegram, если человек об этом просил.
+
+    Шлём прямо отсюда, а не через очередь уведомлений: так мы точно знаем,
+    дошло ли сообщение, и можем отметить это в задаче — бот по этой отметке
+    понимает, что дублировать ролик не нужно.
+    """
+    from django.utils import timezone
+
+    if job.notify != "telegram":
+        return
+    try:
+        from botapi.models import TelegramChat
+        from botapi.tasks import _enabled
+        from botapi.telegram import TelegramError, tg_api
+
+        if not _enabled():
+            return
+        chat = TelegramChat.objects.filter(user_id=job.user_id, is_blocked=False).first()
+        if not chat:
+            return
+        result = job.result or {}
+        lang = (job.params or {}).get("lang") or chat.lang or "ru"
+        if job.status == job.STATUS_DONE:
+            attachments = ((result.get("message") or {}).get("attachments") or [])
+            video = next((a for a in attachments if a.get("type") == "video"), None)
+            url = (video or {}).get("url") or ""
+            base = (getattr(settings, "SITE_BASE_URL", "") or "https://esai.kg").rstrip("/")
+            if url and not url.startswith("http"):
+                url = base + url
+            caption = {
+                "en": "🎬 Your video is ready · −{c} cr · balance {b}",
+                "kg": "🎬 Видеоңуз даяр · −{c} кр · баланс {b}",
+            }.get(lang, "🎬 Видео готово · −{c} кр · баланс {b}").format(
+                c=result.get("tokens_charged", 0), b=result.get("balance_tokens", "—"))
+            markup = {"inline_keyboard": [[
+                {"text": {"en": "⏩ Extend", "kg": "⏩ Узартуу"}.get(lang, "⏩ Продлить"),
+                 "callback_data": f"v:ext:{job.uid}"},
+                {"text": {"en": "🔁 Another", "kg": "🔁 Дагы"}.get(lang, "🔁 Ещё вариант"),
+                 "callback_data": f"v:re:{job.uid}"},
+            ], [
+                {"text": {"en": "🔗 Share", "kg": "🔗 Бөлүшүү"}.get(lang, "🔗 Поделиться"),
+                 "callback_data": f"v:sh:{job.uid}"},
+            ]]}
+            if url:
+                tg_api("sendVideo", chat_id=chat.chat_id, video=url, caption=caption,
+                       supports_streaming=True, reply_markup=markup)
+            else:
+                tg_api("sendMessage", chat_id=chat.chat_id, text=caption, reply_markup=markup)
+        else:
+            text = {
+                "en": "😕 The video did not come out. No credits were charged.",
+                "kg": "😕 Видео чыккан жок. Кредиттер алынган жок.",
+            }.get(lang, "😕 Видео не получилось. Кредиты не списаны.")
+            tg_api("sendMessage", chat_id=chat.chat_id, text=text, reply_markup={
+                "inline_keyboard": [[{"text": {"en": "🔁 Retry", "kg": "🔁 Кайра"}.get(lang, "🔁 Повторить"),
+                                      "callback_data": f"v:re:{job.uid}"}]]})
+        type(job).objects.filter(pk=job.pk).update(notified_at=timezone.now())
+    except TelegramError as exc:
+        logger.warning("job %s: telegram отказал: %s", job.uid, exc.description)
+    except Exception:
+        logger.exception("job %s: уведомление не ушло", job.uid)
+
+
+@shared_task(bind=True, name="ai.tasks.run_generation_job", max_retries=0,
+             soft_time_limit=840, time_limit=900)
+def run_generation_job(self, job_id: int) -> dict:
+    """Выполнить задачу генерации тем же кодом, что и чат.
+
+    Слот дневного лимита зарезервирован при постановке; при любой неудаче
+    generation.py возвращает его сам, как и в потоке чата.
+    """
+    from django.utils import timezone
+
+    from .generation import run_video_generation
+    from .handlers import _release_daily_request, _resolve_gpt_model
+    from .models import GenerationJob
+    from .views_media import _cancel_key
+
+    job = GenerationJob.objects.filter(pk=job_id).select_related("user", "session").first()
+    if not job:
+        return {"status": "no_job"}
+    if job.status != GenerationJob.STATUS_QUEUED:
+        return {"status": job.status}
+
+    job.status = GenerationJob.STATUS_RUNNING
+    job.started_at = timezone.now()
+    job.progress = "starting"
+    job.progress_at = job.started_at
+    job.save(update_fields=["status", "started_at", "progress", "progress_at"])
+
+    params = job.params or {}
+    user = job.user
+    model_obj = _resolve_gpt_model(params.get("model"))
+    if not model_obj:
+        model_obj = _resolve_gpt_model(params.get("model_pk"))
+    if not model_obj or not job.session:
+        _release_daily_request(user)
+        job.status = GenerationJob.STATUS_FAILED
+        job.error = "model_or_session_missing"
+        job.error_code = "bad_model"
+        job.finished_at = timezone.now()
+        job.save(update_fields=["status", "error", "error_code", "finished_at"])
+        return {"status": "failed"}
+
+    def canceled() -> bool:
+        return bool(cache.get(_cancel_key(job.uid)))
+
+    final: dict = {}
+    error: dict = {}
+    try:
+        frames = run_video_generation(
+            user=user, model_obj=model_obj,
+            selected_model_name=str(params.get("model") or model_obj.openrouter_id or model_obj.name),
+            message=str(params.get("message") or ""),
+            attachments=params.get("attachments"),
+            origin_base=params.get("origin_base"),
+            session=job.session,
+            want_duration=params.get("video_duration"),
+            want_resolution=params.get("video_resolution"),
+            aspect_ratio=params.get("aspect_ratio"),
+            first_frame=params.get("video_first_frame"),
+            last_frame=params.get("video_last_frame"),
+            extend_video=params.get("extend_video_url"),
+            cancel_check=canceled,
+        )
+        for frame in frames:
+            if frame.get("error"):
+                error = frame
+                break
+            if frame.get("done"):
+                final = frame
+                break
+            progress = frame.get("video_progress") or ("pending" if frame.get("video_pending") else "")
+            if progress and progress != job.progress:
+                job.progress = str(progress)[:32]
+                GenerationJob.objects.filter(pk=job.pk).update(
+                    progress=job.progress, progress_at=timezone.now())
+    except Exception as exc:  # noqa: BLE001 — задача не должна падать молча
+        logger.exception("job %s: генерация упала", job.uid)
+        _release_daily_request(user)
+        error = {"error": "internal_error", "error_code": "internal_error", "detail": str(exc)[:200]}
+
+    job.finished_at = timezone.now()
+    if final:
+        job.status = GenerationJob.STATUS_DONE
+        job.progress = "done"
+        job.tokens_charged = int(final.get("tokens_charged") or 0)
+        job.result = {
+            "message": final.get("message"),
+            "tokens_charged": final.get("tokens_charged"),
+            "balance_tokens": final.get("balance_tokens"),
+            "session": final.get("session"),
+        }
+        message_id = (final.get("message") or {}).get("id")
+        if message_id:
+            job.result_message_id = message_id
+        job.save(update_fields=["status", "progress", "tokens_charged", "result",
+                                "result_message", "finished_at"])
+    else:
+        code = str(error.get("error_code") or "failed")
+        job.status = (GenerationJob.STATUS_CANCELED if code == "canceled"
+                      else GenerationJob.STATUS_FAILED)
+        job.error = str(error.get("error") or "failed")[:500]
+        job.error_code = code[:40]
+        job.result = {k: v for k, v in error.items() if k in ("balance_tokens", "required_estimate")}
+        job.save(update_fields=["status", "error", "error_code", "result", "finished_at"])
+
+    if job.status != GenerationJob.STATUS_CANCELED:
+        _notify_job_result(job)
+    return {"status": job.status}

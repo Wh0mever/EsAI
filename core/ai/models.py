@@ -1,4 +1,4 @@
-﻿from django.db import models
+from django.db import models
 from users.models import User
 from django.utils import timezone
 import uuid
@@ -320,6 +320,99 @@ class SharedVideo(models.Model):
         ordering = ("-created_at",)
         verbose_name = "Ссылка на ролик"
         verbose_name_plural = "Ссылки на ролики"
+
+
+def _gen_job_uid() -> str:
+    return uuid.uuid4().hex
+
+
+class GenerationJob(models.Model):
+    """Долгая генерация (видео), которая живёт дольше HTTP-запроса.
+
+    Сайт получает ролик по SSE и держит соединение до восьми минут. Боту так
+    нельзя: соединений у него мало, а перезапуск посреди генерации потерял бы
+    ролик, за который человек уже заплатил. Поэтому задача кладётся сюда,
+    выполняется в очереди, а о результате узнают по id — или получают его
+    сообщением в Telegram, даже если бот тем временем перезапускался.
+    """
+
+    KIND_VIDEO = "video"
+    KIND_CHOICES = [(KIND_VIDEO, "Видео")]
+
+    STATUS_QUEUED = "queued"
+    STATUS_RUNNING = "running"
+    STATUS_DONE = "done"
+    STATUS_FAILED = "failed"
+    STATUS_CANCELED = "canceled"
+    STATUS_CHOICES = [
+        (STATUS_QUEUED, "В очереди"),
+        (STATUS_RUNNING, "Выполняется"),
+        (STATUS_DONE, "Готово"),
+        (STATUS_FAILED, "Не удалось"),
+        (STATUS_CANCELED, "Отменено"),
+    ]
+    ACTIVE_STATES = (STATUS_QUEUED, STATUS_RUNNING)
+
+    uid = models.CharField(max_length=32, unique=True, db_index=True, editable=False,
+                           default=_gen_job_uid)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="generation_jobs")
+    session = models.ForeignKey(AiChatSession, on_delete=models.SET_NULL, null=True, blank=True,
+                                related_name="generation_jobs")
+    kind = models.CharField(max_length=12, choices=KIND_CHOICES, default=KIND_VIDEO)
+    status = models.CharField(max_length=12, choices=STATUS_CHOICES, default=STATUS_QUEUED,
+                              db_index=True)
+    # Всё, что пришло от клиента: модель, промпт, длительность, кадры.
+    params = models.JSONField(default=dict, blank=True)
+    progress = models.CharField(max_length=32, blank=True, default="")
+    progress_at = models.DateTimeField(null=True, blank=True)
+    result_message = models.ForeignKey(AiChatMessage, on_delete=models.SET_NULL, null=True,
+                                       blank=True, related_name="+")
+    # Снимок итога для клиента: вложения, списание, баланс — как в кадре done.
+    result = models.JSONField(default=dict, blank=True)
+    tokens_charged = models.IntegerField(default=0)
+    need_credits = models.IntegerField(default=0)
+    error = models.TextField(blank=True, default="")
+    error_code = models.CharField(max_length=40, blank=True, default="")
+    # Куда сообщить о готовности: "" — никуда (клиент опрашивает сам),
+    # "telegram" — сообщением в бот.
+    notify = models.CharField(max_length=16, blank=True, default="")
+    notified_at = models.DateTimeField(null=True, blank=True)
+    celery_task_id = models.CharField(max_length=64, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    finished_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ("-created_at",)
+        verbose_name = "Задача генерации"
+        verbose_name_plural = "Задачи генерации"
+
+    def __str__(self):
+        return f"{self.kind} #{self.pk} {self.status}"
+
+    @property
+    def is_active(self) -> bool:
+        return self.status in self.ACTIVE_STATES
+
+    def public(self) -> dict:
+        """Ответ API: без внутренних полей."""
+        session = self.session
+        return {
+            "job_id": self.uid,
+            "kind": self.kind,
+            "status": self.status,
+            "progress": self.progress,
+            "need_credits": self.need_credits,
+            "tokens_charged": self.tokens_charged,
+            "error": self.error if self.status == self.STATUS_FAILED else "",
+            "error_code": self.error_code,
+            "result": self.result or None,
+            "notified": self.notified_at is not None,
+            "session": ({"id": session.id, "uid": session.uid, "title": session.title}
+                        if session else None),
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "finished_at": self.finished_at.isoformat() if self.finished_at else None,
+        }
 
 
 class OpenRouterAccount(models.Model):

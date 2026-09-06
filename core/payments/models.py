@@ -11,6 +11,8 @@ class Payment(models.Model):
         # миграция 0003 их доразмечает.
         ("yookassa", "ЮKassa"),
         ("crypto_nowpayments", "NOWPayments (крипта)"),
+        # Оплата внутри Telegram-бота. Сумма хранится в Stars, валюта XTR.
+        ("telegram_stars", "Telegram Stars"),
     )
 
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
@@ -67,7 +69,9 @@ class FunnelEvent(models.Model):
     NAMES = ("pricing_view", "topup_click", "studio_view", "studio_scene_add",
              # Крипта: между «выбрал монету» и «оплатил» человек уходит в свой
              # кошелёк, и без этих шагов видно только начало и конец пути.
-             "crypto_currency_pick", "crypto_invoice_created", "crypto_paid")
+             "crypto_currency_pick", "crypto_invoice_created", "crypto_paid",
+             # Бот: от первого /start до оплаты Stars.
+             "bot_start", "bot_pricing_view", "bot_stars_invoice", "bot_stars_paid")
 
     name = models.CharField(max_length=32, db_index=True, verbose_name="Шаг")
     user = models.ForeignKey(
@@ -230,3 +234,70 @@ class CryptoWebhookEvent(models.Model):
 
     def __str__(self) -> str:
         return f"{self.provider} {self.provider_invoice_id} {self.status}"
+
+
+class StarInvoice(models.Model):
+    """Счёт в Telegram Stars: что выставили боту и что по нему пришло.
+
+    payload — случайный ключ, который Telegram возвращает дословно в
+    pre_checkout_query и successful_payment; по нему находим счёт, и угадать
+    его нельзя. telegram_payment_charge_id уникален: второй апдейт об одной
+    оплате упирается в базу, а не в наше внимание.
+    """
+
+    STATUS_CREATED = "created"
+    STATUS_PAID = "paid"
+    STATUS_REFUNDED = "refunded"
+    STATUS_FAILED = "failed"
+    STATUS_EXPIRED = "expired"
+    STATUS_CHOICES = (
+        (STATUS_CREATED, "Выставлен"),
+        (STATUS_PAID, "Оплачен"),
+        (STATUS_REFUNDED, "Возвращён"),
+        (STATUS_FAILED, "Не сошёлся"),
+        (STATUS_EXPIRED, "Просрочен"),
+    )
+
+    payment = models.OneToOneField(
+        "payments.Payment", on_delete=models.CASCADE, related_name="star_invoice",
+        verbose_name="Платёж")
+    telegram_id = models.BigIntegerField(db_index=True, verbose_name="Telegram ID покупателя")
+    payload = models.CharField(max_length=64, unique=True, verbose_name="Ключ счёта")
+    package_id = models.PositiveIntegerField(verbose_name="Пакет")
+    package_name = models.CharField(max_length=100, blank=True, default="", verbose_name="Название пакета")
+    tokens = models.BigIntegerField(default=0, verbose_name="Кредитов")
+    bonus_tokens = models.BigIntegerField(default=0, verbose_name="Бонусных кредитов")
+    stars_amount = models.PositiveIntegerField(verbose_name="Сумма, Stars")
+    status = models.CharField(max_length=12, choices=STATUS_CHOICES, default=STATUS_CREATED,
+                              db_index=True, verbose_name="Статус")
+    expires_at = models.DateTimeField(db_index=True, verbose_name="Действителен до")
+    invoice_message_id = models.BigIntegerField(null=True, blank=True,
+                                                verbose_name="Сообщение со счётом")
+    telegram_payment_charge_id = models.CharField(
+        max_length=128, unique=True, null=True, blank=True,
+        verbose_name="Идентификатор оплаты в Telegram")
+    provider_payment_charge_id = models.CharField(max_length=128, blank=True, default="")
+    paid_at = models.DateTimeField(null=True, blank=True, verbose_name="Оплачен")
+    refunded_at = models.DateTimeField(null=True, blank=True, verbose_name="Возвращён")
+    refund_reason = models.CharField(max_length=120, blank=True, default="",
+                                     verbose_name="Причина возврата")
+    refund_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="+", verbose_name="Кто вернул")
+    raw = models.JSONField(default=dict, blank=True, verbose_name="Данные апдейта")
+    flags = models.JSONField(default=dict, blank=True, verbose_name="Пометки")
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("-created_at", "-id")
+        indexes = [models.Index(fields=["status", "created_at"])]
+        verbose_name = "Счёт в Stars"
+        verbose_name_plural = "Счета в Stars"
+
+    def __str__(self) -> str:
+        return f"{self.stars_amount} ⭐ за {self.tokens + self.bonus_tokens} кр → {self.status}"
+
+    @property
+    def total_tokens(self) -> int:
+        return int(self.tokens or 0) + int(self.bonus_tokens or 0)

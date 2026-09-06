@@ -316,3 +316,18 @@ def reconcile_crypto_invoices() -> dict:
         return {"status": "ok", "checked": checked, "credited": credited}
     finally:
         cache.delete(_CRYPTO_LOCK)
+
+
+@shared_task(name="payments.tasks.reconcile_star_transactions")
+def reconcile_star_transactions() -> dict:
+    """Сверка Telegram Stars: пропущенные апдейты и возвраты. См. botapi/stars.py."""
+    from botapi.stars import reconcile
+
+    try:
+        result = reconcile()
+    except Exception:  # noqa: BLE001
+        logger.exception("stars reconcile failed")
+        return {"status": "error"}
+    if result.get("credited") or result.get("refunded"):
+        logger.info("stars reconcile: %s", result)
+    return result
