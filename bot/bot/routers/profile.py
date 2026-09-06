@@ -10,6 +10,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 from bot.config import settings
 from bot.services.api import ApiError, api
 from bot.services.state import store
+from bot.services.tg_format import esc
 from bot.texts import t
 
 logger = logging.getLogger(__name__)
@@ -51,9 +52,13 @@ async def _sessions(token: str, lang: str, telegram_id: int) -> list:
 
 
 @router.message(Command("history"))
-async def cmd_history(message: Message, token: str, lang: str = "ru") -> None:
+async def cmd_history(message: Message, token: str, lang: str = "ru",
+                      telegram_id: int | None = None) -> None:
+    # telegram_id обязателен, когда сюда зовут из callback («☰ Ещё → История»):
+    # там message принадлежит боту, и его from_user — бот. Без явного id список
+    # чатов лёг бы в кэш под id бота и достался бы следующему человеку.
     try:
-        sessions = await _sessions(token, lang, message.from_user.id)
+        sessions = await _sessions(token, lang, telegram_id or message.from_user.id)
     except ApiError:
         await message.answer(t(lang, "server_down"))
         return
@@ -76,20 +81,26 @@ async def history_page(call: CallbackQuery, token: str, lang: str = "ru") -> Non
 async def history_open(call: CallbackQuery, token: str, lang: str = "ru") -> None:
     """Открыть старый чат: следующий вопрос продолжит именно его."""
     session_id = call.data.split(":", 2)[2]
-    sessions = await _sessions(token, lang, call.from_user.id)
+    # У callback_query from_user — тот, кто нажал (человек), а не бот: и кэш,
+    # и «текущий чат» ключуются верно. Брать call.message.from_user здесь нельзя.
+    user_id = call.from_user.id
+    sessions = await _sessions(token, lang, user_id)
     session = next((s for s in sessions
                     if str(s.get("uid")) == session_id or str(s.get("id")) == session_id), None)
-    await store.set(call.from_user.id, "session", session_id)
+    await store.set(user_id, "session", session_id)
     await call.answer()
     await call.message.answer(
-        t(lang, "history_opened", title=_title(session or {})), parse_mode="HTML")
+        t(lang, "history_opened", title=esc(_title(session or {}))), parse_mode="HTML")
 
 
 @router.message(Command("referral"))
-async def cmd_referral(message: Message, token: str, lang: str = "ru") -> None:
+async def cmd_referral(message: Message, token: str, lang: str = "ru",
+                       telegram_id: int | None = None) -> None:
+    # Как и в cmd_history: из «☰ Ещё» приходит сообщение бота, id человека
+    # передаётся явно — иначе статистика запрашивается от имени бота.
     try:
         stats = await api.request("GET", "/api/users/referral/stats/", token=token,
-                                  lang=lang, telegram_id=message.from_user.id)
+                                  lang=lang, telegram_id=telegram_id or message.from_user.id)
     except ApiError:
         await message.answer(t(lang, "server_down"))
         return
@@ -102,7 +113,7 @@ async def cmd_referral(message: Message, token: str, lang: str = "ru") -> None:
     text = (
         "🤝 <b>Приглашайте друзей</b>\n"
         "С каждого их пополнения вам начисляются кредиты — пожизненно.\n\n"
-        f"Ваша ссылка:\n<code>{link}</code>\n\n"
+        f"Ваша ссылка:\n<code>{esc(link)}</code>\n\n"
         f"Приглашено: <b>{stats.get('invited_count', 0)}</b>\n"
         f"Заработано: <b>{stats.get('total_earned', 0)} кредитов</b>"
     )

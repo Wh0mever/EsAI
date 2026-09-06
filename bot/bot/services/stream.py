@@ -81,11 +81,28 @@ class StreamRenderer:
         last: Message | None = None
         for index, part in enumerate(parts):
             markup = reply_markup if index == len(parts) - 1 else None
-            if index == 0 and self.live is not None:
-                last = await self._replace(self.live, part, markup)
-            else:
-                last = await self._send(part, markup)
+            try:
+                if index == 0 and self.live is not None:
+                    last = await self._replace(self.live, part, markup)
+                else:
+                    last = await self._send(part, markup)
+            except Exception as exc:
+                # Кредиты бэкенд списал ещё до кадра done. Если исключение уйдёт
+                # наружу, человек увидит «Кредиты не списаны» поверх оплаченного
+                # ответа — поэтому теряем оформление, но не сообщение.
+                logger.warning("часть ответа не ушла (%s из %s): %s",
+                               index + 1, len(parts), exc)
+                last = await self._last_resort(part, markup) or last
         return last
+
+    async def _last_resort(self, text: str, markup) -> Message | None:
+        """Последняя попытка: обрезанный текст без разметки, ошибки не поднимаем."""
+        try:
+            return await self.origin.answer((plain(text) or self.placeholder)[:CHUNK_LIMIT],
+                                            parse_mode=None, reply_markup=markup)
+        except Exception as exc:
+            logger.warning("ответ не доставлен вовсе: %s", exc)
+            return None
 
     async def _replace(self, message: Message, text: str, markup) -> Message:
         try:
@@ -98,8 +115,10 @@ class StreamRenderer:
             if "message is not modified" in str(exc).lower():
                 return message
             # Разметка не понравилась — отдаём текстом, лишь бы человек прочитал.
+            # parse_mode=None обязателен: без него aiogram подставит глобальный
+            # HTML, и сырые < > из plain() отобьются второй ошибкой.
             logger.warning("разметка отклонена, отправляю без неё: %s", exc)
-            return await message.edit_text(plain(text), reply_markup=markup)
+            return await message.edit_text(plain(text), parse_mode=None, reply_markup=markup)
 
     async def _send(self, text: str, markup) -> Message:
         try:
@@ -109,7 +128,9 @@ class StreamRenderer:
             await asyncio.sleep(exc.retry_after)
             return await self._send(text, markup)
         except TelegramBadRequest:
-            return await self.origin.answer(plain(text), reply_markup=markup)
+            # Тот же случай, что и в _replace: без parse_mode=None aiogram
+            # подставит глобальный HTML и уронит уже чистый текст.
+            return await self.origin.answer(plain(text), parse_mode=None, reply_markup=markup)
 
     async def fail(self, text: str, *, reply_markup=None) -> None:
         """Показать ошибку на месте живого сообщения, а не отдельной строкой."""

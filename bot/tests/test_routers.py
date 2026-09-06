@@ -52,9 +52,17 @@ class TestModelGroups:
         assert _badges({}) == ""
 
     def test_price_units_differ_by_kind(self):
-        """У видео цена за секунду, у картинок за штуку — путать нельзя."""
+        """У видео цена за секунду, у картинок за штуку — путать нельзя.
+
+        У картинок «за штуку» ещё и считается по-разному: плоско по коэффициенту
+        только у FLUX, у остальных — токенной формулой бэкенда (см.
+        models.image_credits и tests/test_fix_image.py).
+        """
         assert "кр/с" in _price({"category": "video", "markup_coefficient": 4})
-        assert _price({"category": "image", "markup_coefficient": 4}) == "4 кр"
+        assert _price({"category": "image", "markup_coefficient": 4,
+                       "openrouter_id": "black-forest-labs/flux.2-pro"}) == "4 кр"
+        assert _price({"category": "image", "markup_coefficient": 4,
+                       "openrouter_id": "google/gemini-2.5-flash-image"}) == "≈6 кр"
         assert "1000" in _price({"category": "chat", "markup_coefficient": 5})
 
     def test_price_empty_without_coefficient(self):

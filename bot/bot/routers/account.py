@@ -14,6 +14,7 @@ from bot.config import settings
 from bot.keyboards.common import language_choice, main_menu, more_menu, rows_of
 from bot.services.api import ApiError, api
 from bot.services.state import store
+from bot.services.tg_format import esc
 from bot.texts import register_texts, t
 
 logger = logging.getLogger(__name__)
@@ -63,6 +64,7 @@ register_texts({
                              "Без комиссии, отменить нельзя."),
         "transfer_go": "✅ Перевести", "transfer_done": "✅ Переведено {amount} кр. Баланс: {balance}.",
         "transfer_fail": "Не переведено: {reason}",
+        "transfer_stale": "Это подтверждение устарело — начните перевод заново.",
         "memory_title": "🧠 <b>Память</b> ({state})\n{lines}",
         "memory_on": "включена", "memory_off": "выключена", "memory_empty": "Пока ничего не запомнил. Напишите «запомни …».",
         "memory_toggle_off": "🔕 Выключить память", "memory_toggle_on": "🔔 Включить память",
@@ -131,6 +133,7 @@ register_texts({
                              "No fee, cannot be undone."),
         "transfer_go": "✅ Transfer", "transfer_done": "✅ Sent {amount} cr. Balance: {balance}.",
         "transfer_fail": "Not sent: {reason}",
+        "transfer_stale": "This confirmation is outdated — start the transfer again.",
         "memory_title": "🧠 <b>Memory</b> ({state})\n{lines}",
         "memory_on": "on", "memory_off": "off", "memory_empty": "Nothing remembered yet. Say “remember …”.",
         "memory_toggle_off": "🔕 Turn memory off", "memory_toggle_on": "🔔 Turn memory on",
@@ -199,6 +202,7 @@ register_texts({
                              "Комиссиясыз, жокко чыгарууга болбойт."),
         "transfer_go": "✅ Которуу", "transfer_done": "✅ {amount} кр которулду. Баланс: {balance}.",
         "transfer_fail": "Которулган жок: {reason}",
+        "transfer_stale": "Бул ырастоо эскирди — которууну кайра баштаңыз.",
         "memory_title": "🧠 <b>Эс</b> ({state})\n{lines}",
         "memory_on": "күйүк", "memory_off": "өчүк", "memory_empty": "Азырынча эч нерсе эстелген жок. «Эстеп кал …» деп жазыңыз.",
         "memory_toggle_off": "🔕 Эсти өчүрүү", "memory_toggle_on": "🔔 Эсти күйгүзүү",
@@ -255,8 +259,8 @@ async def show_profile(message: Message, token: str, lang: str) -> None:
     email = user.get("email") or ""
     stub = email.endswith("@social.esai.local")
     tier_key = {"paid": "tier_paid", "unlimited": "tier_unlimited"}.get(balance.get("tier"), "tier_free")
-    text = t(lang, "profile", name=user.get("first_name") or "—", id=user.get("id"),
-             email="—" if stub else email, tier=t(lang, tier_key),
+    text = t(lang, "profile", name=esc(user.get("first_name") or "—"), id=user.get("id"),
+             email="—" if stub else esc(email), tier=t(lang, tier_key),
              balance=balance.get("balance_tokens", 0),
              linked=t(lang, "profile_stub" if stub else "profile_linked"))
     rows = [[InlineKeyboardButton(text=t(lang, "btn_name"), callback_data="p:name"),
@@ -293,7 +297,9 @@ async def save_name(message: Message, token: str, lang: str, state: FSMContext) 
     except ApiError:
         await message.answer(t(lang, "server_down"))
         return
-    await message.answer(t(lang, "name_saved", name=name))
+    # На сервер уходит имя как есть, в сообщение — экранированное: у бота
+    # parse_mode=HTML по умолчанию, и «<» в имени убил бы всё сообщение.
+    await message.answer(t(lang, "name_saved", name=esc(name)))
 
 
 @router.callback_query(F.data == "p:inbox")
@@ -310,7 +316,7 @@ async def inbox(call: CallbackQuery, token: str, lang: str) -> None:
         return
     lines = [t(lang, "inbox_title")]
     for r in rows:
-        lines.append(f"• <b>{r.get('title', '')}</b>\n{(r.get('body') or '')[:300]}")
+        lines.append(f"• <b>{esc(r.get('title', ''))}</b>\n{esc((r.get('body') or '')[:300])}")
     await call.message.answer("\n\n".join(lines), parse_mode="HTML")
 
 
@@ -321,16 +327,20 @@ async def more(call: CallbackQuery, token: str, lang: str, state: FSMContext) ->
     action = call.data.split(":", 1)[1]
     await call.answer()
     message = call.message
+    # У call.message from_user — САМ БОТ (это его сообщение с кнопками). Всё,
+    # что ключует данные по человеку, должно получать call.from_user.id явно,
+    # иначе кэш и «текущий чат» лягут под id бота и станут общими для всех.
+    user_id = call.from_user.id
     if action == "history":
         from bot.routers.profile import cmd_history
 
-        await cmd_history(message, token, lang)
+        await cmd_history(message, token, lang, telegram_id=user_id)
     elif action == "memory":
         await show_memory(message, token, lang)
     elif action == "referral":
         from bot.routers.profile import cmd_referral
 
-        await cmd_referral(message, token, lang)
+        await cmd_referral(message, token, lang, telegram_id=user_id)
     elif action == "transfer":
         await start_transfer(message, token, lang, state)
     elif action == "promo":
@@ -338,7 +348,7 @@ async def more(call: CallbackQuery, token: str, lang: str, state: FSMContext) ->
     elif action == "lang":
         await message.answer(t(lang, "lang_pick"), reply_markup=language_choice())
     elif action == "notify":
-        await show_notify(message, lang, call.from_user.id)
+        await show_notify(message, lang, user_id)
     elif action == "blog":
         await show_blog(message, lang)
     elif action == "faq":
@@ -427,7 +437,7 @@ async def link_email(message: Message, lang: str, state: FSMContext) -> None:
         return
     await state.update_data(email=email)
     await state.set_state(AccountWizard.link_code)
-    await message.answer(t(lang, "link_code_sent", email=email))
+    await message.answer(t(lang, "link_code_sent", email=esc(email)))
 
 
 @router.message(AccountWizard.link_code, F.text & ~F.text.startswith("/"))
@@ -468,7 +478,7 @@ async def _apply_link_result(message: Message, lang: str, result: dict, email: s
     status = result.get("status")
     email = email or (result.get("user") or {}).get("email", "")
     key = {"linked": "link_done_linked", "merged": "link_done_merged"}.get(status, "link_done_already")
-    await message.answer(t(lang, key, email=email), reply_markup=main_menu(lang))
+    await message.answer(t(lang, key, email=esc(email)), reply_markup=main_menu(lang))
 
 
 async def link_from_deep_link(message: Message, lang: str, code: str, tg_user: dict) -> None:
@@ -532,31 +542,59 @@ async def transfer_comment(message: Message, lang: str, state: FSMContext) -> No
     await state.update_data(comment=comment)
     data = await state.get_data()
     await state.set_state(None)
-    await message.answer(
-        t(lang, "transfer_confirm", amount=data["amount"], to=data["to"]), parse_mode="HTML",
+    sent = await message.answer(
+        t(lang, "transfer_confirm", amount=data["amount"], to=esc(data["to"])), parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
             InlineKeyboardButton(text=t(lang, "transfer_go"), callback_data="tr:go"),
             InlineKeyboardButton(text=t(lang, "btn_close"), callback_data="tr:x")]]))
+    # «tr:go» не несёт параметров, а to/amount живут в состоянии дальше, и их
+    # перезапишет ЛЮБОЙ следующий мастер — в том числе брошенный на полпути,
+    # после которого нового подтверждения не появится. Поэтому к кнопке
+    # привязываем не только её сообщение, но и снимок того, что человек сейчас
+    # прочитал на экране: переводим ровно это и ничего другого.
+    await state.update_data(confirm_mid=sent.message_id, confirm_to=data["to"],
+                            confirm_amount=data["amount"], confirm_comment=comment)
 
 
 @router.callback_query(F.data == "tr:go")
 async def transfer_go(call: CallbackQuery, token: str, lang: str, state: FSMContext) -> None:
-    data = await state.get_data()
-    await state.clear()
-    await call.answer()
-    if not data.get("to") or not data.get("amount"):
+    # Деньги. Два быстрых нажатия — два апдейта, они обрабатываются параллельно
+    # и оба успевают прочитать FSM до clear(), а у /api/users/transfer/ нет
+    # идемпотентности. Замок берём ПЕРВЫМ действием, до чтения состояния:
+    # ключ — конкретная кнопка подтверждения, второй нажим её уже не получит.
+    if not await store.once(f"tr:{call.from_user.id}:{call.message.message_id}", 900):
+        await call.answer()
         return
+    data = await state.get_data()
+    # Переводим ТОЛЬКО снимок, привязанный к этой кнопке. Нет снимка или он от
+    # другого сообщения — подтверждение устарело: to/amount в состоянии могли
+    # уехать в следующем мастере, и списание ушло бы тому, кого человек на
+    # этом экране не видел и не подтверждал.
+    if data.get("confirm_mid") != call.message.message_id:
+        await call.answer(t(lang, "transfer_stale"))
+        return
+    to = data.get("confirm_to")
+    amount = data.get("confirm_amount")
+    comment = data.get("confirm_comment") or ""
+    await state.clear()
+    if not to or not amount:
+        # Снимка нет (кнопка от подтверждения, отправленного прошлой версией
+        # бота, или состояние подчистили). Молчать в денежном экране нельзя:
+        # человек не поймёт, прошёл перевод или нет.
+        await call.answer(t(lang, "transfer_stale"))
+        return
+    await call.answer()
     try:
         await call.message.edit_reply_markup(reply_markup=None)
     except Exception:
         pass
     try:
-        result = await api.transfer(token, data["to"], int(data["amount"]), data.get("comment", ""),
+        result = await api.transfer(token, to, int(amount), comment,
                                     lang=lang, telegram_id=call.message.chat.id)
     except ApiError as exc:
         await call.message.answer(t(lang, "transfer_fail", reason=exc.message or exc.code))
         return
-    await call.message.answer(t(lang, "transfer_done", amount=data["amount"],
+    await call.message.answer(t(lang, "transfer_done", amount=amount,
                                 balance=result.get("balance", "—")))
 
 
@@ -580,8 +618,8 @@ async def show_memory(message: Message, token: str, lang: str, *, edit: bool = F
         return
     items = data.get("items") or []
     enabled = bool(data.get("memory_enabled", True))
-    lines = "\n".join(f"{i}. {m.get('content', '')[:120]}" for i, m in enumerate(items[:20], 1)) \
-        or t(lang, "memory_empty")
+    lines = "\n".join(f"{i}. {esc(m.get('content', '')[:120])}"
+                      for i, m in enumerate(items[:20], 1)) or t(lang, "memory_empty")
     rows = []
     if items:
         rows += rows_of([InlineKeyboardButton(text=t(lang, "memory_del", n=i),
@@ -733,12 +771,15 @@ async def show_blog(message: Message, lang: str) -> None:
         posts = await api.blog(lang)
     except ApiError:
         posts = []
-    if not posts:
+    # api.blog() отдаёт список словарей с непустыми slug и title (заголовок уже
+    # на языке человека). Всё, что этому не соответствует, — не кнопка: пустую
+    # клавиатуру Telegram покажет как сообщение-обрубок без единой ссылки.
+    buttons = [InlineKeyboardButton(text=str(p["title"])[:60],
+                                    url=f"{settings.site_base_url}/blog/{p['slug']}")
+               for p in (posts or [])[:10] if p.get("slug") and p.get("title")]
+    if not buttons:
         await message.answer(t(lang, "blog_empty"))
         return
-    buttons = [InlineKeyboardButton(text=(p.get("title") or p.get("title_ru") or "…")[:60],
-                                    url=f"{settings.site_base_url}/blog/{p.get('slug')}")
-               for p in posts[:10] if p.get("slug")]
     await message.answer(t(lang, "blog_title"), parse_mode="HTML",
                          reply_markup=InlineKeyboardMarkup(inline_keyboard=rows_of(buttons, 1)))
 

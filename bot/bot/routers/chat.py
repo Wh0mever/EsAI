@@ -13,11 +13,24 @@ from bot.keyboards.common import answer_actions, paywall
 from bot.services.api import ApiError, api
 from bot.services.state import store
 from bot.services.stream import StreamRenderer
-from bot.services.tg_format import split_html, to_html
+from bot.services.tg_format import CHUNK_LIMIT, esc, esc_attr, split_html, to_html
 from bot.texts import t
 
 logger = logging.getLogger(__name__)
 router = Router(name="chat")
+
+
+def _session_gone(exc: ApiError) -> bool:
+    """Чат удалили на сайте, а его id всё ещё лежит у нас в Redis (TTL 180 дней).
+
+    Бэкенд отвечает {"error": "Session not found"} без error_code — 400 из
+    потокового чата и 404 из остальных вью, так что опознать можно только по
+    тексту. Без этого человек упирается в «не удалось» на каждое сообщение.
+    """
+    if exc.status not in (400, 404):
+        return False
+    parts = (exc.message, exc.payload.get("error"), exc.payload.get("detail"))
+    return "session not found" in " ".join(str(p) for p in parts if p).lower()
 
 
 async def _keep_typing(message: Message, stop: asyncio.Event,
@@ -122,8 +135,9 @@ async def run_chat(message: Message, token: str, lang: str, text: str, *,
     reasoning = ""
     done: dict = {}
 
-    try:
-        await renderer.start()
+    async def pump() -> None:
+        """Один проход по потоку; кадры копим в переменных выше."""
+        nonlocal sources, reasoning, done
         async for frame in api.chat_stream(token, body, lang=lang, telegram_id=user_id):
             if frame.get("delta"):
                 await renderer.push(frame["delta"])
@@ -139,6 +153,24 @@ async def run_chat(message: Message, token: str, lang: str, text: str, *,
             if frame.get("done"):
                 done = frame
                 break
+
+    try:
+        await renderer.start()
+        try:
+            await pump()
+        except ApiError as exc:
+            if not (body.get("session_id") and _session_gone(exc)):
+                raise
+            # Сессии больше нет: забываем её и начинаем новую. Повтор ровно
+            # один — второй такой же отказ уйдёт человеку как обычная ошибка.
+            # Денег первая попытка не стоила: бэкенд отвергает запрос до
+            # генерации, поэтому повтор не может списать дважды.
+            logger.info("чат: сессия %s пропала, начинаю новую для %s",
+                        body.get("session_id"), user_id)
+            await store.drop(user_id, "session")
+            body.pop("session_id", None)
+            sources, reasoning, done = [], "", {}
+            await pump()
     except ApiError as exc:
         stop_typing.set()
         # Причина отказа нужна в логе: человеку показываем короткий текст,
@@ -220,13 +252,30 @@ async def show_sources(call: CallbackQuery, lang: str) -> None:
         return
     lines = []
     for index, item in enumerate(sources[:10], 1):
+        # Заголовок и адрес пришли из веб-поиска: «<» в заголовке или «&» в
+        # ссылке — и Telegram отвергает сообщение целиком, а в callback-е
+        # ошибку глушит middleware, поэтому кнопка кажется мёртвой.
         if isinstance(item, dict):
-            title = item.get("title") or item.get("url") or ""
+            # Заголовок режем ДО экранирования: после — можно разрубить «&amp;».
+            title = str(item.get("title") or item.get("url") or "")[:200]
             url = item.get("url") or ""
-            lines.append(f"{index}. <a href=\"{url}\">{title}</a>" if url else f"{index}. {title}")
+            lines.append(f"{index}. <a href=\"{esc_attr(url)}\">{esc(title)}</a>"
+                         if url else f"{index}. {esc(title)}")
         else:
-            lines.append(f"{index}. {item}")
-    await call.message.answer("\n".join(lines), parse_mode="HTML")
+            lines.append(f"{index}. {esc(str(item)[:200])}")
+    # Тем же отказом Telegram встречает и переполнение: десять длинных
+    # заголовков со ссылками в лимит сообщения не влезают. Режем по строкам —
+    # так тег не рвётся пополам и ссылка остаётся ссылкой.
+    chunk: list[str] = []
+    size = 0
+    for line in lines:
+        if chunk and size + len(line) + 1 > CHUNK_LIMIT:
+            await call.message.answer("\n".join(chunk), parse_mode="HTML")
+            chunk, size = [], 0
+        chunk.append(line)
+        size += len(line) + 1
+    if chunk:
+        await call.message.answer("\n".join(chunk), parse_mode="HTML")
 
 
 @router.callback_query(F.data == "c:rs")

@@ -29,6 +29,22 @@ _QUOTE = re.compile(r"^\s{0,3}>\s?(.*)$", re.M)
 _HR = re.compile(r"^\s{0,3}([-*_])\s*(?:\1\s*){2,}$", re.M)
 
 
+def esc(value) -> str:
+    """Обезвредить чужой текст перед вставкой в HTML-сообщение.
+
+    Имя человека, название файла, промпт, заголовок ссылки, факт из памяти —
+    всё это может содержать «<», и тогда Telegram отвергает СООБЩЕНИЕ ЦЕЛИКОМ
+    («can't parse entities»), а человек видит ошибку вместо экрана. Любая
+    подстановка не из наших текстов проходит через эту функцию.
+    """
+    return html.escape(str(value if value is not None else ""), quote=False)
+
+
+def esc_attr(value) -> str:
+    """То же для значения внутри кавычек — например href ссылки."""
+    return html.escape(str(value if value is not None else ""), quote=True)
+
+
 def to_html(text: str) -> str:
     """Markdown → HTML-подмножество Telegram."""
     if not text:

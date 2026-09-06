@@ -19,7 +19,12 @@ from aiogram.fsm.storage.redis import DefaultKeyBuilder, RedisStorage
 from aiogram.types import BotCommand, ChatMemberUpdated
 
 from bot.config import settings
-from bot.middlewares.auth import AuthMiddleware, DedupMiddleware, ErrorsMiddleware
+from bot.middlewares.auth import (
+    AuthMiddleware,
+    CommandResetMiddleware,
+    DedupMiddleware,
+    ErrorsMiddleware,
+)
 from bot.routers import account as account_router
 from bot.routers import billing as billing_router
 from bot.routers import chat as chat_router
@@ -174,6 +179,8 @@ def build_dispatcher() -> Dispatcher:
     for observer in (dispatcher.message, dispatcher.callback_query):
         observer.outer_middleware(AuthMiddleware())
         observer.middleware(ErrorsMiddleware())
+    # Строго после AuthMiddleware: закрытому доступу состояние сбрасывать незачем.
+    dispatcher.message.outer_middleware(CommandResetMiddleware())
 
     # Порядок важен: команды и меню — первыми, состояния мастеров — до общего
     # текстового обработчика чата, чат — последним (он ловит всё остальное).
@@ -202,10 +209,33 @@ async def set_commands(bot: Bot) -> None:
             logger.exception("set_my_commands(%s) не удался", lang)
 
 
-async def run_polling(bot: Bot, dispatcher: Dispatcher) -> None:
+async def run_polling(bot: Bot, dispatcher: Dispatcher, stop: asyncio.Event) -> None:
     # Опрос и вебхук одновременно невозможны — снимаем вебхук на всякий случай.
     await bot.delete_webhook(drop_pending_updates=False)
-    await dispatcher.start_polling(bot, allowed_updates=ALLOWED_UPDATES, handle_signals=False)
+
+    async def stopper() -> None:
+        """Сигналы ловим сами (handle_signals=False) — и опрос гасим тоже сами.
+
+        Без этого SIGTERM только ставил Event: опрос продолжался, контейнер
+        добивали по таймауту, а keeper к тому моменту переставал продлевать
+        блокировку — следующий экземпляр стартовал в чужой опрос.
+        """
+        await stop.wait()
+        for _ in range(50):  # start_polling мог ещё не взять свой лок
+            try:
+                await dispatcher.stop_polling()
+                return
+            except RuntimeError:
+                await asyncio.sleep(0.1)
+        logger.warning("остановить опрос не удалось")
+
+    task = asyncio.create_task(stopper())
+    try:
+        await dispatcher.start_polling(bot, allowed_updates=ALLOWED_UPDATES, handle_signals=False)
+    finally:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
 
 
 async def run_webhook(bot: Bot, dispatcher: Dispatcher, stop: asyncio.Event) -> None:
@@ -263,7 +293,7 @@ async def main() -> int:
         if (settings.mode or "polling").lower() == "webhook":
             await run_webhook(bot, dispatcher, stop)
         else:
-            await run_polling(bot, dispatcher)
+            await run_polling(bot, dispatcher, stop)
     finally:
         stop.set()
         await store.release_lock("polling")

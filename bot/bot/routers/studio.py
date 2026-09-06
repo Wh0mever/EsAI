@@ -26,6 +26,7 @@ from bot.keyboards.common import rows_of, webapp_button
 from bot.routers.chat import show_paywall, site_url
 from bot.services.api import ApiError, api
 from bot.services.state import store
+from bot.services.tg_format import esc
 from bot.texts import register_texts, t
 
 logger = logging.getLogger(__name__)
@@ -54,6 +55,7 @@ register_texts({
         "st_hero_drawing": "✏️ Рисую героя…",
         "st_hero_take": "✅ Взять этого", "st_hero_redraw": "🔁 Ещё раз ({price} кр)",
         "st_hero_saved": "Герой «{name}» добавлен в вашу библиотеку.",
+        "st_hero_ready": "✏️ Герой «{name}» готов, кредиты уже списаны. Картинка: {url}",
         "st_project_started": "🎬 Мультфильм создан. Герой: <b>{hero}</b>. Теперь выберите сцены.",
         "st_cats": "🗂 <b>Разделы сцен</b>", "st_cat_popular": "🔥 Популярное", "st_cat_picks": "⭐ Выбор EsAI",
         "st_cat_all": "🗂 Все", "st_to_timeline": "🎞 К ленте ({n})",
@@ -76,9 +78,12 @@ register_texts({
         "st_retry_same": "🔁 С тем же кадром", "st_retry_new": "🆕 Новый кадр",
         "st_download": "📥 Скачать сцену", "st_remove": "🗑 Убрать",
         "st_rendering": "🎬 Снимаю «{title}»… Пришлю сюда, как будет готово. Кредиты спишутся за готовое видео.",
+        "st_already_rendering": "🎬 «{title}» уже снимается — дождитесь результата. Второй раз платить не нужно.",
         "st_render_all_done": "Поставил в очередь сцен: {n}.",
         "st_paywall_studio": ("Сцена стоит {need} кр, на балансе {have}. Мультфильм и уже снятые сцены "
                               "никуда не денутся — пополните и продолжайте."),
+        "st_paywall_studio_all": ("Все не снятые сцены стоят {need} кр, на балансе {have}. Снимаю те, "
+                                  "на которые хватает; остальные подождут пополнения."),
         "st_assembling": "🎞 Собираю мультфильм… В конце добавим заставку EsAI. Пришлю, как будет готов.",
         "st_no_ready": "Пока нет готовых сцен — сначала снимите хотя бы одну.",
         "st_assemble_partial": "Не все сцены сняты. Собрать только готовые?",
@@ -114,6 +119,7 @@ register_texts({
         "st_hero_drawing": "✏️ Drawing the hero…",
         "st_hero_take": "✅ Take this one", "st_hero_redraw": "🔁 Again ({price} cr)",
         "st_hero_saved": "Hero “{name}” added to your library.",
+        "st_hero_ready": "✏️ Hero “{name}” is ready, credits are already charged. Image: {url}",
         "st_project_started": "🎬 Cartoon created. Hero: <b>{hero}</b>. Now pick the scenes.",
         "st_cats": "🗂 <b>Scene sections</b>", "st_cat_popular": "🔥 Popular", "st_cat_picks": "⭐ EsAI picks",
         "st_cat_all": "🗂 All", "st_to_timeline": "🎞 Timeline ({n})",
@@ -136,9 +142,12 @@ register_texts({
         "st_retry_same": "🔁 Same frame", "st_retry_new": "🆕 New frame",
         "st_download": "📥 Download scene", "st_remove": "🗑 Remove",
         "st_rendering": "🎬 Rendering “{title}”… I will send it here when ready. Credits are charged for the finished video.",
+        "st_already_rendering": "🎬 “{title}” is already rendering — wait for the result. No need to pay twice.",
         "st_render_all_done": "Queued scenes: {n}.",
         "st_paywall_studio": ("The scene costs {need} cr, you have {have}. The cartoon and rendered scenes "
                               "stay — top up and continue."),
+        "st_paywall_studio_all": ("All the unrendered scenes cost {need} cr, you have {have}. I will render "
+                                  "the ones you can afford; the rest wait for a top-up."),
         "st_assembling": "🎞 Assembling… An EsAI outro is added at the end. I will send it when ready.",
         "st_no_ready": "No rendered scenes yet — render at least one first.",
         "st_assemble_partial": "Not all scenes are rendered. Assemble only the ready ones?",
@@ -174,6 +183,7 @@ register_texts({
         "st_hero_drawing": "✏️ Каарманды тартып жатам…",
         "st_hero_take": "✅ Ушуну алуу", "st_hero_redraw": "🔁 Дагы ({price} кр)",
         "st_hero_saved": "«{name}» каарманы китепканаңызга кошулду.",
+        "st_hero_ready": "✏️ «{name}» каарманы даяр, кредиттер алынып койду. Сүрөт: {url}",
         "st_project_started": "🎬 Мультфильм түзүлдү. Каарман: <b>{hero}</b>. Эми сценаларды тандаңыз.",
         "st_cats": "🗂 <b>Сцена бөлүмдөрү</b>", "st_cat_popular": "🔥 Популярдуу", "st_cat_picks": "⭐ EsAI тандоосу",
         "st_cat_all": "🗂 Баары", "st_to_timeline": "🎞 Лентага ({n})",
@@ -196,9 +206,12 @@ register_texts({
         "st_retry_same": "🔁 Ошол эле кадр", "st_retry_new": "🆕 Жаңы кадр",
         "st_download": "📥 Сценаны жүктөө", "st_remove": "🗑 Алып салуу",
         "st_rendering": "🎬 «{title}» тартып жатам… Даяр болгондо ушул жерге жөнөтөм.",
+        "st_already_rendering": "🎬 «{title}» мурунтан тартылып жатат — натыйжаны күтүңүз. Экинчи жолу төлөөнүн кереги жок.",
         "st_render_all_done": "Кезекке коюлган сценалар: {n}.",
         "st_paywall_studio": ("Сцена {need} кр турат, балансыңызда {have}. Мультфильм жана тартылган сценалар "
                               "сакталат — толуктап, улантыңыз."),
+        "st_paywall_studio_all": ("Тартылбаган сценалардын баары {need} кр турат, балансыңызда {have}. "
+                                  "Жеткендерин тартам, калгандары толуктаганды күтөт."),
         "st_assembling": "🎞 Мультфильмди чогултуп жатам… Даяр болгондо жөнөтөм.",
         "st_no_ready": "Даяр сценалар жок — адегенде бирөөнү тартыңыз.",
         "st_assemble_partial": "Бардык сценалар тартылган жок. Даярларын гана чогултайлыбы?",
@@ -217,6 +230,9 @@ register_texts({
 })
 
 STATUS_ICON = {"draft": "▫️", "new": "⏳", "keyframe": "🖌", "video": "⏳", "ready": "✅", "failed": "❌"}
+# Сцена уже в работе: очередь, кадр или видео. Повторная заявка на такую сцену
+# оплачивается второй раз, а результат человек получает один.
+BUSY_STATUSES = ("new", "keyframe", "video")
 
 
 class StudioWizard(StatesGroup):
@@ -350,7 +366,9 @@ async def show_heroes(message: Message, token: str, lang: str, page: int) -> Non
     if chunk:
         await message.bot.send_chat_action(chat_id, ChatAction.UPLOAD_PHOTO)
         await _send_media_group(message, [h.get("image") for h in chunk])
-    lines = "\n".join(f"{i} — {h.get('name')}{' 👤' if h.get('is_mine') else ''}"
+    # Имя героя придумывает человек: без esc герой «Кот <3» ломает весь экран,
+    # и такого героя уже не выбрать и не удалить из бота.
+    lines = "\n".join(f"{i} — {esc(h.get('name'))}{' 👤' if h.get('is_mine') else ''}"
                       for i, h in enumerate(chunk, 1)) or t(lang, "st_empty_heroes")
     buttons = [InlineKeyboardButton(text=str(i), callback_data=f"st:h:{h['id']}")
                for i, h in enumerate(chunk, 1)]
@@ -390,7 +408,7 @@ async def pick_hero(call: CallbackQuery, token: str, lang: str) -> None:
     await store.drop(chat_id, "st_keyframes")
     await call.answer()
     hero = (project.get("character") or {}).get("name", "")
-    await call.message.answer(t(lang, "st_project_started", hero=hero), parse_mode="HTML")
+    await call.message.answer(t(lang, "st_project_started", hero=esc(hero)), parse_mode="HTML")
     await show_categories(call.message, token, lang)
 
 
@@ -417,7 +435,7 @@ async def hero_photo(message: Message, token: str, lang: str, state: FSMContext)
     except ApiError:
         await message.answer(t(lang, "server_down"))
         return
-    await message.answer(t(lang, "st_hero_saved", name=hero.get("name", name)))
+    await message.answer(t(lang, "st_hero_saved", name=esc(hero.get("name", name))))
     await _use_hero(message, token, lang, hero["id"])
 
 
@@ -432,7 +450,8 @@ async def _use_hero(message: Message, token: str, lang: str, hero_id: int) -> No
     await store.set(chat_id, "st_char", hero_id)
     await store.drop(chat_id, "st_keyframes")
     await message.answer(t(lang, "st_project_started",
-                           hero=(project.get("character") or {}).get("name", "")), parse_mode="HTML")
+                           hero=esc((project.get("character") or {}).get("name", ""))),
+                         parse_mode="HTML")
     await show_categories(message, token, lang)
 
 
@@ -477,8 +496,18 @@ async def hero_prompt(message: Message, token: str, lang: str, state: FSMContext
     rows = [[InlineKeyboardButton(text=t(lang, "st_hero_take"), callback_data=f"st:h:{hero['id']}"),
              InlineKeyboardButton(text=t(lang, "st_hero_redraw", price=pricing.get("character", 4)),
                                   callback_data="st:hd")]]
-    await message.answer_photo(site_url(hero.get("image", "")), caption=hero.get("name", ""),
-                               reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
+    markup = InlineKeyboardMarkup(inline_keyboard=rows)
+    image = site_url(hero.get("image", ""))
+    name = hero.get("name", "")
+    # Кредиты за героя уже списаны. Если отправка сорвётся (имя из описания
+    # человека ломает HTML, Telegram не забрал картинку), человек обязан всё
+    # равно получить результат — иначе он заплатил и не увидел ничего.
+    try:
+        await message.answer_photo(image, caption=esc(name), reply_markup=markup)
+    except Exception:
+        logger.exception("фото нарисованного героя не отправилось")
+        await message.answer(t(lang, "st_hero_ready", name=name, url=image),
+                             parse_mode=None, reply_markup=markup)
 
 
 # ------------------------------------------------------------- сцены ---
@@ -573,7 +602,7 @@ async def show_scenes(message: Message, token: str, lang: str, slug: str, page: 
     chunk = presets[page * PAGE:(page + 1) * PAGE]
     await message.bot.send_chat_action(chat_id, ChatAction.UPLOAD_PHOTO)
     await _send_media_group(message, [p.get("preview_poster") for p in chunk])
-    lines = "\n".join(t(lang, "st_scene_line", n=i, title=p.get("title"), credits=p.get("credits"),
+    lines = "\n".join(t(lang, "st_scene_line", n=i, title=esc(p.get("title")), credits=p.get("credits"),
                         duration=p.get("duration"), ready=" ✅" if str(p.get("id")) in ready else "")
                       for i, p in enumerate(chunk, 1))
     buttons = [InlineKeyboardButton(text=str(i), callback_data=f"st:sc:{p['id']}")
@@ -588,7 +617,8 @@ async def show_scenes(message: Message, token: str, lang: str, slug: str, page: 
         rows.append(nav)
     rows.append([InlineKeyboardButton(text=t(lang, "st_back"), callback_data="st:cats"),
                  InlineKeyboardButton(text=t(lang, "st_to_timeline", n="…"), callback_data="st:tl")])
-    await message.answer(t(lang, "st_scenes", category=title, page=page + 1, pages=pages, lines=lines),
+    # Заголовок раздела из каталога — та же чужая строка, что и названия сцен.
+    await message.answer(t(lang, "st_scenes", category=esc(title), page=page + 1, pages=pages, lines=lines),
                          parse_mode="HTML", reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
 
 
@@ -608,7 +638,8 @@ async def scene_card(call: CallbackQuery, token: str, lang: str) -> None:
     else:
         rows.append([InlineKeyboardButton(text=t(lang, "st_try"), callback_data=f"st:try:{preset_id}")])
     rows.append([InlineKeyboardButton(text=t(lang, "st_back"), callback_data="st:cats")])
-    caption = t(lang, "st_scene_card", title=preset.get("title"), subtitle=preset.get("subtitle") or "",
+    caption = t(lang, "st_scene_card", title=esc(preset.get("title")),
+                subtitle=esc(preset.get("subtitle") or ""),
                 credits=preset.get("credits"), duration=preset.get("duration"))
     markup = InlineKeyboardMarkup(inline_keyboard=rows)
     video = preset.get("preview_video")
@@ -637,10 +668,11 @@ async def add_scene(call: CallbackQuery, token: str, lang: str) -> None:
         await call.answer()
         await call.message.answer(exc.message or t(lang, "failed"))
         return
-    await call.answer(t(lang, "st_added", title=(scene.get("preset") or {}).get("title", "")),
-                      show_alert=False)
+    title = (scene.get("preset") or {}).get("title", "")
+    # Всплывашка — обычный текст, разметку там не разбирают; сообщение — HTML.
+    await call.answer(t(lang, "st_added", title=title), show_alert=False)
     await call.message.answer(
-        t(lang, "st_added", title=(scene.get("preset") or {}).get("title", "")),
+        t(lang, "st_added", title=esc(title)),
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
             InlineKeyboardButton(text=t(lang, "st_to_timeline", n="…"), callback_data="st:tl"),
             InlineKeyboardButton(text=t(lang, "st_add_scene"), callback_data="st:cats")]]))
@@ -699,15 +731,16 @@ async def show_timeline(message: Message, token: str, lang: str) -> None:
         return
     scenes = project.get("scenes") or []
     lines = "\n".join(t(lang, "st_tl_line", n=i, icon=STATUS_ICON.get(s.get("status"), "▫️"),
-                        title=(s.get("preset") or {}).get("title", ""),
+                        title=esc((s.get("preset") or {}).get("title", "")),
                         status=_status(lang, s.get("status", "")),
                         credits=(s.get("preset") or {}).get("credits", 0))
                       for i, s in enumerate(scenes, 1)) or "—"
     ready = sum(1 for s in scenes if s.get("status") == "ready")
     pending = [s for s in scenes if s.get("status") in ("draft", "failed")]
     pending_cost = sum((s.get("preset") or {}).get("credits", 0) for s in pending)
-    text = t(lang, "st_timeline", title=project.get("title", ""),
-             hero=(project.get("character") or {}).get("name", ""), lines=lines,
+    # Название проекта и имя героя пришли от человека — в HTML только через esc.
+    text = t(lang, "st_timeline", title=esc(project.get("title", "")),
+             hero=esc((project.get("character") or {}).get("name", "")), lines=lines,
              ready=ready, total=len(scenes), spent=project.get("credits_spent", 0))
     rows = []
     if pending:
@@ -725,7 +758,8 @@ async def show_timeline(message: Message, token: str, lang: str) -> None:
     if project.get("status") == "ready" and project.get("result_video"):
         try:
             await message.answer_video(site_url(project["result_video"]),
-                                       caption=t(lang, "st_result", title=project.get("title", ""),
+                                       caption=t(lang, "st_result",
+                                                 title=esc(project.get("title", "")),
                                                  n=ready), supports_streaming=True)
         except Exception:
             await message.answer(site_url(project["result_video"]))
@@ -773,9 +807,11 @@ async def scene_menu(call: CallbackQuery, token: str, lang: str) -> None:
         extra.insert(0, InlineKeyboardButton(text=t(lang, "st_download"), callback_data=f"st:sdl:{scene_id}"))
     rows.append(extra)
     rows.append([InlineKeyboardButton(text=t(lang, "btn_back"), callback_data="st:tl")])
-    caption = f"{STATUS_ICON.get(status, '▫️')} <b>{preset.get('title', '')}</b> — {_status(lang, status)}"
+    caption = (f"{STATUS_ICON.get(status, '▫️')} <b>{esc(preset.get('title', ''))}</b>"
+               f" — {_status(lang, status)}")
     if scene.get("error"):
-        caption += f"\n{scene['error'][:200]}"
+        # Текст ошибки приходит от генератора и может содержать что угодно.
+        caption += f"\n{esc(scene['error'][:200])}"
     markup = InlineKeyboardMarkup(inline_keyboard=rows)
     frame = scene.get("keyframe") or preset.get("poster")
     if frame:
@@ -786,6 +822,26 @@ async def scene_menu(call: CallbackQuery, token: str, lang: str) -> None:
         except Exception:
             pass
     await call.message.answer(caption, parse_mode="HTML", reply_markup=markup)
+
+
+def _cost(scene: dict) -> int:
+    try:
+        return int((scene.get("preset") or {}).get("credits", 0) or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+async def _balance(token: str, lang: str, chat_id: int) -> int | None:
+    """Сколько кредитов у человека; None — если баланс узнать не удалось.
+
+    None означает «не знаю», а не «ноль»: молча урезать очередь из-за сетевой
+    осечки нельзя, пусть в таком случае решает бэкенд.
+    """
+    try:
+        data = await api.balance(token, lang=lang, telegram_id=chat_id)
+        return int((data or {}).get("balance_tokens", 0) or 0)
+    except (ApiError, TypeError, ValueError):
+        return None
 
 
 async def _render(call: CallbackQuery, token: str, lang: str, scene_id: int, *, quiet: bool = False) -> bool:
@@ -803,7 +859,8 @@ async def _render(call: CallbackQuery, token: str, lang: str, scene_id: int, *, 
             await call.message.answer(exc.message or t(lang, "failed"))
         return False
     if not quiet:
-        await call.message.answer(t(lang, "st_rendering", title=(scene.get("preset") or {}).get("title", "")))
+        await call.message.answer(
+            t(lang, "st_rendering", title=esc((scene.get("preset") or {}).get("title", ""))))
     return True
 
 
@@ -825,12 +882,34 @@ async def render_all(call: CallbackQuery, token: str, lang: str) -> None:
     except ApiError:
         await call.message.answer(t(lang, "server_down"))
         return
-    queued = 0
-    for scene in project.get("scenes") or []:
-        if scene.get("status") in ("draft", "failed"):
-            if not await _render(call, token, lang, scene["id"], quiet=True):
+    pending = [s for s in project.get("scenes") or [] if s.get("status") in ("draft", "failed")]
+    need = sum(_cost(s) for s in pending)
+    # Бэкенд сверяет КАЖДУЮ сцену с одним и тем же, ещё не уменьшенным балансом,
+    # поэтому при нехватке он принимает всю пачку, а часть сцен падает уже
+    # после генерации — деньги за них человек считает потраченными зря. Считаем
+    # сумму заранее и ставим в очередь ровно то, на что хватает.
+    have = await _balance(token, lang, chat_id)
+    if have is not None and have < need:
+        # Здесь {need} — сумма за ВСЕ не снятые сцены, а не за одну: обычный
+        # пейвол студии сказал бы «сцена стоит 90 кр» и назвал бы цену впятеро
+        # выше настоящей.
+        await call.message.answer(
+            t(lang, "st_paywall_studio_all", need=need, have=have),
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
+                InlineKeyboardButton(text=t(lang, "btn_topup"), callback_data="b:topup")]]))
+        affordable, left = [], have
+        for scene in pending:
+            cost = _cost(scene)
+            if cost > left:
                 break
-            queued += 1
+            left -= cost
+            affordable.append(scene)
+        pending = affordable
+    queued = 0
+    for scene in pending:
+        if not await _render(call, token, lang, scene["id"], quiet=True):
+            break
+        queued += 1
     await call.message.answer(t(lang, "st_render_all_done", n=queued))
 
 
@@ -839,13 +918,65 @@ async def retry_scene(call: CallbackQuery, token: str, lang: str) -> None:
     chat_id = _tid(call)
     _, _, scene_id, new_frame = call.data.split(":")
     await call.answer()
+    # Кнопки остаются в старом сообщении, поэтому «Переснять» легко нажать
+    # дважды: первый запрос уже поставил задачу, второй поставил бы ещё одну и
+    # человек заплатил бы дважды за один результат. Сверяемся со свежим статусом.
+    _, fresh = await _scene(token, lang, chat_id, int(scene_id))
+    if fresh is not None and fresh.get("status") in BUSY_STATUSES:
+        await call.message.answer(
+            t(lang, "st_already_rendering", title=esc((fresh.get("preset") or {}).get("title", ""))))
+        return
     try:
         scene = await api.patch_scene(token, int(scene_id), {"retry": True, "new_keyframe": new_frame == "1"},
                                       lang=lang, telegram_id=chat_id)
     except ApiError as exc:
         await call.message.answer(exc.message or t(lang, "failed"))
         return
-    await call.message.answer(t(lang, "st_rendering", title=(scene.get("preset") or {}).get("title", "")))
+    await call.message.answer(
+        t(lang, "st_rendering", title=esc((scene.get("preset") or {}).get("title", ""))))
+
+
+async def _swap_scene(token: str, lang: str, chat_id: int, project: dict, scene_id: int,
+                      step: int) -> bool:
+    """Поменять сцену местами с соседом по ленте.
+
+    Бэкенд по PATCH просто записывает присланный order этой сцене и никого не
+    двигает, а лента сортируется по (order, id). Поэтому абсолютный order±1 либо
+    давал двум сценам одинаковый номер (и лента оставалась как была), либо
+    перепрыгивал сцену, не сдвигая её. Переставляем сами: строим ленту такой,
+    какой человек ждёт её увидеть, и раздаём order по позициям.
+
+    Номера именно РАЗДАЁМ, а не обмениваем: старый баг оставил в проектах сцены
+    с одинаковым order, и обмен двух равных значений сдвигал заодно чужие сцены
+    (при трёх нулях «Позже» на второй сцене уносило четвёртую в середину).
+    Запрос уходит только к тем, у кого номер разошёлся с позицией, — в здоровой
+    ленте это ровно двое, своя сцена и сосед.
+    """
+    def order_of(scene: dict) -> int:
+        try:
+            return int(scene.get("order") or 0)
+        except (TypeError, ValueError):
+            return -1  # номер испорчен — перепишем в любом случае
+
+    scenes = project.get("scenes") or []
+    index = next((i for i, s in enumerate(scenes) if s.get("id") == scene_id), -1)
+    neighbour_index = index + step
+    if index < 0 or not 0 <= neighbour_index < len(scenes):
+        return False
+    lane = list(scenes)
+    lane[index], lane[neighbour_index] = lane[neighbour_index], lane[index]
+    changed = [(s, position) for position, s in enumerate(lane) if order_of(s) != position]
+    # Свою сцену и соседа переписываем первыми: если следующий запрос сорвётся,
+    # человек увидит хотя бы тот сдвиг, о котором просил.
+    first = {scene_id: 0, scenes[neighbour_index].get("id"): 1}
+    changed.sort(key=lambda pair: first.get(pair[0].get("id"), 2))
+    try:
+        for scene, position in changed:
+            await api.patch_scene(token, int(scene["id"]), {"order": position},
+                                  lang=lang, telegram_id=chat_id)
+    except ApiError:
+        return False
+    return True
 
 
 @router.callback_query(F.data.startswith("st:up:") | F.data.startswith("st:dn:"))
@@ -854,13 +985,9 @@ async def move_scene(call: CallbackQuery, token: str, lang: str) -> None:
     direction, scene_id = call.data.split(":")[1], int(call.data.split(":")[2])
     project, scene = await _scene(token, lang, chat_id, scene_id)
     await call.answer()
-    if not scene:
+    if not project or not scene:
         return
-    order = int(scene.get("order") or 0) + (-1 if direction == "up" else 1)
-    try:
-        await api.patch_scene(token, scene_id, {"order": max(0, order)}, lang=lang, telegram_id=chat_id)
-    except ApiError:
-        pass
+    await _swap_scene(token, lang, chat_id, project, scene_id, -1 if direction == "up" else 1)
     await show_timeline(call.message, token, lang)
 
 
@@ -941,7 +1068,7 @@ async def delete_confirm(call: CallbackQuery, token: str, lang: str) -> None:
     except ApiError:
         return
     await call.message.answer(
-        t(lang, "st_delete_confirm", title=project.get("title", "")),
+        t(lang, "st_delete_confirm", title=esc(project.get("title", ""))),
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
             InlineKeyboardButton(text=t(lang, "st_yes"), callback_data="st:delok"),
             InlineKeyboardButton(text=t(lang, "st_no"), callback_data="nav:x")]]))
