@@ -11,12 +11,30 @@ from bot.config import settings
 from bot.services.api import ApiError, api
 from bot.services.state import store
 from bot.services.tg_format import esc
-from bot.texts import t
+from bot.texts import register_texts, t
 
 logger = logging.getLogger(__name__)
 router = Router(name="profile")
 
 PAGE = 8
+# Кэш списка чатов: две минуты человек не видел только что начатый чат в
+# /history. Держим коротко и вдобавок проверяем свежесть (см. _sessions).
+SESSIONS_TTL = 30
+
+register_texts({
+    "ru": {
+        "promo_hint": "Введите промокод так: <code>/promo КОД</code>",
+        "promo_fail_generic": "код не подошёл",
+    },
+    "en": {
+        "promo_hint": "Send a promo code like this: <code>/promo CODE</code>",
+        "promo_fail_generic": "the code did not work",
+    },
+    "kg": {
+        "promo_hint": "Промокодду мындай жазыңыз: <code>/promo КОД</code>",
+        "promo_fail_generic": "код туура келген жок",
+    },
+})
 
 
 def _title(session: dict) -> str:
@@ -42,12 +60,26 @@ def _history_keyboard(sessions: list, page: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+def _is_current(session: dict, current: str) -> bool:
+    return str(session.get("uid")) == current or str(session.get("id")) == current
+
+
 async def _sessions(token: str, lang: str, telegram_id: int) -> list:
+    """Список чатов человека с коротким кэшем.
+
+    Новый чат заводится не здесь (chat.py и video.py запоминают его id в
+    «session»), поэтому сбросить кэш в месте создания нельзя — файлы чужие.
+    Зато признак протухания у нас есть: если текущего чата в кэше нет, значит
+    он появился после снимка — перечитываем. Иначе человек, задавший первый
+    вопрос, до двух минут не находил свой чат в /history.
+    """
     cached = await store.get(telegram_id, "sessions_cache")
     if cached:
-        return cached
+        current = str(await store.get(telegram_id, "session") or "")
+        if not current or any(_is_current(s, current) for s in cached):
+            return cached
     sessions = await api.sessions(token, lang=lang, telegram_id=telegram_id)
-    await store.set(telegram_id, "sessions_cache", sessions, ttl=120)
+    await store.set(telegram_id, "sessions_cache", sessions, ttl=SESSIONS_TTL)
     return sessions
 
 
@@ -72,9 +104,22 @@ async def cmd_history(message: Message, token: str, lang: str = "ru",
 @router.callback_query(F.data.startswith("h:p:"))
 async def history_page(call: CallbackQuery, token: str, lang: str = "ru") -> None:
     page = int(call.data.split(":")[2])
-    sessions = await _sessions(token, lang, call.from_user.id)
+    try:
+        sessions = await _sessions(token, lang, call.from_user.id)
+    except ApiError:
+        # Исключение внутри callback-а гасит middleware, и Telegram крутит
+        # часики на кнопке до своего таймаута — человек не понимает, нажалось
+        # ли вообще. Отвечаем сразу и словами.
+        await call.answer(t(lang, "server_down"), show_alert=True)
+        return
     await call.answer()
-    await call.message.edit_reply_markup(reply_markup=_history_keyboard(sessions, page))
+    try:
+        await call.message.edit_reply_markup(reply_markup=_history_keyboard(sessions, page))
+    except Exception as exc:  # noqa: BLE001
+        # Та же страница (или сообщение уже недоступно) — правка не нужна.
+        # Но совсем молчать нельзя: под это же «кроме» попадёт и сломанная
+        # клавиатура, а в логах не останется ни следа.
+        logger.debug("история: клавиатуру не поправили: %s", exc)
 
 
 @router.callback_query(F.data.startswith("h:o:"))
@@ -84,9 +129,14 @@ async def history_open(call: CallbackQuery, token: str, lang: str = "ru") -> Non
     # У callback_query from_user — тот, кто нажал (человек), а не бот: и кэш,
     # и «текущий чат» ключуются верно. Брать call.message.from_user здесь нельзя.
     user_id = call.from_user.id
-    sessions = await _sessions(token, lang, user_id)
-    session = next((s for s in sessions
-                    if str(s.get("uid")) == session_id or str(s.get("id")) == session_id), None)
+    try:
+        sessions = await _sessions(token, lang, user_id)
+    except ApiError:
+        # Чат не переключаем: раз список не пришёл, не факт, что этот чат ещё
+        # существует и токен жив. Молча оставлять кнопку крутиться нельзя.
+        await call.answer(t(lang, "server_down"), show_alert=True)
+        return
+    session = next((s for s in sessions if _is_current(s, session_id)), None)
     await store.set(user_id, "session", session_id)
     await call.answer()
     await call.message.answer(
@@ -125,20 +175,25 @@ async def cmd_referral(message: Message, token: str, lang: str = "ru",
                          disable_web_page_preview=True)
 
 
+async def promo_hint(message: Message, lang: str) -> None:
+    """Подсказка про формат — из «☰ Ещё → Промокод» и из /promo без аргумента."""
+    await message.answer(t(lang, "promo_hint"), parse_mode="HTML")
+
+
 @router.message(Command("promo"))
 async def cmd_promo(message: Message, command: CommandObject, token: str,
                     lang: str = "ru") -> None:
     code = (command.args or "").strip()
     if not code:
-        await message.answer("Введите промокод так: <code>/promo КОД</code>",
-                             parse_mode="HTML")
+        await promo_hint(message, lang)
         return
     try:
         result = await api.request("POST", "/api/users/promo/activate/", token=token,
                                    lang=lang, telegram_id=message.from_user.id,
                                    json_body={"code": code})
     except ApiError as exc:
-        reason = exc.message or exc.code or "код не подошёл"
+        # Причина приходит с сервера и попадает в HTML-сообщение — экранируем.
+        reason = esc(exc.message or exc.code) or t(lang, "promo_fail_generic")
         await message.answer(t(lang, "promo_fail", reason=reason))
         return
     await message.answer(t(lang, "promo_ok", credits=(result or {}).get("credited", 0)),

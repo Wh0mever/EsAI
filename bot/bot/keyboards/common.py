@@ -61,22 +61,6 @@ def quick_prompts(lang: str = "ru") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def answer_actions(lang: str, *, has_sources: bool = False,
-                   has_reasoning: bool = False) -> InlineKeyboardMarkup:
-    rows = [[
-        InlineKeyboardButton(text=t(lang, "btn_retry"), callback_data="c:re"),
-        InlineKeyboardButton(text=t(lang, "btn_continue"), callback_data="c:cont"),
-    ]]
-    extra = []
-    if has_sources:
-        extra.append(InlineKeyboardButton(text=t(lang, "btn_sources"), callback_data="c:src"))
-    if has_reasoning:
-        extra.append(InlineKeyboardButton(text=t(lang, "btn_reasoning"), callback_data="c:rs"))
-    if extra:
-        rows.append(extra)
-    return InlineKeyboardMarkup(inline_keyboard=rows)
-
-
 def paywall(lang: str, site: str = "", *, free_model: bool = False) -> InlineKeyboardMarkup:
     """Кнопки пейвола.
 

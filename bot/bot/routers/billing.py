@@ -7,6 +7,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 
 from aiogram import Bot, F, Router
@@ -23,12 +24,21 @@ from aiogram.types import (
 from bot.config import settings
 from bot.services.api import ApiError, api
 from bot.services.state import store
+from bot.services.tg_format import esc, split_html
 from bot.texts import register_texts, t
 
 logger = logging.getLogger(__name__)
 router = Router(name="billing")
 
 PENDING = "stars_confirm"
+# Telegram отменяет платёж, если ответа на pre_checkout нет 10 секунд, а
+# обычный read-таймаут API — 60: при медленном ядре человек получает ошибку
+# оплаты, а бот об этом даже не узнаёт. Ждём ядро не дольше этого срока —
+# остаток десяти секунд оставляем на сам ответ Telegram.
+PRECHECK_TIMEOUT = 5.0
+# Язык человека лежит в Redis. Если Redis задумался, платёж от этого зависеть
+# не должен: подождём секунду и ответим по-русски.
+LANG_TIMEOUT = 1.0
 
 register_texts({
     "ru": {
@@ -61,6 +71,8 @@ register_texts({
         "stars_disabled": "Оплата Stars сейчас недоступна. Пополнить можно на сайте esai.kg.",
         "stars_region": "Оплата Stars недоступна в вашем регионе.",
         "precheck_fail": "Счёт устарел — откройте /topup и выберите пакет заново.",
+        "precheck_slow": ("Сервер не ответил вовремя. Stars не списаны — "
+                          "попробуйте оплатить ещё раз через минуту."),
         "btn_to_chat": "💬 В чат",
         "btn_premium": "🧠 Выбрать премиум-модель",
         "btn_history": "📜 История операций",
@@ -107,6 +119,8 @@ register_texts({
         "stars_disabled": "Stars payments are unavailable right now. You can top up at esai.kg.",
         "stars_region": "Stars payments are not available in your region.",
         "precheck_fail": "The invoice is outdated — open /topup and pick a package again.",
+        "precheck_slow": ("The server did not answer in time. No Stars were charged — "
+                          "please try to pay again in a minute."),
         "btn_to_chat": "💬 To chat",
         "btn_premium": "🧠 Pick a premium model",
         "btn_history": "📜 History",
@@ -153,6 +167,8 @@ register_texts({
         "stars_disabled": "Stars төлөмү азыр жеткиликсиз. esai.kg сайтында толуктаңыз.",
         "stars_region": "Сиздин аймакта Stars төлөмү жеткиликсиз.",
         "precheck_fail": "Эсеп эскирди — /topup ачып, пакетти кайра тандаңыз.",
+        "precheck_slow": ("Сервер өз убагында жооп берген жок. Stars алынган жок — "
+                          "бир мүнөттөн кийин кайра төлөп көрүңүз."),
         "btn_to_chat": "💬 Чатка",
         "btn_premium": "🧠 Премиум модель тандоо",
         "btn_history": "📜 Тарых",
@@ -189,11 +205,17 @@ async def show_balance(message: Message, token: str, lang: str) -> None:
     except ApiError:
         await message.answer(t(lang, "server_down"))
         return
-    tier_key = {"paid": "tier_paid", "unlimited": "tier_unlimited"}.get(data.get("tier"), "tier_free")
+    # Безлимит сервер отдаёт двумя способами (tier="unlimited" и флаг
+    # is_unlimited) — читаем оба. Ни одного из полей может и не быть: пустой
+    # ответ и старая версия ядра не должны ронять экран, тогда тариф обычный.
+    if not isinstance(data, dict):
+        data = {}
+    tier_key = {"paid": "tier_paid", "unlimited": "tier_unlimited"}.get(
+        str(data.get("tier") or ""), "tier_free")
     if data.get("is_unlimited"):
         tier_key = "tier_unlimited"
     await message.answer(
-        t(lang, "balance_full", balance=data.get("balance_tokens", 0), tier=t(lang, tier_key)),
+        t(lang, "balance_full", balance=data.get("balance_tokens") or 0, tier=t(lang, tier_key)),
         parse_mode="HTML", reply_markup=balance_keyboard(lang))
 
 
@@ -226,10 +248,16 @@ async def history(call: CallbackQuery, token: str, lang: str) -> None:
         date = f"{date[8:10]}.{date[5:7]}" if len(date) == 10 else date
         meta = tx.get("meta") or {}
         model = str(meta.get("model") or "").split("/")[-1]
-        extra = f" · {model}" if model else ""
-        lines.append(f"{date} <b>{'+' if delta > 0 else ''}{delta}</b> {_reason(lang, tx.get('reason', ''))}"
-                     f"{extra} · {tx.get('balance_after', '')}")
-    await call.message.answer("\n".join(lines), parse_mode="HTML")
+        # Название модели и причина приходят с сервера: «<» в них ломает разбор
+        # HTML, и Telegram отвергает всё сообщение целиком.
+        extra = f" · {esc(model)}" if model else ""
+        lines.append(f"{esc(date)} <b>{'+' if delta > 0 else ''}{delta}</b> "
+                     f"{esc(_reason(lang, tx.get('reason', '')))}"
+                     f"{extra} · {esc(tx.get('balance_after', ''))}")
+    # 20 строк с длинными названиями моделей могут перевалить за лимит 4096 —
+    # тогда не отправится вообще ничего; режем по границам строк.
+    for part in split_html("\n".join(lines)):
+        await call.message.answer(part, parse_mode="HTML")
 
 
 # ---------------------------------------------------------------- topup ---
@@ -268,21 +296,31 @@ async def show_topup(message: Message, token: str, lang: str) -> None:
     for p in sellable:
         bonus_total = int(p.get("bonus_tokens") or 0) + int(p.get("stars_bonus_tokens") or 0)
         bonus = f" +{bonus_total}" if bonus_total else ""
-        badge = f" · {p['badge']}" if p.get("badge") else ""
+        # Название, бейдж и описание пакета — свободный текст из админки. Один
+        # «<» в них — и Telegram не принимает ВЕСЬ экран пополнения: человек
+        # остаётся без списка пакетов и без кнопок оплаты.
+        badge = f" · {esc(p['badge'])}" if p.get("badge") else ""
         desc = (p.get("description") or "").strip()
-        desc = (desc[:120] + "\n") if desc else ""
-        blocks.append(t(lang, "topup_pkg", name=p.get("name"), tokens=p.get("tokens"), bonus=bonus,
-                        stars=p["stars_price"], badge=badge, desc=desc,
+        desc = (esc(desc[:120]) + "\n") if desc else ""
+        blocks.append(t(lang, "topup_pkg", name=esc(p.get("name")), tokens=esc(p.get("tokens")),
+                        bonus=bonus, stars=esc(p["stars_price"]), badge=badge, desc=desc,
                         value=_value_line(lang, values.get(p.get("id")))))
+        # В подписи кнопки разметки нет — там текст идёт как есть, без esc().
         buttons.append(InlineKeyboardButton(
             text=t(lang, "topup_btn", name=("🔥 " if p.get("featured") else "") + str(p.get("name")),
                    stars=p["stars_price"]),
             callback_data=f"b:buy:{p['id']}"))
     blocks.append(t(lang, "topup_footer"))
     rows = [buttons[i:i + 2] for i in range(0, len(buttons), 2)]
-    await message.answer("\n\n".join(blocks), parse_mode="HTML",
-                         reply_markup=InlineKeyboardMarkup(inline_keyboard=rows),
-                         disable_web_page_preview=True)
+    markup = InlineKeyboardMarkup(inline_keyboard=rows)
+    # Пакетов с описаниями и «на что хватит» бывает столько, что текст не лезет
+    # в лимит 4096 — тогда Telegram не отправит ничего. Режем на части, кнопки
+    # вешаем на последнюю: без них экран бесполезен.
+    parts = split_html("\n\n".join(blocks))
+    for index, part in enumerate(parts):
+        await message.answer(part, parse_mode="HTML",
+                             reply_markup=markup if index == len(parts) - 1 else None,
+                             disable_web_page_preview=True)
 
 
 @router.message(Command("topup"))
@@ -391,16 +429,43 @@ async def send_invoice(message: Message, lang: str, package_id: int) -> None:
 @router.pre_checkout_query()
 async def pre_checkout(query: PreCheckoutQuery) -> None:
     """Telegram ждёт ответ 10 секунд; проверяем счёт у сервера и отвечаем."""
+    # Язык читаем заранее: в ветках ошибки времени на лишний поход уже нет.
+    # Этот поход стоит на пути УСПЕШНОЙ оплаты, поэтому он не может её сорвать:
+    # упавший или зависший Redis даёт русский текст, а не молчание бота.
     try:
-        await api.stars_precheck(query.from_user.id, query.invoice_payload,
-                                 query.total_amount, query.currency)
+        lang = await asyncio.wait_for(store.get(query.from_user.id, "lang"),
+                                      timeout=LANG_TIMEOUT) or "ru"
+    except Exception:
+        logger.warning("precheck %s: язык не прочитан", query.invoice_payload)
+        lang = "ru"
+    try:
+        await asyncio.wait_for(
+            api.stars_precheck(query.from_user.id, query.invoice_payload,
+                               query.total_amount, query.currency),
+            timeout=PRECHECK_TIMEOUT)
+    except asyncio.TimeoutError:
+        # Ядро думает дольше, чем Telegram готов ждать. Отвечаем отказом сами:
+        # так человек видит причину, а мы — строку в логе. Деньги не списаны.
+        logger.warning("precheck %s: ядро не ответило за %s с", query.invoice_payload,
+                       PRECHECK_TIMEOUT)
+        await query.answer(ok=False, error_message=t(lang, "precheck_slow"))
+        return
     except ApiError as exc:
-        lang = await store.get(query.from_user.id, "lang") or "ru"
-        logger.warning("precheck %s отклонён: %s", query.invoice_payload, exc.code)
-        await query.answer(ok=False, error_message=t(lang, "precheck_fail"))
+        # Упавшее ядро и обрыв связи — не «счёт устарел»: советовать открыть
+        # /topup заново бессмысленно, помогает повторная попытка.
+        if exc.code == "stars_disabled":
+            # Оплату Stars выключили мы сами: заново открытый /topup приведёт
+            # человека ровно к этому же отказу — честнее сказать про сайт.
+            logger.warning("precheck %s: оплата Stars выключена", query.invoice_payload)
+            await query.answer(ok=False, error_message=t(lang, "stars_disabled"))
+        elif exc.status >= 500 or exc.status == 429 or exc.code in ("stream_timeout", "transport"):
+            logger.warning("precheck %s: ядро недоступно (%s)", query.invoice_payload, exc.code)
+            await query.answer(ok=False, error_message=t(lang, "precheck_slow"))
+        else:
+            logger.warning("precheck %s отклонён: %s", query.invoice_payload, exc.code)
+            await query.answer(ok=False, error_message=t(lang, "precheck_fail"))
         return
     except Exception:
-        lang = await store.get(query.from_user.id, "lang") or "ru"
         logger.exception("precheck: сервер недоступен")
         await query.answer(ok=False, error_message=t(lang, "server_down"))
         return
@@ -433,7 +498,9 @@ async def _after_paid(bot: Bot, chat_id: int, lang: str, result: dict) -> None:
         return
     await bot.send_message(
         chat_id,
-        t(lang, "paid", credits=result.get("credited"), package=result.get("package_name", ""),
+        # Название пакета задаёт админка: «<» в нём не должен превратить
+        # сообщение об успешной оплате в ошибку разбора HTML.
+        t(lang, "paid", credits=result.get("credited"), package=esc(result.get("package_name", "")),
           balance=result.get("balance_tokens")),
         parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[[

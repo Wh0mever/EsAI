@@ -527,8 +527,31 @@ class CurrencyPreferenceView(APIView):
         return Response({"currency": request.user.selected_currency}, status=200)
 
 
+class OptionalJWTAuthentication(JWTAuthentication):
+    """JWT, который не отбивает запрос из-за плохого токена.
+
+    Нужен на эндпоинтах, открытых для анонимов, но где авторизованного человека
+    полезно узнать в лицо: DRF считает частоту по `anon`-лимиту (по IP), и все
+    запросы из одного контейнера бота складываются в один счётчик на всех людей
+    сразу. С распознанным пользователем работает `user`-лимит — свой у каждого.
+
+    Ошибку разбора глушим сознательно: протухший токен в давно открытой вкладке
+    не должен превращать форму обратной связи в 401 — такой запрос просто
+    продолжает жить как анонимный, с прежней анонимной защитой.
+    """
+
+    def authenticate(self, request):
+        try:
+            return super().authenticate(request)
+        except Exception:  # noqa: BLE001 — любой сбой токена = «просто аноним»
+            return None
+
+
 class QuestionAPIView(APIView):
-    authentication_classes = []
+    # Аноним с сайта проходит как раньше (токена нет — остаётся анонимным и
+    # упирается в анонимный лимит); бот присылает токен человека и получает
+    # собственный счётчик вместо общего по IP контейнера.
+    authentication_classes = [OptionalJWTAuthentication]
     permission_classes = [AllowAny]
 
     def post(self, request):

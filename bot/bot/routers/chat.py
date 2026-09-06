@@ -6,18 +6,35 @@ import logging
 
 from aiogram import F, Router
 from aiogram.enums import ChatAction
-from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message
+from aiogram.types import (
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+)
 
 from bot.config import settings
-from bot.keyboards.common import answer_actions, paywall
+from bot.keyboards.common import paywall
 from bot.services.api import ApiError, api
 from bot.services.state import store
 from bot.services.stream import StreamRenderer
 from bot.services.tg_format import CHUNK_LIMIT, esc, esc_attr, split_html, to_html
-from bot.texts import t
+from bot.texts import register_texts, t
 
 logger = logging.getLogger(__name__)
 router = Router(name="chat")
+
+# Кнопка под сообщением живёт вечно, данные ответа — час. Раньше на нажатие
+# истёкшей кнопки бот просто молчал, и она выглядела сломанной. Своё имя ключа
+# (не из общих): register_texts общие ключи не отдаёт.
+register_texts({
+    "ru": {"answer_stale": "Этот ответ устарел — бот его больше не помнит. "
+                           "Задайте вопрос заново."},
+    "en": {"answer_stale": "This answer is outdated — the bot no longer keeps it. "
+                           "Please ask again."},
+    "kg": {"answer_stale": "Бул жооп эскирди — бот аны эстебейт. "
+                           "Суроону кайра жазыңыз."},
+})
 
 
 def _session_gone(exc: ApiError) -> bool:
@@ -45,6 +62,73 @@ async def _keep_typing(message: Message, stop: asyncio.Event,
             await asyncio.wait_for(stop.wait(), timeout=4.0)
         except asyncio.TimeoutError:
             continue
+
+
+# Сколько живут источники/рассуждения/вопрос конкретного ответа.
+ANSWER_TTL = 3600
+
+
+def _anchor_id(renderer) -> int:
+    """Чем помечаем ответ, чтобы кнопки под ним знали, к чему относятся.
+
+    Раньше источники, рассуждения и вопрос лежали в ОДНОМ ключе на человека,
+    поэтому кнопка под вчерашним ответом показывала данные свежего, а
+    «Повторить» переспрашивало чужой вопрос (и списывало за него деньги).
+    Берём id живого сообщения стрима: оно создаётся до генерации, значит id
+    известен ещё до сборки клавиатуры, и он уникален внутри чата.
+    """
+    live = getattr(renderer, "live", None)
+    try:
+        return int(getattr(live, "message_id", 0) or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _answer_actions(lang: str, anchor: int, *, has_sources: bool = False,
+                    has_reasoning: bool = False) -> InlineKeyboardMarkup:
+    """Кнопки под ответом с привязкой к нему же.
+
+    Собираем здесь, а не в keyboards/common: callback_data должна нести id
+    ответа. Хвост «:{message_id}» — это максимум 12 байт, лимит Telegram в 64
+    байта не задевает. Без anchor (стрим не создал сообщения) остаётся старый
+    общий вид кнопок — их разберёт запасной путь по общему ключу.
+    """
+    tail = f":{anchor}" if anchor else ""
+    rows = [[
+        InlineKeyboardButton(text=t(lang, "btn_retry"), callback_data=f"c:re{tail}"),
+        InlineKeyboardButton(text=t(lang, "btn_continue"), callback_data="c:cont"),
+    ]]
+    extra = []
+    if has_sources:
+        extra.append(InlineKeyboardButton(text=t(lang, "btn_sources"),
+                                          callback_data=f"c:src{tail}"))
+    if has_reasoning:
+        extra.append(InlineKeyboardButton(text=t(lang, "btn_reasoning"),
+                                          callback_data=f"c:rs{tail}"))
+    if extra:
+        rows.append(extra)
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def _pressed(prefix: str):
+    """Фильтр «нажали эту кнопку»: и новую (с id ответа), и старую (без него)."""
+    return (F.data == prefix) | F.data.startswith(f"{prefix}:")
+
+
+async def _answer_data(call: CallbackQuery, key: str, shared_key: str):
+    """Достать данные того ответа, под которым нажали кнопку.
+
+    Если в callback_data есть id — читаем ТОЛЬКО ключ этого ответа: скатиться
+    на общий ключ значило бы снова показать чужие источники, а для «Повторить»
+    — задать другой вопрос за деньги. Общий ключ остаётся лишь для кнопок,
+    отправленных прежней версией бота: у них id в callback_data нет.
+    """
+    data = getattr(call, "data", None) or ""
+    parts = data.split(":")
+    anchor = parts[2] if len(parts) > 2 else ""
+    if anchor:
+        return await store.get(call.from_user.id, f"{key}:{anchor}")
+    return await store.get(call.from_user.id, shared_key)
 
 
 def _paywall_text(lang: str, code: str, payload: dict) -> str:
@@ -200,17 +284,41 @@ async def run_chat(message: Message, token: str, lang: str, text: str, *,
     session = done.get("session") or {}
     if session.get("id"):
         await store.set(user_id, "session", session["id"])
+
+    # Всё, что понадобится кнопкам, кладём дважды: под ключом ЭТОГО ответа (по
+    # нему работают новые кнопки) и под старым общим — чтобы кнопки, которые
+    # прежняя версия бота уже разослала людям, не онемели.
+    anchor = _anchor_id(renderer)
     if sources:
-        await store.set(user_id, "sources", sources[:10], ttl=3600)
+        trimmed = sources[:10]
+        await store.set(user_id, "sources", trimmed, ttl=ANSWER_TTL)
+        if anchor:
+            await store.set(user_id, f"src:{anchor}", trimmed, ttl=ANSWER_TTL)
     if reasoning:
-        await store.set(user_id, "reasoning", reasoning[:6000], ttl=3600)
+        short = reasoning[:6000]
+        await store.set(user_id, "reasoning", short, ttl=ANSWER_TTL)
+        if anchor:
+            await store.set(user_id, f"rsn:{anchor}", short, ttl=ANSWER_TTL)
     if remember_prompt:
-        await store.set(user_id, "last_prompt", text, ttl=3600)
+        await store.set(user_id, "last_prompt", text, ttl=ANSWER_TTL)
+    if anchor:
+        # Вопрос этого ответа пишем ВСЕГДА, даже когда общий ключ трогать
+        # нельзя (remember_prompt=False — «Продолжить» и мастер картинок).
+        # Ключ адресный, чужие ответы им не перебить, а без него «Повторить»
+        # под таким ответом молчало бы: своего вопроса нет, чужой брать нельзя.
+        await store.set(user_id, f"pr:{anchor}", text, ttl=ANSWER_TTL)
 
     footer = ""
     if done.get("tokens_charged") is not None:
+        # Модель берём из meta сохранённого сообщения: там имя ТОГО, кто
+        # ответил. Бэкенд умеет сам увести «нарисуй …» на image-модель, и
+        # подпись с запрошенной моделью врала бы. Поля payload["model"] в
+        # AiChatMessageSerializer нет вовсе, так что подпись всегда показывала
+        # запрошенную модель.
+        meta = payload.get("meta") or {}
+        answered_by = meta.get("model") or payload.get("model") or model
         footer = t(lang, "answer_meta",
-                   model=(payload.get("model") or model).split("/")[-1],
+                   model=str(answered_by).split("/")[-1],
                    credits=done.get("tokens_charged", 0),
                    balance=done.get("balance_tokens", "—"))
 
@@ -221,20 +329,21 @@ async def run_chat(message: Message, token: str, lang: str, text: str, *,
     else:
         await renderer.finish(
             answer,
-            reply_markup=answer_actions(lang, has_sources=bool(sources),
-                                        has_reasoning=bool(reasoning)),
+            reply_markup=_answer_actions(lang, anchor, has_sources=bool(sources),
+                                         has_reasoning=bool(reasoning)),
             footer=footer,
         )
         await send_attachments(message, attachments_out)
     return done
 
 
-@router.callback_query(F.data == "c:re")
+@router.callback_query(_pressed("c:re"))
 async def retry(call: CallbackQuery, token: str, lang: str) -> None:
-    prompt = await store.get(call.from_user.id, "last_prompt")
-    await call.answer()
+    prompt = await _answer_data(call, "pr", "last_prompt")
     if not prompt:
+        await call.answer(t(lang, "answer_stale"), show_alert=True)
         return
+    await call.answer()
     await run_chat(call.message, token, lang, prompt)
 
 
@@ -244,12 +353,13 @@ async def continue_answer(call: CallbackQuery, token: str, lang: str) -> None:
     await run_chat(call.message, token, lang, t(lang, "continue_prompt"), remember_prompt=False)
 
 
-@router.callback_query(F.data == "c:src")
+@router.callback_query(_pressed("c:src"))
 async def show_sources(call: CallbackQuery, lang: str) -> None:
-    sources = await store.get(call.from_user.id, "sources") or []
-    await call.answer()
+    sources = await _answer_data(call, "src", "sources") or []
     if not sources:
+        await call.answer(t(lang, "answer_stale"), show_alert=True)
         return
+    await call.answer()
     lines = []
     for index, item in enumerate(sources[:10], 1):
         # Заголовок и адрес пришли из веб-поиска: «<» в заголовке или «&» в
@@ -278,12 +388,13 @@ async def show_sources(call: CallbackQuery, lang: str) -> None:
         await call.message.answer("\n".join(chunk), parse_mode="HTML")
 
 
-@router.callback_query(F.data == "c:rs")
+@router.callback_query(_pressed("c:rs"))
 async def show_reasoning(call: CallbackQuery, lang: str) -> None:
-    reasoning = await store.get(call.from_user.id, "reasoning") or ""
-    await call.answer()
+    reasoning = await _answer_data(call, "rsn", "reasoning") or ""
     if not reasoning:
+        await call.answer(t(lang, "answer_stale"), show_alert=True)
         return
+    await call.answer()
     for part in split_html(to_html(reasoning)):
         await call.message.answer(f"<blockquote expandable>{part}</blockquote>",
                                   parse_mode="HTML")

@@ -8,13 +8,21 @@ from __future__ import annotations
 
 import logging
 import re
+from urllib.parse import unquote, urlsplit
 
+import httpx
 from aiogram import F, Router
 from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, CommandObject
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.types import (
+    BufferedInputFile,
+    CallbackQuery,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+)
 
 from bot.keyboards.common import rows_of
 from bot.routers.chat import run_chat, site_url
@@ -29,6 +37,12 @@ router = Router(name="image")
 
 ASPECT_RATIOS = ["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "4:5"]
 DEFAULT_EDIT_MODEL = "google/gemini-2.5-flash-image"
+
+# Оригинал качаем сами (см. download_original). Больше 50 МБ Telegram документом
+# не примет, а картинок такого размера у нас не бывает — значит, что-то не то.
+ORIGINAL_TIMEOUT = 60.0
+ORIGINAL_LIMIT = 50 * 1024 * 1024
+_NAME_SAFE = re.compile(r"[^\w.\-]+")
 
 register_texts({
     "ru": {
@@ -375,6 +389,13 @@ async def pick_ratio(call: CallbackQuery, token: str, lang: str) -> None:
             await call.answer(t(lang, "img_no_last"), show_alert=True)
             return
         draft = {"prompt": last.get("prompt"), "model": last.get("model")}
+    if draft.get("ar") == ar:
+        # Нажали пропорцию, которая и так отмечена «•»: карточка вышла бы
+        # той же самой, а на одинаковый edit_text Telegram отвечает «message is
+        # not modified». Ошибка глоталась в _show_card, и человек получал вторую
+        # такую же карточку. Менять нечего — просто снимаем часики.
+        await call.answer(ar)
+        return
     draft["ar"] = ar
     await _save_draft(telegram_id, draft)
     await call.answer(ar)
@@ -507,6 +528,37 @@ async def edit_last(call: CallbackQuery, lang: str, state: FSMContext) -> None:
                      {"type": "image", "url": last["url"], "name": "image.png"})
 
 
+def _original_name(url: str) -> str:
+    """Имя файла для «Оригинала».
+
+    Без имени Telegram подписывает документ как «file», и в списке файлов
+    человек не понимает, что скачал. Имя берём из ссылки, чистим — там бывает
+    и кириллица в процентах, и служебные символы.
+    """
+    name = unquote(urlsplit(url).path.rsplit("/", 1)[-1])
+    stem, _, ext = _NAME_SAFE.sub("_", name).strip("_").rpartition(".")
+    if not stem or not ext:
+        return "image.png"
+    return f"{stem[:60]}.{ext[:8]}"
+
+
+async def _fetch_original(url: str) -> bytes | None:
+    """Скачать готовую картинку. None — не вышло, зовущий отдаст ссылку."""
+    try:
+        async with httpx.AsyncClient(timeout=ORIGINAL_TIMEOUT,
+                                     follow_redirects=True) as client:
+            response = await client.get(url)
+            response.raise_for_status()
+            content = response.content
+    except Exception:
+        logger.warning("картинки: оригинал не скачался (%s)", url, exc_info=True)
+        return None
+    if not content or len(content) > ORIGINAL_LIMIT:
+        logger.warning("картинки: оригинал не годится в документ, размер %s", len(content or b""))
+        return None
+    return content
+
+
 @router.callback_query(F.data == "i:dl")
 async def download_original(call: CallbackQuery, lang: str) -> None:
     telegram_id = call.message.chat.id
@@ -515,8 +567,17 @@ async def download_original(call: CallbackQuery, lang: str) -> None:
     if not last.get("url"):
         await call.message.answer(t(lang, "img_no_last"))
         return
-    try:
-        # Документом Telegram отдаёт файл без пережатия.
-        await call.message.answer_document(site_url(last["url"]))
-    except Exception:
-        await call.message.answer(site_url(last["url"]))
+    url = site_url(last["url"])
+    # Документом Telegram отдаёт файл без пережатия — но отправку документа ПО
+    # ССЫЛКЕ он гарантирует только для GIF, PDF и ZIP. На png/jpg он просто
+    # присылал текст со ссылкой: человек нажимал «Оригинал» и получал не файл.
+    # Поэтому качаем сами и отдаём буфером; не вышло — честно даём ссылку.
+    content = await _fetch_original(url)
+    if content is not None:
+        try:
+            await call.message.answer_document(
+                BufferedInputFile(content, filename=_original_name(url)))
+            return
+        except Exception:
+            logger.warning("картинки: документ не ушёл, отдаю ссылку", exc_info=True)
+    await call.message.answer(url)

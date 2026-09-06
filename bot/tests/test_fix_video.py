@@ -229,6 +229,9 @@ class TestWatchAuth:
         # десятки бесполезных запросов, новое обрывается на первом.
         monkeypatch.setattr(video, "POLL_INTERVAL", 0)
         monkeypatch.setattr(video, "POLL_MAX_SECONDS", 0.3)
+        # Здесь проверяется только токен: окно подтверждения доставки (его
+        # разбирает test_r2_video.TestDoubleDelivery) не должно тормозить прогон.
+        monkeypatch.setattr(video, "NOTIFY_GRACE", 0)
 
     async def test_dead_token_stops_the_loop(self, store, monkeypatch):
         store.token = None
@@ -277,7 +280,11 @@ class TestWatchAuth:
 
         await video._watch(bot, 42, 7, "abc", "old-token", "ru")
 
-        assert calls == ["old-token", "new-token"]
+        # Отметку доставки бот теперь не только видит, но и выдерживает (ядро
+        # снимает её при отказе Telegram), поэтому перечитываний больше одного —
+        # важно, что все они идут свежим токеном, а не протухшим.
+        assert calls[0] == "old-token"
+        assert set(calls[1:]) == {"new-token"}
         assert bot.deleted == 1  # прогресс убран, ролик прислало ядро
         assert not bot.sent
 

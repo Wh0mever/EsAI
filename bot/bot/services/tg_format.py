@@ -69,7 +69,11 @@ def to_html(text: str) -> str:
     text = _INLINE_CODE.sub(stash_inline, text)
 
     text = html.escape(text)
-    text = _LINK.sub(lambda m: f'<a href="{html.escape(m.group(2), quote=True)}">{m.group(1)}</a>', text)
+    # Адрес НЕ экранируем повторно: строка выше уже прошла html.escape целиком
+    # (включая кавычки), и «&» в ней стал «&amp;». Второй проход превратил бы
+    # его в «&amp;amp;» — Telegram декодирует ровно один раз, и человек уходил
+    # по ссылке с литеральным «&amp;» между параметрами, то есть не туда.
+    text = _LINK.sub(lambda m: f'<a href="{m.group(2)}">{m.group(1)}</a>', text)
     text = _HEADING.sub(lambda m: f"<b>{m.group(1)}</b>", text)
     text = _HR.sub("—" * 12, text)
     text = _BOLD.sub(lambda m: f"<b>{m.group(1)}</b>", text)

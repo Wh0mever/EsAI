@@ -6,6 +6,8 @@
 не переставляли сцены, «Снять все» принимало больше, чем оплачено, а
 «Переснять» ставило вторую задачу на ту же сцену.
 """
+import time
+
 import pytest
 
 import bot.routers.studio as studio
@@ -241,8 +243,13 @@ class TestPaidHeroAlwaysArrives:
         async def clear(self):
             return None
 
+    @staticmethod
+    def _fresh():
+        """Мастер только что открыт: без отметки рисование считается забытым."""
+        return {"st_wizard_at": int(time.time())}
+
     async def test_caption_is_escaped(self, wire):
-        wire({"hero": self.HERO})
+        wire({"hero": self.HERO}, self._fresh())
         message = FakeMessage()
         message.text = "нарисуй кота"
         await studio.hero_prompt(message, "tok", "ru", self._State())
@@ -251,7 +258,7 @@ class TestPaidHeroAlwaysArrives:
 
     async def test_fallback_when_photo_rejected(self, wire):
         """Кредиты уже списаны — молча потерять результат нельзя."""
-        wire({"hero": self.HERO})
+        wire({"hero": self.HERO}, self._fresh())
         message = FakeMessage(photo_fails=True)
         message.text = "нарисуй кота"
         await studio.hero_prompt(message, "tok", "ru", self._State())
@@ -262,6 +269,37 @@ class TestPaidHeroAlwaysArrives:
         # Запасной вариант идёт без разметки, поэтому имя в нём как есть.
         assert BREAKER in last.text
         assert t("ru", "failed") not in message.texts
+
+
+class TestPaidHeroWizardExpires:
+    """Рисование героя стоит кредиты: забытый со вчера мастер не должен
+    превращать обычную фразу в списание."""
+
+    class _State:
+        def __init__(self):
+            self.cleared = False
+
+        async def clear(self):
+            self.cleared = True
+
+    async def test_stale_wizard_does_not_draw(self, wire):
+        api, _ = wire({"hero": TestPaidHeroAlwaysArrives.HERO},
+                      {"st_wizard_at": int(time.time()) - studio.WIZARD_TTL - 60})
+        message = FakeMessage()
+        message.text = "просто мысль вслух"
+        state = self._State()
+        await studio.hero_prompt(message, "tok", "ru", state)
+        drawn = [c for c in api.calls if c[0] == "character_generate"]
+        assert drawn == [], "забытый мастер нарисовал героя за деньги"
+        assert state.cleared
+        assert t("ru", "st_wizard_expired") in message.texts
+
+    async def test_no_mark_means_stale(self, wire):
+        api, _ = wire({"hero": TestPaidHeroAlwaysArrives.HERO}, {})
+        message = FakeMessage()
+        message.text = "кот в шляпе"
+        await studio.hero_prompt(message, "tok", "ru", self._State())
+        assert [c for c in api.calls if c[0] == "character_generate"] == []
 
 
 # ------------------------------------------------ [C] порядок сцен ---

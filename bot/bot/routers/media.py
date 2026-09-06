@@ -32,24 +32,42 @@ ATTACHMENT_TTL = 1800
 DOC_EXTENSIONS = (".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".txt")
 IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".heic", ".heif")
 
-# Что делают с документом чаще всего — теми же словами, что в каталоге на сайте.
-DOC_ACTIONS = {
-    "sum": ("📝 Пересказать", "Кратко перескажи этот документ."),
-    "key": ("⭐ Выделить главное", "Выдели главные мысли из этого документа списком."),
-    "err": ("🔍 Найти ошибки", "Найди ошибки и неточности в этом документе."),
-    "law": ("⚖️ Проверить договор", "Проверь этот договор: риски, невыгодные пункты, чего не хватает."),
-    "tr": ("🌍 Перевести", "Переведи этот документ на русский язык."),
-}
-
-PHOTO_ACTIONS = {
-    "see": ("👁 Что на фото", "Опиши, что изображено на этом фото."),
-    "edit": ("✏️ Отредактировать", ""),
-    "text": ("📄 Достать текст", "Прочитай и выпиши весь текст с этого изображения."),
-    "video": ("🎬 Видео из фото", ""),
-}
+# Что делают с документом и фото чаще всего — теми же словами, что в каталоге
+# на сайте. Здесь только порядок кнопок: подписи и промпты живут в текстах,
+# потому что зависят от языка (см. doc_prompt/photo_prompt).
+DOC_ACTION_KEYS = ("sum", "key", "err", "law", "tr")
+PHOTO_ACTION_KEYS = ("see", "edit", "text", "video")
+# Эти две кнопки промпта не имеют: они уводят в мастера картинки и видео.
+PHOTO_WIZARD_KEYS = frozenset({"edit", "video"})
 
 register_texts({
     "ru": {
+        "media_doc_sum": "📝 Пересказать",
+        "media_doc_sum_prompt": "Кратко перескажи этот документ.",
+        "media_doc_key": "⭐ Выделить главное",
+        "media_doc_key_prompt": "Выдели главные мысли из этого документа списком.",
+        "media_doc_err": "🔍 Найти ошибки",
+        "media_doc_err_prompt": "Найди ошибки и неточности в этом документе.",
+        "media_doc_law": "⚖️ Проверить договор",
+        "media_doc_law_prompt": "Проверь этот договор: риски, невыгодные пункты, чего не хватает.",
+        "media_doc_tr": "🌍 Перевести",
+        "media_doc_tr_prompt": "Переведи этот документ на русский язык.",
+        "media_doc_ask_btn": "💬 Свой вопрос",
+        "media_photo_see": "👁 Что на фото",
+        "media_photo_see_prompt": "Опиши, что изображено на этом фото.",
+        "media_photo_edit": "✏️ Отредактировать",
+        "media_photo_text": "📄 Достать текст",
+        "media_photo_text_prompt": "Прочитай и выпиши весь текст с этого изображения.",
+        "media_photo_video": "🎬 Видео из фото",
+        "media_attachment_gone": (
+            "Этот файл бот уже не помнит — вложение живёт полчаса. "
+            "Пришлите его ещё раз, и кнопки снова заработают."
+        ),
+        "media_step_dropped": (
+            "Предыдущий шаг отменён: вместо текста пришло фото. Разбираю фото — "
+            "а если ждали письмо в поддержку, перевод или код привязки, "
+            "начните шаг заново."
+        ),
         "voice_listening": "🎤 Слушаю…",
         "voice_said": "🎤 <b>Вы сказали:</b> {text}\n<i>−{credits} кр за распознавание</i>",
         "voice_empty": "🎤 В записи не разобрать речи. Попробуйте ещё раз или напишите текстом.",
@@ -60,6 +78,33 @@ register_texts({
         "doc_ask": "Напишите вопрос по документу.",
     },
     "en": {
+        "media_doc_sum": "📝 Summarise",
+        "media_doc_sum_prompt": "Summarise this document briefly.",
+        "media_doc_key": "⭐ Key points",
+        "media_doc_key_prompt": "List the key points of this document.",
+        "media_doc_err": "🔍 Find mistakes",
+        "media_doc_err_prompt": "Find mistakes and inaccuracies in this document.",
+        "media_doc_law": "⚖️ Check the contract",
+        "media_doc_law_prompt": ("Review this contract: risks, unfavourable clauses, "
+                                 "what is missing."),
+        "media_doc_tr": "🌍 Translate",
+        "media_doc_tr_prompt": "Translate this document into English.",
+        "media_doc_ask_btn": "💬 My own question",
+        "media_photo_see": "👁 What is on the photo",
+        "media_photo_see_prompt": "Describe what is shown in this photo.",
+        "media_photo_edit": "✏️ Edit",
+        "media_photo_text": "📄 Extract the text",
+        "media_photo_text_prompt": "Read and write out all the text from this image.",
+        "media_photo_video": "🎬 Video from the photo",
+        "media_attachment_gone": (
+            "I no longer keep this file — an attachment lives for 30 minutes. "
+            "Send it again and the buttons will work."
+        ),
+        "media_step_dropped": (
+            "The previous step is cancelled: a photo came instead of text. "
+            "I am handling the photo — if you were writing to support, sending "
+            "credits or linking an account, start that step again."
+        ),
         "voice_listening": "🎤 Listening…",
         "voice_said": "🎤 <b>You said:</b> {text}\n<i>−{credits} cr for transcription</i>",
         "voice_empty": "🎤 No speech recognised. Try again or type your message.",
@@ -70,6 +115,33 @@ register_texts({
         "doc_ask": "Type your question about the document.",
     },
     "kg": {
+        "media_doc_sum": "📝 Кыскача айт",
+        "media_doc_sum_prompt": "Бул документти кыскача айтып бер.",
+        "media_doc_key": "⭐ Негизгисин бөл",
+        "media_doc_key_prompt": "Бул документтин негизги ойлорун тизме менен жаз.",
+        "media_doc_err": "🔍 Каталарды тап",
+        "media_doc_err_prompt": "Бул документтен каталарды жана так эместиктерди тап.",
+        "media_doc_law": "⚖️ Келишимди текшер",
+        "media_doc_law_prompt": ("Бул келишимди текшер: тобокелдиктер, пайдасыз пункттар, "
+                                 "эмне жетишпейт."),
+        "media_doc_tr": "🌍 Которуу",
+        "media_doc_tr_prompt": "Бул документти кыргыз тилине которуп бер.",
+        "media_doc_ask_btn": "💬 Өз суроом",
+        "media_photo_see": "👁 Сүрөттө эмне бар",
+        "media_photo_see_prompt": "Бул сүрөттө эмне тартылганын сүрөттөп бер.",
+        "media_photo_edit": "✏️ Өзгөртүү",
+        "media_photo_text": "📄 Текстти чыгар",
+        "media_photo_text_prompt": "Бул сүрөттөгү бардык текстти окуп жазып бер.",
+        "media_photo_video": "🎬 Сүрөттөн видео",
+        "media_attachment_gone": (
+            "Бул файлды бот эстебей калды — тиркеме жарым саат сакталат. "
+            "Кайра жөнөтүңүз, ошондо баскычтар иштейт."
+        ),
+        "media_step_dropped": (
+            "Мурунку кадам жокко чыгарылды: текст ордуна сүрөт келди. Сүрөттү "
+            "карап жатам — эгер колдоого кат, которуу же байланыштыруу коду "
+            "керек болсо, кадамды кайра баштаңыз."
+        ),
         "voice_listening": "🎤 Угуп жатам…",
         "voice_said": "🎤 <b>Сиз айттыңыз:</b> {text}\n<i>−{credits} кр таануу үчүн</i>",
         "voice_empty": "🎤 Жазууда сөз аныкталган жок. Кайра аракет кылыңыз же текст жазыңыз.",
@@ -93,17 +165,41 @@ class DocAsk(StatesGroup):
     question = State()
 
 
-def _doc_keyboard() -> InlineKeyboardMarkup:
-    buttons = [InlineKeyboardButton(text=label, callback_data=f"doc:{key}")
-               for key, (label, _) in DOC_ACTIONS.items()]
+def doc_prompt(lang: str, key: str) -> str:
+    """Промпт кнопки на языке человека.
+
+    Промпт уходит в модель, поэтому язык здесь не косметика: «Переведи этот
+    документ на русский язык» англоязычному человеку переводил документ не туда,
+    и он платил за чужой результат.
+    """
+    return t(lang, f"media_doc_{key}_prompt") if key in DOC_ACTION_KEYS else ""
+
+
+def photo_prompt(lang: str, key: str) -> str:
+    if key not in PHOTO_ACTION_KEYS or key in PHOTO_WIZARD_KEYS:
+        return ""
+    return t(lang, f"media_photo_{key}_prompt")
+
+
+# Русский снимок каталога — для проверок и как быстрый справочник по кнопкам.
+# Человеку подписи и промпты выдают функции выше, по его языку.
+DOC_ACTIONS = {key: (t("ru", f"media_doc_{key}"), doc_prompt("ru", key))
+               for key in DOC_ACTION_KEYS}
+PHOTO_ACTIONS = {key: (t("ru", f"media_photo_{key}"), photo_prompt("ru", key))
+                 for key in PHOTO_ACTION_KEYS}
+
+
+def _doc_keyboard(lang: str) -> InlineKeyboardMarkup:
+    buttons = [InlineKeyboardButton(text=t(lang, f"media_doc_{key}"), callback_data=f"doc:{key}")
+               for key in DOC_ACTION_KEYS]
     rows = [buttons[i:i + 2] for i in range(0, len(buttons), 2)]
-    rows.append([InlineKeyboardButton(text="💬 Свой вопрос", callback_data="doc:ask")])
+    rows.append([InlineKeyboardButton(text=t(lang, "media_doc_ask_btn"), callback_data="doc:ask")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def _photo_keyboard() -> InlineKeyboardMarkup:
-    buttons = [InlineKeyboardButton(text=label, callback_data=f"ph:{key}")
-               for key, (label, _) in PHOTO_ACTIONS.items()]
+def _photo_keyboard(lang: str) -> InlineKeyboardMarkup:
+    buttons = [InlineKeyboardButton(text=t(lang, f"media_photo_{key}"), callback_data=f"ph:{key}")
+               for key in PHOTO_ACTION_KEYS]
     return InlineKeyboardMarkup(inline_keyboard=[buttons[:2], buttons[2:]])
 
 
@@ -166,25 +262,50 @@ async def on_document(message: Message, token: str, lang: str = "ru") -> None:
         return
 
     if attachment.get("type") == "image":
-        await message.answer(t(lang, "photo_ready"), reply_markup=_photo_keyboard())
+        await message.answer(t(lang, "photo_ready"), reply_markup=_photo_keyboard(lang))
         return
     # Имя файла придумал не бот: «<» в нём Telegram считает открытым тегом
     # и отвергает сообщение целиком.
     await message.answer(t(lang, "doc_ready", name=esc(name)), parse_mode="HTML",
-                         reply_markup=_doc_keyboard())
+                         reply_markup=_doc_keyboard(lang))
+
+
+def _photo_wizard_states() -> frozenset[str]:
+    """Состояния, в которых фото ждут ДРУГИЕ роутеры.
+
+    Импорт ленивый: image и studio сами тянут media — на верхнем уровне вышел
+    бы круг импортов.
+    """
+    from bot.routers.image import ImageWizard
+    from bot.routers.studio import StudioWizard
+    from bot.routers.video import VideoWizard
+
+    return frozenset({ImageWizard.prompt.state,
+                      StudioWizard.hero_photo.state,
+                      VideoWizard.prompt.state})
 
 
 @router.message(F.photo)
 async def on_photo(message: Message, token: str, lang: str = "ru", state=None) -> None:
-    # Мастера (герой студии, кадр для видео) сами ждут фото — им не мешаем.
-    # А своё ожидание вопроса по документу фото отменяет: человек передумал,
-    # и молчать в ответ на присланное фото нельзя.
+    # Мастера, которые сами ждут фото (герой студии, кадр для видео, промпт
+    # картинки), забирают сообщение раньше нас — им не мешаем. Все остальные
+    # мастера ждут ТЕКСТ, и раньше фото в них просто исчезало без единого
+    # слова в ответ: бот выглядел сломанным. Такое ожидание снимаем — раз
+    # человек прислал фото, он передумал — и разбираем снимок как обычно.
     if state is not None:
         current = await state.get_state()
-        if current == DocAsk.question.state:
+        if current:
+            if current in _photo_wizard_states():
+                return
             await state.clear()
-        elif current:
-            return
+            if current != DocAsk.question.state:
+                # Бросили чужой мастер — об этом надо сказать. В поддержке,
+                # переводе кредитов и привязке почты человек ждёт, что его
+                # заявка идёт дальше; молча сняв состояние, мы бы отправили
+                # его следующую фразу платным вопросом в чат. Ожидание вопроса
+                # по документу — наше собственное, и меню под фото само по себе
+                # продолжение того же разговора: там строка только шумит.
+                await message.answer(t(lang, "media_step_dropped"))
     photo = message.photo[-1]  # последний размер — самый большой
     await message.bot.send_chat_action(message.chat.id, ChatAction.UPLOAD_PHOTO)
     content = await download(message, photo.file_id, photo.file_size or 0, lang)
@@ -201,7 +322,7 @@ async def on_photo(message: Message, token: str, lang: str = "ru", state=None) -
         await run_chat(message, token, lang, caption, attachments=[attachment])
         return
 
-    await message.answer(t(lang, "photo_ready"), reply_markup=_photo_keyboard())
+    await message.answer(t(lang, "photo_ready"), reply_markup=_photo_keyboard(lang))
 
 
 @router.callback_query(F.data.startswith("doc:"))
@@ -211,6 +332,9 @@ async def doc_action(call: CallbackQuery, token: str, lang: str = "ru",
     attachment = await store.get(call.from_user.id, "attachment")
     await call.answer()
     if not attachment:
+        # Вложение бот помнит полчаса. После этого кнопки под старым сообщением
+        # молча ничего не делали: человек жал и жал, не понимая, что сломалось.
+        await call.message.answer(t(lang, "media_attachment_gone"))
         return
     if key == "ask":
         # Документ держим при себе до самого вопроса — иначе он потеряется.
@@ -223,7 +347,7 @@ async def doc_action(call: CallbackQuery, token: str, lang: str = "ru",
     # иначе следующая фраза уйдёт в чат с молча подшитым документом.
     if state is not None and await state.get_state() == DocAsk.question.state:
         await state.clear()
-    prompt = DOC_ACTIONS.get(key, ("", ""))[1]
+    prompt = doc_prompt(lang, key)
     if prompt:
         await run_chat(call.message, token, lang, prompt, attachments=[attachment])
 
@@ -258,6 +382,9 @@ async def photo_action(call: CallbackQuery, token: str, lang: str = "ru", state=
     attachment = await store.get(call.from_user.id, "attachment")
     await call.answer()
     if not attachment:
+        # Вложение бот помнит полчаса. После этого кнопки под старым сообщением
+        # молча ничего не делали: человек жал и жал, не понимая, что сломалось.
+        await call.message.answer(t(lang, "media_attachment_gone"))
         return
     if key == "edit":
         from bot.routers.image import start_edit
@@ -269,7 +396,7 @@ async def photo_action(call: CallbackQuery, token: str, lang: str = "ru", state=
 
         await start_from_photo(call.message, token, lang, state, attachment)
         return
-    prompt = PHOTO_ACTIONS.get(key, ("", ""))[1]
+    prompt = photo_prompt(lang, key)
     if prompt:
         await run_chat(call.message, token, lang, prompt, attachments=[attachment])
 

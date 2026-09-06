@@ -32,8 +32,15 @@ router = Router(name="video")
 
 POLL_INTERVAL = 5
 POLL_MAX_SECONDS = 15 * 60
-# Ядро само шлёт готовый ролик; ждём его отметку столько, прежде чем слать сами.
+# Ядро само шлёт готовый ролик и отмечает это в задаче, но статус done ставит
+# раньше отметки, а при отказе Telegram отметку снимает обратно. Поэтому после
+# «done» смотрим на отметку не один раз: ждём её NOTIFY_ATTEMPTS раз по
+# NOTIFY_GRACE секунд (≈3 минуты), а увидев — держим NOTIFY_CONFIRM наблюдений
+# подряд (≈минуту, дольше таймаута ядра к Telegram 10+30 с), чтобы не уйти за
+# секунду до того, как ядро снимет отметку и вернёт доставку нам.
 NOTIFY_GRACE = 20
+NOTIFY_ATTEMPTS = 9
+NOTIFY_CONFIRM = 4
 
 register_texts({
     "ru": {
@@ -152,11 +159,35 @@ async def _video_models(token: str, lang: str, telegram_id: int) -> list:
     return [m for m in models if m.get("category") == "video" and m.get("openrouter_id")]
 
 
-def _price_label(model: dict) -> str:
+async def _models_or_report(message: Message, token: str, lang: str, chat_id: int) -> list | None:
+    """Каталог видео-моделей; None — API отказал и человеку уже сказано.
+
+    Без этого ApiError (5xx/401/429) улетал из хендлера наружу: /video, выбор
+    модели и «Ещё вариант» молча обрывались, кнопка «крутилась», а человек не
+    получал ничего.
+    """
     try:
-        return f"{int(float(model.get('markup_coefficient') or 0))} кр/с"
+        return await _video_models(token, lang, chat_id)
+    except ApiError:
+        logger.warning("видео: каталог моделей недоступен для %s", chat_id)
+        await message.answer(t(lang, "server_down"))
+        return None
+
+
+def _price_label(model: dict) -> str:
+    """Цена на кнопке ровно та, по которой считается списание.
+
+    Дробный тариф нельзя усекать до целого: при 2.5 кр/с человек видел «2 кр/с»,
+    а за 5 секунд платил ceil(5×2.5)=13 кредитов вместо ожидаемых 10. «:g»
+    убирает пустой хвост у целых (4.0 → «4») и сохраняет дробные как есть.
+    """
+    try:
+        coeff = float(model.get("markup_coefficient") or 0)
     except (TypeError, ValueError):
         return ""
+    if coeff <= 0:
+        return ""
+    return f"{coeff:g} кр/с"
 
 
 async def _draft(chat_id: int) -> dict:
@@ -200,16 +231,19 @@ async def start_from_photo(message: Message, token: str, lang: str, state: FSMCo
 
 async def _pick_model(message: Message, token: str, lang: str, chat_id: int,
                       *, edit: bool = False) -> None:
-    models = await _video_models(token, lang, chat_id)
+    models = await _models_or_report(message, token, lang, chat_id)
+    if models is None:
+        return
     if not models:
         await message.answer(t(lang, "vid_no_models"))
         return
     buttons = []
     for index, m in enumerate(models[:12]):
-        label = f"{'🔒 ' if m.get('locked') else ''}{m.get('name')} · {_price_label(m)}"
-        short = (m.get("short_label") or "").strip()
-        if short:
-            label += f" · {short}"
+        # Части подписи склеиваем по непустым: без тарифа в подписи иначе
+        # повисал разделитель без числа — «Veo ·  · быстрая».
+        parts = [f"{'🔒 ' if m.get('locked') else ''}{m.get('name')}",
+                 _price_label(m), (m.get("short_label") or "").strip()]
+        label = " · ".join(p for p in parts if p)
         buttons.append(InlineKeyboardButton(text=label[:60], callback_data=f"v:m:{index}"))
     rows = rows_of(buttons, 1)
     rows.append([InlineKeyboardButton(text=t(lang, "btn_close"), callback_data="v:x")])
@@ -226,14 +260,17 @@ async def _pick_model(message: Message, token: str, lang: str, chat_id: int,
 @router.callback_query(F.data.startswith("v:m:"))
 async def pick_model(call: CallbackQuery, token: str, lang: str, state: FSMContext) -> None:
     chat_id = call.message.chat.id
-    models = await _video_models(token, lang, chat_id)
+    # Ответ на callback — до похода в API: иначе при медленном или упавшем
+    # каталоге кнопка «крутится» и запрос успевает протухнуть.
+    await call.answer()
+    models = await _models_or_report(call.message, token, lang, chat_id)
+    if models is None:
+        return
     try:
         chosen = models[int(call.data.split(":")[2])]
     except (IndexError, ValueError):
-        await call.answer()
         return
     if chosen.get("locked"):
-        await call.answer()
         await show_paywall(call.message, lang, ApiError(403, code="premium_locked"))
         return
     draft = await _draft(chat_id)
@@ -241,7 +278,6 @@ async def pick_model(call: CallbackQuery, token: str, lang: str, state: FSMConte
     draft["model_name"] = chosen.get("name")
     draft["cps"] = float(chosen.get("markup_coefficient") or 0)
     await _save(chat_id, draft)
-    await call.answer()
     if draft.get("prompt"):
         await _show_card(call.message, token, lang, chat_id, draft)
         return
@@ -499,7 +535,8 @@ async def launch(message: Message, token: str, lang: str, draft: dict) -> None:
         t(lang, "vid_queued"), parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
             InlineKeyboardButton(text=t(lang, "vid_cancel"), callback_data=f"v:cancel:{uid}")]]))
-    asyncio.create_task(_watch(message.bot, chat_id, progress.message_id, uid, token, lang))
+    asyncio.create_task(_watch(message.bot, chat_id, progress.message_id, uid, token, lang,
+                               notify=body.get("notify", "")))
 
 
 def _status_label(lang: str, status: str) -> str:
@@ -509,8 +546,13 @@ def _status_label(lang: str, status: str) -> str:
     return t(lang, key)
 
 
-async def _watch(bot: Bot, chat_id: int, message_id: int, uid: str, token: str, lang: str) -> None:
-    """Следить за задачей и обновлять сообщение-прогресс."""
+async def _watch(bot: Bot, chat_id: int, message_id: int, uid: str, token: str, lang: str,
+                 *, notify: str = "telegram") -> None:
+    """Следить за задачей и обновлять сообщение-прогресс.
+
+    `notify` — кого мы попросили доставить ролик при постановке задачи. Если
+    «telegram», ролик шлёт ядро, и наша отправка — только подстраховка.
+    """
     started = time.monotonic()
     last_text = ""
     job: dict = {}
@@ -570,15 +612,40 @@ async def _watch(bot: Bot, chat_id: int, message_id: int, uid: str, token: str, 
     if status == "canceled":
         await bot.send_message(chat_id, t(lang, "vid_canceled"))
         return
-    # Ядро шлёт результат само и ставит отметку; если её нет — доставляем сами.
-    if not job.get("notified"):
+    if notify != "telegram":
+        # Слать ролик некому: ядро об этом не просили — доставляем сразу.
+        await deliver(bot, chat_id, job, lang)
+        return
+    # Отметка ядра означает НАМЕРЕНИЕ отправить, а не доставку: ядро ставит её
+    # перед обращением к Telegram и СНИМАЕТ, если тот отказал (ролик тяжелее
+    # 20 МБ, ссылка не открылась) — тогда доставить обязаны мы. Выйти по первой
+    # же отметке нельзя: ядро ставит её через миллисекунды после статуса done,
+    # так что видим мы её почти всегда, а отказ Telegram приходит десятками
+    # секунд позже — человек остался бы без ролика, за который уже списаны
+    # кредиты. Поэтому отметку нужно не увидеть, а выдержать.
+    stale = False
+    seen = 0
+    for _ in range(NOTIFY_ATTEMPTS):
+        if job.get("notified"):
+            # Считаем только прочитанное живьём: на неудачном перечитывании
+            # job остаётся прежним и ничего не подтверждает.
+            seen = 0 if stale else seen + 1
+            if seen >= NOTIFY_CONFIRM:
+                return
+        elif seen:
+            logger.warning("видео %s: ядро сняло отметку доставки, шлём сами", uid)
+            break
         await asyncio.sleep(NOTIFY_GRACE)
         try:
-            job = await api.job(token, uid, lang=lang, telegram_id=chat_id)
+            job = await api.job(token, uid, lang=lang, telegram_id=chat_id) or job
+            stale = False
         except ApiError:
-            pass
+            # Сеть моргнула — это не повод считать, что ядро не отправило.
+            stale = True
     if job.get("notified"):
         return
+    if stale:
+        logger.warning("видео %s: отметку доставки прочитать не удалось, шлём сами", uid)
     await deliver(bot, chat_id, job, lang)
 
 
@@ -630,7 +697,10 @@ async def _job_draft(chat_id: int, token: str, lang: str, uid: str) -> dict | No
     draft = await store.get(chat_id, f"vjob:{uid}")
     if draft:
         return draft
-    # Бот перезапускался или это ролик с сайта: восстанавливаем из задачи.
+    # Бот перезапускался, черновик протух (7 дней) или это ролик с сайта:
+    # восстанавливаем из задачи. Ядро отдаёт только промпт, модель и ссылку —
+    # длительности, пропорций и разрешения в ответе нет, поэтому помечаем
+    # черновик «restored»: повторять платный запуск вслепую по ним нельзя.
     try:
         job = await api.job(token, uid, lang=lang, telegram_id=chat_id)
     except ApiError:
@@ -639,32 +709,50 @@ async def _job_draft(chat_id: int, token: str, lang: str, uid: str) -> dict | No
     message = result.get("message") or {}
     video = next((a for a in (message.get("attachments") or []) if a.get("type") == "video"), None)
     return {"prompt": (video or {}).get("prompt") or "", "model": (video or {}).get("model") or "",
-            "job": uid, "url": (video or {}).get("url") or "", "duration": None}
+            "job": uid, "url": (video or {}).get("url") or "", "duration": None,
+            "restored": True}
 
 
 @router.callback_query(F.data.startswith("v:re:"))
 async def again(call: CallbackQuery, token: str, lang: str) -> None:
     chat_id = call.message.chat.id
-    draft = await _job_draft(chat_id, token, lang, call.data.split(":", 2)[2])
     await call.answer()
+    draft = await _job_draft(chat_id, token, lang, call.data.split(":", 2)[2])
     if not draft or not draft.get("prompt") or not draft.get("model"):
         await call.message.answer(t(lang, "vid_no_job"))
         return
+    draft = {**draft, "extend": ""}
     if not draft.get("cps"):
-        models = await _video_models(token, lang, chat_id)
+        models = await _models_or_report(call.message, token, lang, chat_id)
+        if models is None:
+            return
         chosen = next((m for m in models if m.get("openrouter_id") == draft["model"]), None)
         if chosen:
             draft["cps"] = float(chosen.get("markup_coefficient") or 0)
             draft["model_name"] = chosen.get("name")
-    await launch(call.message, token, lang, {**draft, "extend": ""})
+    if draft.pop("restored", False):
+        # Сообщение с кнопкой живёт вечно, черновик — 7 дней. Исходные параметры
+        # (длительность, пропорции, разрешение) восстановить неоткуда, а тихо
+        # запустить платную генерацию «по умолчанию» — значит списать кредиты за
+        # не то, что человек нажимал. Показываем карточку и ждём подтверждения.
+        await _save(chat_id, draft)
+        if not draft.get("cps"):
+            # Модели уже нет в каталоге: тариф взять неоткуда, и карточка
+            # посчитала бы стоимость по нулю — «1 кр» на кнопке запуска было бы
+            # неправдой. Как и в «Продлить», просим выбрать модель заново.
+            await _pick_model(call.message, token, lang, chat_id)
+            return
+        await _show_card(call.message, token, lang, chat_id, draft)
+        return
+    await launch(call.message, token, lang, draft)
 
 
 @router.callback_query(F.data.startswith("v:ext:"))
 async def extend(call: CallbackQuery, token: str, lang: str, state: FSMContext) -> None:
     chat_id = call.message.chat.id
     uid = call.data.split(":", 2)[2]
+    await call.answer()  # до похода в API: запрос протухает за секунды
     draft = await _job_draft(chat_id, token, lang, uid)
-    await call.answer()
     url = (draft or {}).get("url")
     if not url:
         try:
@@ -692,6 +780,7 @@ async def extend(call: CallbackQuery, token: str, lang: str, state: FSMContext) 
 async def share(call: CallbackQuery, token: str, lang: str) -> None:
     chat_id = call.message.chat.id
     uid = call.data.split(":", 2)[2]
+    await call.answer()  # до похода в API: запрос протухает за секунды
     draft = await _job_draft(chat_id, token, lang, uid) or {}
     url = draft.get("url")
     if not url:
@@ -701,7 +790,6 @@ async def share(call: CallbackQuery, token: str, lang: str) -> None:
             url = next((a.get("url") for a in atts if a.get("type") == "video"), "")
         except ApiError:
             url = ""
-    await call.answer()
     if not url:
         await call.message.answer(t(lang, "vid_no_job"))
         return
