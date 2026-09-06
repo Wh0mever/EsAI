@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import math
+from datetime import timedelta
 
 from django.conf import settings
 from django.core.cache import cache
@@ -114,6 +115,46 @@ def _cancel_key(job_uid: str) -> str:
     return f"ai:job:cancel:{job_uid}"
 
 
+# Дольше этого задача не живёт: у run_generation_job time_limit=900 с, и запас
+# сверху — на ожидание в очереди и на то, что воркер добивает хвосты.
+JOB_STALE_AFTER = 1800
+
+
+def _worker_gone(job) -> bool:
+    """Воркера у задачи больше нет: она старше жёсткого лимита времени.
+
+    Пока задача моложе срока, за неё отвечает живой воркер — он и закроет её,
+    и вернёт слот дневного лимита сам (generation.py). Дальше этого срока
+    возвращаться некому: прежний прогон убит по time_limit или перезапуском.
+    """
+    return (job.started_at or job.created_at) <= timezone.now() - timedelta(seconds=JOB_STALE_AFTER)
+
+
+def _expire_stale_jobs(user) -> int:
+    """Закрыть задачи, чей воркер уже не вернётся, и вернуть их слот лимита.
+
+    Воркера могли перезапустить посреди генерации — тогда задача навсегда
+    остаётся в running, а замок «один ролик за раз» отвечает 409 на КАЖДУЮ
+    следующую попытку: завершить её больше некому. Слот дневного лимита при
+    этом тоже висит зарезервированным, хотя ролика человек не получил.
+    """
+    from .handlers import _release_daily_request
+
+    closed = 0
+    for job in GenerationJob.objects.filter(user=user, status__in=GenerationJob.ACTIVE_STATES):
+        if not _worker_gone(job):
+            continue
+        # Условие по статусу в самом UPDATE: воркер мог закрыть задачу сам,
+        # пока мы её осматривали, — его итог затирать нельзя.
+        if GenerationJob.objects.filter(
+                pk=job.pk, status__in=GenerationJob.ACTIVE_STATES).update(
+                status=GenerationJob.STATUS_FAILED, error="job_stale",
+                error_code="job_stale", finished_at=timezone.now()):
+            _release_daily_request(user)
+            closed += 1
+    return closed
+
+
 class GenerationJobCreateView(APIView):
     """POST /api/ai/jobs/ — поставить видео в очередь.
 
@@ -162,7 +203,10 @@ class GenerationJobCreateView(APIView):
                             status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
         # Один ролик за раз: параллельные генерации путают человека и
-        # съедают баланс быстрее, чем он успевает это заметить.
+        # съедают баланс быстрее, чем он успевает это заметить. Но «за раз»
+        # считается только среди живых задач — зависшую сначала закрываем,
+        # иначе она заблокировала бы видео навсегда.
+        _expire_stale_jobs(user)
         if GenerationJob.objects.filter(user=user, status__in=GenerationJob.ACTIVE_STATES).exists():
             return Response({"detail": "job_in_progress", "error_code": "job_in_progress"},
                             status=status.HTTP_409_CONFLICT)
@@ -297,13 +341,23 @@ class GenerationJobCancelView(APIView):
         if not job.is_active:
             return Response(job.public())
         cache.set(_cancel_key(job.uid), "1", 3600)
-        if job.status == GenerationJob.STATUS_QUEUED:
-            # Ещё не начиналась — закрываем сразу, воркер её пропустит.
-            GenerationJob.objects.filter(pk=job.pk, status=GenerationJob.STATUS_QUEUED).update(
+        # Слот дневного лимита возвращаем только там, где вернуть его больше
+        # некому: задачу из очереди воркер пропустит по статусу, а у зависшей
+        # воркера уже нет. Живая running-задача вернёт слот сама, увидев флаг
+        # отмены (generation.py), — сделай это ещё и здесь, и человек получал
+        # бы за каждую отмену лишний запрос сверх дневного лимита.
+        refund = job.status == GenerationJob.STATUS_QUEUED or _worker_gone(job)
+        # Закрываем задачу сразу, не дожидаясь воркера. Очередь её пропустит по
+        # статусу, а начатую остановит флаг отмены выше. Ждать было нельзя:
+        # пока задача числится активной, следующий запуск получает 409, и
+        # «Отменить» не отменяет ничего — а у running-задачи воркера может уже
+        # и не быть.
+        if GenerationJob.objects.filter(
+                pk=job.pk, status__in=GenerationJob.ACTIVE_STATES).update(
                 status=GenerationJob.STATUS_CANCELED, finished_at=timezone.now(),
-                error_code="canceled")
+                error_code="canceled") and refund:
             _release_daily_request(request.user)
-            job.refresh_from_db()
+        job.refresh_from_db()
         return Response(job.public())
 
 
