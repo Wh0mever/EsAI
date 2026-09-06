@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 
 from aiogram import Bot, F, Router
 from aiogram.enums import ChatAction
@@ -481,10 +482,10 @@ def _status_label(lang: str, status: str) -> str:
 
 async def _watch(bot: Bot, chat_id: int, message_id: int, uid: str, token: str, lang: str) -> None:
     """Следить за задачей и обновлять сообщение-прогресс."""
-    started = asyncio.get_event_loop().time()
+    started = time.monotonic()
     last_text = ""
     job: dict = {}
-    while asyncio.get_event_loop().time() - started < POLL_MAX_SECONDS:
+    while time.monotonic() - started < POLL_MAX_SECONDS:
         await asyncio.sleep(POLL_INTERVAL)
         try:
             job = await api.job(token, uid, lang=lang, telegram_id=chat_id)
@@ -495,7 +496,7 @@ async def _watch(bot: Bot, chat_id: int, message_id: int, uid: str, token: str, 
         status = job.get("status")
         if status in ("done", "failed", "canceled"):
             break
-        elapsed = int(asyncio.get_event_loop().time() - started)
+        elapsed = int(time.monotonic() - started)
         text = t(lang, "vid_progress", status=_status_label(lang, job.get("progress") or ""),
                  elapsed=f"{elapsed // 60}:{elapsed % 60:02d}")
         if text != last_text:
