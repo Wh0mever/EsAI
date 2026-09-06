@@ -36,7 +36,8 @@ def _wav_silence(seconds: float = 1.0) -> bytes:
 async def _call(report: list, label: str, coro, *, expect_error: str = ""):
     try:
         result = await coro
-        preview = json.dumps(result, ensure_ascii=False, default=str)[:110]
+        shown = {**result, "access": "<скрыт>"} if isinstance(result, dict) and "access" in result else result
+        preview = json.dumps(shown, ensure_ascii=False, default=str)[:110]
         report.append((True, label, preview))
         return result
     except ApiError as exc:
