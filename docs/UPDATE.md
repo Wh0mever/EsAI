@@ -45,3 +45,17 @@ dc logs core --tail 50
 ```
 
 > Перед крупным обновлением сделайте бэкап БД: `bash scripts/db-backup.sh`.
+
+## Бот и очередь генераций
+
+```bash
+# бэкенд бота живёт в core (миграции botapi/ai/payments/plans применятся на старте core)
+docker compose up -d --force-recreate --no-deps core
+# задачи запечены в образы воркеров — пересобрать все три
+docker compose up -d --build celery celery_beat celery_media
+# сам бот
+docker compose up -d --build bot
+docker compose exec -T bot python -m bot.selfcheck
+```
+
+Включение с нуля — `scripts/bot-up.sh`; подробности и чек-лист — `docs/BOT.md`.

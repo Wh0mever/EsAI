@@ -303,7 +303,10 @@ export default function CartoonStudio() {
       // денег, и терять их при перезагрузке страницы недопустимо.
       const mineList = mine.ok && Array.isArray(mine.data) ? mine.data : [];
       setProjects(mineList);
-      const last = mineList.find((x) => x.scenes.length > 0);
+      // Бот и Mini App открывают конкретный мультфильм: ?project=<id>.
+      const wanted = Number(new URLSearchParams(window.location.search).get("project") || 0);
+      const last = (wanted && mineList.find((x) => x.id === wanted))
+        || mineList.find((x) => x.scenes.length > 0);
       if (last) {
         setProject(last);
         if (last.character) setCharacter(last.character);
