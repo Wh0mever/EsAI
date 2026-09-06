@@ -99,6 +99,7 @@ TEXTS: dict[str, dict[str, str]] = {
         "btn_reasoning": "🧠 Ход рассуждений",
         "btn_back": "↩ Назад",
         "btn_close": "✖ Закрыть",
+        "prefill_hint": "Допишите и отправьте.",
         "topup_hint": (
             "Пополнить баланс можно на сайте: {site}/pricing — карты, Элкарт, "
             "кошельки и криптовалюта. Аккаунт и баланс общие с ботом."
@@ -196,6 +197,7 @@ TEXTS: dict[str, dict[str, str]] = {
         "btn_reasoning": "🧠 Reasoning",
         "btn_back": "↩ Back",
         "btn_close": "✖ Close",
+        "prefill_hint": "Finish the sentence and send it.",
         "topup_hint": (
             "You can top up at {site}/pricing — cards, Elcart, wallets and crypto. "
             "The account and balance are shared with the bot."
@@ -293,6 +295,7 @@ TEXTS: dict[str, dict[str, str]] = {
         "btn_reasoning": "🧠 Ой жүгүртүү",
         "btn_back": "↩ Артка",
         "btn_close": "✖ Жабуу",
+        "prefill_hint": "Толуктап, жөнөтүңүз.",
         "topup_hint": (
             "Балансты сайттан толуктаса болот: {site}/pricing — карталар, Элкарт, "
             "капчыктар жана криптовалюта. Аккаунт жана баланс бот менен бирдей."

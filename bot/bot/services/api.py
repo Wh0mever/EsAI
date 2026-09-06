@@ -55,6 +55,12 @@ def _service_headers(method: str, path: str, body: bytes) -> dict:
     return {"X-Bot-Ts": ts, "X-Bot-Nonce": nonce, "X-Bot-Sig": signature}
 
 
+def _list(data: Any) -> list:
+    if isinstance(data, dict):
+        return data.get("results") or data.get("items") or []
+    return data if isinstance(data, list) else []
+
+
 class Api:
     """Один клиент на весь процесс: соединения переиспользуются."""
 
@@ -94,18 +100,21 @@ class Api:
         message = ""
         if isinstance(payload, dict):
             code = str(payload.get("error_code") or payload.get("detail") or "")
-            message = str(payload.get("message") or payload.get("detail") or "")
+            message = str(payload.get("message") or payload.get("detail") or
+                          payload.get("error") or "")
         raise ApiError(response.status_code, code=code, payload=payload, message=message)
 
     async def request(self, method: str, path: str, *, token: str = "", lang: str = "ru",
                       telegram_id: int | None = None, json_body: Any = None,
                       params: dict | None = None, service: bool = False,
-                      files: Any = None, timeout: Any = None) -> Any:
+                      files: Any = None, data: dict | None = None, timeout: Any = None) -> Any:
         headers = self._headers(token, lang, telegram_id)
         body = b""
         kwargs: dict = {"params": params}
         if files is not None:
             kwargs["files"] = files
+            if data:
+                kwargs["data"] = data
             timeout = timeout or UPLOAD_TIMEOUT
         elif json_body is not None:
             body = json.dumps(json_body).encode()
@@ -142,36 +151,219 @@ class Api:
         return await self.request("POST", "/api/bot/blocked/", service=True,
                                   json_body={"telegram_id": telegram_id, "blocked": blocked})
 
+    async def link_confirm(self, code: str, tg_user: dict, *, chat_id: int) -> dict:
+        return await self.request("POST", "/api/bot/link/confirm/", service=True,
+                                  json_body={"code": code, "telegram_user": tg_user,
+                                             "chat_id": chat_id})
+
+    async def delete_account(self, telegram_id: int) -> dict:
+        return await self.request("POST", "/api/bot/delete/", service=True,
+                                  json_body={"telegram_id": telegram_id})
+
     # ---------------------------------------------------------- витрина ---
 
     async def balance(self, token: str, **kw) -> dict:
         return await self.request("GET", "/api/plans/balance/", token=token, **kw)
 
     async def models(self, token: str, **kw) -> list:
-        data = await self.request("GET", "/api/ai/models/", token=token, **kw)
-        return data if isinstance(data, list) else []
+        return _list(await self.request("GET", "/api/ai/models/", token=token, **kw))
 
     async def packages(self, token: str, lang: str = "ru", **kw) -> list:
-        data = await self.request("GET", "/api/plans/packages/", token=token, lang=lang,
+        return _list(await self.request("GET", "/api/plans/packages/", token=token, lang=lang,
+                                        params={"lang": lang}, **kw))
+
+    async def packages_value(self, token: str, lang: str = "ru", **kw) -> list:
+        data = await self.request("GET", "/api/plans/packages/value/", token=token, lang=lang,
                                   params={"lang": lang}, **kw)
-        return data if isinstance(data, list) else []
+        return (data or {}).get("packages") or [] if isinstance(data, dict) else []
 
     async def transactions(self, token: str, **kw) -> list:
-        data = await self.request("GET", "/api/plans/transactions/", token=token, **kw)
-        if isinstance(data, dict):
-            return data.get("results") or []
-        return data if isinstance(data, list) else []
+        return _list(await self.request("GET", "/api/plans/transactions/", token=token, **kw))
 
     async def sessions(self, token: str, **kw) -> list:
-        data = await self.request("GET", "/api/ai/sessions/", token=token, **kw)
-        if isinstance(data, dict):
-            return data.get("results") or []
-        return data if isinstance(data, list) else []
+        return _list(await self.request("GET", "/api/ai/sessions/", token=token, **kw))
 
     async def upload(self, token: str, name: str, content: bytes, mime: str, **kw) -> dict:
         return await self.request(
             "POST", "/api/ai/attachments/upload/", token=token,
             files={"files": (name, content, mime)}, **kw)
+
+    async def video_params(self, token: str, model: str, **kw) -> dict:
+        return await self.request("GET", "/api/ai/video-params/", token=token,
+                                  params={"model": model}, **kw) or {}
+
+    async def video_share(self, token: str, url: str, *, prompt: str = "", model: str = "",
+                          **kw) -> dict:
+        return await self.request("POST", "/api/ai/video/share/", token=token,
+                                  json_body={"url": url, "prompt": prompt, "model": model}, **kw)
+
+    # ------------------------------------------------------------- голос ---
+
+    async def transcribe(self, token: str, content: bytes, mime: str, *, lang: str = "ru",
+                         **kw) -> dict:
+        return await self.request(
+            "POST", "/api/ai/transcribe/", token=token, lang=lang,
+            files={"file": ("voice.ogg", content, mime)}, data={"lang": lang}, **kw)
+
+    # ------------------------------------------------------------ очередь ---
+
+    async def create_job(self, token: str, body: dict, **kw) -> dict:
+        return await self.request("POST", "/api/ai/jobs/", token=token, json_body=body, **kw)
+
+    async def job(self, token: str, uid: str, **kw) -> dict:
+        return await self.request("GET", f"/api/ai/jobs/{uid}/", token=token, **kw)
+
+    async def cancel_job(self, token: str, uid: str, **kw) -> dict:
+        return await self.request("POST", f"/api/ai/jobs/{uid}/cancel/", token=token, **kw)
+
+    # -------------------------------------------------------------- Stars ---
+
+    async def stars_invoice(self, telegram_id: int, package_id: int, lang: str = "ru") -> dict:
+        return await self.request("POST", "/api/bot/stars/invoice/", service=True,
+                                  json_body={"telegram_id": telegram_id,
+                                             "package_id": package_id, "lang": lang})
+
+    async def stars_invoice_message(self, payload: str, message_id: int) -> dict:
+        return await self.request("POST", "/api/bot/stars/invoice/message/", service=True,
+                                  json_body={"payload": payload, "message_id": message_id})
+
+    async def stars_precheck(self, telegram_id: int, payload: str, total_amount: int,
+                             currency: str) -> dict:
+        return await self.request("POST", "/api/bot/stars/precheck/", service=True,
+                                  json_body={"telegram_id": telegram_id, "payload": payload,
+                                             "total_amount": total_amount,
+                                             "currency": currency})
+
+    async def stars_confirm(self, body: dict) -> dict:
+        return await self.request("POST", "/api/bot/stars/confirm/", service=True,
+                                  json_body=body, timeout=httpx.Timeout(30.0))
+
+    async def stars_refunded(self, telegram_id: int, charge_id: str, payload: str = "") -> dict:
+        return await self.request("POST", "/api/bot/stars/refunded/", service=True,
+                                  json_body={"telegram_id": telegram_id,
+                                             "telegram_payment_charge_id": charge_id,
+                                             "payload": payload})
+
+    # ------------------------------------------------------------ профиль ---
+
+    async def profile(self, token: str, **kw) -> dict:
+        return await self.request("GET", "/api/users/profile/", token=token, **kw) or {}
+
+    async def update_profile(self, token: str, **fields) -> Any:
+        return await self.request("PUT", "/api/users/profile/", token=token, json_body=fields)
+
+    async def notifications(self, token: str, **kw) -> list:
+        return _list(await self.request("GET", "/api/users/notifications/", token=token, **kw))
+
+    async def memory(self, token: str, **kw) -> dict:
+        return await self.request("GET", "/api/users/memory/", token=token, **kw) or {}
+
+    async def memory_delete(self, token: str, pk: int, **kw) -> Any:
+        return await self.request("DELETE", f"/api/users/memory/{pk}/", token=token, **kw)
+
+    async def memory_clear(self, token: str, **kw) -> Any:
+        return await self.request("POST", "/api/users/memory/clear/", token=token, **kw)
+
+    async def memory_toggle(self, token: str, enabled: bool, **kw) -> Any:
+        return await self.request("PATCH", "/api/users/memory/toggle/", token=token,
+                                  json_body={"enabled": enabled}, **kw)
+
+    async def transfer(self, token: str, recipient: str, amount: int, comment: str = "",
+                       **kw) -> dict:
+        return await self.request("POST", "/api/users/transfer/", token=token,
+                                  json_body={"recipient": recipient, "amount": amount,
+                                             "comment": comment}, **kw)
+
+    async def transfers(self, token: str, **kw) -> Any:
+        return await self.request("GET", "/api/users/transfers/", token=token, **kw)
+
+    async def question(self, email: str, name: str, text: str) -> Any:
+        return await self.request("POST", "/api/users/question/",
+                                  json_body={"email": email, "name": name, "question": text})
+
+    async def feedback(self, token: str, rating: int, message: str, **kw) -> Any:
+        return await self.request("POST", "/api/users/feedback/", token=token,
+                                  json_body={"rating": rating, "message": message,
+                                             "source": "telegram"}, **kw)
+
+    async def blog(self, lang: str = "ru") -> list:
+        data = await self.request("GET", "/api/content/blog/", lang=lang,
+                                  params={"lang": lang, "page_size": 10})
+        return _list(data)
+
+    async def signin(self, email: str, **kw) -> Any:
+        return await self.request("POST", "/api/users/signin/", json_body={"email": email}, **kw)
+
+    async def signin_confirm(self, email: str, code: str, **kw) -> dict:
+        return await self.request("POST", "/api/users/signin/confirm/",
+                                  json_body={"email": email, "code": code}, **kw) or {}
+
+    async def link_start(self, token: str, **kw) -> dict:
+        return await self.request("POST", "/api/users/telegram/link/start/", token=token, **kw)
+
+    # ------------------------------------------------------------- студия ---
+
+    async def presets(self, token: str, **kw) -> dict:
+        return await self.request("GET", "/api/cartoon/presets/", token=token, **kw) or {}
+
+    async def pricing(self, token: str, **kw) -> dict:
+        return await self.request("GET", "/api/cartoon/pricing/", token=token, **kw) or {}
+
+    async def characters(self, token: str, **kw) -> list:
+        return _list(await self.request("GET", "/api/cartoon/characters/", token=token, **kw))
+
+    async def character_upload(self, token: str, name: str, content: bytes, **kw) -> dict:
+        return await self.request("POST", "/api/cartoon/characters/", token=token,
+                                  files={"image": ("hero.jpg", content, "image/jpeg")},
+                                  data={"name": name}, **kw)
+
+    async def character_generate(self, token: str, prompt: str, **kw) -> dict:
+        return await self.request("POST", "/api/cartoon/characters/generate/", token=token,
+                                  json_body={"prompt": prompt},
+                                  timeout=httpx.Timeout(200.0), **kw)
+
+    async def projects(self, token: str, **kw) -> list:
+        return _list(await self.request("GET", "/api/cartoon/projects/", token=token, **kw))
+
+    async def project(self, token: str, pk: int, **kw) -> dict:
+        return await self.request("GET", f"/api/cartoon/projects/{pk}/", token=token, **kw)
+
+    async def create_project(self, token: str, character_id: int, title: str = "", **kw) -> dict:
+        body = {"character_id": character_id}
+        if title:
+            body["title"] = title
+        return await self.request("POST", "/api/cartoon/projects/", token=token, json_body=body, **kw)
+
+    async def delete_project(self, token: str, pk: int, **kw) -> Any:
+        return await self.request("DELETE", f"/api/cartoon/projects/{pk}/", token=token, **kw)
+
+    async def add_scene(self, token: str, project_id: int, preset_id: int, **kw) -> dict:
+        return await self.request("POST", f"/api/cartoon/projects/{project_id}/scenes/",
+                                  token=token, json_body={"preset_id": preset_id}, **kw)
+
+    async def try_on(self, token: str, preset_id: int, character_id: int, **kw) -> dict:
+        return await self.request("POST", f"/api/cartoon/presets/{preset_id}/try-on/",
+                                  token=token, json_body={"character_id": character_id},
+                                  timeout=httpx.Timeout(200.0), **kw)
+
+    async def keyframes(self, token: str, character_id: int, **kw) -> dict:
+        return await self.request("GET", "/api/cartoon/keyframes/", token=token,
+                                  params={"character_id": character_id}, **kw) or {}
+
+    async def render_scene(self, token: str, scene_id: int, **kw) -> dict:
+        return await self.request("POST", f"/api/cartoon/scenes/{scene_id}/render/",
+                                  token=token, json_body={}, **kw)
+
+    async def patch_scene(self, token: str, scene_id: int, body: dict, **kw) -> dict:
+        return await self.request("PATCH", f"/api/cartoon/scenes/{scene_id}/", token=token,
+                                  json_body=body, **kw)
+
+    async def delete_scene(self, token: str, scene_id: int, **kw) -> Any:
+        return await self.request("DELETE", f"/api/cartoon/scenes/{scene_id}/", token=token, **kw)
+
+    async def assemble(self, token: str, project_id: int, **kw) -> dict:
+        return await self.request("POST", f"/api/cartoon/projects/{project_id}/assemble/",
+                                  token=token, json_body={}, **kw)
 
     # ------------------------------------------------------------- чат ---
 
