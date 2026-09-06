@@ -38,7 +38,7 @@ def currencies_cache_key() -> str:
     плавающего курса разные, и после смены флага витрина не должна полчаса
     показывать чужие цифры. Админка сбрасывает кэш этим же ключом.
     """
-    return f"{CURRENCIES_CACHE_KEY}:{_rate_mode()}"
+    return f"{CURRENCIES_CACHE_KEY}:{_rate_mode()}:{registry.settlement_currency() or 'self'}"
 
 
 def _rate_mode() -> str:
@@ -210,7 +210,7 @@ def currencies_payload(user=None) -> dict:
 
 def _min_amount(code: str):
     """Минимальная сумма для монеты — с кэшем: она меняется медленно."""
-    key = f"crypto:min:v2:{_rate_mode()}:{code}"
+    key = f"crypto:min:v3:{_rate_mode()}:{registry.settlement_currency() or 'self'}:{code}"
     value = cache.get(key)
     if value is not None:
         return Decimal(value) if value != "" else None

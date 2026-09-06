@@ -636,6 +636,25 @@ class FeeAndRateTests(TestCase):
                 self.assertEqual(adapter.min_amount_usd("usdttrc20"), Decimal("11.36"))
             self.assertEqual(seen["params"]["is_fixed_rate"], "true" if fixed else "false")
 
+    def test_minimum_is_asked_against_settlement_currency(self):
+        """Минимум спрашиваем по паре «монета → валюта выплат»: справочник
+        «→ usd» показывал $12 для монет, которыми $2 принимались."""
+        from payments.crypto.nowpayments import NowPayments
+
+        seen = []
+
+        def fake_get(path, params=None, attempts=1):
+            seen.append(dict(params or {}))
+            return {"fiat_equivalent": "0.8"}
+
+        with patch.object(NowPayments, "_get", side_effect=fake_get):
+            with self._runtime({"crypto_settlement_currency": "usdtbsc"}):
+                registry.get_adapter().min_amount_usd("btc")
+            with self._runtime({}):
+                registry.get_adapter().min_amount_usd("btc")
+        self.assertEqual(seen[0]["currency_to"], "usdtbsc")
+        self.assertEqual(seen[1]["currency_to"], "btc")
+
     def test_admin_toggle_validates_and_clears_storefront(self):
         """Строка "false" из формы не должна включать комиссию, а смена монет
         или флага обязана сбросить кэш витрины — иначе десять минут люди
@@ -664,6 +683,12 @@ class FeeAndRateTests(TestCase):
         cache.set(currencies_cache_key(), [{"code": "stale"}], 600)
         self.assertEqual(send({"crypto_allowed_currencies": "btc"}).status_code, 200)
         self.assertIsNone(cache.get(currencies_cache_key()))
+
+        self.assertEqual(send({"crypto_settlement_currency": "USDT-BSC!"}).status_code, 400)
+        self.assertEqual(send({"crypto_settlement_currency": " UsdtBsc "}).status_code, 200)
+        self.assertEqual(registry.settlement_currency(), "usdtbsc")
+        self.assertEqual(send({"crypto_settlement_currency": ""}).status_code, 200)
+        self.assertEqual(registry.settlement_currency(), "")
 
     @override_settings(CRYPTO_PAYMENTS_MODE="on", NOWPAYMENTS_API_KEY="k",
                        NOWPAYMENTS_FEE_PAID_BY_USER=True)

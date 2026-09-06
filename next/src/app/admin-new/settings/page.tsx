@@ -43,6 +43,7 @@ type Settings = {
   crypto_fee_paid_by_user: boolean;
   nowpayments_fixed_rate: boolean;
   crypto_allowed_currencies: string;
+  crypto_settlement_currency: string;
   /** курс, по которому реально выставляется криптосчёт */
   currency_kgs_to_usd_rate: number;
   /** зафиксированный админом вручную (0 — не задан, берётся живой) */
@@ -197,6 +198,7 @@ export default function AdminSettingsPage() {
   const [cryptoCoins, setCryptoCoins] = useState<string[]>([]);
   const [feeByUser, setFeeByUser] = useState(false);
   const [usdRateDraft, setUsdRateDraft] = useState("");
+  const [settleDraft, setSettleDraft] = useState("");
   const [npKey, setNpKey] = useState("");
   const [npSecret, setNpSecret] = useState("");
   const [cryptoSaving, setCryptoSaving] = useState(false);
@@ -242,6 +244,7 @@ export default function AdminSettingsPage() {
     );
     // Пустое поле означает «брать живой курс» — так и показываем.
     setUsdRateDraft(s.currency_kgs_to_usd_manual ? String(s.currency_kgs_to_usd_manual) : "");
+    setSettleDraft(String(s.crypto_settlement_currency || ""));
     setSiteDraft({
       email: s.site?.email ?? "",
       phone: s.site?.phone ?? "",
@@ -408,6 +411,7 @@ export default function AdminSettingsPage() {
       cryptoCoins.join(",") !== settings.crypto_allowed_currencies ||
       Boolean(npKey.trim()) ||
       Boolean(npSecret.trim()) ||
+      settleDraft.trim().toLowerCase() !== String(settings.crypto_settlement_currency || "") ||
       usdRateDraft.trim() !==
         (settings.currency_kgs_to_usd_manual ? String(settings.currency_kgs_to_usd_manual) : ""));
 
@@ -429,6 +433,9 @@ export default function AdminSettingsPage() {
     }
     if (npKey.trim()) patch.nowpayments_api_key = npKey.trim();
     if (npSecret.trim()) patch.nowpayments_ipn_secret = npSecret.trim();
+    if (settleDraft.trim().toLowerCase() !== String(settings.crypto_settlement_currency || "")) {
+      patch.crypto_settlement_currency = settleDraft.trim().toLowerCase();
+    }
 
     const manual = usdRateDraft.trim().replace(",", ".");
     const currentManual = settings.currency_kgs_to_usd_manual
@@ -847,6 +854,26 @@ export default function AdminSettingsPage() {
               ? ` · рыночный ${settings.currency_kgs_to_usd_market}`
               : " · живой курс недоступен"}
             . В отличие от рублёвого, этот курс ПЛАТЁЖНЫЙ: по нему человек переводит деньги.
+          </span>
+        </div>
+
+        <div className="mt-4 flex flex-col gap-1 max-w-sm">
+          <label className="text-xs text-muted">
+            Валюта кошелька выплат в NOWPayments (код процессора, например usdtbsc)
+          </label>
+          <input
+            type="text"
+            value={settleDraft}
+            onChange={(e) => setSettleDraft(e.target.value)}
+            placeholder="usdtbsc"
+            autoComplete="off"
+            className={`${INPUT} font-mono`}
+          />
+          <span className="text-[11px] text-muted-2">
+            По этой паре процессор считает минимальную сумму счёта. Без неё справочник
+            показывает минимумы «в доллар» — до $12 для монет, которыми на самом деле
+            принимаются $2, и витрина зря их гасит. Поменяли кошелёк выплат в кабинете —
+            поменяйте и здесь.
           </span>
         </div>
 

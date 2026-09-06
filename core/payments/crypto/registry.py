@@ -54,6 +54,13 @@ def fee_paid_by_user() -> bool:
     return bool(value)
 
 
+def settlement_currency() -> str:
+    """Код валюты кошелька выплат у процессора (пусто — не задан)."""
+    value = _runtime("crypto_settlement_currency",
+                     getattr(settings, "NOWPAYMENTS_SETTLEMENT_CURRENCY", ""))
+    return str(value or "").strip().lower()
+
+
 def fixed_rate() -> bool:
     """Фиксировать ли курс на время счёта (дороже по минимальной сумме)."""
     return bool(getattr(settings, "NOWPAYMENTS_FIXED_RATE", False))
@@ -72,6 +79,7 @@ def get_adapter(name: str = "nowpayments"):
         sandbox=bool(getattr(settings, "NOWPAYMENTS_SANDBOX", False)),
         fixed_rate=fixed_rate(),
         fee_paid_by_user=fee_paid_by_user(),
+        settlement_currency=settlement_currency(),
     )
 
 
