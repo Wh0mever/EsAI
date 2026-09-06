@@ -226,3 +226,26 @@ class TestStream:
         assert seen["body"]["stream"] is True
         assert seen["body"]["model"] == "m"
         await api.aclose()
+
+
+class TestStreamAccept:
+    @pytest.mark.asyncio
+    async def test_stream_accept_is_negotiable_by_drf(self):
+        """DRF отвечает 406 на один text/event-stream — так упал первый /image на проде."""
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            accept = request.headers.get("Accept", "")
+            if "application/json" not in accept and "*/*" not in accept:
+                return httpx.Response(406, json={"detail": "Not Acceptable"})
+            body = 'data: {"delta": "ok"}
+
+data: {"done": true}
+
+'
+            return httpx.Response(200, content=body.encode(),
+                                  headers={"content-type": "text/event-stream"})
+
+        api = make_api(handler)
+        frames = [f async for f in api.chat_stream("t", {"message": "x", "model": "m"})]
+        assert frames[0] == {"delta": "ok"} and frames[-1] == {"done": True}
+        await api.aclose()

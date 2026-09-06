@@ -379,7 +379,10 @@ class Api:
         """
         headers = self._headers(token, lang, telegram_id)
         headers["Content-Type"] = "application/json"
-        headers["Accept"] = "text/event-stream"
+        # DRF договаривается о формате по Accept ещё до вызова вью: один только
+        # text/event-stream он обслужить не умеет и отвечает 406. Сайт шлёт
+        # такую же пару, поток при этом всё равно приходит SSE.
+        headers["Accept"] = "text/event-stream, application/json"
         payload = json.dumps({**body, "stream": True}).encode()
 
         async with self._client.stream("POST", "/api/ai/chat/", content=payload,
