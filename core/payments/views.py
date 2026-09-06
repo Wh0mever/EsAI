@@ -898,7 +898,7 @@ def _mark_user_paid(user: User) -> None:
         user.save(update_fields=update_fields)
 
 
-def _notify_balance_topup(user: User, credited: int) -> None:
+def _notify_balance_topup(user: User, credited: int, *, notify_telegram: bool = True) -> None:
     """Уведомить пользователя об успешном пополнении баланса (ТЗ 2).
 
     1) in-app Notification (модель users.Notification, доставка через add_recipients);
@@ -911,15 +911,16 @@ def _notify_balance_topup(user: User, credited: int) -> None:
 
     # Сообщение в Telegram: человеку, который пришёл из бота, письмо на
     # почту-заглушку @social.esai.local не дойдёт никогда.
-    try:
-        from botapi.tasks import notify
+    if notify_telegram:
+        try:
+            from botapi.tasks import notify
 
-        notify(
-            user, "topup",
-            f"✅ <b>Баланс пополнен</b>\n+{int(credited)} кредитов уже на счету.",
-        )
-    except Exception:
-        logger.exception("telegram topup notify failed user=%s", getattr(user, "id", None))
+            notify(
+                user, "topup",
+                f"✅ <b>Баланс пополнен</b>\n+{int(credited)} кредитов уже на счету.",
+            )
+        except Exception:
+            logger.exception("telegram topup notify failed user=%s", getattr(user, "id", None))
 
     # in-app уведомление
     try:
@@ -931,7 +932,8 @@ def _notify_balance_topup(user: User, credited: int) -> None:
 
     # email — best-effort, не должен ронять транзакцию начисления
     email = (getattr(user, "email", "") or "").strip()
-    if not email:
+    # Почта-заглушка аккаунта из Telegram: писем на неё не существует.
+    if not email or email.lower().endswith("@social.esai.local"):
         return
     try:
         from mails.sender import send_template_email
@@ -946,7 +948,8 @@ def _notify_balance_topup(user: User, credited: int) -> None:
 
 
 def _apply_purchase_credit(payment: "Payment", order_id: str, total: int,
-                           *, meta_extra: dict | None = None) -> None:
+                           *, meta_extra: dict | None = None,
+                           notify_telegram: bool = True) -> None:
     """Начислить кредиты за оплаченный заказ и сделать всё, что идёт следом.
 
     Вынесено из _credit_token_package_for_payment, чтобы крипта начисляла тем
@@ -981,7 +984,10 @@ def _apply_purchase_credit(payment: "Payment", order_id: str, total: int,
     _mark_user_paid(payment.user)
 
     # Уведомление пользователю об успешном пополнении (in-app + email).
-    _notify_balance_topup(payment.user, total)
+    # Оплата в боте подтверждается самим ботом: второе сообщение о том же
+    # пополнении выглядело бы как двойное начисление.
+    _notify_balance_topup(payment.user, total,
+                          notify_telegram=notify_telegram and payment.provider != "telegram_stars")
 
     # Доля пригласившего. Раньше платилась только на пути сверки, поэтому
     # покупки, подтверждённые постбэком, реферера обходили стороной. Здесь

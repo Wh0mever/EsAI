@@ -1,4 +1,4 @@
-﻿from pathlib import Path
+from pathlib import Path
 from datetime import timedelta
 import os
 import environ
@@ -243,6 +243,7 @@ REST_FRAMEWORK = {
         "crypto_ipn": env.str("DRF_THROTTLE_CRYPTO_IPN", default="120/min"),
         # Бот ходит из одного контейнера: анонимного лимита по IP ему мало.
         "bot_service": env.str("DRF_THROTTLE_BOT_SERVICE", default="600/min"),
+        "stt": env.str("DRF_THROTTLE_STT", default="20/min"),
     },
 }
 
@@ -516,7 +517,18 @@ CELERY_BEAT_SCHEDULE = {
         "task": "payments.tasks.reconcile_crypto_invoices",
         "schedule": timedelta(minutes=2),
     },
+    # Stars: бот мог упасть между successful_payment и начислением, а
+    # Telegram деньги уже списал. Раз в 10 минут читаем журнал бота и
+    # дозачисляем (идемпотентно по charge_id), заодно закрываем просроченные счета.
+    "payments:reconcile_star_transactions": {
+        "task": "payments.tasks.reconcile_star_transactions",
+        "schedule": timedelta(minutes=10),
+    },
 }
+
+# Оплата в Telegram-боте: off / staff / on (переопределяется в /admin-new →
+# настройки ключом stars_payments_mode).
+STARS_PAYMENTS_MODE = env.str("STARS_PAYMENTS_MODE", default="on")
 
 # Подписки отключены: задача plans.tasks.process_due_subscriptions снята с
 # расписания beat, а guard внутри самой задачи читает этот флаг и выходит
@@ -546,6 +558,25 @@ OPENAI_TIMEOUT_SECONDS = env.int("OPENAI_TIMEOUT_SECONDS", default=480)
 VIDEO_GEN_DURATION = env.int("VIDEO_GEN_DURATION", default=5)
 VIDEO_GEN_RESOLUTION = env.str("VIDEO_GEN_RESOLUTION", default="720p")
 VIDEO_GEN_TIMEOUT_S = env.int("VIDEO_GEN_TIMEOUT_S", default=480)
+
+# --- Распознавание голоса (бот) ---
+# Цена плоская, по минутам: человек видит её до того, как что-то спишется.
+STT_MODEL = env.str("STT_MODEL", default="google/gemini-2.5-flash-lite")
+STT_CREDITS_PER_MINUTE = env.int("STT_CREDITS_PER_MINUTE", default=2)
+STT_MAX_SECONDS = env.int("STT_MAX_SECONDS", default=120)
+STT_MAX_BYTES = env.int("STT_MAX_BYTES", default=5 * 1024 * 1024)
+
+# --- Очередь долгих генераций ---
+# Видео из бота и сцены студии идут в отдельный воркер (compose: celery_media),
+# чтобы десятиминутный ролик не задерживал письма и бонусы. Пустое значение —
+# всё в общей очереди (локальный стенд без второго воркера).
+CELERY_MEDIA_QUEUE = env.str("CELERY_MEDIA_QUEUE", default="media")
+if CELERY_MEDIA_QUEUE:
+    CELERY_TASK_ROUTES = {
+        "ai.tasks.run_generation_job": {"queue": CELERY_MEDIA_QUEUE},
+        "cartoon.tasks.render_scene": {"queue": CELERY_MEDIA_QUEUE},
+        "cartoon.tasks.assemble_movie": {"queue": CELERY_MEDIA_QUEUE},
+    }
 
 # --- Guest (anonymous) chat free quota ---
 # Number of free chat requests an unauthenticated visitor gets before being

@@ -77,8 +77,20 @@ class TokenPackageAdminSerializer(serializers.ModelSerializer):
             # среди переведённого интерфейса остаётся русский текст пакета.
             "name_en", "name_kg", "badge_en", "badge_kg",
             "description_en", "description_kg",
+            # Оплата в боте: цена в Stars и бонус; подсказка считается по курсу.
+            "stars_price", "stars_bonus_tokens", "stars_suggested",
         ]
-        read_only_fields = ["id"]
+        read_only_fields = ["id", "stars_suggested"]
+
+    stars_suggested = serializers.SerializerMethodField()
+
+    def get_stars_suggested(self, obj):
+        try:
+            from plans.stars import suggest_stars_price
+
+            return suggest_stars_price(obj)
+        except Exception:  # noqa: BLE001
+            return None
 
 
 class UserAdminSerializer(serializers.ModelSerializer):
@@ -128,10 +140,26 @@ class PaymentAdminSerializer(PaymentShortSerializer):
     provider = serializers.CharField(read_only=True)
     pending = serializers.SerializerMethodField()
     crypto = serializers.SerializerMethodField()
+    stars = serializers.SerializerMethodField()
 
     class Meta(PaymentShortSerializer.Meta):
         fields = PaymentShortSerializer.Meta.fields + [
-            "description", "error", "provider", "pending", "crypto"]
+            "description", "error", "provider", "pending", "crypto", "stars"]
+
+    def get_stars(self, obj):
+        invoice = getattr(obj, "star_invoice", None)
+        if invoice is None:
+            return None
+        return {
+            "status": invoice.status,
+            "telegram_id": invoice.telegram_id,
+            "stars": invoice.stars_amount,
+            "tokens": invoice.total_tokens,
+            "charge_id": invoice.telegram_payment_charge_id or "",
+            "paid_at": invoice.paid_at.isoformat() if invoice.paid_at else None,
+            "refunded_at": invoice.refunded_at.isoformat() if invoice.refunded_at else None,
+            "refund_reason": invoice.refund_reason,
+        }
 
     def get_pending(self, obj) -> bool:
         invoice = getattr(obj, "crypto_invoice", None)

@@ -18,6 +18,9 @@ urlpatterns = [
     # Перепроверить платёж у процессора (крипта: вебхук мог не дойти).
     path("payments/<int:pk>/recheck/", views.PaymentRecheckView.as_view(),
          name="payments-recheck"),
+    # Вернуть оплату Telegram Stars (только полный возврат, кредиты изымаются).
+    path("payments/<int:pk>/refund-stars/", views.PaymentRefundStarsView.as_view(),
+         name="payments-refund-stars"),
     path("blog/", views.BlogListCreateView.as_view(), name="blog-list"),
     path("blog/<int:pk>/", views.BlogDetailView.as_view(), name="blog-detail"),
     path("promo-codes/", views.PromoCodesListView.as_view(), name="promo-codes-list"),

@@ -1,4 +1,11 @@
 from django.urls import path
+from .views_media import (
+    TranscribeAPIView,
+    GenerationJobCreateView,
+    GenerationJobDetailView,
+    GenerationJobCancelView,
+    GenerationJobListView,
+)
 from .views import (
     ChatGptAPIView,
     AiTemplatesApiView,
@@ -18,6 +25,12 @@ from .views import (
 )
 
 urlpatterns = [
+    # Голос → текст (бот) и долгие генерации из очереди.
+    path("transcribe/", TranscribeAPIView.as_view(), name="ai-transcribe"),
+    path("jobs/", GenerationJobCreateView.as_view(), name="ai-jobs"),
+    path("jobs/list/", GenerationJobListView.as_view(), name="ai-jobs-list"),
+    path("jobs/<str:uid>/", GenerationJobDetailView.as_view(), name="ai-job-detail"),
+    path("jobs/<str:uid>/cancel/", GenerationJobCancelView.as_view(), name="ai-job-cancel"),
     path('chat/', ChatGptAPIView.as_view(), name='chat_api'),
     path('attachments/upload/', ChatAttachmentUploadAPIView.as_view(), name='chat_attachments_upload'),
     path('chat/history/', ChatsHistory.as_view(), name='chat_history'),

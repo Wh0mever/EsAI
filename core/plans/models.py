@@ -411,6 +411,15 @@ class TokenPackage(models.Model):
     featured = models.BooleanField(
         default=False, verbose_name="Выделенный",
         help_text="Визуально выделить пакет (рамка/увеличение) как рекомендованный. Включайте только у ОДНОГО пакета.")
+    # Оплата в Telegram-боте. Пусто — пакет в боте не продаётся. Цена в Stars
+    # задаётся человеком, а не курсом: она должна быть стабильной, подсказка
+    # по формуле показывается рядом в админке (plans/stars.py).
+    stars_price = models.PositiveIntegerField(
+        null=True, blank=True, verbose_name="Цена в Telegram Stars",
+        help_text="Пусто — в боте не продаётся. 1 Star ≈ $0.013 для нас.")
+    stars_bonus_tokens = models.PositiveIntegerField(
+        default=0, verbose_name="Бонус за оплату в боте, кредитов",
+        help_text="Дополнительно к пакету при оплате Stars — вместо скидки.")
 
     class Meta:
         ordering = ["sort_order", "id"]

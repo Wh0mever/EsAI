@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 
 from celery import shared_task
+from django.conf import settings
 
 from .models import CartoonProject, CartoonScene
 from .services import get_or_create_keyframe, assemble_project, charge, generate_keyframe, generate_scene_video
@@ -58,6 +59,7 @@ def render_scene(self, scene_id: int) -> dict:
             scene.status = CartoonScene.STATUS_FAILED
             scene.error = f"Кадр не получился: {exc}"[:500]
             scene.save(update_fields=["status", "error", "updated_at"])
+            _notify_scene(scene, ok=False)
             return {"status": "keyframe_failed"}
 
     # --- 2) видео из кадра ---
@@ -73,6 +75,7 @@ def render_scene(self, scene_id: int) -> dict:
         scene.status = CartoonScene.STATUS_READY
         scene.error = ""
         scene.save(update_fields=["video", "credits_spent", "status", "error", "updated_at"])
+        _notify_scene(scene, ok=True)
         return {"status": "ready", "scene": scene.pk}
     except Exception as exc:
         logger.exception("сцена %s: видео не получилось", scene_id)
@@ -80,6 +83,7 @@ def render_scene(self, scene_id: int) -> dict:
         # Кадр остаётся: пересоздать видео можно с ним же, не сдвинув героя.
         scene.error = f"Видео не получилось: {exc}"[:500]
         scene.save(update_fields=["status", "error", "updated_at"])
+        _notify_scene(scene, ok=False)
         return {"status": "video_failed"}
 
 
@@ -97,10 +101,70 @@ def assemble_movie(self, project_id: int) -> dict:
         project.result_video = assemble_project(project)
         project.status = CartoonProject.STATUS_READY
         project.save(update_fields=["result_video", "status", "updated_at"])
+        _notify_movie(project, ok=True)
         return {"status": "ready", "video": project.result_video}
     except Exception as exc:
         logger.exception("проект %s: склейка не удалась", project_id)
         project.status = CartoonProject.STATUS_FAILED
         project.error = str(exc)[:500]
         project.save(update_fields=["status", "error", "updated_at"])
+        _notify_movie(project, ok=False)
         return {"status": "failed"}
+
+
+def _notify_scene(scene, ok: bool) -> None:
+    """Сказать человеку в Telegram, что сцена готова (или нет)."""
+    try:
+        from django.core.files.storage import default_storage
+
+        from botapi.tasks import notify
+
+        project = scene.project
+        user = project.user
+        title = scene.preset.title if scene.preset_id else "сцена"
+        base = (getattr(settings, "SITE_BASE_URL", "") or "https://esai.kg").rstrip("/")
+        studio = f"{base}/studio?project={project.pk}"
+        if ok:
+            video_url = ""
+            try:
+                if scene.video and default_storage.size(scene.video) <= 20 * 1024 * 1024:
+                    video_url = base + default_storage.url(scene.video)
+            except Exception:
+                video_url = ""
+            notify(user, "ready",
+                   f"🎬 Сцена «{title}» готова! Списано {scene.credits_spent} кр.",
+                   url=studio, url_label="Открыть в студии", video_url=video_url or None)
+        else:
+            notify(user, "ready",
+                   f"😕 Сцена «{title}» не получилась: {scene.error[:120]}\n"
+                   "Кредиты за видео не списаны.",
+                   url=studio, url_label="Открыть в студии")
+    except Exception:
+        logger.exception("сцена %s: уведомление не ушло", scene.pk)
+
+
+def _notify_movie(project, ok: bool) -> None:
+    try:
+        from django.core.files.storage import default_storage
+
+        from botapi.tasks import notify
+
+        base = (getattr(settings, "SITE_BASE_URL", "") or "https://esai.kg").rstrip("/")
+        studio = f"{base}/studio?project={project.pk}"
+        scenes = project.scenes.filter(status=CartoonScene.STATUS_READY).count()
+        if ok:
+            video_url = ""
+            try:
+                if project.result_video and default_storage.size(project.result_video) <= 20 * 1024 * 1024:
+                    video_url = base + default_storage.url(project.result_video)
+            except Exception:
+                video_url = ""
+            notify(project.user, "ready",
+                   f"🎞 Мультфильм «{project.title}» готов! Сцен: {scenes}.",
+                   url=studio, url_label="Открыть в студии", video_url=video_url or None)
+        else:
+            notify(project.user, "ready",
+                   f"😕 Мультфильм «{project.title}» не собрался: {project.error[:120]}",
+                   url=studio, url_label="Открыть в студии")
+    except Exception:
+        logger.exception("проект %s: уведомление не ушло", project.pk)

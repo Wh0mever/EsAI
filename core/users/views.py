@@ -1,4 +1,4 @@
-﻿import logging
+import logging
 import random
 import json
 from django.conf import settings
@@ -817,9 +817,12 @@ class ReferralStatsView(APIView):
                 "from_user": _mask_user_label(from_user) if from_user else (meta.get("from_label") or "—"),
             })
 
+        bot = (getattr(settings, "TELEGRAM_PRODUCT_BOT_USERNAME", "") or "").lstrip("@")
         return Response({
             "referral_uid": uid,
             "link": link,
+            # Та же программа в боте: ссылка ведёт в чат, а не на форму регистрации.
+            "telegram_link": f"https://t.me/{bot}?start=ref_{uid}" if (bot and uid) else "",
             "invited_count": invited_count,
             "total_earned": total_earned,
             "history": history,

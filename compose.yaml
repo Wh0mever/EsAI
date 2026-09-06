@@ -87,6 +87,41 @@ services:
       retries: 10
     networks: [web]
 
+  # Отдельный воркер для долгих задач: видео из бота и сцены студии. В общей
+  # очереди десятиминутный ролик задерживал бы письма, бонусы и уведомления.
+  celery_media:
+    build:
+      context: ./core
+      dockerfile: Dockerfile
+    env_file: .env
+    environment:
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
+      C_FORCE_ROOT: "1"
+    command: >
+      sh -lc "celery -A core worker
+      -Q ${CELERY_MEDIA_QUEUE:-media}
+      --loglevel=${CELERY_LOG_LEVEL:-INFO}
+      --logfile=/app/logs/celery_media.log
+      --concurrency=${CELERY_MEDIA_CONCURRENCY:-3}
+      --pidfile=/tmp/celery_media.pid"
+    depends_on:
+      core:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./static:/app/static
+      - ./media:/app/media
+      - ./logs:/app/logs
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /tmp/celery_media.pid && kill -0 $(cat /tmp/celery_media.pid)"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    networks: [web]
+
   celery_beat:
     build:
       context: ./core
