@@ -22,6 +22,7 @@ from bot.middlewares.auth import AuthMiddleware, DedupMiddleware, ErrorsMiddlewa
 from bot.routers import chat as chat_router
 from bot.routers import media as media_router
 from bot.routers import models as models_router
+from bot.routers import profile as profile_router
 from bot.routers import start as start_router
 from bot.services.api import api
 from bot.services.state import store
@@ -67,6 +68,8 @@ COMMANDS = [
     BotCommand(command="new", description="Новый чат"),
     BotCommand(command="model", description="Выбрать модель"),
     BotCommand(command="balance", description="Баланс и кредиты"),
+    BotCommand(command="history", description="История чатов"),
+    BotCommand(command="referral", description="Пригласить друзей"),
     BotCommand(command="help", description="Помощь"),
 ]
 
@@ -117,6 +120,7 @@ def build_dispatcher() -> Dispatcher:
 
     dispatcher.include_router(start_router.router)
     dispatcher.include_router(models_router.router)
+    dispatcher.include_router(profile_router.router)
     dispatcher.include_router(media_router.router)
     dispatcher.include_router(chat_router.router)
     return dispatcher
