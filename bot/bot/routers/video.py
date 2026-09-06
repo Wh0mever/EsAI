@@ -20,10 +20,11 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 
 from bot.config import settings
 from bot.keyboards.common import paywall, rows_of
-from bot.routers.chat import show_paywall, site_url
+from bot.routers.chat import _session_gone, show_paywall, site_url
 from bot.routers.models import _fetch
 from bot.services.api import ApiError, api
 from bot.services.state import store
+from bot.services.tg_format import esc
 from bot.texts import register_texts, t
 
 logger = logging.getLogger(__name__)
@@ -67,6 +68,7 @@ register_texts({
         "vid_share_btn": "📤 Отправить другу",
         "vid_no_job": "Этот ролик уже не найти. Начните заново: /video",
         "vid_timeout": "Генерация затянулась. Как только ролик будет готов, он придёт сюда.",
+        "vid_watch_offline": "🎬 Ролик придёт сюда сообщением, как только будет готов.",
         "vid_uploading": "⬆️ Загружаю кадр…",
     },
     "en": {
@@ -101,6 +103,7 @@ register_texts({
         "vid_share_btn": "📤 Send to a friend",
         "vid_no_job": "This clip can no longer be found. Start over: /video",
         "vid_timeout": "Generation is taking long. The clip will arrive here once ready.",
+        "vid_watch_offline": "🎬 The clip will arrive here as soon as it is ready.",
         "vid_uploading": "⬆️ Uploading the frame…",
     },
     "kg": {
@@ -134,6 +137,7 @@ register_texts({
         "vid_share_btn": "📤 Досуңузга жөнөтүү",
         "vid_no_job": "Бул ролик табылган жок. Кайра баштаңыз: /video",
         "vid_timeout": "Жаратуу узакка созулду. Даяр болгондо ролик ушул жерге келет.",
+        "vid_watch_offline": "🎬 Ролик даяр болгондо ушул жерге билдирүү менен келет.",
         "vid_uploading": "⬆️ Кадрды жүктөп жатам…",
     },
 })
@@ -242,7 +246,7 @@ async def pick_model(call: CallbackQuery, token: str, lang: str, state: FSMConte
         await _show_card(call.message, token, lang, chat_id, draft)
         return
     await state.set_state(VideoWizard.prompt)
-    await call.message.answer(t(lang, "vid_ask_prompt", model=chosen.get("name"),
+    await call.message.answer(t(lang, "vid_ask_prompt", model=esc(chosen.get("name")),
                                 price=_price_label(chosen)), parse_mode="HTML")
 
 
@@ -284,7 +288,7 @@ async def got_photo(message: Message, token: str, lang: str, state: FSMContext) 
         await _show_card(message, token, lang, chat_id, draft)
         return
     await _save(chat_id, draft)
-    await message.answer(t(lang, "vid_ask_prompt", model=draft.get("model_name", ""),
+    await message.answer(t(lang, "vid_ask_prompt", model=esc(draft.get("model_name", "")),
                            price=""), parse_mode="HTML")
 
 
@@ -334,7 +338,10 @@ async def _show_card(message: Message, token: str, lang: str, chat_id: int, draf
     elif draft.get("first_frame"):
         first = t(lang, "vid_first_frame")
     res = f" · {draft['res']}" if draft.get("res") and len(resolutions) > 1 else ""
-    text = t(lang, "vid_card", prompt=draft.get("prompt", "")[:300], model=draft.get("model_name", ""),
+    # Промпт пишет человек, название модели приходит из каталога: «<» в любом из
+    # них Telegram считает открытым тегом и отвергает всё сообщение целиком.
+    text = t(lang, "vid_card", prompt=esc(draft.get("prompt", "")[:300]),
+             model=esc(draft.get("model_name", "")),
              duration=draft["duration"], ar=draft["ar"], res=res, first=first, cost=cost,
              balance=balance)
 
@@ -429,6 +436,18 @@ async def go(call: CallbackQuery, token: str, lang: str) -> None:
     await launch(call.message, token, lang, draft)
 
 
+async def _launch_failed(message: Message, lang: str, exc: ApiError) -> None:
+    """Объяснить, почему ролик не встал в очередь (кредиты при отказе не списаны)."""
+    if exc.is_paywall:
+        await show_paywall(message, lang, exc)
+    elif exc.code == "job_in_progress":
+        await message.answer(t(lang, "vid_busy"))
+    elif exc.status >= 500:
+        await message.answer(t(lang, "server_down"))
+    else:
+        await message.answer(t(lang, "failed"))
+
+
 async def launch(message: Message, token: str, lang: str, draft: dict) -> None:
     chat_id = message.chat.id
     body = {
@@ -452,15 +471,25 @@ async def launch(message: Message, token: str, lang: str, draft: dict) -> None:
     try:
         job = await api.create_job(token, body, lang=lang, telegram_id=chat_id)
     except ApiError as exc:
-        if exc.is_paywall:
-            await show_paywall(message, lang, exc)
-        elif exc.code == "job_in_progress":
-            await message.answer(t(lang, "vid_busy"))
-        elif exc.status >= 500:
-            await message.answer(t(lang, "server_down"))
+        # Сохранённый чат мог быть удалён на сайте: ядро отвечает 404 «Session
+        # not found», и с протухшим ключом так же падал бы каждый следующий
+        # запуск видео. Забываем ключ и повторяем ровно один раз — без него ядро
+        # заведёт новый чат. Повтор безопасен: на этом отказе ядро ничего не
+        # списало и дневной лимит вернуло само. Опознаём отказ тем же
+        # предикатом, что и чат: ключ «session» общий с текстовым чатом, и
+        # стирать его на любом чужом 404 (упавший маршрут, ошибка прокси)
+        # значило бы молча обрывать человеку ещё и переписку.
+        if _session_gone(exc) and body.pop("session_id", None):
+            logger.info("видео: сессия %s пропала, начинаю новую для %s", session_id, chat_id)
+            await store.drop(chat_id, "session")
+            try:
+                job = await api.create_job(token, body, lang=lang, telegram_id=chat_id)
+            except ApiError as retry_exc:
+                await _launch_failed(message, lang, retry_exc)
+                return
         else:
-            await message.answer(t(lang, "failed"))
-        return
+            await _launch_failed(message, lang, exc)
+            return
     uid = job.get("job_id")
     await store.set(chat_id, f"vjob:{uid}", {**draft, "job": uid}, ttl=7 * 24 * 3600)
     session = job.get("session") or {}
@@ -491,7 +520,19 @@ async def _watch(bot: Bot, chat_id: int, message_id: int, uid: str, token: str, 
             job = await api.job(token, uid, lang=lang, telegram_id=chat_id)
         except ApiError as exc:
             if exc.status == 401:
-                token = await store.get_token(chat_id) or token
+                fresh = await store.get_token(chat_id)
+                if not fresh or fresh == token:
+                    # Токен протух, а нового в хранилище нет (его обновит только
+                    # следующее сообщение человека) — опрос будет получать 401 до
+                    # самого таймаута. Ядро пришлёт ролик само, поэтому просто
+                    # закрываем слежение честной подписью.
+                    try:
+                        await bot.edit_message_text(t(lang, "vid_watch_offline"),
+                                                    chat_id=chat_id, message_id=message_id)
+                    except Exception:
+                        pass
+                    return
+                token = fresh
             continue
         status = job.get("status")
         if status in ("done", "failed", "canceled"):

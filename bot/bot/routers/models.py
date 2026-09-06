@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import math
 
 from aiogram import F, Router
 from aiogram.filters import Command
@@ -54,6 +55,41 @@ def _in_group(model: dict, group: str) -> bool:
     return model.get("category") == group
 
 
+# Токены→кредиты: те же числа, что у бэкенда (settings.TOKEN_CREDIT_DIVISOR и
+# CREDIT_CALC_IMAGE_{PROMPT,OUTPUT}_TOKENS_ESTIMATE, см. core/plans/credit_value).
+TOKEN_CREDIT_DIVISOR = 1000
+IMAGE_TOKENS_ESTIMATE = 150 + 1300
+
+
+def is_flux_image_model(model_ref) -> bool:
+    """FLUX идёт через images-API и билится плоско — зеркало ai/model_billing."""
+    name = str(model_ref or "").lower().split(":")[0]
+    return name.startswith("black-forest-labs/") or "flux.2" in name
+
+
+def image_credits(model: dict) -> int | None:
+    """Сколько кредитов реально спишет бэкенд за ОДНУ картинку этой моделью.
+
+    markup_coefficient у image-моделей задан «за картинку», но плоско по нему
+    списываются только FLUX (core/ai/model_billing.flux_charge_credits).
+    Остальные (Nano Banana: google/gemini-*-image) идут через chat-completions и
+    билятся токенной формулой — показывать им coeff значило врать почти вдвое
+    (coeff=4 → списывается 6). Формула — как в core/plans/credit_value.
+    """
+    coeff = model.get("markup_coefficient")
+    if not coeff:
+        return None
+    try:
+        coeff = float(coeff)
+    except (TypeError, ValueError):
+        return None
+    if coeff <= 0:
+        coeff = 1.0
+    if is_flux_image_model(model.get("openrouter_id")):
+        return max(1, int(coeff))
+    return max(1, math.ceil(IMAGE_TOKENS_ESTIMATE * coeff / TOKEN_CREDIT_DIVISOR))
+
+
 def _price(model: dict) -> str:
     coefficient = model.get("markup_coefficient")
     if not coefficient:
@@ -62,7 +98,13 @@ def _price(model: dict) -> str:
     if category == "video":
         return f"{coefficient:g} кр/с"
     if category == "image":
-        return f"{coefficient:g} кр"
+        credits = image_credits(model)
+        if not credits:
+            return ""
+        # У токенных image-моделей точная цена зависит от ответа провайдера,
+        # поэтому «≈» — иначе обещаем ровное число, которого не будет.
+        return f"{credits} кр" if is_flux_image_model(model.get("openrouter_id")) \
+            else f"≈{credits} кр"
     return f"{coefficient:g} кр/1000"
 
 
@@ -135,11 +177,26 @@ async def cmd_model(message: Message, token: str, lang: str = "ru") -> None:
     await show_models(message, token, lang)
 
 
+async def _fetch_or_report(call: CallbackQuery, token: str, lang: str) -> list | None:
+    """Список моделей для кнопки. None — API отказал и человеку уже сказано.
+
+    Без этого ApiError (429/401/5xx) улетает наружу: кнопка «крутится» и человек
+    не получает вообще ничего. Ответ на callback даём ДО похода в API.
+    """
+    try:
+        return await _fetch(token, lang, call.from_user.id)
+    except ApiError:
+        await call.message.answer(t(lang, "server_down"))
+        return None
+
+
 @router.callback_query(F.data == "m:home")
 async def back_to_groups(call: CallbackQuery, token: str, lang: str) -> None:
-    models = await _fetch(token, lang, call.from_user.id)
-    current = (await store.get(call.from_user.id, "model") or settings.default_model)
     await call.answer()
+    models = await _fetch_or_report(call, token, lang)
+    if models is None:
+        return
+    current = (await store.get(call.from_user.id, "model") or settings.default_model)
     await call.message.edit_text(
         t(lang, "models_title", model=current.split("/")[-1]),
         parse_mode="HTML", reply_markup=_groups_keyboard(models))
@@ -148,9 +205,11 @@ async def back_to_groups(call: CallbackQuery, token: str, lang: str) -> None:
 @router.callback_query(F.data.startswith("m:g:"))
 async def open_group(call: CallbackQuery, token: str, lang: str) -> None:
     _, _, group, page = call.data.split(":", 3)
-    models = await _fetch(token, lang, call.from_user.id)
-    title = dict(GROUPS).get(group, group)
     await call.answer()
+    models = await _fetch_or_report(call, token, lang)
+    if models is None:
+        return
+    title = dict(GROUPS).get(group, group)
     await call.message.edit_text(
         f"<b>{title}</b>\nЦена — за 1000 токенов; у картинок за изображение, у видео за секунду.",
         parse_mode="HTML", reply_markup=_list_keyboard(models, group, int(page)))
@@ -159,7 +218,13 @@ async def open_group(call: CallbackQuery, token: str, lang: str) -> None:
 @router.callback_query(F.data.startswith("m:s:"))
 async def pick_model(call: CallbackQuery, token: str, lang: str) -> None:
     model_id = call.data.split(":")[2]
-    models = await _fetch(token, lang, call.from_user.id)
+    try:
+        models = await _fetch(token, lang, call.from_user.id)
+    except ApiError:
+        # Отвечаем ровно один раз: ниже call.answer() уже с именем модели.
+        await call.answer()
+        await call.message.answer(t(lang, "server_down"))
+        return
     model = next((m for m in models if str(m.get("id")) == model_id), None)
     if not model:
         await call.answer()
@@ -189,8 +254,10 @@ async def pick_model(call: CallbackQuery, token: str, lang: str) -> None:
 @router.callback_query(F.data == "m:free")
 async def pick_free(call: CallbackQuery, token: str, lang: str) -> None:
     """Быстрый выход из пейвола: показать только бесплатные модели."""
-    models = await _fetch(token, lang, call.from_user.id)
     await call.answer()
+    models = await _fetch_or_report(call, token, lang)
+    if models is None:
+        return
     await call.message.answer(
         "🎁 <b>Бесплатные модели</b>", parse_mode="HTML",
         reply_markup=_list_keyboard(models, "free", 0))

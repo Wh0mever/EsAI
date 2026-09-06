@@ -20,13 +20,15 @@ from bot.config import settings
 
 logger = logging.getLogger(__name__)
 
-# Обычные запросы отвечают быстро; загрузка файлов — дольше; поток ответа
-# модели не ограничиваем по чтению вовсе, но сторожим паузы между кадрами.
+# Обычные запросы отвечают быстро; загрузка файлов — дольше.
 TIMEOUT = httpx.Timeout(connect=5.0, read=60.0, write=30.0, pool=5.0)
 UPLOAD_TIMEOUT = httpx.Timeout(connect=5.0, read=180.0, write=180.0, pool=5.0)
-STREAM_TIMEOUT = httpx.Timeout(connect=5.0, read=None, write=30.0, pool=5.0)
 # Если кадров нет дольше этого — соединение считаем мёртвым.
 STREAM_SILENCE_LIMIT = 180.0
+# read в httpx — это пауза МЕЖДУ чтениями, а не общее время ответа, поэтому
+# длинный поток он не рвёт, зато зависший сервер отваливается сам. С read=None
+# сторожить паузы было некому: строк нет — цикл по строкам не крутится.
+STREAM_TIMEOUT = httpx.Timeout(connect=5.0, read=STREAM_SILENCE_LIMIT, write=30.0, pool=5.0)
 
 
 class ApiError(Exception):
@@ -53,6 +55,19 @@ def _service_headers(method: str, path: str, body: bytes) -> dict:
     signature = hmac.new(settings.service_secret.encode(), message.encode(),
                          hashlib.sha256).hexdigest()
     return {"X-Bot-Ts": ts, "X-Bot-Nonce": nonce, "X-Bot-Sig": signature}
+
+
+def _transport_error(exc: httpx.HTTPError) -> ApiError:
+    """Сетевую ошибку httpx переводим в свою.
+
+    Вызывающий код ловит только ApiError: без перевода рестарт core или обрыв
+    потока улетают мимо, и «🤔 Думаю…» висит у человека навсегда. Коды выбраны
+    под chat.py — он показывает «сервер недоступен» при status>=500 и
+    code="stream_timeout". ReadTimeout — подкласс TimeoutException.
+    """
+    if isinstance(exc, httpx.TimeoutException):
+        return ApiError(504, code="stream_timeout", message=str(exc) or "timeout")
+    return ApiError(503, code="transport", message=str(exc) or exc.__class__.__name__)
 
 
 def _list(data: Any) -> list:
@@ -122,8 +137,11 @@ class Api:
             kwargs["content"] = body
         if service:
             headers.update(_service_headers(method, path, body))
-        response = await self._client.request(method, path, headers=headers,
-                                              timeout=timeout or TIMEOUT, **kwargs)
+        try:
+            response = await self._client.request(method, path, headers=headers,
+                                                  timeout=timeout or TIMEOUT, **kwargs)
+        except httpx.HTTPError as exc:
+            raise _transport_error(exc) from exc
         self._raise(response)
         if not response.content:
             return None
@@ -287,9 +305,30 @@ class Api:
                                              "source": "telegram"}, **kw)
 
     async def blog(self, lang: str = "ru") -> list:
-        data = await self.request("GET", "/api/content/blog/", lang=lang,
+        """Опубликованные статьи блога.
+
+        Ходим в /articles/, а не в /blog/: только там есть slug, без которого
+        не собрать ссылку на статью. Заголовок в сериализаторе разложен по
+        языкам (title_ru/title_en/title_kg) — сводим его к одному ключу
+        "title", чтобы роутеру не пришлось знать про эти поля. Записи без
+        slug или заголовка выбрасываем: показывать в списке нечего.
+        """
+        data = await self.request("GET", "/api/content/articles/", lang=lang,
                                   params={"lang": lang, "page_size": 10})
-        return _list(data)
+        items: list[dict] = []
+        for row in _list(data):
+            if not isinstance(row, dict):
+                continue
+            slug = str(row.get("slug") or "").strip()
+            title = ""
+            for key in (f"title_{lang}", "title", "title_ru", "title_en", "title_kg"):
+                title = str(row.get(key) or "").strip()
+                if title:
+                    break
+            if not slug or not title:
+                continue
+            items.append({**row, "slug": slug, "title": title})
+        return items
 
     async def signin(self, email: str, **kw) -> Any:
         return await self.request("POST", "/api/users/signin/", json_body={"email": email}, **kw)
@@ -385,38 +424,45 @@ class Api:
         headers["Accept"] = "text/event-stream, application/json"
         payload = json.dumps({**body, "stream": True}).encode()
 
-        async with self._client.stream("POST", "/api/ai/chat/", content=payload,
-                                       headers=headers, timeout=STREAM_TIMEOUT) as response:
-            if response.status_code >= 400:
-                await response.aread()
-                self._raise(response)
-            if "text/event-stream" not in (response.headers.get("content-type") or ""):
-                await response.aread()
-                try:
-                    data = response.json()
-                except ValueError:
-                    data = {}
-                if isinstance(data, dict) and data.get("error"):
-                    raise ApiError(200, code=str(data.get("error_code") or ""),
-                                   payload=data, message=str(data.get("error") or ""))
-                yield {"done": True, **(data if isinstance(data, dict) else {})}
-                return
+        try:
+            async with self._client.stream("POST", "/api/ai/chat/", content=payload,
+                                           headers=headers, timeout=STREAM_TIMEOUT) as response:
+                if response.status_code >= 400:
+                    await response.aread()
+                    self._raise(response)
+                if "text/event-stream" not in (response.headers.get("content-type") or ""):
+                    await response.aread()
+                    try:
+                        data = response.json()
+                    except ValueError:
+                        data = {}
+                    if isinstance(data, dict) and data.get("error"):
+                        raise ApiError(200, code=str(data.get("error_code") or ""),
+                                       payload=data, message=str(data.get("error") or ""))
+                    yield {"done": True, **(data if isinstance(data, dict) else {})}
+                    return
 
-            last = time.monotonic()
-            async for line in response.aiter_lines():
-                now = time.monotonic()
-                if now - last > STREAM_SILENCE_LIMIT:
-                    raise ApiError(504, code="stream_timeout", message="ответ оборвался")
-                if not line or not line.startswith("data:"):
-                    continue
-                last = now
-                chunk = line[5:].strip()
-                if not chunk:
-                    continue
-                try:
-                    yield json.loads(chunk)
-                except ValueError:
-                    logger.warning("непонятный кадр потока: %r", chunk[:120])
+                last = time.monotonic()
+                async for line in response.aiter_lines():
+                    now = time.monotonic()
+                    # Страховка на случай потока «пустых» строк: read-таймаут их
+                    # считает за жизнь, а кадров человек всё равно не видит.
+                    if now - last > STREAM_SILENCE_LIMIT:
+                        raise ApiError(504, code="stream_timeout", message="ответ оборвался")
+                    if not line or not line.startswith("data:"):
+                        continue
+                    last = now
+                    chunk = line[5:].strip()
+                    if not chunk:
+                        continue
+                    try:
+                        yield json.loads(chunk)
+                    except ValueError:
+                        logger.warning("непонятный кадр потока: %r", chunk[:120])
+        except httpx.HTTPError as exc:
+            # Обрыв потока и рестарт core выглядят для человека одинаково —
+            # ответ просто перестал приходить; показываем «сервер недоступен».
+            raise _transport_error(exc) from exc
 
 
 api = Api()

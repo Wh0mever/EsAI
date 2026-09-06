@@ -66,8 +66,8 @@ register_texts({
         "btn_history": "📜 История операций",
         "btn_promo": "🎟 Промокод",
         "btn_transfer": "💸 Перевести",
-        "history_title": "📜 <b>Последние операции</b>",
-        "history_empty": "Операций пока нет.",
+        "tx_history_title": "📜 <b>Последние операции</b>",
+        "tx_history_empty": "Операций пока нет.",
         "balance_full": ("💳 <b>Баланс: {balance} кредитов</b>\nТариф: {tier}\n"
                          "Кредиты не сгорают и работают везде: чат, картинки, видео и студия."),
         "reason_chat": "чат", "reason_purchase": "покупка", "reason_bonus": "бонус",
@@ -112,8 +112,8 @@ register_texts({
         "btn_history": "📜 History",
         "btn_promo": "🎟 Promo code",
         "btn_transfer": "💸 Transfer",
-        "history_title": "📜 <b>Recent operations</b>",
-        "history_empty": "No operations yet.",
+        "tx_history_title": "📜 <b>Recent operations</b>",
+        "tx_history_empty": "No operations yet.",
         "balance_full": ("💳 <b>Balance: {balance} credits</b>\nPlan: {tier}\n"
                          "Credits never expire and work everywhere: chat, images, video and studio."),
         "reason_chat": "chat", "reason_purchase": "purchase", "reason_bonus": "bonus",
@@ -158,8 +158,8 @@ register_texts({
         "btn_history": "📜 Тарых",
         "btn_promo": "🎟 Промокод",
         "btn_transfer": "💸 Которуу",
-        "history_title": "📜 <b>Акыркы операциялар</b>",
-        "history_empty": "Азырынча операциялар жок.",
+        "tx_history_title": "📜 <b>Акыркы операциялар</b>",
+        "tx_history_empty": "Азырынча операциялар жок.",
         "balance_full": ("💳 <b>Баланс: {balance} кредит</b>\nТариф: {tier}\n"
                          "Кредиттер күйбөйт: чат, сүрөт, видео жана студия."),
         "reason_chat": "чат", "reason_purchase": "сатып алуу", "reason_bonus": "бонус",
@@ -217,9 +217,9 @@ async def history(call: CallbackQuery, token: str, lang: str) -> None:
         await call.message.answer(t(lang, "server_down"))
         return
     if not rows:
-        await call.message.answer(t(lang, "history_empty"))
+        await call.message.answer(t(lang, "tx_history_empty"))
         return
-    lines = [t(lang, "history_title")]
+    lines = [t(lang, "tx_history_title")]
     for tx in rows[:20]:
         delta = int(tx.get("delta") or 0)
         date = str(tx.get("created_at") or "")[:10]
@@ -446,8 +446,12 @@ async def _after_paid(bot: Bot, chat_id: int, lang: str, result: dict) -> None:
 async def on_paid(message: Message, lang: str = "ru", **_) -> None:
     payment = message.successful_payment
     chat_id = message.chat.id
-    if not await store.once(f"paid:{payment.telegram_payment_charge_id}"):
-        return  # Telegram повторил апдейт — сервер и так идемпотентен, но незачем шуметь
+    # Замок короткий и только против гонки двух одновременных апдейтов: если
+    # процесс упал на полпути, Telegram повторит сообщение через минуту, и оно
+    # должно дойти до сервера. Кредиты дважды не начислятся — сервер узнаёт
+    # оплату по её идентификатору и отвечает «уже зачислено».
+    if not await store.once(f"paid:{payment.telegram_payment_charge_id}", ttl=60):
+        return
     body = _confirm_body(message)
     try:
         result = await api.stars_confirm(body)

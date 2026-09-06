@@ -5,6 +5,10 @@
 """
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 TEXTS: dict[str, dict[str, str]] = {
     "ru": {
         "choose_lang": "Выберите язык · Choose language · Тилди тандаңыз",
@@ -67,11 +71,11 @@ TEXTS: dict[str, dict[str, str]] = {
         "help": (
             "❓ <b>Как пользоваться</b>\n\n"
             "• Просто напишите вопрос — ответит выбранная модель\n"
-            "• «Нарисуй …» — сделаю картинку\n"
-            "• Пришлите PDF, Word, Excel или фото — разберу\n"
+            "• «Нарисуй …» или /image — картинка; /video — ролик; /studio — мультфильм\n"
+            "• Пришлите PDF, Word, Excel, фото или голосовое — разберу\n"
             "• «Запомни …» — сохраню в память\n\n"
-            "/model — выбрать модель · /new — новый чат\n"
-            "/balance — кредиты · /help — эта справка\n\n"
+            "/model — модель · /new — новый чат · /balance — кредиты · /topup — пополнить\n"
+            "/profile — профиль · /referral — пригласить · /help — эта справка\n\n"
             "Веб-версия: esai.kg — тот же аккаунт и тот же баланс."
         ),
         "file_too_big": (
@@ -174,11 +178,11 @@ TEXTS: dict[str, dict[str, str]] = {
         "help": (
             "❓ <b>How to use</b>\n\n"
             "• Just type a question — the selected model answers\n"
-            "• «Draw …» — I will make an image\n"
-            "• Send a PDF, Word, Excel or photo — I will read it\n"
-            "• «Remember …» — I will keep it in memory\n\n"
-            "/model — pick a model · /new — new chat\n"
-            "/balance — credits · /help — this help\n\n"
+            "• “Draw …” or /image — a picture; /video — a clip; /studio — a cartoon\n"
+            "• Send a PDF, Word, Excel, photo or voice message — I will handle it\n"
+            "• “Remember …” — saved to memory\n\n"
+            "/model — model · /new — new chat · /balance — credits · /topup — top up\n"
+            "/profile — profile · /referral — invite · /help — this help\n\n"
             "Web version: esai.kg — same account, same balance."
         ),
         "file_too_big": "Files over 20 MB cannot be downloaded by bots in Telegram.",
@@ -270,13 +274,13 @@ TEXTS: dict[str, dict[str, str]] = {
         "history_title": "📜 <b>Сиздин чаттар</b>",
         "history_opened": "«{title}» чаты ачылды. Жаза бериңиз.",
         "help": (
-            "❓ <b>Кантип колдонуу керек</b>\n\n"
-            "• Жөн эле суроо жазыңыз — тандалган модель жооп берет\n"
-            "• «Тарт …» — сүрөт жасайм\n"
-            "• PDF, Word, Excel же сүрөт жөнөтүңүз — окуп берем\n"
-            "• «Эстеп кал …» — эсимде сактайм\n\n"
-            "/model — модель тандоо · /new — жаңы чат\n"
-            "/balance — кредиттер · /help — жардам\n\n"
+            "❓ <b>Кантип колдонуу</b>\n\n"
+            "• Жөн гана суроо жазыңыз — тандалган модель жооп берет\n"
+            "• «Тарт …» же /image — сүрөт; /video — ролик; /studio — мультфильм\n"
+            "• PDF, Word, Excel, сүрөт же үн билдирүү жөнөтүңүз\n"
+            "• «Эстеп кал …» — эске сактайм\n\n"
+            "/model — модель · /new — жаңы чат · /balance — кредиттер · /topup — толуктоо\n"
+            "/profile — профиль · /referral — чакыруу · /help — бул жардам\n\n"
             "Веб-версия: esai.kg — ошол эле аккаунт жана баланс."
         ),
         "file_too_big": "20 МБ ашкан файлды Telegram боттордун жүктөөсүнө уруксат бербейт.",
@@ -348,14 +352,29 @@ QUICK_PROMPTS: dict[str, dict[str, str]] = {
 }
 
 
+# Ключи, объявленные здесь, — общие для всего бота. Снимок делается при
+# загрузке модуля, до того как экраны досыпят свои тексты.
+BASE_KEYS = frozenset(TEXTS["ru"])
+
+
 def register_texts(extra: dict[str, dict[str, str]]) -> None:
     """Досыпать тексты из другого модуля.
 
     Каждый экран держит свои строки у себя и регистрирует их при импорте —
     так один общий словарь не превращается в файл, который правят все сразу.
+
+    Общие ключи экран перебить не может: однажды «История операций» из экрана
+    оплаты подменила собой заголовок списка чатов, и человек в /history видел
+    чужую подпись. Такой ключ игнорируется с записью в лог — экрану нужно своё
+    имя (например tx_history_title).
     """
     for lang, bundle in (extra or {}).items():
-        TEXTS.setdefault(lang, {}).update(bundle or {})
+        target = TEXTS.setdefault(lang, {})
+        for key, value in (bundle or {}).items():
+            if key in BASE_KEYS:
+                logger.warning("текст %r уже общий — экран не может его переопределить", key)
+                continue
+            target[key] = value
 
 
 def t(lang: str, key: str, **kwargs) -> str:

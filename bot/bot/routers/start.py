@@ -19,6 +19,7 @@ from bot.keyboards.common import (
 )
 from bot.services.api import ApiError, api
 from bot.services.state import store
+from bot.services.tg_format import esc
 from bot.texts import quick_prompt, register_texts, t
 
 logger = logging.getLogger(__name__)
@@ -30,33 +31,9 @@ LINK_RE = re.compile(r"^link_([A-Za-z0-9]{6,32})$")
 SHORTCUTS = ("studio", "topup", "chat", "video", "image")
 
 register_texts({
-    "ru": {"continue_prompt": "Продолжи.", "more_title": "☰ <b>Ещё</b>",
-           "help": ("❓ <b>Как пользоваться</b>\n\n"
-                    "• Просто напишите вопрос — ответит выбранная модель\n"
-                    "• «Нарисуй …» или /image — картинка; /video — ролик; /studio — мультфильм\n"
-                    "• Пришлите PDF, Word, Excel, фото или голосовое — разберу\n"
-                    "• «Запомни …» — сохраню в память\n\n"
-                    "/model — модель · /new — новый чат · /balance — кредиты · /topup — пополнить\n"
-                    "/profile — профиль · /referral — пригласить · /help — эта справка\n\n"
-                    "Веб-версия: esai.kg — тот же аккаунт и тот же баланс.")},
-    "en": {"continue_prompt": "Continue.", "more_title": "☰ <b>More</b>",
-           "help": ("❓ <b>How to use</b>\n\n"
-                    "• Just type a question — the selected model answers\n"
-                    "• “Draw …” or /image — a picture; /video — a clip; /studio — a cartoon\n"
-                    "• Send a PDF, Word, Excel, photo or voice message — I will handle it\n"
-                    "• “Remember …” — saved to memory\n\n"
-                    "/model — model · /new — new chat · /balance — credits · /topup — top up\n"
-                    "/profile — profile · /referral — invite · /help — this help\n\n"
-                    "Web version: esai.kg — same account, same balance.")},
-    "kg": {"continue_prompt": "Улант.", "more_title": "☰ <b>Дагы</b>",
-           "help": ("❓ <b>Кантип колдонуу</b>\n\n"
-                    "• Жөн гана суроо жазыңыз — тандалган модель жооп берет\n"
-                    "• «Тарт …» же /image — сүрөт; /video — ролик; /studio — мультфильм\n"
-                    "• PDF, Word, Excel, сүрөт же үн билдирүү жөнөтүңүз\n"
-                    "• «Эстеп кал …» — эске сактайм\n\n"
-                    "/model — модель · /new — жаңы чат · /balance — кредиттер · /topup — толуктоо\n"
-                    "/profile — профиль · /referral — чакыруу · /help — бул жардам\n\n"
-                    "Веб-версия: esai.kg — ошол эле аккаунт жана баланс.")},
+    "ru": {"continue_prompt": "Продолжи.", "more_title": "☰ <b>Ещё</b>",},
+    "en": {"continue_prompt": "Continue.", "more_title": "☰ <b>More</b>",},
+    "kg": {"continue_prompt": "Улант.", "more_title": "☰ <b>Дагы</b>",},
 })
 
 
@@ -92,7 +69,7 @@ async def cmd_start(message: Message, command: CommandObject | None = None,
                     tg_user: dict | None = None, state: FSMContext | None = None) -> None:
     telegram_id = message.from_user.id
     args = getattr(command, "args", "") or ""
-    ref, promo = _parse_payload(args)
+    ref, _promo = _parse_payload(args)
     if state is not None:
         await state.clear()
 
@@ -104,28 +81,10 @@ async def cmd_start(message: Message, command: CommandObject | None = None,
         await link_from_deep_link(message, lang, link_code, tg_user or {})
         return
 
-    # Реферальную ссылку и промокод нужно передать в момент создания аккаунта,
-    # поэтому при первом /start токен получаем заново, уже с ними.
-    if ref or promo:
-        known = await store.get(telegram_id, "seen_start")
-        if not known:
-            await store.drop_token(telegram_id)
-            try:
-                auth_payload = await api.auth_telegram(
-                    tg_user or {
-                        "id": telegram_id,
-                        "first_name": message.from_user.first_name or "",
-                        "last_name": message.from_user.last_name or "",
-                        "username": message.from_user.username or "",
-                        "language_code": message.from_user.language_code or "",
-                    },
-                    chat_id=message.chat.id, ref=ref, promo=promo,
-                )
-                token = auth_payload["access"]
-                await store.set_token(telegram_id, token)
-            except ApiError:
-                logger.exception("повторный вход с реф-кодом не удался")
-
+    # Реферальный код и промокод уже ушли в первый обмен — их разобрал
+    # AuthMiddleware до создания аккаунта. Повторный обмен здесь только вредил:
+    # бэкенд применяет ref лишь при создании, а created=False в ответе прятал
+    # от новичка выбор языка и приветствие.
     await store.set(telegram_id, "seen_start", True)
     created = bool((auth_payload or {}).get("created"))
     user = (auth_payload or {}).get("user") or {}
@@ -151,7 +110,7 @@ async def cmd_start(message: Message, command: CommandObject | None = None,
     model = (await store.get(telegram_id, "model") or settings.default_model).split("/")[-1]
     await message.answer(
         t(lang, "welcome_back",
-          name=message.from_user.first_name or "",
+          name=esc(message.from_user.first_name or ""),
           balance=user.get("balance_tokens", "—"), model=model),
         parse_mode="HTML", reply_markup=main_menu(lang),
     )

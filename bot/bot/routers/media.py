@@ -3,14 +3,18 @@ from __future__ import annotations
 
 import io
 import logging
+import time
 
 from aiogram import F, Router
 from aiogram.enums import ChatAction
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from bot.routers.chat import run_chat, show_paywall
 from bot.services.api import ApiError, api
 from bot.services.state import store
+from bot.services.tg_format import esc
 from bot.texts import register_texts, t
 
 logger = logging.getLogger(__name__)
@@ -22,6 +26,8 @@ API_LIMIT = 15 * 1024 * 1024
 # Голосовые: предел сервера — две минуты и пять мегабайт.
 VOICE_MAX_SECONDS = 120
 VOICE_MAX_BYTES = 5 * 1024 * 1024
+# Присланный файл бот помнит полчаса: столько же годен снимок в состоянии.
+ATTACHMENT_TTL = 1800
 
 DOC_EXTENSIONS = (".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx", ".txt")
 IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".heic", ".heif")
@@ -74,6 +80,17 @@ register_texts({
         "doc_ask": "Документ боюнча сурооңузду жазыңыз.",
     },
 })
+
+
+class DocAsk(StatesGroup):
+    """«Свой вопрос» по документу.
+
+    Без состояния следующее сообщение подхватывал общий обработчик чата — уже
+    без вложения, и модель отвечала, не видя файла. Роутер media подключён до
+    chat, поэтому хендлер с фильтром состояния забирает текст первым.
+    """
+
+    question = State()
 
 
 def _doc_keyboard() -> InlineKeyboardMarkup:
@@ -141,7 +158,7 @@ async def on_document(message: Message, token: str, lang: str = "ru") -> None:
         await message.answer(t(lang, "file_no_text"))
         return
 
-    await store.set(message.from_user.id, "attachment", attachment, ttl=1800)
+    await store.set(message.from_user.id, "attachment", attachment, ttl=ATTACHMENT_TTL)
 
     caption = (message.caption or "").strip()
     if caption:
@@ -151,15 +168,23 @@ async def on_document(message: Message, token: str, lang: str = "ru") -> None:
     if attachment.get("type") == "image":
         await message.answer(t(lang, "photo_ready"), reply_markup=_photo_keyboard())
         return
-    await message.answer(t(lang, "doc_ready", name=name), parse_mode="HTML",
+    # Имя файла придумал не бот: «<» в нём Telegram считает открытым тегом
+    # и отвергает сообщение целиком.
+    await message.answer(t(lang, "doc_ready", name=esc(name)), parse_mode="HTML",
                          reply_markup=_doc_keyboard())
 
 
 @router.message(F.photo)
 async def on_photo(message: Message, token: str, lang: str = "ru", state=None) -> None:
     # Мастера (герой студии, кадр для видео) сами ждут фото — им не мешаем.
-    if state is not None and await state.get_state():
-        return
+    # А своё ожидание вопроса по документу фото отменяет: человек передумал,
+    # и молчать в ответ на присланное фото нельзя.
+    if state is not None:
+        current = await state.get_state()
+        if current == DocAsk.question.state:
+            await state.clear()
+        elif current:
+            return
     photo = message.photo[-1]  # последний размер — самый большой
     await message.bot.send_chat_action(message.chat.id, ChatAction.UPLOAD_PHOTO)
     content = await download(message, photo.file_id, photo.file_size or 0, lang)
@@ -169,7 +194,7 @@ async def on_photo(message: Message, token: str, lang: str = "ru", state=None) -
     attachment = await _upload(message, token, lang, "photo.jpg", content, "image/jpeg")
     if attachment is None:
         return
-    await store.set(message.from_user.id, "attachment", attachment, ttl=1800)
+    await store.set(message.from_user.id, "attachment", attachment, ttl=ATTACHMENT_TTL)
 
     caption = (message.caption or "").strip()
     if caption:
@@ -180,18 +205,51 @@ async def on_photo(message: Message, token: str, lang: str = "ru", state=None) -
 
 
 @router.callback_query(F.data.startswith("doc:"))
-async def doc_action(call: CallbackQuery, token: str, lang: str = "ru") -> None:
+async def doc_action(call: CallbackQuery, token: str, lang: str = "ru",
+                     state: FSMContext | None = None) -> None:
     key = call.data.split(":", 1)[1]
     attachment = await store.get(call.from_user.id, "attachment")
     await call.answer()
     if not attachment:
         return
     if key == "ask":
+        # Документ держим при себе до самого вопроса — иначе он потеряется.
+        if state is not None:
+            await state.set_state(DocAsk.question)
+            await state.update_data(attachment=attachment, attachment_at=time.time())
         await call.message.answer(t(lang, "doc_ask"))
         return
+    # Нажали готовую кнопку вместо обещанного вопроса — ждать его незачем,
+    # иначе следующая фраза уйдёт в чат с молча подшитым документом.
+    if state is not None and await state.get_state() == DocAsk.question.state:
+        await state.clear()
     prompt = DOC_ACTIONS.get(key, ("", ""))[1]
     if prompt:
         await run_chat(call.message, token, lang, prompt, attachments=[attachment])
+
+
+@router.message(DocAsk.question, F.text & ~F.text.startswith("/"))
+async def doc_question(message: Message, token: str, lang: str = "ru",
+                       state: FSMContext | None = None) -> None:
+    """Вопрос по документу: уходит в чат вместе с самим документом."""
+    data = await state.get_data() if state is not None else {}
+    if state is not None:
+        await state.clear()
+    text = (message.text or "").strip()
+    if not text:
+        return
+    # Свежая загрузка важнее снимка из состояния: человек мог прислать другой
+    # файл, не нажимая кнопок. Снимок — запасной, когда память бота уже стёрла
+    # вложение по TTL. Но и он не вечен: состояние лежит в Redis без срока, и
+    # без этой проверки фраза, написанная через сутки после нажатия кнопки,
+    # утащила бы с собой вчерашний договор — кредиты за его текст и ответ не о том.
+    attachment = await store.get(message.from_user.id, "attachment")
+    if attachment is None:
+        saved_at = data.get("attachment_at")
+        if isinstance(saved_at, (int, float)) and time.time() - saved_at <= ATTACHMENT_TTL:
+            attachment = data.get("attachment")
+    await run_chat(message, token, lang, text,
+                   attachments=[attachment] if attachment else None)
 
 
 @router.callback_query(F.data.startswith("ph:"))
@@ -224,37 +282,61 @@ async def on_voice(message: Message, token: str, lang: str = "ru") -> None:
     if duration > VOICE_MAX_SECONDS:
         await message.answer(t(lang, "voice_too_long", max=VOICE_MAX_SECONDS))
         return
-    await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
-    content = await download(message, media.file_id, getattr(media, "file_size", 0) or 0, lang,
-                             limit=VOICE_MAX_BYTES, too_big_key="voice_too_big")
-    if content is None:
+    # Распознавание стоит кредитов, поэтому занятость проверяем ДО обращения к
+    # API: раньше второе голосовое успевало оплатиться, а вопрос не задавался —
+    # run_chat упирался в тот же замок и молча выходил. Замок берём тем же
+    # публичным take_busy, держим на время распознавания и отпускаем прямо
+    # перед run_chat: он возьмёт его сам.
+    user_id = message.from_user.id
+    if not await store.take_busy(user_id):
+        if not await store.warned_recently(user_id):
+            await message.answer(t(lang, "busy"))
         return
-    mime = getattr(media, "mime_type", None) or "audio/ogg"
-    status = await message.answer(t(lang, "voice_listening"))
+
+    text = ""
     try:
-        result = await api.transcribe(token, content, mime, lang=lang,
-                                      telegram_id=message.from_user.id)
-    except ApiError as exc:
+        await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
+        content = await download(message, media.file_id, getattr(media, "file_size", 0) or 0, lang,
+                                 limit=VOICE_MAX_BYTES, too_big_key="voice_too_big")
+        if content is None:
+            return
+        mime = getattr(media, "mime_type", None) or "audio/ogg"
+        status = await message.answer(t(lang, "voice_listening"))
+        try:
+            result = await api.transcribe(token, content, mime, lang=lang,
+                                          telegram_id=user_id)
+        except ApiError as exc:
+            try:
+                await status.delete()
+            except Exception:
+                pass
+            if exc.is_paywall:
+                await show_paywall(message, lang, exc)
+            elif exc.code == "too_long":
+                await message.answer(t(lang, "voice_too_long", max=VOICE_MAX_SECONDS))
+            else:
+                await message.answer(t(lang, "voice_failed"))
+            return
+        text = ((result or {}).get("text") or "").strip()
         try:
             await status.delete()
         except Exception:
             pass
-        if exc.is_paywall:
-            await show_paywall(message, lang, exc)
-        elif exc.code == "too_long":
-            await message.answer(t(lang, "voice_too_long", max=VOICE_MAX_SECONDS))
-        else:
-            await message.answer(t(lang, "voice_failed"))
-        return
-    text = ((result or {}).get("text") or "").strip()
-    try:
-        await status.delete()
-    except Exception:
-        pass
-    if not text:
-        await message.answer(t(lang, "voice_empty"))
-        return
-    await message.answer(t(lang, "voice_said", text=text[:1500],
-                           credits=(result or {}).get("tokens_charged", 0)),
-                         parse_mode="HTML")
-    await run_chat(message, token, lang, text)
+        if not text:
+            await message.answer(t(lang, "voice_empty"))
+            return
+        # Расшифровку писали не мы: «<» в ней Telegram считает тегом. И даже
+        # если показать её всё-таки не вышло, распознавание уже оплачено —
+        # вопрос обязан уйти в чат, иначе деньги списаны впустую.
+        try:
+            await message.answer(t(lang, "voice_said", text=esc(text[:1500]),
+                                   credits=(result or {}).get("tokens_charged", 0)),
+                                 parse_mode="HTML")
+        except Exception:
+            logger.warning("расшифровку показать не удалось, вопрос уходит как есть",
+                           exc_info=True)
+    finally:
+        await store.free_busy(user_id)
+
+    if text:
+        await run_chat(message, token, lang, text)

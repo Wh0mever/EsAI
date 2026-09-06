@@ -10,6 +10,7 @@ import logging
 import re
 
 from aiogram import F, Router
+from aiogram.exceptions import TelegramBadRequest
 from aiogram.filters import Command, CommandObject
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
@@ -17,9 +18,10 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 
 from bot.keyboards.common import rows_of
 from bot.routers.chat import run_chat, site_url
-from bot.routers.models import _fetch
+from bot.routers.models import _fetch, _price
 from bot.services.api import ApiError, api
 from bot.services.state import store
+from bot.services.tg_format import esc, plain
 from bot.texts import register_texts, t
 
 logger = logging.getLogger(__name__)
@@ -46,6 +48,8 @@ register_texts({
         "img_pick_model": "🧠 Выберите модель:",
         "img_result_caption": "{prompt} · {model} · {ar}",
         "img_no_last": "Сначала нарисуйте картинку: /image",
+        "img_no_vision": ("Сейчас нет модели, которая умеет менять готовое фото. "
+                          "Опишите картинку словами — нарисую заново: /image"),
     },
     "en": {
         "img_ask": "🎨 Describe the image in one phrase — or send a photo with a caption saying what to change.",
@@ -64,6 +68,8 @@ register_texts({
         "img_pick_model": "🧠 Pick a model:",
         "img_result_caption": "{prompt} · {model} · {ar}",
         "img_no_last": "Draw an image first: /image",
+        "img_no_vision": ("No model that can edit an existing photo is available right now. "
+                          "Describe the image in words and I will draw a new one: /image"),
     },
     "kg": {
         "img_ask": "🎨 Сүрөттү бир сүйлөм менен сүрөттөңүз — же эмнени өзгөртүү керектигин жазып сүрөт жөнөтүңүз.",
@@ -82,6 +88,8 @@ register_texts({
         "img_pick_model": "🧠 Моделди тандаңыз:",
         "img_result_caption": "{prompt} · {model} · {ar}",
         "img_no_last": "Адегенде сүрөт тартыңыз: /image",
+        "img_no_vision": ("Даяр сүрөттү өзгөртө турган модель азыр жок. "
+                          "Сүрөттү сөз менен сүрөттөңүз — жаңысын тартам: /image"),
     },
 })
 
@@ -96,12 +104,23 @@ async def _image_models(token: str, lang: str, telegram_id: int) -> list:
     return [m for m in models if (m.get("category") == "image") and m.get("openrouter_id")]
 
 
-def _price(model: dict) -> str:
-    coeff = model.get("markup_coefficient")
+async def _models_or_none(message: Message, token: str, lang: str,
+                          telegram_id: int) -> list | None:
+    """Image-модели для экрана. None — человеку уже сказано, дальше идти нельзя.
+
+    Раньше ApiError (429/401/5xx) улетал наружу из мастера: на /image человек не
+    видел ничего, на кнопке — тишина и вечные часики.
+    """
     try:
-        return f"{int(float(coeff))} кр" if coeff is not None else ""
-    except (TypeError, ValueError):
-        return ""
+        models = await _image_models(token, lang, telegram_id)
+    except ApiError:
+        logger.warning("картинки: список моделей недоступен для %s", telegram_id)
+        await message.answer(t(lang, "server_down"))
+        return None
+    if not models:
+        await message.answer(t(lang, "img_no_models"))
+        return None
+    return models
 
 
 def _default_model(models: list) -> dict | None:
@@ -112,6 +131,36 @@ def _default_model(models: list) -> dict | None:
         if not m.get("locked"):
             return m
     return models[0] if models else None
+
+
+def _vision_model(models: list) -> dict | None:
+    """Модель для РЕДАКТИРОВАНИЯ фото — только та, что реально видит картинку.
+
+    Без supports_vision бэкенд молча выбрасывает вложение и рисует новое
+    изображение по тексту: человек платит за «редактирование», которого не было.
+    Лучше отказать заранее, чем списать за не тот результат.
+    """
+    vision = [m for m in models if m.get("supports_vision")]
+    if not vision:
+        return None
+    preferred = [m for m in vision
+                 if DEFAULT_EDIT_MODEL in (m.get("openrouter_id") or "") and not m.get("locked")]
+    unlocked = [m for m in vision if not m.get("locked")]
+    # Заблокированную берём последней: пусть бэкенд покажет пейвол, а не тишину.
+    return (preferred or unlocked or vision)[0]
+
+
+async def _edit_model(message: Message, token: str, lang: str,
+                      telegram_id: int) -> str | None:
+    """openrouter_id модели для правки фото; None — генерацию не запускаем."""
+    models = await _models_or_none(message, token, lang, telegram_id)
+    if models is None:
+        return None
+    chosen = _vision_model(models)
+    if chosen is None:
+        await message.answer(t(lang, "img_no_vision"))
+        return None
+    return chosen.get("openrouter_id") or DEFAULT_EDIT_MODEL
 
 
 def _card_keyboard(lang: str, ar: str) -> InlineKeyboardMarkup:
@@ -143,9 +192,8 @@ async def _save_draft(telegram_id: int, draft: dict) -> None:
 
 async def _show_card(message: Message, token: str, lang: str, telegram_id: int,
                      draft: dict, *, edit: bool = False) -> None:
-    models = await _image_models(token, lang, telegram_id)
-    if not models:
-        await message.answer(t(lang, "img_no_models"))
+    models = await _models_or_none(message, token, lang, telegram_id)
+    if models is None:
         return
     chosen = next((m for m in models if m.get("openrouter_id") == draft.get("model")), None) \
         or _default_model(models)
@@ -156,16 +204,29 @@ async def _show_card(message: Message, token: str, lang: str, telegram_id: int,
         balance = (await api.balance(token, lang=lang, telegram_id=telegram_id)).get("balance_tokens", "—")
     except ApiError:
         balance = "—"
-    text = t(lang, "img_card", prompt=draft.get("prompt", "")[:300], model=chosen.get("name", ""),
-             price=_price(chosen) or "", ar=draft["ar"], balance=balance)
+    # Промпт и имя модели — чужой текст: «<» в нём Telegram считает тегом и
+    # отвергает СООБЩЕНИЕ ЦЕЛИКОМ (на Message-пути человек видел ложное «не
+    # удалось получить ответ», на callback-пути — тишину).
+    text = t(lang, "img_card", prompt=esc(draft.get("prompt", "")[:300]),
+             model=esc(chosen.get("name", "")),
+             price=_price(chosen) or "", ar=draft["ar"], balance=esc(balance))
     markup = _card_keyboard(lang, draft["ar"])
     if edit:
         try:
             await message.edit_text(text, parse_mode="HTML", reply_markup=markup)
             return
         except Exception:
+            # Под фото/уже удалённым сообщением редактировать нечего — шлём новое.
             pass
-    await message.answer(text, parse_mode="HTML", reply_markup=markup)
+    try:
+        await message.answer(text, parse_mode="HTML", reply_markup=markup)
+    except TelegramBadRequest:
+        # Разметка всё равно не понравилась — карточка важнее оформления.
+        # parse_mode=None обязателен: у бота глобальный HTML
+        # (DefaultBotProperties), и без явного None aiogram подставит его снова,
+        # а сырые «<» из plain() отобьются второй ошибкой — уже непойманной.
+        logger.warning("картинки: карточка не прошла как HTML, шлю без разметки")
+        await message.answer(plain(text), parse_mode=None, reply_markup=markup)
 
 
 @router.message(Command("image"))
@@ -223,8 +284,11 @@ async def got_photo_prompt(message: Message, token: str, lang: str, state: FSMCo
         return
     caption = (message.caption or "").strip()
     if caption:
+        model = await _edit_model(message, token, lang, message.chat.id)
+        if not model:
+            return
         await _generate(message, token, lang, {"prompt": caption, "attachment": attachment,
-                                              "model": DEFAULT_EDIT_MODEL, "ar": ""})
+                                              "model": model, "ar": ""})
         return
     await state.set_state(ImageWizard.edit)
     await state.update_data(attachment=attachment)
@@ -238,8 +302,11 @@ async def got_edit_prompt(message: Message, token: str, lang: str, state: FSMCon
     attachment = data.get("attachment")
     if not attachment:
         return
+    model = await _edit_model(message, token, lang, message.chat.id)
+    if not model:
+        return
     await _generate(message, token, lang, {"prompt": message.text.strip(), "attachment": attachment,
-                                          "model": DEFAULT_EDIT_MODEL, "ar": ""})
+                                          "model": model, "ar": ""})
 
 
 INTENT_RE = re.compile(r"^\s*(?:пере)?(?:нарисуй|сгенерируй|создай|сделай|draw|paint|generate|create|make|сүрөт|тарт)",
@@ -272,7 +339,12 @@ async def _generate(message: Message, token: str, lang: str, draft: dict) -> Non
                           extra=extra, placeholder=t(lang, "drawing"),
                           result_markup=result_keyboard(lang), remember_prompt=False)
     if not done:
+        # Отказ (пейвол, сбой) — черновик оставляем: с ним человек повторит попытку.
         return
+    # Мастер отработал: черновик жил час и после генерации подменял собой
+    # последнюю картинку — кнопки под результатом уводили обратно в карточку,
+    # иногда со старым промптом.
+    await store.drop(telegram_id, "img_draft")
     atts = ((done.get("message") or {}).get("attachments") or [])
     image = next((a for a in atts if a.get("type") == "image"), None)
     if image:
@@ -287,6 +359,7 @@ async def _generate(message: Message, token: str, lang: str, draft: dict) -> Non
 
 @router.callback_query(F.data.startswith("i:ar:"))
 async def pick_ratio(call: CallbackQuery, token: str, lang: str) -> None:
+    """Пропорции на карточке мастера: только меняем карточку, кредитов не тратим."""
     ar = call.data.split(":", 2)[2]
     if ar not in ASPECT_RATIOS:
         await call.answer()
@@ -294,26 +367,45 @@ async def pick_ratio(call: CallbackQuery, token: str, lang: str) -> None:
     telegram_id = call.message.chat.id
     draft = await _draft(telegram_id)
     if not draft.get("prompt"):
-        # Кнопка из результата: перерисовать последнюю картинку с другими пропорциями.
-        draft = await store.get(telegram_id, "img_last") or {}
-        if not draft.get("prompt"):
+        # Карточка из прошлой сессии (черновик истёк или уже отрисован): берём
+        # промпт последней картинки, но рисовать человек подтверждает сам —
+        # молча списывать за нажатие на старой карточке нельзя.
+        last = await store.get(telegram_id, "img_last") or {}
+        if not last.get("prompt"):
             await call.answer(t(lang, "img_no_last"), show_alert=True)
             return
-        draft["ar"] = ar
-        await call.answer()
-        await _generate(call.message, token, lang, {**draft, "attachment": None})
-        return
+        draft = {"prompt": last.get("prompt"), "model": last.get("model")}
     draft["ar"] = ar
     await _save_draft(telegram_id, draft)
     await call.answer(ar)
     await _show_card(call.message, token, lang, telegram_id, draft, edit=True)
 
 
+@router.callback_query(F.data.startswith("i:rar:"))
+async def redraw_ratio(call: CallbackQuery, token: str, lang: str) -> None:
+    """Пропорции ПОД ГОТОВОЙ картинкой — всегда перерисовать последнюю.
+
+    Отдельный префикс нужен, чтобы не зависеть от того, жив ли ещё черновик
+    мастера: с общим «i:ar:» кнопка уводила в карточку вместо новой картинки.
+    """
+    ar = call.data.split(":", 2)[2]
+    await call.answer()
+    if ar not in ASPECT_RATIOS:
+        return
+    last = await store.get(call.message.chat.id, "img_last") or {}
+    if not last.get("prompt"):
+        await call.message.answer(t(lang, "img_no_last"))
+        return
+    await _generate(call.message, token, lang, {**last, "ar": ar, "attachment": None})
+
+
 @router.callback_query(F.data == "i:models")
 async def pick_model_menu(call: CallbackQuery, token: str, lang: str) -> None:
     telegram_id = call.message.chat.id
-    models = await _image_models(token, lang, telegram_id)
     await call.answer()
+    models = await _models_or_none(call.message, token, lang, telegram_id)
+    if models is None:
+        return
     buttons = [InlineKeyboardButton(
         text=f"{'🔒 ' if m.get('locked') else ''}{m.get('name')} · {_price(m)}",
         callback_data=f"i:m:{index}") for index, m in enumerate(models[:12])]
@@ -328,7 +420,13 @@ async def pick_model(call: CallbackQuery, token: str, lang: str) -> None:
     from bot.routers.chat import show_paywall
 
     telegram_id = call.message.chat.id
-    models = await _image_models(token, lang, telegram_id)
+    try:
+        models = await _image_models(token, lang, telegram_id)
+    except ApiError:
+        # Отвечаем ровно один раз: ниже call.answer() уже с именем модели.
+        await call.answer()
+        await call.message.answer(t(lang, "server_down"))
+        return
     try:
         chosen = models[int(call.data.split(":")[2])]
     except (IndexError, ValueError):
@@ -392,7 +490,7 @@ async def again(call: CallbackQuery, token: str, lang: str) -> None:
 @router.callback_query(F.data == "i:pickar")
 async def pick_ar_again(call: CallbackQuery, lang: str) -> None:
     await call.answer()
-    ratios = [InlineKeyboardButton(text=r, callback_data=f"i:ar:{r}") for r in ASPECT_RATIOS]
+    ratios = [InlineKeyboardButton(text=r, callback_data=f"i:rar:{r}") for r in ASPECT_RATIOS]
     await call.message.answer(t(lang, "img_pick_ar"),
                               reply_markup=InlineKeyboardMarkup(inline_keyboard=rows_of(ratios, 4)))
 
