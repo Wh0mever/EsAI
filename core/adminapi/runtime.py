@@ -63,6 +63,8 @@ KEYS = (
     "crypto_allowed_currencies",
     "crypto_fee_paid_by_user",
     "crypto_settlement_currency",
+    # Студия: сколько бесплатных примерок героя гости получают за сутки.
+    "studio_guest_tryon_daily_cap",
 )
 
 # Сентинел «в кэше пусто» — None невалиден: мы кэшируем и None («ключа нет в БД»).

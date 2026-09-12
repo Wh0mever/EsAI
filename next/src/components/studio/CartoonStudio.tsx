@@ -1,9 +1,24 @@
 "use client";
 
 import { useTranslation } from "react-i18next";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FiChevronDown, FiFilm, FiLoader, FiPlay, FiPlus, FiUser, FiZap } from "react-icons/fi";
 import { fetchData } from "@/tools/fetchData";
+import { trackFunnel } from "@/tools/funnel";
+import { getOrCreateDeviceKey } from "@/tools/deviceKey";
+import {
+  MAX_DRAFT_SCENES,
+  clearDraft,
+  emptyDraft,
+  isFreeTryUsed,
+  loadDraft,
+  markFreeTryUsed,
+  newSceneKey,
+  recallProject,
+  rememberProject,
+  saveDraft,
+  type StudioDraft,
+} from "@/lib/studioDraft";
 import SaveMediaButton from "@/components/ui/SaveMediaButton";
 import ShareButtons from "@/components/ui/ShareButtons";
 import { StudioAuthDialog, StudioPaywallDialog } from "./StudioDialogs";
@@ -34,10 +49,14 @@ type Preset = {
   duration: number;
   aspect_ratio: string;
   credits: number;
+  /** Цена примерки героя — показываем на кнопке до запуска. */
+  tryon_credits?: number;
   category: string;
   audience: "kids" | "adults";
   is_pick: boolean;
 };
+
+type AuthReason = "character" | "scene" | "tryon" | "render";
 
 type Category = { slug: string; title: string; emoji: string };
 
@@ -106,15 +125,25 @@ export default function CartoonStudio() {
   const [shortfall, setShortfall] = useState<
     { required: number; balance: number; kind?: "scene" | "character" } | null
   >(null);
-  const [authFor, setAuthFor] = useState<"character" | "scene" | null>(null);
+  const [authFor, setAuthFor] = useState<AuthReason | null>(null);
   const [authed, setAuthed] = useState(true);
+  // Лента гостя. Клиент: без регистрации человек выбирает героя, набирает
+  // сцены и видит результат — а войти просим, когда ему уже есть что терять.
+  // Живёт в браузере и после входа переезжает в настоящий проект.
+  const [draft, setDraft] = useState<StudioDraft | null>(null);
+  // Одна бесплатная примерка на устройство. Решает сервер, здесь только
+  // подпись кнопки: «бесплатно» или обычная.
+  const [freeTryUsed, setFreeTryUsed] = useState(false);
   const pollRef = useRef<number | null>(null);
   const heroRef = useRef<HTMLDivElement | null>(null);
   const timelineRef = useRef<HTMLDivElement | null>(null);
   // Примерка героя: кадр «этот герой в этой сцене». Готовые пары приходят с
   // сервера бесплатно и подставляются сами — клиент просил, чтобы выбранный
   // герой сразу был виден в примерах. Недостающие рисуются по кнопке.
-  const [tryOn, setTryOn] = useState<Record<number, string>>({});
+  // Кадры храним по героям: в ленте у каждой сцены может быть свой герой, и
+  // карточке нужен кадр именно её персонажа.
+  const [framesByChar, setFramesByChar] = useState<Record<number, Record<number, string>>>({});
+  const fetchedChars = useRef<Set<number>>(new Set());
   const [tryingOn, setTryingOn] = useState<number | null>(null);
   const [shareUrl, setShareUrl] = useState("");
   const [sharing, setSharing] = useState(false);
@@ -153,58 +182,103 @@ export default function CartoonStudio() {
     if (el) cardObserver.current?.observe(el);
   }, []);
 
-  // Готовые кадры выбранного героя. Их отдают бесплатно, поэтому подставляем
-  // сразу и молча: для человека это выглядит так, будто сцены сами
-  // перерисовались под его персонажа.
+  // Готовые кадры героев. Их отдают бесплатно, поэтому подставляем сразу и
+  // молча: для человека это выглядит так, будто сцены сами перерисовались под
+  // его персонажа. Спрашиваем по каждому герою один раз — и для выбранного, и
+  // для тех, кого поставили на отдельные сцены ленты.
+  const wantedChars = useMemo(() => {
+    const ids = new Set<number>();
+    if (character) ids.add(character.id);
+    for (const s of draft?.scenes || []) if (s.character_id) ids.add(s.character_id);
+    for (const s of project?.scenes || []) if (s.character?.id) ids.add(s.character.id);
+    return [...ids].sort((a, b) => a - b).join(",");
+  }, [character, draft, project]);
+
   useEffect(() => {
-    if (!character) {
-      setTryOn({});
-      return;
+    const ids = wantedChars ? wantedChars.split(",").map(Number) : [];
+    for (const id of ids) {
+      if (fetchedChars.current.has(id)) continue;
+      fetchedChars.current.add(id);
+      void (async () => {
+        const res = await fetchData<Record<string, string>>(
+          `cartoon/keyframes/?character_id=${id}`, "GET", null, true
+        );
+        if (!res.ok || !res.data) {
+          fetchedChars.current.delete(id);
+          return;
+        }
+        const map: Record<number, string> = {};
+        for (const [pid, url] of Object.entries(res.data)) map[Number(pid)] = url;
+        setFramesByChar((prev) => ({ ...prev, [id]: { ...map, ...(prev[id] || {}) } }));
+      })();
     }
-    let alive = true;
-    (async () => {
-      const res = await fetchData<Record<string, string>>(
-        `cartoon/keyframes/?character_id=${character.id}`, "GET", null, true
-      );
-      if (!alive || !res.ok || !res.data) return;
-      const map: Record<number, string> = {};
-      for (const [id, url] of Object.entries(res.data)) map[Number(id)] = url;
-      setTryOn(map);
-    })();
-    return () => {
-      alive = false;
-    };
-  }, [character]);
+  }, [wantedChars]);
+
+  const tryOn: Record<number, string> = (character && framesByChar[character.id]) || {};
+
+  /** Окно входа — и отметка в воронке: это главный шаг, который мы меряем. */
+  const openAuth = (reason: AuthReason) => {
+    setAuthFor(reason);
+    trackFunnel("studio_auth_prompt", { reason });
+  };
+
+  /** Окно «не хватает кредитов» — точка покупки, её тоже считаем. */
+  const openPaywall = (value: { required: number; balance: number; kind?: "scene" | "character" }) => {
+    setShortfall(value);
+    trackFunnel("studio_paywall", { kind: value.kind || "scene", required: value.required });
+  };
 
   /** Нарисовать кадр этой сцены с выбранным героем. */
   const tryOnScene = async (preset: Preset) => {
-    if (!authed) {
-      setAuthFor("character");
-      return;
-    }
     if (!character) {
       setNeedHero(true);
       heroRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
       return;
     }
+    trackFunnel("studio_tryon", { preset_id: preset.id, authed });
+    const heroId = character.id;
     setTryingOn(preset.id);
-    const res = await fetchData<{ image: string; charged: number }>(
-      `cartoon/presets/${preset.id}/try-on/`, "POST", { character_id: character.id }, true
+    // Гость шлёт запрос без токена: ответ «нужен вход» (403) иначе принимается
+    // за истёкшую сессию и уводит со страницы. Ключ устройства — чтобы сервер
+    // посчитал «одну бесплатную на устройство».
+    const res = await fetchData<{ image: string; charged: number; free?: boolean }>(
+      `cartoon/presets/${preset.id}/try-on/`, "POST", { character_id: heroId }, authed,
+      { "X-Device-Key": getOrCreateDeviceKey() }
     );
     setTryingOn(null);
     if (res.ok && res.data?.image) {
-      setTryOn((prev) => ({ ...prev, [preset.id]: res.data!.image }));
+      const image = res.data.image;
+      setFramesByChar((prev) => ({ ...prev, [heroId]: { ...(prev[heroId] || {}), [preset.id]: image } }));
+      if (res.data.free) {
+        markFreeTryUsed();
+        setFreeTryUsed(true);
+      }
       if (res.data.charged) void loadBalance();
       return;
     }
     const d = res.data as any;
+    if (d?.need_auth) {
+      if (d.reason === "used") {
+        markFreeTryUsed();
+        setFreeTryUsed(true);
+      }
+      openAuth("tryon");
+      return;
+    }
     if (d?.required) {
-      setShortfall({ required: Number(d.required), balance: Number(d.balance ?? 0),
-                     kind: "character" });
+      openPaywall({ required: Number(d.required), balance: Number(d.balance ?? 0), kind: "character" });
     } else {
       setError(d?.detail || t("studio_ui.err_tryon"));
     }
   };
+
+  /** Изменить ленту гостя и сразу сохранить её в браузере. */
+  const updateDraft = useCallback(
+    (change: (d: StudioDraft) => StudioDraft) => {
+      setDraft((prev) => saveDraft(change(prev || emptyDraft(character?.id ?? null))));
+    },
+    [character]
+  );
 
   const byAudience = (p: Preset) => audience === "all" || p.audience === audience;
 
@@ -292,20 +366,72 @@ export default function CartoonStudio() {
         setCategories(p.data.categories || []);
         setPopular(p.data.popular || []);
       }
-      if (c.ok && Array.isArray(c.data)) setCharacters(c.data);
+      const chars = c.ok && Array.isArray(c.data) ? c.data : [];
+      setCharacters(chars);
       if (!p.ok) setError(t("studio_ui.err_load"));
 
       // Витрина открыта всем, а свои мультфильмы есть только у вошедших:
       // по ответу этого запроса и понимаем, гость перед нами или нет.
       setAuthed(mine.ok);
+      // Первый шаг воронки. Неделю рекламы студия не отправляла его вовсе —
+      // и о 700 посетителях в день мы узнавали из чужой статистики.
+      trackFunnel("studio_view", { authed: mine.ok });
+
+      if (!mine.ok) {
+        // Гость: поднимаем его ленту, если он уже начинал собирать.
+        const saved = loadDraft();
+        if (saved) {
+          setDraft(saved);
+          const hero = chars.find((x) => x.id === saved.character_id);
+          if (hero) setCharacter(hero);
+        }
+        setFreeTryUsed(isFreeTryUsed());
+        setLoading(false);
+        return;
+      }
 
       // Продолжаем последний мультфильм, а не начинаем пустой: сцены стоят
       // денег, и терять их при перезагрузке страницы недопустимо.
       const mineList = mine.ok && Array.isArray(mine.data) ? mine.data : [];
       setProjects(mineList);
-      // Бот и Mini App открывают конкретный мультфильм: ?project=<id>.
+
+      // Только что вошёл, а в браузере лежит лента, собранная гостем: переносим
+      // её в настоящий проект и открываем именно его (просьба клиента: «вернуть
+      // пользователя именно в этот проект»).
+      let imported: Project | null = null;
+      const saved = loadDraft();
+      if (saved?.scenes.length && saved.character_id) {
+        // Сбой переноса не должен оставить студию на заглушке загрузки:
+        // черновик останется в браузере, и перенос повторится при следующем
+        // открытии (сервер по ключу черновика второго проекта не заведёт).
+        try {
+          const res = await fetchData<Project>("cartoon/projects/import/", "POST", {
+            draft_id: saved.id,
+            character_id: saved.character_id,
+            scenes: saved.scenes.map((s) => ({ preset_id: s.preset_id, character_id: s.character_id })),
+          }, true);
+          if (!alive) return;
+          if (res.ok && res.data) {
+            const fresh = res.data;
+            imported = fresh;
+            clearDraft();
+            setProjects((prev) => [fresh, ...prev.filter((x) => x.id !== fresh.id)]);
+          }
+        } catch {
+          // тихо: остаёмся на обычном открытии студии
+        }
+      } else if (saved) {
+        clearDraft();
+      }
+
+      // Бот и Mini App открывают конкретный мультфильм: ?project=<id>. После
+      // оплаты и входа возвращаемся к тому, что было открыто последним, — а
+      // не к «какому-нибудь последнему с сценами».
       const wanted = Number(new URLSearchParams(window.location.search).get("project") || 0);
-      const last = (wanted && mineList.find((x) => x.id === wanted))
+      const remembered = recallProject();
+      const last = imported
+        || (wanted && mineList.find((x) => x.id === wanted))
+        || (remembered && mineList.find((x) => x.id === remembered))
         || mineList.find((x) => x.scenes.length > 0);
       if (last) {
         setProject(last);
@@ -313,6 +439,12 @@ export default function CartoonStudio() {
       }
       setLoading(false);
       void loadBalance();
+      if (imported) {
+        window.setTimeout(
+          () => timelineRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }),
+          400
+        );
+      }
     })();
     return () => {
       alive = false;
@@ -369,11 +501,35 @@ export default function CartoonStudio() {
     return null;
   }, [project, character]);
 
+  // Открытый мультфильм запоминаем: после оплаты и входа студия откроет его же.
+  useEffect(() => {
+    if (project?.id) rememberProject(project.id);
+  }, [project?.id]);
+
   const addScene = async (preset: Preset) => {
-    // Гость свободно ходит по студии и видит цену, но лента живёт в его
-    // проекте — на этом шаге и просим войти, окном, а не строчкой внизу.
     if (!authed) {
-      setAuthFor("scene");
+      // Гость собирает ленту без входа (просьба клиента): она живёт в браузере,
+      // а войти мы попросим, когда он захочет снимать.
+      if (!character) {
+        setNeedHero(true);
+        heroRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+        return;
+      }
+      if ((draft?.scenes.length || 0) >= MAX_DRAFT_SCENES) {
+        setError(t("studio_ui.err_draft_full"));
+        return;
+      }
+      setNeedHero(false);
+      updateDraft((d) => ({
+        ...d,
+        character_id: d.character_id ?? character.id,
+        scenes: [...d.scenes, { key: newSceneKey(), preset_id: preset.id, character_id: null }],
+      }));
+      trackFunnel("studio_scene_add", { preset_id: preset.id, authed: false });
+      window.setTimeout(
+        () => timelineRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }),
+        60
+      );
       return;
     }
     if (!character) {
@@ -396,6 +552,7 @@ export default function CartoonStudio() {
     );
     setAdding(null);
     if (res.ok && res.data) {
+      trackFunnel("studio_scene_add", { preset_id: preset.id, authed: true });
       await refresh(p.id);
       // Лента ниже сцен, и без прокрутки человек не понимает, куда делась
       // добавленная сцена.
@@ -408,6 +565,7 @@ export default function CartoonStudio() {
   /** Снять сцену из ленты. Здесь и только здесь тратятся кредиты. */
   const renderScene = async (scene: StudioScene) => {
     if (!project) return;
+    trackFunnel("studio_render_click", { authed: true, scene_id: scene.id });
     markBusy(scene.id, true);
     const res = await fetchData<StudioScene>(
       `cartoon/scenes/${scene.id}/render/`, "POST", {}, true
@@ -419,10 +577,40 @@ export default function CartoonStudio() {
     }
     const d = res.data as any;
     if (d?.required) {
-      setShortfall({ required: Number(d.required), balance: Number(d.balance ?? 0) });
+      openPaywall({ required: Number(d.required), balance: Number(d.balance ?? 0) });
     } else {
       setError(d?.detail || t("studio_ui.err_scene"));
     }
+  };
+
+  // --- лента гостя: те же действия, что у проекта, но над черновиком ---
+  // У черновика нет id из базы, поэтому сцена ленты получает отрицательный id,
+  // а по нему восстанавливается её место в черновике.
+  const guestIndex = (scene: StudioScene) => -scene.id - 1;
+
+  const guestMove = (scene: StudioScene, dir: -1 | 1) =>
+    updateDraft((d) => {
+      const list = [...d.scenes];
+      const i = guestIndex(scene);
+      const j = i + dir;
+      if (i < 0 || j < 0 || j >= list.length) return d;
+      [list[i], list[j]] = [list[j], list[i]];
+      return { ...d, scenes: list };
+    });
+
+  const guestDelete = (scene: StudioScene) =>
+    updateDraft((d) => ({ ...d, scenes: d.scenes.filter((_, i) => i !== guestIndex(scene)) }));
+
+  const guestPickCharacter = (scene: StudioScene, characterId: number) =>
+    updateDraft((d) => ({
+      ...d,
+      scenes: d.scenes.map((s, i) => (i === guestIndex(scene) ? { ...s, character_id: characterId } : s)),
+    }));
+
+  /** Снимать гость не может — это деньги и аккаунт. Здесь и просим войти. */
+  const guestRender = (from: "scene" | "cta") => {
+    trackFunnel("studio_render_click", { authed: false, from });
+    openAuth("render");
   };
 
   /** Поставить на сцену другого героя. Работает, пока сцена не снята. */
@@ -529,7 +717,41 @@ export default function CartoonStudio() {
     if (project?.result_video) void makeShareLink();
   }, [project?.result_video, makeShareLink]);
 
-  const scenes = project ? [...project.scenes].sort((a, b) => a.order - b.order) : [];
+  // Лента гостя в том же виде, что и сцены проекта: так её рисует та же
+  // SceneTimeline, и гость видит ровно то, что увидит после входа.
+  const presetById = new Map(presets.map((p) => [p.id, p]));
+  const charById = new Map(characters.map((c) => [c.id, c]));
+  const guestScenes: StudioScene[] =
+    !authed && draft
+      ? draft.scenes.map((s, i) => {
+          const p = presetById.get(s.preset_id);
+          const heroId = s.character_id ?? draft.character_id ?? character?.id ?? null;
+          const hero = heroId ? charById.get(heroId) : undefined;
+          return {
+            id: -(i + 1),
+            order: i,
+            preset: {
+              id: s.preset_id,
+              title: p?.title || "…",
+              credits: p?.credits,
+              duration: p?.duration,
+              poster: p?.preview_poster,
+            },
+            character: hero ? { id: hero.id, name: hero.name, image: hero.image } : null,
+            keyframe: (heroId && framesByChar[heroId]?.[s.preset_id]) || "",
+            video: "",
+            status: "draft",
+            error: "",
+            credits_spent: 0,
+          };
+        })
+      : [];
+
+  const scenes = !authed
+    ? guestScenes
+    : project
+    ? [...project.scenes].sort((a, b) => a.order - b.order)
+    : [];
   const readyCount = scenes.filter((s) => s.status === "ready").length;
   const drafts = scenes.filter((s) => s.status === "draft").length;
   const working = scenes.some((s) => WORKING.includes(s.status));
@@ -594,7 +816,7 @@ export default function CartoonStudio() {
       />
       <StudioAuthDialog
         open={Boolean(authFor)}
-        reason={authFor ?? "scene"}
+        reason={authFor ?? "render"}
         onClose={() => setAuthFor(null)}
       />
 
@@ -641,13 +863,16 @@ export default function CartoonStudio() {
         )}
         <CharacterPicker
           authed={authed}
-          onNeedAuth={() => setAuthFor("character")}
-          onNeedCredits={(required, bal) => setShortfall({ required, balance: bal, kind: "character" })}
+          onNeedAuth={() => openAuth("character")}
+          onNeedCredits={(required, bal) => openPaywall({ required, balance: bal, kind: "character" })}
           characters={visibleCharacters}
           value={character}
           onPick={(c) => {
             setCharacter(c);
             setNeedHero(false);
+            trackFunnel("studio_hero_pick", { character_id: c.id, authed });
+            // У гостя выбранный герой — герой всей ленты, как у проекта.
+            if (!authed) updateDraft((d) => ({ ...d, character_id: c.id }));
           }}
           onCreated={(c) => setCharacters((prev) => [c, ...prev])}
           balance={balance}
@@ -788,7 +1013,13 @@ export default function CartoonStudio() {
                           ) : (
                             <FiUser />
                           )}
-                          {t("studio_ui.try_on")}
+                          {/* Цена — до нажатия (просьба клиента). Гостю первая
+                              примерка бесплатна, и об этом кнопка говорит прямо. */}
+                          {authed
+                            ? t("studio_ui.try_on_price", { credits: p.tryon_credits ?? 4 })
+                            : freeTryUsed
+                            ? t("studio_ui.try_on")
+                            : t("studio_ui.try_on_free")}
                         </button>
                       )}
                       <button
@@ -824,11 +1055,11 @@ export default function CartoonStudio() {
             )}
           </section>
 
-          {character && (
+          {(character || scenes.length > 0) && (
           <section ref={timelineRef} className="mt-8 flex flex-col gap-3 scroll-mt-24">
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-lg font-bold text-foreground">{t("studio_ui.step3")}</h2>
-              {project && scenes.length > 0 && (
+              {authed && project && scenes.length > 0 && (
                 <button
                   type="button"
                   onClick={startNewMovie}
@@ -838,7 +1069,7 @@ export default function CartoonStudio() {
                   {t("studio_ui.new_movie")}
                 </button>
               )}
-              {scenes.length > 0 && (
+              {authed && scenes.length > 0 && (
                 <span className="text-sm text-muted">
                   {t("studio_ui.progress", { ready: readyCount, total: scenes.length })}
                   {project && project.credits_spent > 0 &&
@@ -850,16 +1081,41 @@ export default function CartoonStudio() {
             <SceneTimeline
               scenes={scenes}
               busyIds={busyIds}
-              onMove={moveScene}
-              onRetry={retryScene}
-              onDelete={deleteScene}
-              onRender={renderScene}
+              onMove={authed ? moveScene : guestMove}
+              onRetry={authed ? retryScene : () => undefined}
+              onDelete={authed ? deleteScene : guestDelete}
+              onRender={authed ? renderScene : () => guestRender("scene")}
               characters={visibleCharacters.map((c) => ({
                 id: c.id, name: c.name, image: c.image,
               }))}
-              onPickCharacter={setSceneCharacter}
+              onPickCharacter={authed ? setSceneCharacter : guestPickCharacter}
             />
 
+            {/* Гость дособрал ленту: одна понятная кнопка вместо «Собрать» и
+                прогресса съёмки, которых у него ещё нет. */}
+            {!authed && scenes.length > 0 && (
+              <div className="flex flex-col gap-3 rounded-2xl border border-accent/40 bg-accent/5 p-4 sm:flex-row sm:items-center">
+                <div className="flex-1">
+                  <p className="text-sm font-semibold text-foreground">
+                    {t("studio_ui.guest_cta_title", { count: scenes.length })}
+                  </p>
+                  <p className="mt-0.5 text-xs text-muted">{t("studio_ui.guest_cta_note")}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => guestRender("cta")}
+                  className="inline-flex items-center justify-center gap-2 rounded-full bg-accent px-5 py-2.5 text-sm font-bold text-on-accent transition-colors hover:bg-accent-strong cursor-pointer"
+                >
+                  <FiFilm />
+                  {t("studio_ui.guest_cta_btn")}
+                </button>
+              </div>
+            )}
+            {!authed && scenes.length === 0 && (
+              <span className="text-xs text-muted-2">{t("studio_ui.empty_hint")}</span>
+            )}
+
+            {authed && (
             <div className="flex flex-wrap items-center gap-3">
               <button
                 type="button"
@@ -888,6 +1144,7 @@ export default function CartoonStudio() {
                 <span className="text-xs text-muted-2">{t("studio_ui.empty_hint")}</span>
               )}
             </div>
+            )}
           </section>
           )}
 

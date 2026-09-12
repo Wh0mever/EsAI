@@ -86,6 +86,52 @@ def _payment_stage(p: Payment) -> str:
     return "left"
 
 
+def studio_report(since) -> list:
+    """Воронка студии: где гость теряется между первым экраном и оплатой.
+
+    Шаги не строго последовательны (примерку можно пропустить), поэтому доля
+    считается от открывших студию, а не от предыдущего шага.
+    """
+    from cartoon.models import CartoonGuestTryOn, CartoonProject
+
+    ev = FunnelEvent.objects.filter(created_at__gte=since, name__startswith="studio_")
+    counts = dict(ev.values_list("name").annotate(n=Count("device_key", distinct=True)))
+
+    # «Вошёл после студии»: устройство открывало студию гостем, а потом
+    # появилось в событиях уже с пользователем.
+    guest_devices = set(
+        ev.filter(name="studio_view", user__isnull=True).exclude(device_key="")
+        .values_list("device_key", flat=True))
+    registered = (FunnelEvent.objects.filter(created_at__gte=since, device_key__in=guest_devices,
+                                             user__isnull=False)
+                  .values("device_key").distinct().count()) if guest_devices else 0
+
+    paid = 0
+    for p in Payment.objects.filter(created_at__gte=since, success=True,
+                                    request__token_purchase__isnull=False):
+        if "studio" in str((p.request or {}).get("return_to") or ""):
+            paid += 1
+
+    rows = [
+        ("studio_view", "Открыли студию", counts.get("studio_view", 0)),
+        ("studio_hero_pick", "Выбрали героя", counts.get("studio_hero_pick", 0)),
+        ("studio_scene_add", "Добавили сцену в ленту", counts.get("studio_scene_add", 0)),
+        ("studio_tryon", "Нажали «Примерить»", counts.get("studio_tryon", 0)),
+        ("guest_free_tryon", "Получили бесплатную примерку",
+         CartoonGuestTryOn.objects.filter(created_at__gte=since).count()),
+        ("studio_auth_prompt", "Увидели окно входа", counts.get("studio_auth_prompt", 0)),
+        ("registered", "Вошли после студии", registered),
+        ("draft_import", "Лента перенесена после входа",
+         CartoonProject.objects.filter(created_at__gte=since).exclude(import_key="").count()),
+        ("studio_render_click", "Нажали «Снять сцену»", counts.get("studio_render_click", 0)),
+        ("studio_paywall", "Не хватило кредитов", counts.get("studio_paywall", 0)),
+        ("paid", "Оплатили из студии", paid),
+    ]
+    top = rows[0][2]
+    return [{"key": k, "label": label, "count": n,
+             "share": round(n * 100 / top) if top else None} for k, label, n in rows]
+
+
 def funnel_report(days: int = 30) -> dict:
     """Сводка воронки за период."""
     since = timezone.now() - timedelta(days=days)
@@ -168,6 +214,7 @@ def funnel_report(days: int = 30) -> dict:
 
     return {
         "days": days,
+        "studio": studio_report(since),
         "steps": steps,
         "reasons": reasons,
         "by_currency": by_currency,

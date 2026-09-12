@@ -66,7 +66,11 @@ class FunnelEvent(models.Model):
     Гость узнаётся по тому же ключу устройства, что и скидка при уходе, —
     он лежит в браузере и общий на весь сайт.
     """
-    NAMES = ("pricing_view", "topup_click", "studio_view", "studio_scene_add",
+    NAMES = ("pricing_view", "topup_click",
+             # Студия: от первого экрана до оплаты. Шаги заведены давно, но фронт
+             # их не отправлял — неделя рекламы прошла без единой цифры.
+             "studio_view", "studio_hero_pick", "studio_scene_add", "studio_tryon",
+             "studio_auth_prompt", "studio_render_click", "studio_paywall",
              # Крипта: между «выбрал монету» и «оплатил» человек уходит в свой
              # кошелёк, и без этих шагов видно только начало и конец пути.
              "crypto_currency_pick", "crypto_invoice_created", "crypto_paid",

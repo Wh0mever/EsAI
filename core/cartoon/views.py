@@ -105,10 +105,18 @@ def preset_json(p: CartoonPreset, lang: str = "ru") -> dict:
         "duration": p.duration,
         "aspect_ratio": p.aspect_ratio,
         "credits": p.estimated_credits(),
+        # Цена примерки героя — её показываем на кнопке ДО запуска (просьба
+        # клиента): тот же расчёт, что и списание в PresetTryOnView.
+        "tryon_credits": _tryon_price(p),
         "category": p.category.slug if p.category_id else "",
         "audience": p.audience,
         "is_pick": p.is_pick,
     }
+
+
+def _tryon_price(preset) -> int:
+    """Во сколько обходится кадр «герой в сцене». Одна формула на витрину и списание."""
+    return max(1, int(float(preset.image_model.markup_coefficient or 1))) if preset.image_model_id else 1
 
 
 def category_json(c, lang: str = "ru") -> dict:
@@ -381,6 +389,71 @@ class ProjectsView(StudioAPIView):
         return Response(project_json(project, _lang(request)), status=status.HTTP_201_CREATED)
 
 
+class ProjectImportView(StudioAPIView):
+    """POST — перенести ленту, собранную гостем, в настоящий проект.
+
+    Клиент: «после авторизации сохраняем героя, сцены и весь текущий проект и
+    возвращаем пользователя именно в этот проект». Гость собирает ленту в
+    браузере — в базе у него проектов нет, — а после входа фронт отдаёт её
+    сюда целиком.
+
+    Здесь ничего не списывается: сцены встают в ленту черновиками, как при
+    обычном добавлении. Готовые кадры подставляются сразу.
+    """
+
+    MAX_SCENES = 30
+
+    def post(self, request):
+        from django.db import transaction
+
+        data = request.data if isinstance(request.data, dict) else {}
+        key = str(data.get("draft_id") or "").strip()[:64]
+        lang = _lang(request)
+        if key:
+            existing = CartoonProject.objects.filter(user=request.user, import_key=key).first()
+            if existing:
+                return Response(project_json(existing, lang))
+
+        character = _pick_character(request, data.get("character_id"))
+        if not character:
+            return Response({"detail": "Выберите персонажа"}, status=status.HTTP_400_BAD_REQUEST)
+
+        rows = data.get("scenes") if isinstance(data.get("scenes"), list) else []
+        rows = [r for r in rows if isinstance(r, dict)][: self.MAX_SCENES]
+        ids = []
+        for r in rows:
+            try:
+                ids.append(int(r.get("preset_id")))
+            except (TypeError, ValueError):
+                ids.append(None)
+        presets = {p.pk: p for p in CartoonPreset.objects.filter(
+            pk__in=[i for i in ids if i], is_active=True)}
+
+        with transaction.atomic():
+            project = CartoonProject.objects.create(
+                user=request.user,
+                title=(str(data.get("title") or "") or "Мой мультфильм").strip()[:140],
+                character=character,
+                aspect_ratio="16:9",
+                import_key=key,
+            )
+            order = 0
+            for r, pid in zip(rows, ids):
+                preset = presets.get(pid)
+                if not preset:
+                    continue
+                CartoonScene.objects.create(
+                    project=project, preset=preset,
+                    character=_pick_character(request, r.get("character_id")),
+                    order=order, status=CartoonScene.STATUS_DRAFT,
+                )
+                order += 1
+
+        for scene in project.scenes.select_related("project__character", "character"):
+            _attach_ready_keyframe(scene)
+        return Response(project_json(project, lang), status=status.HTTP_201_CREATED)
+
+
 class ProjectDetailView(StudioAPIView):
     """GET — состояние проекта (фронт опрашивает во время генерации).
     DELETE — удалить черновик."""
@@ -469,7 +542,7 @@ class KeyframesView(StudioPublicAPIView):
         return Response({str(r.preset_id): _media(r.image) for r in rows})
 
 
-class PresetTryOnView(StudioAPIView):
+class PresetTryOnView(StudioPublicAPIView):
     """POST — показать сцену с выбранным героем ещё до съёмки.
 
     Клиент: «выбрал кота — и видно, как он будет выглядеть в сцене». Рисуем тот
@@ -499,7 +572,12 @@ class PresetTryOnView(StudioAPIView):
         if ready and ready.image:
             return Response({"image": _media(ready.image), "charged": 0})
 
-        price = max(1, int(float(preset.image_model.markup_coefficient or 1)))
+        # Гость: одна примерка без входа, дальше — регистрация. Готовые пары
+        # выше отдаются всем и всегда, в лимит они не входят: они ничего не стоят.
+        if not request.user.is_authenticated:
+            return _guest_try_on(request, preset, character)
+
+        price = _tryon_price(preset)
         balance = int(getattr(request.user, "token_balance", 0) or 0)
         if balance < price:
             return Response({"detail": "Недостаточно кредитов", "required": price,
@@ -514,6 +592,73 @@ class PresetTryOnView(StudioAPIView):
             return Response({"detail": f"Кадр не получился: {exc}"[:200]},
                             status=status.HTTP_502_BAD_GATEWAY)
         return Response({"image": _media(path), "charged": charged})
+
+
+def _guest_try_on(request, preset, character) -> Response:
+    """Бесплатная примерка для гостя — одна на устройство.
+
+    Ответ «нужен вход» отдаём 403 с need_auth, а не 401: на 401 фронт пробует
+    обновить токен и может увести человека со страницы, а здесь нужно только
+    показать окно «ваш проект сохранится».
+    """
+    from django.conf import settings as dj_settings
+    from django.core.cache import cache
+    from django.db import IntegrityError
+    from django.utils import timezone
+    from datetime import timedelta
+
+    from adminapi.runtime import get_runtime
+    from users.antifraud import get_client_ip
+
+    from .models import CartoonGuestTryOn
+    from .services import get_or_create_keyframe
+
+    def need_auth(reason: str) -> Response:
+        return Response({"detail": "Войдите, чтобы продолжить примерку",
+                         "need_auth": True, "reason": reason},
+                        status=status.HTTP_403_FORBIDDEN)
+
+    device_key = (request.headers.get("X-Device-Key") or "").strip()[:64]
+    # Без ключа устройства лимит «одна на устройство» не посчитать — значит,
+    # и бесплатной примерки нет: иначе она бесконечна.
+    if len(device_key) < 16:
+        return need_auth("no_device")
+    if CartoonGuestTryOn.objects.filter(device_key=device_key).exists():
+        return need_auth("used")
+
+    since = timezone.now() - timedelta(hours=24)
+    ip = get_client_ip(request)
+    per_ip = int(getattr(dj_settings, "STUDIO_GUEST_TRYON_PER_IP_DAY", 3))
+    if ip and CartoonGuestTryOn.objects.filter(ip=ip, created_at__gte=since).count() >= per_ip:
+        return need_auth("ip_limit")
+    try:
+        cap = int(get_runtime("studio_guest_tryon_daily_cap",
+                              getattr(dj_settings, "STUDIO_GUEST_TRYON_DAILY_CAP", 100)))
+    except (TypeError, ValueError):
+        cap = int(getattr(dj_settings, "STUDIO_GUEST_TRYON_DAILY_CAP", 100))
+    if CartoonGuestTryOn.objects.filter(created_at__gte=since).count() >= cap:
+        return need_auth("daily_cap")
+
+    # Две вкладки одного гостя разом не должны получить два бесплатных кадра:
+    # запись о примерке появляется только после рисования, а рисование долгое.
+    lock = f"studio:guest-tryon:{device_key}"
+    if not cache.add(lock, "1", timeout=180):
+        return Response({"detail": "Кадр уже рисуется — подождите несколько секунд",
+                         "busy": True}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+    try:
+        path, _ = get_or_create_keyframe(preset, character, user=None)
+        try:
+            CartoonGuestTryOn.objects.create(
+                device_key=device_key, ip=ip or None, preset=preset, character=character)
+        except IntegrityError:
+            pass
+    except Exception as exc:
+        logger.exception("бесплатная примерка гостя: кадр не нарисовался")
+        return Response({"detail": f"Кадр не получился: {exc}"[:200]},
+                        status=status.HTTP_502_BAD_GATEWAY)
+    finally:
+        cache.delete(lock)
+    return Response({"image": _media(path), "charged": 0, "free": True})
 
 
 def _scene_price(scene, *, keyframe_ready: bool) -> int:
