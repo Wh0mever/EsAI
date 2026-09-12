@@ -37,6 +37,12 @@ REFERRAL_BONUS_TOKENS = env.int("REFERRAL_BONUS_TOKENS", default=3)
 # Значение можно переопределить в рантайме через админку (AppSetting
 # "REFERRAL_PERCENT", см. adminapi.runtime) — env здесь лишь fallback.
 REFERRAL_PERCENT = env.int("REFERRAL_PERCENT", default=10)
+# Студия: бесплатная примерка героя для гостя (одна на устройство). Кадр
+# рисуется за наш счёт (~3 цента), поэтому два предохранителя: сколько раз
+# за сутки с одного IP и сколько всего за сутки. Потолок правится из админки
+# (studio_guest_tryon_daily_cap); 0 — бесплатные примерки выключены.
+STUDIO_GUEST_TRYON_DAILY_CAP = env.int("STUDIO_GUEST_TRYON_DAILY_CAP", default=100)
+STUDIO_GUEST_TRYON_PER_IP_DAY = env.int("STUDIO_GUEST_TRYON_PER_IP_DAY", default=3)
 
 # --- Telegram-бот -------------------------------------------------------
 # Токен ТОВАРНОГО бота (не того, через который вход на сайте): у него свой

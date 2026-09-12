@@ -14,6 +14,7 @@ import SocialAuthButtons from "@/components/auth/SocialAuthButtons";
 import { useBonusSettings } from "@/hooks/useBonusSettings";
 import { trackRegistration } from "@/tools/analytics";
 import { deviceKeyHeader } from "@/tools/deviceKey";
+import { rememberReturnPath, takeReturnPath } from "@/tools/authNext";
 
 const INPUT_CLASS =
 	"w-full rounded-xl bg-surface-2 border border-border text-foreground placeholder:text-muted-2 text-sm px-4 py-3 focus:border-accent focus:outline-none transition-colors";
@@ -87,6 +88,10 @@ export default function SignIn() {
 			const params = new URLSearchParams(window.location.search);
 			const ref = params.get("ref");
 			if (ref) Cookies.set("esai_ref", ref, { expires: 30, sameSite: "lax" });
+			// Куда вернуть после входа. Запоминаем сразу: кнопки Google и
+			// Telegram уводят со страницы, и параметр из адреса до колбэка не доедет.
+			const next = params.get("next");
+			if (next) rememberReturnPath(next);
 			// Промокод: из ?promo или ранее сохранённой cookie → префилл поля.
 			const promoParam = params.get("promo");
 			const saved = Cookies.get("esai_promo");
@@ -117,7 +122,12 @@ export default function SignIn() {
 			setAlertType(responseData.status || "warning");
 			if (responseData.status === "success") {
 				setTimeout(() => {
-					window.location.href = "/dashboard/text-chat";
+					// Раньше здесь всегда был чат — и гость, пришедший из студии
+					// или тарифов «с возвратом», терял то, ради чего входил.
+					window.location.href = takeReturnPath(
+						"/dashboard/text-chat",
+						new URLSearchParams(window.location.search).get("next"),
+					);
 				}, 1500);
 			}
 		}

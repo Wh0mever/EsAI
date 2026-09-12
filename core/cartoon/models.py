@@ -236,6 +236,11 @@ class CartoonProject(models.Model):
         CartoonCharacter, on_delete=models.SET_NULL, null=True, blank=True,
         related_name="projects", verbose_name="Персонаж")
     aspect_ratio = models.CharField(max_length=8, default="16:9", verbose_name="Пропорции")
+    # Лента, собранная гостем до входа, приезжает сюда одним запросом. Ключ
+    # черновика не даёт завести второй такой же проект, если страница после
+    # входа перезагрузилась, пока шёл перенос.
+    import_key = models.CharField(max_length=64, blank=True, default="", db_index=True,
+                                  verbose_name="Ключ гостевого черновика")
 
     status = models.CharField(max_length=12, choices=STATUS_CHOICES, default=STATUS_DRAFT,
                               verbose_name="Состояние")
@@ -348,3 +353,33 @@ class CartoonKeyframe(models.Model):
 
     def __str__(self):
         return f"{self.character_id} в {self.preset_id}"
+
+
+class CartoonGuestTryOn(models.Model):
+    """Бесплатная примерка героя, которую получил гость.
+
+    Клиент: человек должен сначала попробовать студию и увидеть результат, а
+    регистрацию мы получаем после. Поэтому одну примерку гость делает без
+    входа — но одну на устройство, а не на героя: кадр рисуется за наш счёт.
+
+    Устройство узнаётся по тому же ключу, что и везде на сайте. Он живёт в
+    браузере и чистится вместе с ним, поэтому рядом ещё два ограничения —
+    на IP за сутки и общий дневной потолок (см. views._guest_try_on).
+    """
+    device_key = models.CharField(max_length=64, unique=True, verbose_name="Ключ устройства")
+    ip = models.GenericIPAddressField(null=True, blank=True, db_index=True, verbose_name="IP")
+    preset = models.ForeignKey(
+        CartoonPreset, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="guest_try_ons", verbose_name="Сцена")
+    character = models.ForeignKey(
+        CartoonCharacter, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="guest_try_ons", verbose_name="Герой")
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ("-created_at",)
+        verbose_name = "Бесплатная примерка гостя"
+        verbose_name_plural = "Бесплатные примерки гостей"
+
+    def __str__(self):
+        return f"{self.device_key[:8]} · {self.created_at:%Y-%m-%d %H:%M}"

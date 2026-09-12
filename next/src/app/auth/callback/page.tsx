@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Cookies from "js-cookie";
 import { useTranslation } from "react-i18next";
 import { trackRegistration } from "@/tools/analytics";
+import { takeReturnPath } from "@/tools/authNext";
 
 /**
  * AuthCallback — принимает JWT из соц-входа (query `?access&refresh&user`),
@@ -40,17 +41,13 @@ export default function AuthCallback() {
       const user = get("user");
 
       let nextUrl = "/dashboard/text-chat";
-      const nextRaw = get("next");
-      if (nextRaw) {
-        try {
-          const d = decodeURIComponent(nextRaw);
-          if (d.startsWith("/") && !d.startsWith("//")) nextUrl = d;
-        } catch {}
-      }
 
       const secure = window.location.protocol === "https:";
 
       if (access && refresh) {
+        // Бэкенд соц-входа возвращает сюда только токены, без «куда». Путь
+        // сохранила страница входа — иначе человек из студии попадал в чат.
+        nextUrl = takeReturnPath(nextUrl, get("next"));
         Cookies.remove("access");
         Cookies.remove("refresh");
         Cookies.remove("user");

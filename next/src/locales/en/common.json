@@ -1825,7 +1825,17 @@
 		"with_hero": "your hero",
 		"err_tryon": "Could not try the hero on",
 		"scene_hero": "Scene character",
-		"scene_hero_change": "Change character"
+		"scene_hero_change": "Change character",
+		"try_on_free": "Try on for free",
+		"try_on_price": "Try on · {{credits}} cr",
+		"auth_tryon": "Free try-on used",
+		"auth_render": "Sign in to film your cartoon",
+		"auth_note_keep": "Your hero and timeline are kept — after signing in you'll land right back in your project. It takes a minute, no separate sign-up needed.",
+		"guest_cta_title_one": "{{count}} scene in your timeline",
+		"guest_cta_title_other": "{{count}} scenes in your timeline",
+		"guest_cta_note": "Sign in to film your cartoon — your hero and scenes are kept.",
+		"guest_cta_btn": "Film my cartoon",
+		"err_draft_full": "Your timeline already has 30 scenes — that's the maximum for one cartoon."
 	},
 	"crypto": {
 		"title_invoice": "Pay with crypto",

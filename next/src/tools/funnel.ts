@@ -20,7 +20,12 @@ export type FunnelStep =
   | "pricing_view"
   | "topup_click"
   | "studio_view"
+  | "studio_hero_pick"
   | "studio_scene_add"
+  | "studio_tryon"
+  | "studio_auth_prompt"
+  | "studio_render_click"
+  | "studio_paywall"
   // Крипта: между «выбрал монету» и «оплатил» человек уходит в свой кошелёк,
   // и без этих шагов видно только начало и конец пути.
   | "crypto_currency_pick"
