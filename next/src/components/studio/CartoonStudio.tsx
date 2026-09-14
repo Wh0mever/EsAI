@@ -248,8 +248,19 @@ export default function CartoonStudio() {
       heroRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
       return;
     }
+    await tryOnPair(preset.id, character.id);
+  };
+
+  /** Примерка из ленты: герой — тот, что закреплён за сценой, а не выбранный сейчас. */
+  const tryOnTimelineScene = async (scene: StudioScene) => {
+    if (!scene.character) return;
+    await tryOnPair(scene.preset.id, scene.character.id);
+  };
+
+  /** Кадр «этот герой в этой сцене». Потом он же пойдёт первым кадром съёмки. */
+  const tryOnPair = async (presetId: number, heroId: number) => {
+    const preset = { id: presetId };
     trackFunnel("studio_tryon", { preset_id: preset.id, authed });
-    const heroId = character.id;
     setTryingOn(preset.id);
     // Гость шлёт запрос без токена: ответ «нужен вход» (403) иначе принимается
     // за истёкшую сессию и уводит со страницы. Ключ устройства — чтобы сервер
@@ -875,7 +886,13 @@ export default function CartoonStudio() {
         .map((s) =>
           s.video || s.preview_video || !s.character || s.custom_text
             ? s
-            : { ...s, preview_video: videosByChar[s.character.id]?.[s.preset.id] || "" }
+            : {
+                ...s,
+                preview_video: videosByChar[s.character.id]?.[s.preset.id] || "",
+                // Примерили из ленты — кадр уже есть в запасе, показываем сразу,
+                // не дожидаясь, пока сервер подставит его в сцену при съёмке.
+                keyframe: s.keyframe || framesByChar[s.character.id]?.[s.preset.id] || "",
+              }
         )
     : [];
 
@@ -1337,6 +1354,15 @@ export default function CartoonStudio() {
               onFrame={frameScene}
               framingId={framingId}
               frameCredits={presets[0]?.tryon_credits ?? 4}
+              onTryOn={tryOnTimelineScene}
+              tryingOnId={tryingOn}
+              tryOnLabel={
+                authed
+                  ? t("studio_ui.try_on_price", { credits: presets[0]?.tryon_credits ?? 4 })
+                  : freeTryUsed
+                  ? t("studio_ui.try_on")
+                  : t("studio_ui.try_on_free")
+              }
             />
 
             {/* Гость дособрал ленту: одна понятная кнопка вместо «Собрать» и

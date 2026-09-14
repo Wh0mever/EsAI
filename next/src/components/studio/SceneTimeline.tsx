@@ -74,7 +74,15 @@ export default function SceneTimeline({
   onFrame,
   framingId = null,
   frameCredits = 4,
+  onTryOn,
+  tryingOnId = null,
+  tryOnLabel,
 }: {
+  /** Примерить героя сцены на сцену из библиотеки прямо из ленты. */
+  onTryOn?: (scene: StudioScene) => void;
+  /** id сцены библиотеки (preset), которая сейчас примеряется. */
+  tryingOnId?: number | null;
+  tryOnLabel?: string;
   frameCredits?: number;
   /** Своя сцена: нарисовать кадр до съёмки (цена — frameCredits). */
   onFrame?: (scene: StudioScene) => void;
@@ -200,9 +208,12 @@ export default function SceneTimeline({
                 </>
               ) : !s.keyframe && s.preset.clip && !working && s.status === "draft" ? (
                 <>
-                  {/* Ни ролика пары, ни кадра с героем: играет сама сцена (с
-                      героем библиотеки), а поверх — кто будет в ней вместо него.
-                      Так лента всё равно показывает сцену в движении. */}
+                  {/* Ни ролика пары, ни кадра с героем. Раньше здесь в полный
+                      кадр играло превью сцены — а оно снято с героем библиотеки,
+                      и клиенту казалось, что выбранный герой «не поменялся».
+                      Теперь сцена приглушена фоном, а крупно поверх — именно тот
+                      герой, что закреплён за сценой. Увидеть его в самой сцене —
+                      кнопкой «Примерить» ниже. */}
                   <video
                     src={s.preset.clip}
                     poster={s.preset.poster || undefined}
@@ -211,13 +222,19 @@ export default function SceneTimeline({
                     loop
                     playsInline
                     preload="metadata"
-                    className="h-full w-full object-cover opacity-80"
+                    className="h-full w-full scale-105 object-cover opacity-35 blur-[2px]"
                   />
                   {s.character && (
-                    <span className="pointer-events-none absolute bottom-1.5 left-1.5 inline-flex items-center gap-1 rounded-full bg-black/60 py-0.5 pl-0.5 pr-2 text-[10px] text-white backdrop-blur-sm">
+                    <span className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-1.5">
                       {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={s.character.image} alt="" className="size-4 rounded-full object-cover" />
-                      {s.character.name}
+                      <img
+                        src={s.character.image}
+                        alt=""
+                        className="h-[62%] aspect-square rounded-2xl object-cover shadow-lg ring-2 ring-accent/70"
+                      />
+                      <span className="rounded-full bg-black/60 px-2 py-0.5 text-[11px] font-medium text-white backdrop-blur-sm">
+                        {s.character.name}
+                      </span>
                     </span>
                   )}
                 </>
@@ -292,6 +309,19 @@ export default function SceneTimeline({
                 набирал ленту, а потом генерировал любую сцену из неё. */}
             {/* Своя сцена: кадр до съёмки — увидеть, что получится, прежде чем
                 платить за видео. Потом этот же кадр идёт в съёмку. */}
+            {/* Сцена из библиотеки, а кадра с героем ещё нет: примерить прямо из
+                ленты, с героем именно этой сцены. */}
+            {s.status === "draft" && !s.custom_text && !s.keyframe && !s.preview_video && s.character && onTryOn && (
+              <button
+                type="button"
+                onClick={() => onTryOn(s)}
+                disabled={busy || tryingOnId !== null}
+                className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-[11px] text-muted transition-colors hover:border-accent hover:text-foreground disabled:opacity-60 cursor-pointer"
+              >
+                {tryingOnId === s.preset.id ? <FiLoader className="animate-spin" /> : <FiFilm />}
+                {tryOnLabel || t("studio_ui.try_on")}
+              </button>
+            )}
             {s.status === "draft" && s.custom_text && !s.keyframe && onFrame && (
               <button
                 type="button"

@@ -60,11 +60,14 @@ export default function CharacterPicker({
   // Девять героев в свёрнутом виде. Выбранный — всегда среди них: иначе
   // человек выбрал бы героя из раскрытого списка, свернул — и потерял его из виду.
   const COLLAPSED = 9;
+  // Свои персонажи — в самом начале (клиент): человек загрузил их сам и ищет
+  // первыми, а не среди двух десятков библиотечных.
+  const ordered = [...characters.filter((c) => c.is_mine), ...characters.filter((c) => !c.is_mine)];
   const shownCharacters = (() => {
-    if (expanded || characters.length <= COLLAPSED) return characters;
-    const head = characters.slice(0, COLLAPSED);
+    if (expanded || ordered.length <= COLLAPSED) return ordered;
+    const head = ordered.slice(0, COLLAPSED);
     if (value && !head.some((c) => c.id === value.id)) {
-      const picked = characters.find((c) => c.id === value.id);
+      const picked = ordered.find((c) => c.id === value.id);
       if (picked) return [...head.slice(0, COLLAPSED - 1), picked];
     }
     return head;
