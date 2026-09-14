@@ -148,9 +148,15 @@ export default function SceneTimeline({
 
             <div className="relative aspect-video overflow-hidden rounded-xl bg-surface-2">
               {s.video ? (
+                // Снятая сцена играет в ленте сама, без звука и по кругу
+                // (клиент: лента сразу показывает героя, сцену и движение).
+                // Звук и перемотка — через элементы управления плеера.
                 <video
                   src={s.video}
                   controls
+                  autoPlay
+                  muted
+                  loop
                   playsInline
                   preload="metadata"
                   poster={s.keyframe || undefined}
