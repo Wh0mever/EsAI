@@ -148,6 +148,10 @@ export default function CartoonStudio() {
   const [videosByChar, setVideosByChar] = useState<Record<number, Record<number, string>>>({});
   const fetchedChars = useRef<Set<number>>(new Set());
   const [tryingOn, setTryingOn] = useState<number | null>(null);
+  // Своя сцена: вместо готового пресета человек пишет, что делает герой
+  // (клиент: «быстро выбрать готовую сцену или самому описать, что хочешь»).
+  const [customText, setCustomText] = useState("");
+  const [framingId, setFramingId] = useState<number | null>(null);
   const [shareUrl, setShareUrl] = useState("");
   const [sharing, setSharing] = useState(false);
 
@@ -417,7 +421,12 @@ export default function CartoonStudio() {
           const res = await fetchData<Project>("cartoon/projects/import/", "POST", {
             draft_id: saved.id,
             character_id: saved.character_id,
-            scenes: saved.scenes.map((s) => ({ preset_id: s.preset_id, character_id: s.character_id })),
+            scenes: saved.scenes.map((s) => ({
+              preset_id: s.preset_id,
+              character_id: s.character_id,
+              // Своя сцена переезжает вместе с описанием, иначе она пропала бы.
+              ...(s.custom_text ? { custom_text: s.custom_text } : {}),
+            })),
           }, true);
           if (!alive) return;
           if (res.ok && res.data) {
@@ -620,6 +629,87 @@ export default function CartoonStudio() {
       scenes: d.scenes.map((s, i) => (i === guestIndex(scene) ? { ...s, character_id: characterId } : s)),
     }));
 
+  /** Добавить свою сцену по описанию. Ничего не генерируется и не списывается. */
+  const addCustomScene = async () => {
+    const text = customText.replace(/\s+/g, " ").trim().slice(0, 300);
+    if (text.length < 3) {
+      setError(t("studio_ui.custom_too_short"));
+      return;
+    }
+    if (!character) {
+      setNeedHero(true);
+      heroRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
+    }
+    setError("");
+    setNeedHero(false);
+    const scrollToTimeline = () =>
+      window.setTimeout(
+        () => timelineRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }),
+        60
+      );
+
+    if (!authed) {
+      if ((draft?.scenes.length || 0) >= MAX_DRAFT_SCENES) {
+        setError(t("studio_ui.err_draft_full"));
+        return;
+      }
+      updateDraft((d) => ({
+        ...d,
+        character_id: d.character_id ?? character.id,
+        scenes: [...d.scenes, {
+          key: newSceneKey(), preset_id: 0, character_id: character.id, custom_text: text,
+        }],
+      }));
+      trackFunnel("studio_scene_add", { custom: true, authed: false });
+      setCustomText("");
+      scrollToTimeline();
+      return;
+    }
+
+    setAdding(-1);
+    const p = await ensureProject();
+    if (!p) {
+      setAdding(null);
+      return;
+    }
+    const res = await fetchData<StudioScene>(
+      `cartoon/projects/${p.id}/scenes/`, "POST", { custom_text: text, character_id: character.id }, true
+    );
+    setAdding(null);
+    if (res.ok && res.data) {
+      trackFunnel("studio_scene_add", { custom: true, authed: true });
+      setCustomText("");
+      await refresh(p.id);
+      scrollToTimeline();
+    } else {
+      setError((res.data as any)?.detail || t("studio_ui.err_scene"));
+    }
+  };
+
+  /** Кадр своей сцены до съёмки — увидеть, что получится. */
+  const frameScene = async (scene: StudioScene) => {
+    if (!authed || !project) {
+      openAuth("render");
+      return;
+    }
+    setFramingId(scene.id);
+    setError("");
+    const res = await fetchData<StudioScene>(`cartoon/scenes/${scene.id}/frame/`, "POST", {}, true);
+    setFramingId(null);
+    if (res.ok) {
+      await refresh(project.id);
+      void loadBalance();
+      return;
+    }
+    const d = res.data as any;
+    if (d?.required) {
+      openPaywall({ required: Number(d.required), balance: Number(d.balance ?? 0), kind: "character" });
+    } else {
+      setError(d?.detail || t("studio_ui.err_tryon"));
+    }
+  };
+
   /** Выбрать героя для следующих сцен. Уже набранные сцены своих героев не меняют. */
   const pickHero = (c: StudioCharacter) => {
     setCharacter(c);
@@ -747,22 +837,26 @@ export default function CartoonStudio() {
   const guestScenes: StudioScene[] =
     !authed && draft
       ? draft.scenes.map((s, i) => {
-          const p = presetById.get(s.preset_id);
+          const custom = Boolean(s.custom_text);
+          const p = custom ? undefined : presetById.get(s.preset_id);
           const heroId = s.character_id ?? draft.character_id ?? character?.id ?? null;
           const hero = heroId ? charById.get(heroId) : undefined;
           return {
             id: -(i + 1),
             order: i,
+            custom_text: s.custom_text || "",
             preset: {
               id: s.preset_id,
-              title: p?.title || "…",
-              credits: p?.credits,
-              duration: p?.duration,
-              poster: p?.preview_poster,
+              title: custom ? (s.custom_text || "").slice(0, 60) : p?.title || "…",
+              // Своя сцена стоит как готовая: те же кадр и видео.
+              credits: custom ? presets[0]?.credits : p?.credits,
+              duration: custom ? presets[0]?.duration : p?.duration,
+              poster: custom ? "" : p?.preview_poster,
+              clip: custom ? "" : p?.preview_video,
             },
             character: hero ? { id: hero.id, name: hero.name, image: hero.image } : null,
-            keyframe: (heroId && framesByChar[heroId]?.[s.preset_id]) || "",
-            preview_video: (heroId && videosByChar[heroId]?.[s.preset_id]) || "",
+            keyframe: custom ? "" : (heroId && framesByChar[heroId]?.[s.preset_id]) || "",
+            preview_video: custom ? "" : (heroId && videosByChar[heroId]?.[s.preset_id]) || "",
             video: "",
             status: "draft",
             error: "",
@@ -779,7 +873,7 @@ export default function CartoonStudio() {
         // Героя сцены сменили — ролик новой пары известен сразу, не дожидаясь
         // ответа сервера: превью переключается мгновенно (просьба клиента).
         .map((s) =>
-          s.video || s.preview_video || !s.character
+          s.video || s.preview_video || !s.character || s.custom_text
             ? s
             : { ...s, preview_video: videosByChar[s.character.id]?.[s.preset.id] || "" }
         )
@@ -933,6 +1027,46 @@ export default function CartoonStudio() {
               <p className="mt-0.5 text-sm text-muted">
                 {t("studio_ui.step2_note")}
               </p>
+            </div>
+
+            {/* Своя сцена: второй путь рядом с библиотекой — описать словами, что
+                делает герой. Сцена встаёт в ленту черновиком; студия сама
+                превратит описание в сцену при съёмке, с тем же героем. */}
+            <div className="rounded-2xl border border-border bg-surface-2/60 p-3">
+              <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+                <span aria-hidden>✍️</span>
+                {t("studio_ui.custom_title")}
+              </div>
+              <p className="mt-1 text-xs text-muted-2">{t("studio_ui.custom_note")}</p>
+              <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-start">
+                <textarea
+                  value={customText}
+                  onChange={(e) => setCustomText(e.target.value.slice(0, 300))}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey && adding === null) {
+                      e.preventDefault();
+                      void addCustomScene();
+                    }
+                  }}
+                  rows={2}
+                  placeholder={t("studio_ui.custom_placeholder")}
+                  className="min-h-[3rem] flex-1 resize-none rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-foreground outline-none placeholder:text-muted-2 focus:border-accent"
+                />
+                <button
+                  type="button"
+                  onClick={() => void addCustomScene()}
+                  disabled={adding !== null || customText.trim().length < 3}
+                  className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-on-accent transition-colors hover:bg-accent-strong disabled:opacity-50 cursor-pointer"
+                >
+                  {adding === -1 ? <FiLoader className="animate-spin" /> : <FiPlus />}
+                  {t("studio_ui.add")}
+                </button>
+              </div>
+              {character && (
+                <p className="mt-1.5 text-[11px] text-muted-2">
+                  {t("studio_ui.custom_hero", { name: character.name })}
+                </p>
+              )}
             </div>
 
             {/* Герои этого мультфильма — под рукой прямо над сценами: следующую
@@ -1197,6 +1331,9 @@ export default function CartoonStudio() {
                 id: c.id, name: c.name, image: c.image,
               }))}
               onPickCharacter={authed ? setSceneCharacter : guestPickCharacter}
+              onFrame={frameScene}
+              framingId={framingId}
+              frameCredits={presets[0]?.tryon_credits ?? 4}
             />
 
             {/* Гость дособрал ленту: одна понятная кнопка вместо «Собрать» и

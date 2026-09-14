@@ -297,6 +297,16 @@ class CartoonScene(models.Model):
         "CartoonCharacter", on_delete=models.SET_NULL, null=True, blank=True,
         related_name="scenes", verbose_name="Герой этой сцены")
     order = models.PositiveIntegerField(default=0, verbose_name="Позиция в таймлайне")
+    # Своя сцена (клиент: «вместо готового пресета просто написать, что герой
+    # делает»). Текст человека хранится как есть; промпт кадра и движения
+    # формируется из него один раз при первой генерации и дальше не меняется —
+    # пересъёмка не должна давать другую сцену. Пресет у такой сцены служебный
+    # (services.CUSTOM_PRESET_SLUG): от него берутся модели, стиль и цена.
+    custom_text = models.TextField(blank=True, default="", verbose_name="Своя сцена: описание")
+    custom_title = models.CharField(max_length=80, blank=True, default="",
+                                    verbose_name="Своя сцена: название")
+    custom_prompt = models.TextField(blank=True, default="", verbose_name="Своя сцена: промпт кадра")
+    custom_motion = models.TextField(blank=True, default="", verbose_name="Своя сцена: промпт движения")
 
     keyframe = models.CharField(max_length=512, blank=True, default="",
                                 verbose_name="Кадр-раскадровка")

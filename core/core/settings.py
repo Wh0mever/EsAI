@@ -43,6 +43,9 @@ REFERRAL_PERCENT = env.int("REFERRAL_PERCENT", default=10)
 # (studio_guest_tryon_daily_cap); 0 — бесплатные примерки выключены.
 STUDIO_GUEST_TRYON_DAILY_CAP = env.int("STUDIO_GUEST_TRYON_DAILY_CAP", default=100)
 STUDIO_GUEST_TRYON_PER_IP_DAY = env.int("STUDIO_GUEST_TRYON_PER_IP_DAY", default=3)
+# Своя сцена: описание человека превращает в промпт кадра и движения дешёвая
+# модель — доли цента за сцену, один раз.
+STUDIO_SCENE_MODEL = env.str("STUDIO_SCENE_MODEL", default="google/gemini-2.5-flash")
 
 # --- Telegram-бот -------------------------------------------------------
 # Токен ТОВАРНОГО бота (не того, через который вход на сайте): у него свой

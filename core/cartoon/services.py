@@ -207,6 +207,143 @@ def charge(user, amount: int, reason: str, meta: dict | None = None) -> None:
         charge_tokens(user, int(amount), reason, meta=meta or {})
 
 
+# --- своя сцена --------------------------------------------------------------
+
+CUSTOM_PRESET_SLUG = "custom-text-scene"
+CUSTOM_TEXT_MIN = 3
+CUSTOM_TEXT_MAX = 300
+
+
+class CustomSceneRejected(Exception):
+    """Описание не годится для сцены (недопустимое содержание). Текст — для человека."""
+
+
+def custom_base_preset():
+    """Служебный пресет своих сцен: модели, стиль и цена — как у библиотеки.
+
+    Заводится сам при первой своей сцене по образцу первой готовой сцены
+    библиотеки. В витрину не попадает: у него нет превью, а витрина показывает
+    только сцены с превью. Модели и стиль потом правятся в админке, как у
+    любого пресета.
+    """
+    from .models import CartoonPreset
+
+    base = CartoonPreset.objects.filter(slug=CUSTOM_PRESET_SLUG).select_related(
+        "image_model", "video_model").first()
+    if base:
+        return base
+    donor = (CartoonPreset.objects.filter(is_active=True).exclude(preview_video="")
+             .select_related("image_model", "video_model").order_by("id").first())
+    if not donor:
+        raise RuntimeError("В библиотеке нет ни одной готовой сцены — своей не на что опереться")
+    base, _ = CartoonPreset.objects.get_or_create(slug=CUSTOM_PRESET_SLUG, defaults={
+        "title": "Своя сцена", "title_en": "Custom scene", "title_kg": "Өз көрүнүшүм",
+        "scene_prompt": "the character", "motion_prompt": "", "style_prompt": donor.style_prompt,
+        "image_model": donor.image_model, "video_model": donor.video_model,
+        "duration": donor.duration, "aspect_ratio": donor.aspect_ratio,
+        "resolution": donor.resolution, "audience": donor.audience,
+        "is_active": True, "sort_order": 10000,
+    })
+    return base
+
+
+_FORM_SYSTEM = (
+    "You turn a short user description of a cartoon scene (any language) into prompts "
+    "for an image model (first frame) and an image-to-video model (5 seconds). "
+    "Refer to the hero ONLY as 'the character' and never describe their appearance: "
+    "it comes from a reference image. "
+    "Return ONLY a JSON object with keys: "
+    "ok (boolean), reason (string, Russian, only when ok is false), "
+    "title (string, at most 40 characters, in the user's language), "
+    "scene (1-2 English sentences: setting, what the character is doing at the first moment, "
+    "composition, lighting), "
+    "motion (1 English sentence: what moves during 5 seconds and how the camera moves). "
+    "Set ok=false for sexual content or nudity, graphic violence or gore, hate, self-harm, "
+    "real public figures, or anything unsafe involving children."
+)
+
+
+def form_custom_scene(text: str) -> dict:
+    """Описание от человека → {title, scene, motion}. Отказ — CustomSceneRejected.
+
+    Дешёвая модель: вызов стоит доли цента и делается один раз на сцену.
+    """
+    import json as _json
+    import re as _re
+
+    from django.conf import settings
+
+    cfg = _openrouter_config()
+    body = {
+        "model": getattr(settings, "STUDIO_SCENE_MODEL", "google/gemini-2.5-flash"),
+        "messages": [{"role": "system", "content": _FORM_SYSTEM},
+                     {"role": "user", "content": text.strip()[:CUSTOM_TEXT_MAX]}],
+        "temperature": 0.4,
+        "max_tokens": 500,
+        "response_format": {"type": "json_object"},
+    }
+    r = requests.post(
+        f"{cfg['base_url'].rstrip('/')}/chat/completions", json=body,
+        headers={"Authorization": f"Bearer {cfg['api_key']}", "Content-Type": "application/json"},
+        timeout=(10, 60))
+    if not (200 <= r.status_code < 300):
+        raise RuntimeError(f"сцена по описанию: http {r.status_code}: {r.text[:200]}")
+    content = (((r.json() or {}).get("choices") or [{}])[0].get("message") or {}).get("content") or ""
+    match = _re.search(r"\{.*\}", content, flags=_re.S)
+    try:
+        data = _json.loads(match.group(0) if match else content)
+    except ValueError:
+        raise RuntimeError("сцена по описанию: модель ответила не JSON")
+    if not data.get("ok", True):
+        raise CustomSceneRejected(str(data.get("reason") or "Такую сцену снять нельзя")[:200])
+    scene = str(data.get("scene") or "").strip()
+    if not scene:
+        raise RuntimeError("сцена по описанию: пустой промпт")
+    if "character" not in scene.lower():
+        scene = f"The character. {scene}"
+    return {"title": str(data.get("title") or "").strip()[:80],
+            "scene": scene[:1500], "motion": str(data.get("motion") or "").strip()[:800]}
+
+
+def ensure_custom_prompt(scene) -> None:
+    """Сформировать промпт своей сцены, если ещё не сформирован (один раз)."""
+    if not scene.custom_text or scene.custom_prompt:
+        return
+    formed = form_custom_scene(scene.custom_text)
+    scene.custom_prompt = formed["scene"]
+    scene.custom_motion = formed["motion"]
+    if formed["title"]:
+        scene.custom_title = formed["title"]
+    scene.save(update_fields=["custom_prompt", "custom_motion", "custom_title", "updated_at"])
+
+
+def preset_for_scene(scene):
+    """Пресет, по которому снимается сцена. У своей — служебный с её промптом.
+
+    Копия, а не правка: служебный пресет общий для всех своих сцен.
+    """
+    import copy
+
+    if not scene.custom_text:
+        return scene.preset
+    preset = copy.copy(scene.preset)
+    preset.scene_prompt = scene.custom_prompt or scene.custom_text
+    preset.motion_prompt = scene.custom_motion
+    return preset
+
+
+def draw_custom_keyframe(scene, character, user) -> tuple[str, int]:
+    """Кадр своей сцены. Мимо общего запаса: пресет у всех своих сцен один,
+    и кадр одного человека показался бы другому."""
+    ensure_custom_prompt(scene)
+    preset = preset_for_scene(scene)
+    path = generate_keyframe(preset, character)
+    price = max(1, int(float(preset.image_model.markup_coefficient or 1)))
+    charge(user, price, "cartoon_keyframe",
+           meta={"scene": scene.pk, "custom": True, "character": character.pk})
+    return path, price
+
+
 def remember_pair_video(scene) -> bool:
     """Положить удачную съёмку в общий запас роликов пар.
 
@@ -223,6 +360,10 @@ def remember_pair_video(scene) -> bool:
 
     character = scene.character or scene.project.character
     if not scene.video or not character or character.user_id is not None:
+        return False
+    # Своя сцена — не пара «герой + сцена библиотеки»: пресет у всех своих
+    # сцен общий, и чужой ролик показался бы под чужим описанием.
+    if getattr(scene, "custom_text", ""):
         return False
     if CartoonPairVideo.objects.filter(preset_id=scene.preset_id, character=character).exists():
         return False
