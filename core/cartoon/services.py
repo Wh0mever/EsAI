@@ -63,7 +63,9 @@ def build_scene_prompt(preset, character) -> str:
         # Заменяем аккуратно, сохраняя остальной текст пресета.
         import re
 
-        scene = re.sub(r"\bthe character\b|\bcharacter\b", who, scene, flags=re.IGNORECASE)
+        # Артикль перед словом съедаем вместе с ним: «A character is…» при описании
+        # «a ginger cat» иначе превращалось в «A a ginger cat is…».
+        scene = re.sub(r"\b(?:the|a|an)\s+character\b|\bcharacter\b", who, scene, flags=re.IGNORECASE)
     else:
         scene = f"{who}. {scene}"
     parts = [scene, (preset.style_prompt or "").strip(),
