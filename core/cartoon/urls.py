@@ -10,6 +10,8 @@ urlpatterns = [
     # Примерка героя на сцену: показать кадр до съёмки.
     path("presets/<int:pk>/try-on/", views.PresetTryOnView.as_view(), name="preset-try-on"),
     path("keyframes/", views.KeyframesView.as_view(), name="keyframes"),
+    # Всё готовое по герою: кадры и движущиеся ролики пар.
+    path("previews/", views.PreviewsView.as_view(), name="previews"),
     path("characters/", views.CharactersView.as_view(), name="characters"),
     path("characters/generate/", views.CharacterGenerateView.as_view(), name="character-generate"),
     path("projects/", views.ProjectsView.as_view(), name="projects"),

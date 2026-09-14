@@ -125,6 +125,72 @@ class GuestTryOnTests(TestCase):
 
 
 @override_settings(CACHES=CACHES)
+class PairVideoTests(TestCase):
+    """Ролик пары: библиотечный герой — в общий запас, свой персонаж — нет."""
+
+    def setUp(self):
+        image_model = _model("img3")
+        video_model = _model("vid3")
+        self.preset = CartoonPreset.objects.create(
+            slug="pair-scene", title="Сцена", is_active=True, scene_prompt="x",
+            image_model=image_model, video_model=video_model)
+        self.hero = CartoonCharacter.objects.create(
+            name="Кот", image="cartoon/characters/cat.png", is_public=True)
+        self.user = get_user_model().objects.create_user(email="p@example.com", password="x-12345678")
+        self.mine = CartoonCharacter.objects.create(
+            name="Мой", image="cartoon/characters/mine.png", user=self.user)
+
+    def _ready_scene(self, character):
+        from cartoon.models import CartoonScene
+
+        project = CartoonProject.objects.create(user=self.user, character=character)
+        return CartoonScene.objects.create(
+            project=project, preset=self.preset, order=0,
+            status=CartoonScene.STATUS_READY, video="cartoon/scenes/x.mp4")
+
+    def _remember(self, scene):
+        from cartoon.services import remember_pair_video
+
+        with patch("django.core.files.storage.default_storage.open",
+                   side_effect=FileNotFoundError("в тесте файлов нет")):
+            return remember_pair_video(scene)
+
+    def test_library_hero_goes_to_shared_stock_once(self):
+        from cartoon.models import CartoonPairVideo
+
+        self.assertTrue(self._remember(self._ready_scene(self.hero)))
+        self.assertFalse(self._remember(self._ready_scene(self.hero)))
+        row = CartoonPairVideo.objects.get()
+        self.assertEqual((row.preset_id, row.character_id), (self.preset.pk, self.hero.pk))
+        # Лёгкая копия не сделалась — ролик всё равно в запасе, покажется оригинал.
+        self.assertEqual(row.clip, "")
+
+    def test_users_own_character_never_shared(self):
+        from cartoon.models import CartoonPairVideo
+
+        self.assertFalse(self._remember(self._ready_scene(self.mine)))
+        self.assertFalse(CartoonPairVideo.objects.exists())
+
+    def test_previews_endpoint_and_scene_json_show_the_video(self):
+        from cartoon.models import CartoonPairVideo, CartoonScene
+        from cartoon.views import PreviewsView, project_json
+
+        CartoonPairVideo.objects.create(preset=self.preset, character=self.hero,
+                                        video="cartoon/scenes/x.mp4", clip="cartoon/pairs/x.mp4")
+        CartoonKeyframe.objects.create(preset=self.preset, character=self.hero,
+                                       image="cartoon/keyframes/k.png")
+        request = APIRequestFactory().get(f"/previews/?character_id={self.hero.pk}")
+        data = PreviewsView.as_view()(request).data
+        self.assertTrue(data[str(self.preset.pk)]["video"].endswith("pairs/x.mp4"))
+        self.assertTrue(data[str(self.preset.pk)]["frame"].endswith("k.png"))
+
+        project = CartoonProject.objects.create(user=self.user, character=self.hero)
+        CartoonScene.objects.create(project=project, preset=self.preset, order=0)
+        scene = project_json(project)["scenes"][0]
+        self.assertTrue(scene["preview_video"].endswith("pairs/x.mp4"))
+
+
+@override_settings(CACHES=CACHES)
 class DraftImportTests(TestCase):
     def setUp(self):
         image_model = _model("img2")

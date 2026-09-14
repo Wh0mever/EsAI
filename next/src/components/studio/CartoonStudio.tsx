@@ -143,6 +143,9 @@ export default function CartoonStudio() {
   // Кадры храним по героям: в ленте у каждой сцены может быть свой герой, и
   // карточке нужен кадр именно её персонажа.
   const [framesByChar, setFramesByChar] = useState<Record<number, Record<number, string>>>({});
+  // Ролики пар «герой + сцена», уже снятые кем-то раньше: движущееся превью
+  // сцены именно с этим героем, без новой генерации (просьба клиента).
+  const [videosByChar, setVideosByChar] = useState<Record<number, Record<number, string>>>({});
   const fetchedChars = useRef<Set<number>>(new Set());
   const [tryingOn, setTryingOn] = useState<number | null>(null);
   const [shareUrl, setShareUrl] = useState("");
@@ -200,21 +203,27 @@ export default function CartoonStudio() {
       if (fetchedChars.current.has(id)) continue;
       fetchedChars.current.add(id);
       void (async () => {
-        const res = await fetchData<Record<string, string>>(
-          `cartoon/keyframes/?character_id=${id}`, "GET", null, true
+        const res = await fetchData<Record<string, { frame: string; video: string }>>(
+          `cartoon/previews/?character_id=${id}`, "GET", null, true
         );
         if (!res.ok || !res.data) {
           fetchedChars.current.delete(id);
           return;
         }
-        const map: Record<number, string> = {};
-        for (const [pid, url] of Object.entries(res.data)) map[Number(pid)] = url;
-        setFramesByChar((prev) => ({ ...prev, [id]: { ...map, ...(prev[id] || {}) } }));
+        const frames: Record<number, string> = {};
+        const videos: Record<number, string> = {};
+        for (const [pid, row] of Object.entries(res.data)) {
+          if (row?.frame) frames[Number(pid)] = row.frame;
+          if (row?.video) videos[Number(pid)] = row.video;
+        }
+        setFramesByChar((prev) => ({ ...prev, [id]: { ...frames, ...(prev[id] || {}) } }));
+        setVideosByChar((prev) => ({ ...prev, [id]: { ...videos, ...(prev[id] || {}) } }));
       })();
     }
   }, [wantedChars]);
 
   const tryOn: Record<number, string> = (character && framesByChar[character.id]) || {};
+  const heroVideos: Record<number, string> = (character && videosByChar[character.id]) || {};
 
   /** Окно входа — и отметка в воронке: это главный шаг, который мы меряем. */
   const openAuth = (reason: AuthReason) => {
@@ -520,10 +529,12 @@ export default function CartoonStudio() {
         return;
       }
       setNeedHero(false);
+      // Сцена запоминает героя, с которым её добавили: сменил героя для
+      // следующей сцены — предыдущая остаётся со своим (правило клиента).
       updateDraft((d) => ({
         ...d,
         character_id: d.character_id ?? character.id,
-        scenes: [...d.scenes, { key: newSceneKey(), preset_id: preset.id, character_id: null }],
+        scenes: [...d.scenes, { key: newSceneKey(), preset_id: preset.id, character_id: character.id }],
       }));
       trackFunnel("studio_scene_add", { preset_id: preset.id, authed: false });
       window.setTimeout(
@@ -547,8 +558,10 @@ export default function CartoonStudio() {
       setAdding(null);
       return;
     }
+    // Героя передаём явно: иначе сцена снялась бы с героем, с которого начат
+    // мультфильм, а не с тем, кого человек выбрал сейчас.
     const res = await fetchData<StudioScene>(
-      `cartoon/projects/${p.id}/scenes/`, "POST", { preset_id: preset.id }, true
+      `cartoon/projects/${p.id}/scenes/`, "POST", { preset_id: preset.id, character_id: character.id }, true
     );
     setAdding(null);
     if (res.ok && res.data) {
@@ -606,6 +619,16 @@ export default function CartoonStudio() {
       ...d,
       scenes: d.scenes.map((s, i) => (i === guestIndex(scene) ? { ...s, character_id: characterId } : s)),
     }));
+
+  /** Выбрать героя для следующих сцен. Уже набранные сцены своих героев не меняют. */
+  const pickHero = (c: StudioCharacter) => {
+    setCharacter(c);
+    setNeedHero(false);
+    trackFunnel("studio_hero_pick", { character_id: c.id, authed });
+    // Первый выбранный герой становится героем мультфильма — с ним проект
+    // переедет после входа. Дальше у каждой сцены свой.
+    if (!authed) updateDraft((d) => ({ ...d, character_id: d.character_id ?? c.id }));
+  };
 
   /** Снимать гость не может — это деньги и аккаунт. Здесь и просим войти. */
   const guestRender = (from: "scene" | "cta") => {
@@ -739,6 +762,7 @@ export default function CartoonStudio() {
             },
             character: hero ? { id: hero.id, name: hero.name, image: hero.image } : null,
             keyframe: (heroId && framesByChar[heroId]?.[s.preset_id]) || "",
+            preview_video: (heroId && videosByChar[heroId]?.[s.preset_id]) || "",
             video: "",
             status: "draft",
             error: "",
@@ -750,8 +774,34 @@ export default function CartoonStudio() {
   const scenes = !authed
     ? guestScenes
     : project
-    ? [...project.scenes].sort((a, b) => a.order - b.order)
+    ? [...project.scenes]
+        .sort((a, b) => a.order - b.order)
+        // Героя сцены сменили — ролик новой пары известен сразу, не дожидаясь
+        // ответа сервера: превью переключается мгновенно (просьба клиента).
+        .map((s) =>
+          s.video || s.preview_video || !s.character
+            ? s
+            : { ...s, preview_video: videosByChar[s.character.id]?.[s.preset.id] || "" }
+        )
     : [];
+
+  // Герои этого мультфильма: все, кого человек уже поставил в сцены. Их
+  // держим под рукой — в следующую сцену чаще берут кого-то из уже занятых.
+  const cast: StudioCharacter[] = [];
+  {
+    const seen = new Set<number>();
+    const push = (id: number | null | undefined) => {
+      if (!id || seen.has(id)) return;
+      const c = charById.get(id);
+      if (c) {
+        seen.add(id);
+        cast.push(c);
+      }
+    };
+    for (const s of scenes) push(s.character?.id);
+  }
+  const castIds = new Set(cast.map((c) => c.id));
+  const timelineCharacters = [...cast, ...visibleCharacters.filter((c) => !castIds.has(c.id))];
   const readyCount = scenes.filter((s) => s.status === "ready").length;
   const drafts = scenes.filter((s) => s.status === "draft").length;
   const working = scenes.some((s) => WORKING.includes(s.status));
@@ -867,13 +917,7 @@ export default function CartoonStudio() {
           onNeedCredits={(required, bal) => openPaywall({ required, balance: bal, kind: "character" })}
           characters={visibleCharacters}
           value={character}
-          onPick={(c) => {
-            setCharacter(c);
-            setNeedHero(false);
-            trackFunnel("studio_hero_pick", { character_id: c.id, authed });
-            // У гостя выбранный герой — герой всей ленты, как у проекта.
-            if (!authed) updateDraft((d) => ({ ...d, character_id: c.id }));
-          }}
+          onPick={pickHero}
           onCreated={(c) => setCharacters((prev) => [c, ...prev])}
           balance={balance}
         />
@@ -890,6 +934,37 @@ export default function CartoonStudio() {
                 {t("studio_ui.step2_note")}
               </p>
             </div>
+
+            {/* Герои этого мультфильма — под рукой прямо над сценами: следующую
+                сцену чаще снимают кем-то из уже занятых, и искать его в
+                библиотеке заново не нужно. Сцены показываются с выбранным. */}
+            {cast.length > 0 && (
+              <div className="-mx-4 flex items-center gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:mx-0 sm:flex-wrap sm:px-0">
+                <span className="shrink-0 text-xs font-semibold uppercase tracking-wide text-muted-2">
+                  {t("studio_ui.cast_title")}
+                </span>
+                {cast.map((c) => {
+                  const active = character?.id === c.id;
+                  return (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => pickHero(c)}
+                      aria-pressed={active}
+                      className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border py-1 pl-1 pr-2.5 text-xs transition-colors cursor-pointer ${
+                        active
+                          ? "border-accent bg-accent/10 text-foreground"
+                          : "border-border bg-surface text-muted hover:text-foreground"
+                      }`}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={c.image} alt="" loading="lazy" className="size-6 rounded-full object-cover" />
+                      {c.name}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
 
             {/* Разделы: сцен три десятка, и одной простынёй они не читаются —
                 человек ищет не «сцену вообще», а начало, погоню или финал. */}
@@ -941,18 +1016,51 @@ export default function CartoonStudio() {
                     className="relative aspect-video cursor-pointer bg-surface-2"
                     onClick={() => setPreviewing((cur) => (cur === p.id ? null : p.id))}
                   >
-                    {tryOn[p.id] ? (
+                    {character && heroVideos[p.id] ? (
                       <>
+                        {/* Эту пару уже снимали: показываем настоящий ролик
+                            сцены с выбранным героем — сразу и бесплатно. Играет,
+                            пока карточка на экране, как и обычные превью. */}
+                        {playing ? (
+                          <video
+                            src={heroVideos[p.id]}
+                            poster={tryOn[p.id] || p.preview_poster || undefined}
+                            autoPlay
+                            muted
+                            loop
+                            playsInline
+                            preload="auto"
+                            className="h-full w-full object-cover"
+                          />
+                        ) : (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={tryOn[p.id] || p.preview_poster}
+                            alt=""
+                            loading="lazy"
+                            decoding="async"
+                            className="h-full w-full object-cover"
+                          />
+                        )}
+                        <span className="pointer-events-none absolute left-2 top-2 rounded-full bg-black/55 px-2 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">
+                          {t("studio_ui.with_hero")}
+                        </span>
+                      </>
+                    ) : tryOn[p.id] ? (
+                      <>
+                        {/* Ролика пары ещё нет, но кадр с героем готов: он
+                            медленно движется камерой, чтобы сцена не выглядела
+                            застывшей, и честно подписан «кадр». */}
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img
                           src={tryOn[p.id]}
                           alt=""
                           loading="lazy"
                           decoding="async"
-                          className="h-full w-full object-cover"
+                          className={`h-full w-full object-cover ${autoplay ? "studio-live" : ""}`}
                         />
                         <span className="pointer-events-none absolute left-2 top-2 rounded-full bg-black/55 px-2 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">
-                          {t("studio_ui.with_hero")}
+                          {t("studio_ui.hero_frame")}
                         </span>
                       </>
                     ) : playing && p.preview_video ? (
@@ -1085,7 +1193,7 @@ export default function CartoonStudio() {
               onRetry={authed ? retryScene : () => undefined}
               onDelete={authed ? deleteScene : guestDelete}
               onRender={authed ? renderScene : () => guestRender("scene")}
-              characters={visibleCharacters.map((c) => ({
+              characters={timelineCharacters.map((c) => ({
                 id: c.id, name: c.name, image: c.image,
               }))}
               onPickCharacter={authed ? setSceneCharacter : guestPickCharacter}
