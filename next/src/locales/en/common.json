@@ -1839,7 +1839,14 @@
 		"hero_frame": "frame with your hero",
 		"preview_badge": "preview",
 		"frame_badge": "frame",
-		"cast_title": "Heroes in this cartoon"
+		"cast_title": "Heroes in this cartoon",
+		"custom_title": "Your own scene",
+		"custom_note": "Can't find the right one? Describe what the hero does — the studio will build the scene with them. Costs the same as a ready scene, credits are charged only when filming.",
+		"custom_placeholder": "For example: skateboards through a night city and catches a falling star",
+		"custom_too_short": "Describe the scene in at least a few words",
+		"custom_hero": "Hero of the scene: {{name}}",
+		"frame_btn": "Frame · {{credits}} cr",
+		"collapse": "Collapse"
 	},
 	"crypto": {
 		"title_invoice": "Pay with crypto",

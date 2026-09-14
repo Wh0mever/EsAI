@@ -55,6 +55,21 @@ export default function CharacterPicker({
   const [busy, setBusy] = useState<"upload" | "generate" | null>(null);
   const [error, setError] = useState("");
   const fileRef = useRef<HTMLInputElement | null>(null);
+  const [expanded, setExpanded] = useState(false);
+
+  // Девять героев в свёрнутом виде. Выбранный — всегда среди них: иначе
+  // человек выбрал бы героя из раскрытого списка, свернул — и потерял его из виду.
+  const COLLAPSED = 9;
+  const shownCharacters = (() => {
+    if (expanded || characters.length <= COLLAPSED) return characters;
+    const head = characters.slice(0, COLLAPSED);
+    if (value && !head.some((c) => c.id === value.id)) {
+      const picked = characters.find((c) => c.id === value.id);
+      if (picked) return [...head.slice(0, COLLAPSED - 1), picked];
+    }
+    return head;
+  })();
+  const hiddenCount = Math.max(0, characters.length - COLLAPSED);
 
   const upload = async (file: File) => {
     setBusy("upload");
@@ -111,8 +126,11 @@ export default function CharacterPicker({
         </p>
       </div>
 
-      <div className="grid grid-cols-3 sm:grid-cols-4 lg:grid-cols-6 gap-2.5">
-        {characters.map((c) => {
+      {/* Героев больше двух десятков, и сеткой во всю ширину они захламляли
+          страницу (клиент). Показываем девять — три на три, — остальные по
+          кнопке. Выбранный герой всегда виден, даже если он из скрытых. */}
+      <div className="grid max-w-xl grid-cols-3 gap-2.5">
+        {shownCharacters.map((c) => {
           const active = value?.id === c.id;
           return (
             <button
@@ -139,7 +157,20 @@ export default function CharacterPicker({
           );
         })}
 
-        {/* Загрузка своего — тот же размер плитки, чтобы ряд не рвался. */}
+      </div>
+
+      <div className="flex max-w-xl flex-wrap items-center gap-2">
+        {hiddenCount > 0 && (
+          <button
+            type="button"
+            onClick={() => setExpanded((v) => !v)}
+            className="inline-flex items-center gap-1.5 rounded-full border border-border bg-surface px-4 py-2 text-sm font-medium text-muted transition-colors hover:border-accent hover:text-foreground cursor-pointer"
+          >
+            {expanded ? t("studio_ui.collapse") : t("studio_ui.show_more")}
+            {!expanded && <span className="text-muted-2">{hiddenCount}</span>}
+          </button>
+        )}
+        {/* Загрузка своего — кнопкой рядом, а не плиткой: плитка ломала сетку 3×3. */}
         <button
           type="button"
           onClick={() => {
@@ -152,14 +183,10 @@ export default function CharacterPicker({
             fileRef.current?.click();
           }}
           disabled={busy !== null}
-          className="flex aspect-square flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed border-border text-muted transition-colors hover:border-accent/60 hover:text-foreground disabled:opacity-60 cursor-pointer"
+          className="inline-flex items-center gap-1.5 rounded-full border border-dashed border-border px-4 py-2 text-sm text-muted transition-colors hover:border-accent/60 hover:text-foreground disabled:opacity-60 cursor-pointer"
         >
-          {busy === "upload" ? (
-            <FiLoader className="animate-spin text-xl" />
-          ) : (
-            <FiUpload className="text-xl" />
-          )}
-          <span className="text-[11px]">{t("studio_ui.upload")}</span>
+          {busy === "upload" ? <FiLoader className="animate-spin" /> : <FiUpload />}
+          {t("studio_ui.upload")}
         </button>
         <input
           ref={fileRef}

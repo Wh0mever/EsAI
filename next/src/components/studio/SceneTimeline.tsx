@@ -24,7 +24,11 @@ export type StudioScene = {
     duration?: number;
     /** Обложка сцены из библиотеки — то, что видно у черновика. */
     poster?: string;
+    /** Ролик самой сцены (с героем библиотеки) — движение в ленте, пока своего нет. */
+    clip?: string;
   };
+  /** Своя сцена: что делает герой, словами человека. */
+  custom_text?: string;
   /** Кем снимается эта сцена: свой герой или герой всего мультфильма. */
   character?: { id: number; name: string; image: string } | null;
   keyframe: string;
@@ -67,7 +71,14 @@ export default function SceneTimeline({
   onRender,
   characters = [],
   onPickCharacter,
+  onFrame,
+  framingId = null,
+  frameCredits = 4,
 }: {
+  frameCredits?: number;
+  /** Своя сцена: нарисовать кадр до съёмки (цена — frameCredits). */
+  onFrame?: (scene: StudioScene) => void;
+  framingId?: number | null;
   scenes: StudioScene[];
   busyIds: Set<number>;
   onMove: (scene: StudioScene, dir: -1 | 1) => void;
@@ -164,6 +175,46 @@ export default function SceneTimeline({
                     {t("studio_ui.preview_badge")}
                   </span>
                 </>
+              ) : s.custom_text && !s.keyframe && !working && s.status !== "failed" ? (
+                <>
+                  {/* Своя сцена до кадра: показать нечего, кроме замысла. Герой
+                      и описание — ровно то, что пойдёт в съёмку. */}
+                  <div className="flex h-full w-full flex-col justify-between gap-2 bg-gradient-to-br from-accent/15 via-surface-2 to-surface-2 p-2.5">
+                    <p className="line-clamp-4 text-[11px] italic leading-snug text-foreground">
+                      «{s.custom_text}»
+                    </p>
+                    {s.character && (
+                      <span className="inline-flex w-fit items-center gap-1 rounded-full bg-black/40 py-0.5 pl-0.5 pr-2 text-[10px] text-white">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={s.character.image} alt="" className="size-4 rounded-full object-cover" />
+                        {s.character.name}
+                      </span>
+                    )}
+                  </div>
+                </>
+              ) : !s.keyframe && s.preset.clip && !working && s.status === "draft" ? (
+                <>
+                  {/* Ни ролика пары, ни кадра с героем: играет сама сцена (с
+                      героем библиотеки), а поверх — кто будет в ней вместо него.
+                      Так лента всё равно показывает сцену в движении. */}
+                  <video
+                    src={s.preset.clip}
+                    poster={s.preset.poster || undefined}
+                    autoPlay
+                    muted
+                    loop
+                    playsInline
+                    preload="metadata"
+                    className="h-full w-full object-cover opacity-80"
+                  />
+                  {s.character && (
+                    <span className="pointer-events-none absolute bottom-1.5 left-1.5 inline-flex items-center gap-1 rounded-full bg-black/60 py-0.5 pl-0.5 pr-2 text-[10px] text-white backdrop-blur-sm">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={s.character.image} alt="" className="size-4 rounded-full object-cover" />
+                      {s.character.name}
+                    </span>
+                  )}
+                </>
               ) : s.keyframe || s.preset.poster ? (
                 <>
                   {/* Пока своего кадра нет, показываем обложку сцены: у
@@ -233,6 +284,19 @@ export default function SceneTimeline({
 
             {/* Черновик снимается отсюда: клиент просил, чтобы человек сначала
                 набирал ленту, а потом генерировал любую сцену из неё. */}
+            {/* Своя сцена: кадр до съёмки — увидеть, что получится, прежде чем
+                платить за видео. Потом этот же кадр идёт в съёмку. */}
+            {s.status === "draft" && s.custom_text && !s.keyframe && onFrame && (
+              <button
+                type="button"
+                onClick={() => onFrame(s)}
+                disabled={busy || framingId !== null}
+                className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-[11px] text-muted transition-colors hover:border-accent hover:text-foreground disabled:opacity-60 cursor-pointer"
+              >
+                {framingId === s.id ? <FiLoader className="animate-spin" /> : <FiFilm />}
+                {t("studio_ui.frame_btn", { credits: frameCredits })}
+              </button>
+            )}
             {s.status === "draft" && (
               <button
                 type="button"

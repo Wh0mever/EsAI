@@ -16,9 +16,12 @@
 export type DraftScene = {
   /** Свой ключ сцены: у черновика нет id из базы, а сцены можно двигать. */
   key: string;
+  /** 0 — своя сцена по описанию (custom_text). */
   preset_id: number;
   /** Свой герой сцены; null — герой всего мультфильма. */
   character_id: number | null;
+  /** Своя сцена: что делает герой, словами человека. */
+  custom_text?: string;
 };
 
 export type StudioDraft = {
@@ -69,7 +72,11 @@ export function loadDraft(): StudioDraft | null {
         key: typeof s.key === "string" && s.key ? s.key : uid(),
         preset_id: Number(s.preset_id),
         character_id: s.character_id ? Number(s.character_id) : null,
+        ...(typeof s.custom_text === "string" && s.custom_text.trim()
+          ? { custom_text: s.custom_text.trim().slice(0, 300) }
+          : {}),
       }))
+      .filter((s) => s.preset_id > 0 || Boolean(s.custom_text))
       .slice(0, MAX_DRAFT_SCENES);
     return {
       id: data.id,

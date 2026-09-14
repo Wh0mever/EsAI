@@ -146,6 +146,8 @@ def _pair_videos_for(scenes) -> dict:
 
     keys = set()
     for s in scenes:
+        if s.custom_text:
+            continue
         hero_id = s.character_id or (s.project.character_id if s.project_id else None)
         if s.preset_id and hero_id:
             keys.add((s.preset_id, hero_id))
@@ -161,11 +163,20 @@ def scene_json(s: CartoonScene, lang: str = "ru", pair_videos: dict | None = Non
     hero_id = s.character_id or s.project.character_id
     if pair_videos is None:
         pair_videos = _pair_videos_for([s])
+    custom = bool(s.custom_text)
     return {
         "id": s.id,
         "order": s.order,
+        # Своя сцена: название — из описания человека, превью у неё нет.
+        "custom_text": s.custom_text,
         "preset": {"id": s.preset_id,
-                   "title": _tr(s.preset, "title", lang) if s.preset_id else "",
+                   "title": ((s.custom_title or s.custom_text[:60]) if custom
+                             else (_tr(s.preset, "title", lang) if s.preset_id else "")),
+                   # Ролик самой сцены (с героем библиотеки): движение в ленте,
+                   # пока своего ролика и кадра пары ещё нет.
+                   "clip": "" if custom or not s.preset_id else (
+                       s.preset.preview_clip.url if s.preset.preview_clip
+                       else (s.preset.preview_video.url if s.preset.preview_video else "")),
                    # Цена нужна прямо в ленте: снимают оттуда, и человек должен
                    # видеть, во что обойдётся кнопка, до нажатия.
                    "credits": s.preset.estimated_credits() if s.preset_id else 0,
@@ -176,7 +187,7 @@ def scene_json(s: CartoonScene, lang: str = "ru", pair_videos: dict | None = Non
                    "poster": (s.preset.preview_thumb.url if s.preset.preview_thumb
                               else (s.preset.preview_poster.url
                                     if s.preset.preview_poster else ""))
-                   if s.preset_id else ""},
+                   if s.preset_id and not custom else ""},
         # Герой именно этой сцены: свой, если задан, иначе герой мультфильма.
         # Фронту нужно показать, кем сцена снимется, ещё до съёмки.
         "character": character_json(s.character or s.project.character, lang)
@@ -184,7 +195,7 @@ def scene_json(s: CartoonScene, lang: str = "ru", pair_videos: dict | None = Non
         "keyframe": _media(s.keyframe),
         # Движущееся превью пары, если такого героя в этой сцене уже снимали:
         # человек видит сцену в движении ещё до своей съёмки.
-        "preview_video": "" if s.video else pair_videos.get((s.preset_id, hero_id), ""),
+        "preview_video": "" if (s.video or custom) else pair_videos.get((s.preset_id, hero_id), ""),
         "video": _media(s.video),
         "status": s.status,
         "error": s.error,
@@ -249,7 +260,7 @@ class PresetsView(StudioPublicAPIView):
         """
         from django.db.models import Count
 
-        rows = (CartoonScene.objects.values("preset__slug")
+        rows = (CartoonScene.objects.exclude(preset__slug=_custom_slug()).values("preset__slug")
                 .annotate(n=Count("id")).order_by("-n")[:limit])
         slugs = [r["preset__slug"] for r in rows if r["preset__slug"]]
         return slugs if len(slugs) >= 6 else []
@@ -455,7 +466,8 @@ class ProjectImportView(StudioAPIView):
             except (TypeError, ValueError):
                 ids.append(None)
         presets = {p.pk: p for p in CartoonPreset.objects.filter(
-            pk__in=[i for i in ids if i], is_active=True)}
+            pk__in=[i for i in ids if i], is_active=True).exclude(slug=_custom_slug())}
+        custom_base = None
 
         with transaction.atomic():
             project = CartoonProject.objects.create(
@@ -467,13 +479,23 @@ class ProjectImportView(StudioAPIView):
             )
             order = 0
             for r, pid in zip(rows, ids):
-                preset = presets.get(pid)
+                custom_text, _ = _custom_text(r.get("custom_text"))
+                if custom_text:
+                    if custom_base is None:
+                        try:
+                            custom_base = _custom_preset()
+                        except RuntimeError:
+                            continue
+                    preset = custom_base
+                else:
+                    preset = presets.get(pid)
                 if not preset:
                     continue
                 CartoonScene.objects.create(
                     project=project, preset=preset,
                     character=_pick_character(request, r.get("character_id")),
                     order=order, status=CartoonScene.STATUS_DRAFT,
+                    custom_text=custom_text, custom_title=custom_text[:60],
                 )
                 order += 1
 
@@ -506,11 +528,22 @@ class ProjectScenesView(StudioAPIView):
 
     def post(self, request, pk):
         project = get_object_or_404(CartoonProject, pk=pk, user=request.user)
-        preset = CartoonPreset.objects.filter(
-            pk=request.data.get("preset_id"), is_active=True
-        ).select_related("image_model", "video_model").first()
-        if not preset:
-            return Response({"detail": "Сцена не найдена"}, status=status.HTTP_400_BAD_REQUEST)
+        custom_text, error = _custom_text(request.data.get("custom_text"))
+        if error:
+            return Response({"detail": error}, status=status.HTTP_400_BAD_REQUEST)
+        if custom_text:
+            # Своя сцена: человек описал, что делает герой. Ничего не
+            # генерируется и не списывается — сцена встаёт в ленту черновиком.
+            try:
+                preset = _custom_preset()
+            except RuntimeError as exc:
+                return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            preset = CartoonPreset.objects.filter(
+                pk=request.data.get("preset_id"), is_active=True
+            ).select_related("image_model", "video_model").first()
+            if not preset or preset.slug == _custom_slug():
+                return Response({"detail": "Сцена не найдена"}, status=status.HTTP_400_BAD_REQUEST)
 
         last = project.scenes.order_by("-order").first()
         scene = CartoonScene.objects.create(
@@ -518,9 +551,37 @@ class ProjectScenesView(StudioAPIView):
             character=_pick_character(request, request.data.get("character_id")),
             order=(last.order + 1) if last else 0,
             status=CartoonScene.STATUS_DRAFT,
+            custom_text=custom_text,
+            custom_title=custom_text[:60],
         )
         _attach_ready_keyframe(scene)
         return Response(scene_json(scene, _lang(request)), status=status.HTTP_201_CREATED)
+
+
+def _custom_slug() -> str:
+    from .services import CUSTOM_PRESET_SLUG
+
+    return CUSTOM_PRESET_SLUG
+
+
+def _custom_preset():
+    from .services import custom_base_preset
+
+    return custom_base_preset()
+
+
+def _custom_text(raw) -> tuple[str, str]:
+    """Описание своей сцены из запроса: (текст, ошибка). Пусто — не своя сцена."""
+    from .services import CUSTOM_TEXT_MAX, CUSTOM_TEXT_MIN
+
+    text = " ".join(str(raw or "").split())
+    if not text:
+        return "", ""
+    if len(text) < CUSTOM_TEXT_MIN:
+        return "", "Опишите сцену хотя бы парой слов"
+    if len(text) > CUSTOM_TEXT_MAX:
+        return "", f"Описание длиннее {CUSTOM_TEXT_MAX} символов — сократите"
+    return text, ""
 
 
 def _attach_ready_keyframe(scene) -> None:
@@ -533,7 +594,8 @@ def _attach_ready_keyframe(scene) -> None:
     from .models import CartoonKeyframe
 
     character = scene.character or scene.project.character
-    if not character or scene.keyframe:
+    # У своей сцены общего кадра нет: служебный пресет у всех один.
+    if not character or scene.keyframe or scene.custom_text:
         return
     ready = CartoonKeyframe.objects.filter(
         preset_id=scene.preset_id, character=character).first()
@@ -734,6 +796,51 @@ def _scene_price(scene, *, keyframe_ready: bool) -> int:
 def _no_credits(need: int, balance: int) -> Response:
     return Response({"detail": "Недостаточно кредитов", "required": need,
                      "balance": balance}, status=status.HTTP_402_PAYMENT_REQUIRED)
+
+
+class SceneFrameView(StudioAPIView):
+    """POST — нарисовать кадр своей сцены до съёмки: увидеть, что получится.
+
+    Клиент: «перед запуском генерации человек уже должен видеть, что именно
+    получится». У сцены из библиотеки для этого есть примерка, у своей — эта
+    кнопка. Кадр потом идёт первым кадром съёмки, дважды за него не платят.
+    """
+
+    def post(self, request, pk):
+        from .services import CustomSceneRejected, draw_custom_keyframe
+
+        scene = get_object_or_404(
+            CartoonScene.objects.select_related(
+                "preset__image_model", "preset__video_model", "project__character", "character"),
+            pk=pk, project__user=request.user)
+        if not scene.custom_text:
+            return Response({"detail": "Кадр по кнопке — только у своей сцены"},
+                            status=status.HTTP_400_BAD_REQUEST)
+        if scene.keyframe:
+            return Response(scene_json(scene, _lang(request)))
+        if scene.status not in (CartoonScene.STATUS_DRAFT, CartoonScene.STATUS_FAILED):
+            return Response({"detail": "Сцена уже снимается"}, status=status.HTTP_400_BAD_REQUEST)
+        character = scene.character or scene.project.character
+        if not character:
+            return Response({"detail": "Сначала выберите героя"}, status=status.HTTP_400_BAD_REQUEST)
+
+        need = _tryon_price(scene.preset)
+        balance = int(getattr(request.user, "token_balance", 0) or 0)
+        if balance < need:
+            return _no_credits(need, balance)
+        try:
+            scene.keyframe, price = draw_custom_keyframe(scene, character, request.user)
+        except CustomSceneRejected as exc:
+            return Response({"detail": str(exc), "rejected": True},
+                            status=status.HTTP_400_BAD_REQUEST)
+        except Exception as exc:
+            logger.exception("своя сцена %s: кадр не нарисовался", scene.pk)
+            return Response({"detail": f"Кадр не получился: {exc}"[:200]},
+                            status=status.HTTP_502_BAD_GATEWAY)
+        scene.credits_spent += price
+        scene.error = ""
+        scene.save(update_fields=["keyframe", "credits_spent", "error", "updated_at"])
+        return Response(scene_json(scene, _lang(request)))
 
 
 class SceneRenderView(StudioAPIView):

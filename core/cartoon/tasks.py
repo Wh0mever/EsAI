@@ -16,8 +16,9 @@ from celery import shared_task
 from django.conf import settings
 
 from .models import CartoonProject, CartoonScene
-from .services import (assemble_project, charge, generate_keyframe, generate_scene_video,
-                       get_or_create_keyframe, remember_pair_video)
+from .services import (CustomSceneRejected, assemble_project, charge, draw_custom_keyframe,
+                       ensure_custom_prompt, generate_keyframe, generate_scene_video,
+                       get_or_create_keyframe, preset_for_scene, remember_pair_video)
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +46,26 @@ def render_scene(self, scene_id: int) -> dict:
         scene.save(update_fields=["status", "error", "updated_at"])
         return {"status": "no_character"}
 
+    # Своя сцена: промпт из описания человека формируется до любых трат —
+    # отказ модели («такое снимать нельзя») не должен стоить ему кредитов.
+    if scene.custom_text:
+        try:
+            ensure_custom_prompt(scene)
+        except CustomSceneRejected as exc:
+            scene.status = CartoonScene.STATUS_FAILED
+            scene.error = str(exc)[:500]
+            scene.save(update_fields=["status", "error", "updated_at"])
+            _notify_scene(scene, ok=False)
+            return {"status": "custom_rejected"}
+        except Exception as exc:
+            logger.exception("сцена %s: описание не превратилось в сцену", scene_id)
+            scene.status = CartoonScene.STATUS_FAILED
+            scene.error = f"Не удалось разобрать описание: {exc}"[:500]
+            scene.save(update_fields=["status", "error", "updated_at"])
+            _notify_scene(scene, ok=False)
+            return {"status": "custom_failed"}
+        preset = preset_for_scene(scene)
+
     # --- 1) кадр сцены ---
     if not scene.keyframe:
         scene.status = CartoonScene.STATUS_KEYFRAME
@@ -52,7 +73,10 @@ def render_scene(self, scene_id: int) -> dict:
         try:
             # Кадр мог быть нарисован раньше — при примерке героя на эту же
             # сцену. Тогда он берётся из запаса, и человек не платит дважды.
-            scene.keyframe, frame_price = get_or_create_keyframe(preset, character, user)
+            if scene.custom_text:
+                scene.keyframe, frame_price = draw_custom_keyframe(scene, character, user)
+            else:
+                scene.keyframe, frame_price = get_or_create_keyframe(preset, character, user)
             scene.credits_spent += frame_price
             scene.save(update_fields=["keyframe", "credits_spent", "updated_at"])
         except Exception as exc:

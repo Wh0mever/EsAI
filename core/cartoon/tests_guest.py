@@ -191,6 +191,122 @@ class PairVideoTests(TestCase):
 
 
 @override_settings(CACHES=CACHES)
+class CustomSceneTests(TestCase):
+    """Своя сцена: описание → служебный пресет, отдельный кадр, мимо общих запасов."""
+
+    def setUp(self):
+        self.image_model = _model("img4")
+        self.video_model = _model("vid4")
+        self.library = CartoonPreset.objects.create(
+            slug="lib-scene", title="Библиотека", is_active=True, scene_prompt="x",
+            image_model=self.image_model, video_model=self.video_model,
+            preview_video="cartoon/previews/lib.mp4")
+        self.hero = CartoonCharacter.objects.create(
+            name="Кот", image="cartoon/characters/cat.png", is_public=True,
+            description="a ginger cat in a blue cape")
+        self.user = get_user_model().objects.create_user(email="c@example.com", password="x-12345678")
+        self.user.token_balance = 1000
+        self.user.save(update_fields=["token_balance"])
+        self.project = CartoonProject.objects.create(user=self.user, character=self.hero)
+
+    def _add(self, body):
+        from cartoon.views import ProjectScenesView
+
+        request = APIRequestFactory().post("/scenes/", body, format="json")
+        force_authenticate(request, user=self.user)
+        return ProjectScenesView.as_view()(request, pk=self.project.pk)
+
+    def test_text_scene_lands_as_draft_on_hidden_preset(self):
+        from cartoon.services import CUSTOM_PRESET_SLUG
+        from cartoon.views import PresetsView
+
+        response = self._add({"custom_text": "катается на скейте по ночному городу",
+                              "character_id": self.hero.pk})
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertEqual(response.data["status"], "draft")
+        self.assertEqual(response.data["custom_text"], "катается на скейте по ночному городу")
+        self.assertEqual(response.data["preview_video"], "")
+        self.assertEqual(response.data["keyframe"], "")
+        slugs = [p["slug"] for p in PresetsView.as_view()(APIRequestFactory().get("/p/")).data["presets"]]
+        self.assertNotIn(CUSTOM_PRESET_SLUG, slugs)
+        # Служебный пресет нельзя добавить как обычную сцену.
+        from cartoon.models import CartoonPreset as P
+        base = P.objects.get(slug=CUSTOM_PRESET_SLUG)
+        self.assertEqual(self._add({"preset_id": base.pk}).status_code, 400)
+
+    def test_too_short_or_long_description_refused(self):
+        self.assertEqual(self._add({"custom_text": "ы"}).status_code, 400)
+        self.assertEqual(self._add({"custom_text": "а" * 301}).status_code, 400)
+
+    def _fake_llm(self, payload):
+        import json as _json
+        from unittest.mock import MagicMock
+
+        resp = MagicMock(status_code=200)
+        resp.json.return_value = {"choices": [{"message": {"content": _json.dumps(payload)}}]}
+        return patch("cartoon.services.requests.post", return_value=resp)
+
+    def test_render_uses_formed_prompt_and_skips_shared_stock(self):
+        from cartoon.models import CartoonPairVideo, CartoonScene
+        from cartoon.tasks import render_scene
+
+        scene = CartoonScene.objects.get(pk=self._add({
+            "custom_text": "катается на скейте", "character_id": self.hero.pk}).data["id"])
+        seen = {}
+
+        def fake_frame(preset, character):
+            seen["frame_prompt"] = preset.scene_prompt
+            return "cartoon/keyframes/custom.png"
+
+        def fake_video(preset, keyframe):
+            seen["motion"] = preset.motion_prompt
+            return "cartoon/scenes/custom.mp4"
+
+        with self._fake_llm({"ok": True, "title": "Скейт", "scene": "The character rides a skateboard at night.",
+                             "motion": "Camera follows the character."}), \
+             patch("cartoon.services.generate_keyframe", side_effect=fake_frame), \
+             patch("cartoon.tasks.generate_scene_video", side_effect=fake_video):
+            result = render_scene.apply(args=[scene.pk]).get()
+        self.assertEqual(result["status"], "ready", result)
+        scene.refresh_from_db()
+        self.assertEqual(seen["frame_prompt"], "The character rides a skateboard at night.")
+        self.assertEqual(seen["motion"], "Camera follows the character.")
+        self.assertEqual(scene.custom_title, "Скейт")
+        self.assertGreater(scene.credits_spent, 0)
+        # Ни общего кадра, ни ролика пары у своей сцены быть не должно.
+        self.assertFalse(CartoonKeyframe.objects.filter(preset=scene.preset).exists())
+        self.assertFalse(CartoonPairVideo.objects.exists())
+
+    def test_rejected_description_costs_nothing(self):
+        from cartoon.models import CartoonScene
+        from cartoon.tasks import render_scene
+
+        scene = CartoonScene.objects.get(pk=self._add({
+            "custom_text": "что-то недопустимое", "character_id": self.hero.pk}).data["id"])
+        with self._fake_llm({"ok": False, "reason": "Такую сцену снять нельзя"}), \
+             patch("cartoon.services.generate_keyframe") as frame:
+            result = render_scene.apply(args=[scene.pk]).get()
+        self.assertEqual(result["status"], "custom_rejected")
+        scene.refresh_from_db()
+        self.assertEqual(scene.status, "failed")
+        self.assertEqual(scene.credits_spent, 0)
+        self.assertEqual(frame.call_count, 0)
+
+    def test_import_keeps_text_scene(self):
+        response = ProjectImportView.as_view()(self._import_request({
+            "draft_id": "custom-draft", "character_id": self.hero.pk,
+            "scenes": [{"preset_id": 0, "custom_text": "прыгает с парашютом", "character_id": self.hero.pk},
+                       {"preset_id": self.library.pk}]}))
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertEqual([s["custom_text"] for s in response.data["scenes"]], ["прыгает с парашютом", ""])
+
+    def _import_request(self, body):
+        request = APIRequestFactory().post("/import/", body, format="json")
+        force_authenticate(request, user=self.user)
+        return request
+
+
+@override_settings(CACHES=CACHES)
 class DraftImportTests(TestCase):
     def setUp(self):
         image_model = _model("img2")
