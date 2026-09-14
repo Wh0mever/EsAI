@@ -355,6 +355,41 @@ class CartoonKeyframe(models.Model):
         return f"{self.character_id} в {self.preset_id}"
 
 
+class CartoonPairVideo(models.Model):
+    """Готовый ролик «герой в сцене» — общий для всех, как кадр примерки.
+
+    Клиент: выбрал героя и сцену — и сразу видишь сцену с ним в движении, без
+    новой генерации. Подставить героя в чужой ролик нельзя (у нас коты и
+    капибары, а не лица), поэтому движущееся превью пары — это видео, снятое
+    с этим героем хотя бы раз. Дальше оно показывается всем мгновенно.
+
+    Сюда попадает каждая удачная съёмка библиотечного героя в библиотечной
+    сцене: в таком ролике нет ничего личного — тот же герой, та же сцена,
+    тот же первый кадр, что увидел бы любой. Свои персонажи пользователей
+    сюда не попадают никогда.
+    """
+    preset = models.ForeignKey(
+        CartoonPreset, on_delete=models.CASCADE, related_name="pair_videos", verbose_name="Сцена")
+    character = models.ForeignKey(
+        CartoonCharacter, on_delete=models.CASCADE, related_name="pair_videos", verbose_name="Герой")
+    video = models.CharField(max_length=512, verbose_name="Ролик")
+    clip = models.CharField(
+        max_length=512, blank=True, default="", verbose_name="Лёгкая копия",
+        help_text="480p без звука — для автозапуска в витрине и ленте на телефоне.")
+    source_scene = models.ForeignKey(
+        "CartoonScene", on_delete=models.SET_NULL, null=True, blank=True,
+        related_name="+", verbose_name="Из какой съёмки")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        unique_together = ("preset", "character")
+        verbose_name = "Ролик героя в сцене"
+        verbose_name_plural = "Ролики героев в сценах"
+
+    def __str__(self):
+        return f"{self.character_id} в {self.preset_id} (ролик)"
+
+
 class CartoonGuestTryOn(models.Model):
     """Бесплатная примерка героя, которую получил гость.
 

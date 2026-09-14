@@ -135,6 +135,22 @@
   100% { transform: scale(1); opacity: 1; }
 }
 
+/* Студия: живой предпросмотр кадра «герой в сцене», пока ролика этой пары
+   ещё нет. Медленное движение камеры — чтобы сцена не выглядела застывшей
+   картинкой. Это не действие героя, поэтому такое превью подписано «кадр». */
+@keyframes studio-kenburns {
+  from { transform: scale(1) translate(0, 0); }
+  to { transform: scale(1.12) translate(-2%, -1.5%); }
+}
+.studio-live {
+  animation: studio-kenburns 7s ease-in-out infinite alternate;
+  transform-origin: 50% 50%;
+  will-change: transform;
+}
+@media (prefers-reduced-motion: reduce) {
+  .studio-live { animation: none; }
+}
+
 video::-webkit-media-controls {
   display: none !important;
 }

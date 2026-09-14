@@ -16,7 +16,8 @@ from celery import shared_task
 from django.conf import settings
 
 from .models import CartoonProject, CartoonScene
-from .services import get_or_create_keyframe, assemble_project, charge, generate_keyframe, generate_scene_video
+from .services import (assemble_project, charge, generate_keyframe, generate_scene_video,
+                       get_or_create_keyframe, remember_pair_video)
 
 logger = logging.getLogger(__name__)
 
@@ -75,6 +76,12 @@ def render_scene(self, scene_id: int) -> dict:
         scene.status = CartoonScene.STATUS_READY
         scene.error = ""
         scene.save(update_fields=["video", "credits_spent", "status", "error", "updated_at"])
+        # Готовая пара «библиотечный герой + сцена» становится движущимся
+        # превью для всех. Сбой здесь не должен портить уже снятую сцену.
+        try:
+            remember_pair_video(scene)
+        except Exception:
+            logger.exception("сцена %s: ролик не лёг в общий запас", scene_id)
         _notify_scene(scene, ok=True)
         return {"status": "ready", "scene": scene.pk}
     except Exception as exc:

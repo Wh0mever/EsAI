@@ -1835,7 +1835,11 @@
 		"guest_cta_title_other": "{{count}} scenes in your timeline",
 		"guest_cta_note": "Sign in to film your cartoon — your hero and scenes are kept.",
 		"guest_cta_btn": "Film my cartoon",
-		"err_draft_full": "Your timeline already has 30 scenes — that's the maximum for one cartoon."
+		"err_draft_full": "Your timeline already has 30 scenes — that's the maximum for one cartoon.",
+		"hero_frame": "frame with your hero",
+		"preview_badge": "preview",
+		"frame_badge": "frame",
+		"cast_title": "Heroes in this cartoon"
 	},
 	"crypto": {
 		"title_invoice": "Pay with crypto",

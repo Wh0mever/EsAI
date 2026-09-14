@@ -136,7 +136,31 @@ def character_json(c: CartoonCharacter, lang: str = "ru") -> dict:
     }
 
 
-def scene_json(s: CartoonScene, lang: str = "ru") -> dict:
+def _pair_video_url(row) -> str:
+    return _media(row.clip or row.video) if row else ""
+
+
+def _pair_videos_for(scenes) -> dict:
+    """Ролики пар для сцен проекта одним запросом: {(сцена, герой): url}."""
+    from .models import CartoonPairVideo
+
+    keys = set()
+    for s in scenes:
+        hero_id = s.character_id or (s.project.character_id if s.project_id else None)
+        if s.preset_id and hero_id:
+            keys.add((s.preset_id, hero_id))
+    if not keys:
+        return {}
+    rows = CartoonPairVideo.objects.filter(
+        preset_id__in={k[0] for k in keys}, character_id__in={k[1] for k in keys})
+    return {(r.preset_id, r.character_id): _pair_video_url(r)
+            for r in rows if (r.preset_id, r.character_id) in keys}
+
+
+def scene_json(s: CartoonScene, lang: str = "ru", pair_videos: dict | None = None) -> dict:
+    hero_id = s.character_id or s.project.character_id
+    if pair_videos is None:
+        pair_videos = _pair_videos_for([s])
     return {
         "id": s.id,
         "order": s.order,
@@ -158,6 +182,9 @@ def scene_json(s: CartoonScene, lang: str = "ru") -> dict:
         "character": character_json(s.character or s.project.character, lang)
                      if (s.character_id or s.project.character_id) else None,
         "keyframe": _media(s.keyframe),
+        # Движущееся превью пары, если такого героя в этой сцене уже снимали:
+        # человек видит сцену в движении ещё до своей съёмки.
+        "preview_video": "" if s.video else pair_videos.get((s.preset_id, hero_id), ""),
         "video": _media(s.video),
         "status": s.status,
         "error": s.error,
@@ -168,6 +195,7 @@ def scene_json(s: CartoonScene, lang: str = "ru") -> dict:
 def project_json(p: CartoonProject, lang: str = "ru") -> dict:
     scenes = list(p.scenes.select_related(
         "preset", "character", "project__character").order_by("order", "id"))
+    pairs = _pair_videos_for(scenes)
     return {
         "id": p.id,
         "title": p.title,
@@ -176,7 +204,7 @@ def project_json(p: CartoonProject, lang: str = "ru") -> dict:
         "character": character_json(p.character, lang) if p.character else None,
         "result_video": _media(p.result_video),
         "error": p.error,
-        "scenes": [scene_json(s, lang) for s in scenes],
+        "scenes": [scene_json(s, lang, pairs) for s in scenes],
         "created_at": p.created_at.isoformat(),
         "credits_spent": sum(s.credits_spent for s in scenes),
     }
@@ -521,6 +549,33 @@ def _pick_character(request, character_id):
     library = Q(is_public=True, user__isnull=True)
     mine = Q(user=request.user) if request.user.is_authenticated else Q(pk__in=[])
     return CartoonCharacter.objects.filter(library | mine).filter(pk=character_id).first()
+
+
+class PreviewsView(StudioPublicAPIView):
+    """GET — всё готовое по герою: кадры и ролики пар «герой в сцене».
+
+    {preset_id: {"frame": url, "video": url}}. Ролик — движущееся превью
+    сцены с этим героем, кадр — запасной вариант, пока ролика нет. И то и
+    другое уже нарисовано и отдаётся бесплатно, поэтому витрина подставляет
+    их сразу при выборе героя.
+
+    Отдельно от keyframes/: тем эндпоинтом пользуется бот, и его ответ менять
+    нельзя.
+    """
+
+    def get(self, request):
+        character = _pick_character(request, request.query_params.get("character_id"))
+        if not character:
+            return Response({})
+
+        from .models import CartoonKeyframe, CartoonPairVideo
+
+        out: dict = {}
+        for r in CartoonKeyframe.objects.filter(character=character).exclude(image=""):
+            out.setdefault(str(r.preset_id), {"frame": "", "video": ""})["frame"] = _media(r.image)
+        for r in CartoonPairVideo.objects.filter(character=character).exclude(video=""):
+            out.setdefault(str(r.preset_id), {"frame": "", "video": ""})["video"] = _pair_video_url(r)
+        return Response(out)
 
 
 class KeyframesView(StudioPublicAPIView):

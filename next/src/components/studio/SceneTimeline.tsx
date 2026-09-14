@@ -28,6 +28,8 @@ export type StudioScene = {
   /** Кем снимается эта сцена: свой герой или герой всего мультфильма. */
   character?: { id: number; name: string; image: string } | null;
   keyframe: string;
+  /** Готовый ролик этой пары «герой + сцена», снятый раньше кем-то, — превью в движении до съёмки. */
+  preview_video?: string;
   video: string;
   status: "draft" | "new" | "keyframe" | "video" | "ready" | "failed";
   error: string;
@@ -143,11 +145,32 @@ export default function SceneTimeline({
                   poster={s.keyframe || undefined}
                   className="h-full w-full object-cover"
                 />
+              ) : s.preview_video && !working ? (
+                <>
+                  {/* Клиент: до съёмки человек должен видеть сцену с героем в
+                      движении. Если эту пару уже снимали — показываем тот ролик,
+                      он заранее готов и ничего не стоит. */}
+                  <video
+                    src={s.preview_video}
+                    poster={s.keyframe || undefined}
+                    autoPlay
+                    muted
+                    loop
+                    playsInline
+                    preload="metadata"
+                    className="h-full w-full object-cover"
+                  />
+                  <span className="pointer-events-none absolute left-1.5 top-1.5 rounded-full bg-black/55 px-1.5 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">
+                    {t("studio_ui.preview_badge")}
+                  </span>
+                </>
               ) : s.keyframe || s.preset.poster ? (
                 <>
                   {/* Пока своего кадра нет, показываем обложку сцены: у
                       черновика ничего не грузится, и крутилка на его месте
-                      читалась как зависшая загрузка (жалоба клиента). */}
+                      читалась как зависшая загрузка (жалоба клиента).
+                      Кадр с героем чуть движется камерой — это не действие
+                      героя, а живой предпросмотр, и подписан он честно. */}
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={s.keyframe || s.preset.poster}
@@ -155,9 +178,14 @@ export default function SceneTimeline({
                     loading="lazy"
                     decoding="async"
                     className={`h-full w-full object-cover ${
-                      s.keyframe ? "" : "opacity-70"
+                      s.keyframe ? (s.status === "draft" ? "studio-live" : "") : "opacity-70"
                     }`}
                   />
+                  {s.keyframe && s.status === "draft" && (
+                    <span className="pointer-events-none absolute left-1.5 top-1.5 rounded-full bg-black/55 px-1.5 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">
+                      {t("studio_ui.frame_badge")}
+                    </span>
+                  )}
                   {working && (
                     <span className="absolute inset-0 grid place-items-center bg-black/45 text-white">
                       <FiLoader className="animate-spin text-2xl" />

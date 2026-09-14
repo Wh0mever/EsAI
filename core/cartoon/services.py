@@ -207,6 +207,42 @@ def charge(user, amount: int, reason: str, meta: dict | None = None) -> None:
         charge_tokens(user, int(amount), reason, meta=meta or {})
 
 
+def remember_pair_video(scene) -> bool:
+    """Положить удачную съёмку в общий запас роликов пар.
+
+    Только библиотечный герой: ролик со своим персонажем пользователя — его
+    личное, и другим он не показывается. Лёгкая копия для автозапуска
+    делается сразу; если ffmpeg не справился, витрина покажет оригинал.
+    Возвращает True, если пара появилась в запасе впервые.
+    """
+    from django.core.files.base import ContentFile
+    from django.core.files.storage import default_storage
+
+    from .clips import make_clip
+    from .models import CartoonPairVideo
+
+    character = scene.character or scene.project.character
+    if not scene.video or not character or character.user_id is not None:
+        return False
+    if CartoonPairVideo.objects.filter(preset_id=scene.preset_id, character=character).exists():
+        return False
+
+    clip_path = ""
+    try:
+        with default_storage.open(scene.video, "rb") as fh:
+            clip = make_clip(fh.read())
+        if clip:
+            clip_path = default_storage.save(
+                f"cartoon/pairs/{scene.preset_id}-{character.pk}.mp4", ContentFile(clip))
+    except Exception:
+        logger.exception("ролик пары: лёгкая копия не сделалась (сцена %s)", scene.pk)
+
+    _, created = CartoonPairVideo.objects.get_or_create(
+        preset_id=scene.preset_id, character=character,
+        defaults={"video": scene.video, "clip": clip_path, "source_scene": scene})
+    return created
+
+
 def get_or_create_keyframe(preset, character, user=None):
     """Кадр «герой в сцене»: из общего запаса или нарисовать.
 
