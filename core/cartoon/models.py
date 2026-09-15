@@ -241,6 +241,9 @@ class CartoonProject(models.Model):
     # входа перезагрузилась, пока шёл перенос.
     import_key = models.CharField(max_length=64, blank=True, default="", db_index=True,
                                   verbose_name="Ключ гостевого черновика")
+    # Отмечен в админке как удачная работа — для рекламы и витрины.
+    featured_at = models.DateTimeField(null=True, blank=True, db_index=True,
+                                       verbose_name="Отмечен для рекламы")
 
     status = models.CharField(max_length=12, choices=STATUS_CHOICES, default=STATUS_DRAFT,
                               verbose_name="Состояние")
@@ -307,6 +310,14 @@ class CartoonScene(models.Model):
                                     verbose_name="Своя сцена: название")
     custom_prompt = models.TextField(blank=True, default="", verbose_name="Своя сцена: промпт кадра")
     custom_motion = models.TextField(blank=True, default="", verbose_name="Своя сцена: промпт движения")
+    # Отмечена в админке как удачная работа — для рекламы и витрины.
+    featured_at = models.DateTimeField(null=True, blank=True, db_index=True,
+                                       verbose_name="Отмечена для рекламы")
+    # Звук: видео сцены, сведённое со всеми её дорожками (голоса, музыка,
+    # эффекты). Пусто — дорожек нет, играет исходное видео.
+    mixed_video = models.CharField(max_length=512, blank=True, default="",
+                                   verbose_name="Видео со звуком")
+    sound_volume = models.FloatField(default=1.0, verbose_name="Громкость звука самой сцены")
 
     keyframe = models.CharField(max_length=512, blank=True, default="",
                                 verbose_name="Кадр-раскадровка")
@@ -398,6 +409,47 @@ class CartoonPairVideo(models.Model):
 
     def __str__(self):
         return f"{self.character_id} в {self.preset_id} (ролик)"
+
+
+class CartoonAudioTrack(models.Model):
+    """Звуковая дорожка сцены: реплика, свой голос, музыка или эффект.
+
+    У каждой — момент начала и громкость (просьба клиента). Файл всегда mp3:
+    загрузки и запись с диктофона приводятся к нему при сохранении.
+    """
+    KIND_VOICE = "voice"
+    KIND_OWN = "own"
+    KIND_MUSIC = "music"
+    KIND_SFX = "sfx"
+    KIND_CHOICES = [
+        (KIND_VOICE, "ИИ-голос"),
+        (KIND_OWN, "Свой голос"),
+        (KIND_MUSIC, "Музыка"),
+        (KIND_SFX, "Звуковой эффект"),
+    ]
+
+    scene = models.ForeignKey("CartoonScene", on_delete=models.CASCADE, related_name="audio_tracks",
+                              verbose_name="Сцена")
+    kind = models.CharField(max_length=8, choices=KIND_CHOICES, verbose_name="Тип")
+    character = models.ForeignKey(CartoonCharacter, on_delete=models.SET_NULL, null=True, blank=True,
+                                  related_name="audio_tracks", verbose_name="Чья реплика")
+    voice_id = models.CharField(max_length=64, blank=True, default="", verbose_name="Голос (id)")
+    voice_name = models.CharField(max_length=120, blank=True, default="", verbose_name="Голос")
+    text = models.TextField(blank=True, default="", verbose_name="Текст или описание")
+    file = models.CharField(max_length=512, verbose_name="Файл")
+    duration = models.FloatField(default=0, verbose_name="Длительность, с")
+    start_sec = models.FloatField(default=0, verbose_name="Начало, с")
+    volume = models.FloatField(default=1.0, verbose_name="Громкость")
+    credits_spent = models.PositiveIntegerField(default=0, verbose_name="Списано кредитов")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ("start_sec", "id")
+        verbose_name = "Звуковая дорожка"
+        verbose_name_plural = "Звуковые дорожки"
+
+    def __str__(self):
+        return f"{self.get_kind_display()} · сцена {self.scene_id}"
 
 
 class CartoonGuestTryOn(models.Model):

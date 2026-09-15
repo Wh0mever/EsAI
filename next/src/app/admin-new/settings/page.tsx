@@ -11,6 +11,7 @@ import {
   FiEyeOff,
   FiCheck,
   FiDollarSign,
+  FiMic,
 } from "react-icons/fi";
 
 type SiteContacts = {
@@ -44,6 +45,12 @@ type Settings = {
   nowpayments_fixed_rate: boolean;
   crypto_allowed_currencies: string;
   crypto_settlement_currency: string;
+  elevenlabs_configured?: boolean;
+  elevenlabs_key_masked?: string | null;
+  studio_voice_credits_per_1k?: number;
+  studio_voice_min_credits?: number;
+  studio_music_credits_per_min?: number;
+  studio_sfx_credits?: number;
   /** курс, по которому реально выставляется криптосчёт */
   currency_kgs_to_usd_rate: number;
   /** зафиксированный админом вручную (0 — не задан, берётся живой) */
@@ -150,6 +157,19 @@ const SITE_FIELDS: { key: keyof SiteContacts; label: string; placeholder: string
   { key: "twitter", label: "Twitter / X", placeholder: "https://x.com/..." },
 ];
 
+type AudioPriceKey =
+  | "studio_voice_credits_per_1k"
+  | "studio_voice_min_credits"
+  | "studio_music_credits_per_min"
+  | "studio_sfx_credits";
+
+const AUDIO_PRICES: { key: AudioPriceKey; label: string }[] = [
+  { key: "studio_voice_credits_per_1k", label: "Озвучка: кредитов за 1000 символов" },
+  { key: "studio_voice_min_credits", label: "Озвучка: минимум за генерацию" },
+  { key: "studio_music_credits_per_min", label: "Музыка: кредитов за минуту" },
+  { key: "studio_sfx_credits", label: "Звуковой эффект: кредитов" },
+];
+
 function SavedFlash() {
   return (
     <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-400">
@@ -207,6 +227,20 @@ export default function AdminSettingsPage() {
   const [cryptoTesting, setCryptoTesting] = useState(false);
   const [cryptoTest, setCryptoTest] = useState<CryptoTestResult | null>(null);
 
+  // --- Звук студии (ElevenLabs) ---
+  const [elKey, setElKey] = useState("");
+  const [audioDraft, setAudioDraft] = useState<Record<AudioPriceKey, string>>({
+    studio_voice_credits_per_1k: "",
+    studio_voice_min_credits: "",
+    studio_music_credits_per_min: "",
+    studio_sfx_credits: "",
+  });
+  const [audioSaving, setAudioSaving] = useState(false);
+  const [audioError, setAudioError] = useState<string | null>(null);
+  const [audioFlash, setAudioFlash] = useState(false);
+  const [audioTesting, setAudioTesting] = useState(false);
+  const [audioTest, setAudioTest] = useState<{ ok: boolean; error?: string | null; voices?: number } | null>(null);
+
   // --- Секция 4: контакты сайта ---
   const [siteDraft, setSiteDraft] = useState<SiteContacts>({
     email: "",
@@ -233,6 +267,12 @@ export default function AdminSettingsPage() {
       paid_daily_requests: String(s.paid_daily_requests ?? 0),
     });
     setImageAutoRoute(Boolean(s.image_auto_route));
+    setAudioDraft({
+      studio_voice_credits_per_1k: String(s.studio_voice_credits_per_1k ?? 20),
+      studio_voice_min_credits: String(s.studio_voice_min_credits ?? 5),
+      studio_music_credits_per_min: String(s.studio_music_credits_per_min ?? 30),
+      studio_sfx_credits: String(s.studio_sfx_credits ?? 10),
+    });
     setRateDraft(String(s.currency_kgs_to_rub_rate ?? ""));
     setCryptoMode(s.crypto_payments_mode ?? "off");
     setFeeByUser(Boolean(s.crypto_fee_paid_by_user));
@@ -483,6 +523,54 @@ export default function AdminSettingsPage() {
     setCryptoTest(
       res.ok && res.data ? res.data : { ok: false, error: res.error || "Нет связи" }
     );
+  };
+
+  // ---------- Звук студии ----------
+
+  const audioDirty =
+    settings !== null &&
+    (Boolean(elKey.trim()) ||
+      AUDIO_PRICES.some((f) => audioDraft[f.key] !== String(settings[f.key] ?? "")));
+
+  const saveAudio = async () => {
+    if (!settings) return;
+    const patch: Record<string, unknown> = {};
+    for (const f of AUDIO_PRICES) {
+      if (audioDraft[f.key] === String(settings[f.key] ?? "")) continue;
+      const n = Number(audioDraft[f.key]);
+      if (!Number.isInteger(n) || n < 0) {
+        setAudioError(`${f.label}: целое число от 0`);
+        return;
+      }
+      patch[f.key] = n;
+    }
+    if (elKey.trim()) patch.elevenlabs_api_key = elKey.trim();
+    if (Object.keys(patch).length === 0) return;
+    setAudioSaving(true);
+    setAudioError(null);
+    const res = await fetchData<Settings>("manage/settings/", "PATCH", patch, true);
+    setAudioSaving(false);
+    if (res.ok && res.data) {
+      applySnapshot(res.data);
+      setElKey("");
+      setAudioFlash(true);
+      setTimeout(() => setAudioFlash(false), 2000);
+    } else {
+      setAudioError(res.error || "Не удалось сохранить");
+    }
+  };
+
+  const testAudio = async () => {
+    setAudioTesting(true);
+    setAudioTest(null);
+    const res = await fetchData<{ ok: boolean; error?: string | null; voices?: number }>(
+      "manage/settings/test-elevenlabs/",
+      "POST",
+      {},
+      true
+    );
+    setAudioTesting(false);
+    setAudioTest(res.ok && res.data ? res.data : { ok: false, error: res.error || "Нет связи" });
   };
 
   // ---------- Контакты сайта ----------
@@ -906,6 +994,82 @@ export default function AdminSettingsPage() {
         </div>
 
         {cryptoError && <div className="mt-3 text-sm text-red-400">{cryptoError}</div>}
+      </section>
+
+      {/* Звук студии */}
+      <section className="rounded-2xl border border-border bg-surface p-5">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <FiMic className="h-4 w-4 text-accent" />
+            <h2 className="text-base font-semibold">Озвучка студии (ElevenLabs)</h2>
+          </div>
+          <div className="flex items-center gap-3">
+            {audioFlash && <SavedFlash />}
+            <button
+              onClick={testAudio}
+              disabled={audioTesting}
+              className="rounded-lg border border-border bg-surface-2 px-3 py-1.5 text-xs font-semibold text-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+            >
+              {audioTesting ? "Проверка…" : "Проверить ключ"}
+            </button>
+            {audioDirty && (
+              <button
+                onClick={saveAudio}
+                disabled={audioSaving}
+                className="rounded-lg bg-accent px-4 py-2 text-xs font-semibold text-on-accent transition-opacity hover:opacity-90 disabled:opacity-50"
+              >
+                {audioSaving ? "Сохранение…" : "Сохранить"}
+              </button>
+            )}
+          </div>
+        </div>
+        <p className="mt-1 text-xs text-muted-2">
+          Голоса, музыка и звуковые эффекты в сценах. Пока ключ не задан, кнопка «Звук» в студии
+          не показывается. Кредиты списываются только за готовый звук, цену человек видит до
+          генерации. {settings.elevenlabs_configured ? "Ключ задан." : "Ключ НЕ задан."}
+        </p>
+
+        {audioTest && (
+          <div className={`mt-3 text-sm ${audioTest.ok ? "text-emerald-400" : "text-red-400"}`}>
+            {audioTest.ok
+              ? `Ключ работает · готовых голосов: ${audioTest.voices ?? "—"}`
+              : `Не работает: ${audioTest.error || "неизвестная ошибка"}`}
+          </div>
+        )}
+
+        <div className="mt-4 flex max-w-xl flex-col gap-1">
+          <label className="text-xs text-muted">
+            API-ключ (текущий: {settings.elevenlabs_key_masked || "не задан"})
+          </label>
+          <input
+            type="password"
+            value={elKey}
+            onChange={(e) => setElKey(e.target.value)}
+            placeholder="новый ключ sk_…"
+            autoComplete="off"
+            className={`${INPUT} font-mono`}
+          />
+          <span className="text-[11px] text-muted-2">
+            Ключу нужны права: Text to Speech, Sound Effects, Music, Voices (read).
+          </span>
+        </div>
+
+        <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          {AUDIO_PRICES.map((f) => (
+            <div key={f.key} className="flex flex-col gap-1">
+              <label className="text-xs text-muted">{f.label}</label>
+              <input
+                type="text"
+                inputMode="numeric"
+                value={audioDraft[f.key]}
+                onChange={(e) => setAudioDraft((d) => ({ ...d, [f.key]: e.target.value }))}
+                className={INPUT}
+              />
+            </div>
+          ))}
+        </div>
+
+        {audioError && <div className="mt-3 text-sm text-red-400">{audioError}</div>}
       </section>
 
       {/* 4. Контакты сайта */}

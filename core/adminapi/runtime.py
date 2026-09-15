@@ -65,6 +65,12 @@ KEYS = (
     "crypto_settlement_currency",
     # Студия: сколько бесплатных примерок героя гости получают за сутки.
     "studio_guest_tryon_daily_cap",
+    # Звук студии: ключ ElevenLabs и цены.
+    "ELEVENLABS_API_KEY",
+    "studio_voice_credits_per_1k",
+    "studio_voice_min_credits",
+    "studio_music_credits_per_min",
+    "studio_sfx_credits",
 )
 
 # Сентинел «в кэше пусто» — None невалиден: мы кэшируем и None («ключа нет в БД»).

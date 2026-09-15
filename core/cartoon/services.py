@@ -184,7 +184,8 @@ def assemble_project(project) -> str:
     parts = []
     for scene in project.scenes.filter(status="ready").exclude(video="").order_by("order"):
         try:
-            with default_storage.open(scene.video, "rb") as fh:
+            # Сцена со звуком идёт в мультфильм сведённой.
+            with default_storage.open(scene.mixed_video or scene.video, "rb") as fh:
                 parts.append(fh.read())
         except Exception:
             logger.warning("склейка: сцена %s не читается, пропускаю", scene.pk)

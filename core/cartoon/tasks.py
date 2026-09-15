@@ -100,6 +100,14 @@ def render_scene(self, scene_id: int) -> dict:
         scene.status = CartoonScene.STATUS_READY
         scene.error = ""
         scene.save(update_fields=["video", "credits_spent", "status", "error", "updated_at"])
+        # Звук, набранный до съёмки, накладывается сам (клиент: «в итоге всё
+        # автоматически объединяется»). Сбой сведения не портит снятую сцену.
+        try:
+            from .audio import remix_scene
+
+            remix_scene(scene)
+        except Exception:
+            logger.exception("сцена %s: звук не свёлся после съёмки", scene_id)
         # Готовая пара «библиотечный герой + сцена» становится движущимся
         # превью для всех. Сбой здесь не должен портить уже снятую сцену.
         try:

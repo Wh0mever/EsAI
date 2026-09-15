@@ -461,6 +461,15 @@ def _settings_snapshot() -> dict:
 
     snapshot["crypto_payments_mode"] = _crypto_registry.mode()
     snapshot["crypto_configured"] = _crypto_registry.is_configured()
+    from cartoon import audio as _studio_audio
+
+    snapshot["elevenlabs_configured"] = _studio_audio.is_configured()
+    snapshot["elevenlabs_key_masked"] = _mask_key(_studio_audio.api_key())
+    _audio_prices = _studio_audio.prices()
+    snapshot["studio_voice_credits_per_1k"] = _audio_prices["voice_per_1k"]
+    snapshot["studio_voice_min_credits"] = _audio_prices["voice_min"]
+    snapshot["studio_music_credits_per_min"] = _audio_prices["music_per_min"]
+    snapshot["studio_sfx_credits"] = _audio_prices["sfx"]
     snapshot["nowpayments_key_masked"] = _mask_key(_crypto_registry.api_key())
     snapshot["nowpayments_ipn_secret_masked"] = _mask_key(_crypto_registry.ipn_secret())
     snapshot["nowpayments_sandbox"] = bool(getattr(settings, "NOWPAYMENTS_SANDBOX", False))
@@ -658,10 +667,26 @@ class SettingsView(StaffAPIView):
                 )
             set_runtime("crypto_payments_mode", mode)
 
+        # Звук студии: цены — целые неотрицательные.
+        for field in ("studio_voice_credits_per_1k", "studio_voice_min_credits",
+                      "studio_music_credits_per_min", "studio_sfx_credits"):
+            if field not in data:
+                continue
+            try:
+                value = int(data[field])
+            except (TypeError, ValueError):
+                return Response({"detail": f"{field} должен быть целым числом"},
+                                status=status.HTTP_400_BAD_REQUEST)
+            if value < 0 or value > 100000:
+                return Response({"detail": f"{field} должен быть в диапазоне 0..100000"},
+                                status=status.HTTP_400_BAD_REQUEST)
+            set_runtime(field, value)
+
         # Ключи — write-only. Пустая строка означает «убрать значение из
         # админки», чтобы снова действовал ключ из окружения.
         for field, rt_key in (("nowpayments_api_key", "NOWPAYMENTS_API_KEY"),
-                              ("nowpayments_ipn_secret", "NOWPAYMENTS_IPN_SECRET")):
+                              ("nowpayments_ipn_secret", "NOWPAYMENTS_IPN_SECRET"),
+                              ("elevenlabs_api_key", "ELEVENLABS_API_KEY")):
             if field not in data:
                 continue
             value = str(data[field] or "").strip()
@@ -841,6 +866,15 @@ class PaymentRefundStarsView(StaffAPIView):
             return Response({"detail": exc.code, **exc.extra}, status=exc.http)
         payment.refresh_from_db()
         return Response({"result": result, "payment": PaymentAdminSerializer(payment).data})
+
+
+class SettingsTestElevenLabsView(StaffAPIView):
+    """Проверка ключа ElevenLabs: {ok, error, voices}."""
+
+    def post(self, request):
+        from cartoon import audio as studio_audio
+
+        return Response(studio_audio.healthcheck())
 
 
 class SettingsTestNowPaymentsView(StaffAPIView):

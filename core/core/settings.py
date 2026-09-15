@@ -46,6 +46,14 @@ STUDIO_GUEST_TRYON_PER_IP_DAY = env.int("STUDIO_GUEST_TRYON_PER_IP_DAY", default
 # Своя сцена: описание человека превращает в промпт кадра и движения дешёвая
 # модель — доли цента за сцену, один раз.
 STUDIO_SCENE_MODEL = env.str("STUDIO_SCENE_MODEL", default="google/gemini-2.5-flash")
+# Звук студии (ElevenLabs). Ключ задаётся в админке (write-only), здесь запасной.
+# Цены — просьба клиента; тоже правятся в админке.
+ELEVENLABS_API_KEY = env.str("ELEVENLABS_API_KEY", default="")
+ELEVENLABS_TTS_MODEL = env.str("ELEVENLABS_TTS_MODEL", default="eleven_multilingual_v2")
+STUDIO_VOICE_CREDITS_PER_1K = env.int("STUDIO_VOICE_CREDITS_PER_1K", default=20)
+STUDIO_VOICE_MIN_CREDITS = env.int("STUDIO_VOICE_MIN_CREDITS", default=5)
+STUDIO_MUSIC_CREDITS_PER_MIN = env.int("STUDIO_MUSIC_CREDITS_PER_MIN", default=30)
+STUDIO_SFX_CREDITS = env.int("STUDIO_SFX_CREDITS", default=10)
 
 # --- Telegram-бот -------------------------------------------------------
 # Токен ТОВАРНОГО бота (не того, через который вход на сайте): у него свой
