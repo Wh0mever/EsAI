@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import views
+from . import views, views_audio
 
 app_name = "cartoon"
 
@@ -22,6 +22,16 @@ urlpatterns = [
     path("projects/<int:pk>/assemble/", views.ProjectAssembleView.as_view(), name="project-assemble"),
     path("scenes/<int:pk>/", views.SceneDetailView.as_view(), name="scene-detail"),
     path("scenes/<int:pk>/render/", views.SceneRenderView.as_view(), name="scene-render"),
+    # Звук: голоса, музыка, эффекты, свой голос и сведение со сценой.
+    path("audio/config/", views_audio.AudioConfigView.as_view(), name="audio-config"),
+    path("audio/voices/", views_audio.VoicesView.as_view(), name="audio-voices"),
+    path("audio/<int:pk>/", views_audio.AudioTrackDetailView.as_view(), name="audio-track"),
+    path("scenes/<int:pk>/audio/", views_audio.SceneAudioView.as_view(), name="scene-audio"),
+    path("scenes/<int:pk>/audio/voice/", views_audio.SceneVoiceView.as_view(), name="scene-audio-voice"),
+    path("scenes/<int:pk>/audio/music/", views_audio.SceneMusicView.as_view(), name="scene-audio-music"),
+    path("scenes/<int:pk>/audio/sfx/", views_audio.SceneSfxView.as_view(), name="scene-audio-sfx"),
+    path("scenes/<int:pk>/audio/upload/", views_audio.SceneUploadAudioView.as_view(), name="scene-audio-upload"),
+    path("scenes/<int:pk>/audio/mix/", views_audio.SceneMixView.as_view(), name="scene-audio-mix"),
     # Своя сцена: кадр до съёмки.
     path("scenes/<int:pk>/frame/", views.SceneFrameView.as_view(), name="scene-frame"),
 ]

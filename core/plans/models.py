@@ -447,6 +447,9 @@ class TokenTransactionReason(models.TextChoices):
     CARTOON_KEYFRAME = "cartoon_keyframe", "Студия: кадр"
     CARTOON_SCENE = "cartoon_scene", "Студия: сцена"
     CARTOON_CHARACTER = "cartoon_character", "Студия: свой герой"
+    CARTOON_VOICE = "cartoon_voice", "Студия: озвучка"
+    CARTOON_MUSIC = "cartoon_music", "Студия: музыка"
+    CARTOON_SFX = "cartoon_sfx", "Студия: звуковой эффект"
     STT = "stt", "Распознавание голоса"
 
 

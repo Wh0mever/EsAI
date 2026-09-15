@@ -9,6 +9,7 @@ import {
   FiCheck,
   FiFilm,
   FiLoader,
+  FiMic,
   FiPlay,
   FiRefreshCw,
   FiTrash2,
@@ -38,6 +39,8 @@ export type StudioScene = {
   status: "draft" | "new" | "keyframe" | "video" | "ready" | "failed";
   error: string;
   credits_spent: number;
+  /** Сколько звуковых дорожек у сцены (голоса, музыка, эффекты). */
+  audio_count?: number;
 };
 
 /**
@@ -77,7 +80,10 @@ export default function SceneTimeline({
   onTryOn,
   tryingOnId = null,
   tryOnLabel,
+  onAudio,
 }: {
+  /** Открыть звук сцены. Нет — озвучка выключена, кнопку не показываем. */
+  onAudio?: (scene: StudioScene) => void;
   /** Примерить героя сцены на сцену из библиотеки прямо из ленты. */
   onTryOn?: (scene: StudioScene) => void;
   /** id сцены библиотеки (preset), которая сейчас примеряется. */
@@ -342,6 +348,26 @@ export default function SceneTimeline({
               >
                 {busy ? <FiLoader className="animate-spin" /> : <FiPlay />}
                 {t("studio_ui.render_scene")}
+              </button>
+            )}
+
+            {/* Звук сцены: реплики героев, свой голос, музыка, эффекты. У не
+                снятой сцены звук копится и накладывается сам после съёмки. */}
+            {onAudio && !working && (
+              <button
+                type="button"
+                onClick={() => onAudio(s)}
+                disabled={busy}
+                className={`inline-flex w-full items-center justify-center gap-1.5 rounded-lg border px-3 py-1.5 text-[11px] font-semibold transition-colors disabled:opacity-60 cursor-pointer ${
+                  s.audio_count
+                    ? "border-accent/60 bg-accent/10 text-accent"
+                    : "border-border text-muted hover:border-accent hover:text-foreground"
+                }`}
+              >
+                <FiMic />
+                {s.audio_count
+                  ? t("studio_ui.audio_btn_count", { count: s.audio_count })
+                  : t("studio_ui.audio_btn")}
               </button>
             )}
 

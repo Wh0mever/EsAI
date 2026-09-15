@@ -196,7 +196,10 @@ def scene_json(s: CartoonScene, lang: str = "ru", pair_videos: dict | None = Non
         # Движущееся превью пары, если такого героя в этой сцене уже снимали:
         # человек видит сцену в движении ещё до своей съёмки.
         "preview_video": "" if (s.video or custom) else pair_videos.get((s.preset_id, hero_id), ""),
-        "video": _media(s.video),
+        # Со звуком, если его свели; исходное видео — для пересведения.
+        "video": _media(s.mixed_video or s.video),
+        "audio_count": getattr(s, "audio_n", None) if getattr(s, "audio_n", None) is not None
+                       else s.audio_tracks.count(),
         "status": s.status,
         "error": s.error,
         "credits_spent": s.credits_spent,
@@ -204,8 +207,11 @@ def scene_json(s: CartoonScene, lang: str = "ru", pair_videos: dict | None = Non
 
 
 def project_json(p: CartoonProject, lang: str = "ru") -> dict:
+    from django.db.models import Count
+
     scenes = list(p.scenes.select_related(
-        "preset", "character", "project__character").order_by("order", "id"))
+        "preset", "character", "project__character").annotate(
+        audio_n=Count("audio_tracks")).order_by("order", "id"))
     pairs = _pair_videos_for(scenes)
     return {
         "id": p.id,

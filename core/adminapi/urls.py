@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import blocks, openrouter, views
+from . import blocks, openrouter, studio_works, views
 
 app_name = "adminapi"
 
@@ -40,7 +40,14 @@ urlpatterns = [
     path("openrouter/<int:pk>/refresh/", openrouter.AccountRefreshView.as_view(), name="openrouter-refresh"),
     # Воронка оплаты: на каком шаге отваливаются.
     path("funnel/", views.FunnelView.as_view(), name="funnel"),
+    # Работы пользователей студии: отбор для рекламы и превью сцен.
+    path("studio/works/", studio_works.StudioWorksView.as_view(), name="studio-works"),
+    path("studio/works/<str:kind>/<int:pk>/feature/", studio_works.StudioWorkFeatureView.as_view(),
+         name="studio-work-feature"),
+    path("studio/works/scene/<int:pk>/set-preview/", studio_works.StudioWorkSetPreviewView.as_view(),
+         name="studio-work-set-preview"),
     path("settings/", views.SettingsView.as_view(), name="settings"),
     path("settings/test-openrouter/", views.SettingsTestOpenRouterView.as_view(), name="settings-test-openrouter"),
     path("settings/test-nowpayments/", views.SettingsTestNowPaymentsView.as_view(), name="settings-test-nowpayments"),
+    path("settings/test-elevenlabs/", views.SettingsTestElevenLabsView.as_view(), name="settings-test-elevenlabs"),
 ]

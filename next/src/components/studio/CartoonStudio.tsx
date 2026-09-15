@@ -24,6 +24,7 @@ import ShareButtons from "@/components/ui/ShareButtons";
 import { StudioAuthDialog, StudioPaywallDialog } from "./StudioDialogs";
 import CharacterPicker, { type StudioCharacter } from "./CharacterPicker";
 import SceneTimeline, { type StudioScene } from "./SceneTimeline";
+import SceneAudioDialog, { type AudioConfig } from "./SceneAudioDialog";
 import { apiLang } from "@/lib/apiLang";
 
 /**
@@ -123,8 +124,11 @@ export default function CartoonStudio() {
   // Не хватило кредитов — не ошибка, а точка покупки: человек уже выбрал героя
   // и сцену, и это самый дорогой момент, чтобы упереться в сухую красную строку.
   const [shortfall, setShortfall] = useState<
-    { required: number; balance: number; kind?: "scene" | "character" } | null
+    { required: number; balance: number; kind?: "scene" | "character" | "audio" } | null
   >(null);
+  // Звук сцены: какая сцена открыта в окне звука и включена ли озвучка вообще.
+  const [audioScene, setAudioScene] = useState<StudioScene | null>(null);
+  const [audioConfig, setAudioConfig] = useState<AudioConfig | null>(null);
   const [authFor, setAuthFor] = useState<AuthReason | null>(null);
   const [authed, setAuthed] = useState(true);
   // Лента гостя. Клиент: без регистрации человек выбирает героя, набирает
@@ -236,7 +240,7 @@ export default function CartoonStudio() {
   };
 
   /** Окно «не хватает кредитов» — точка покупки, её тоже считаем. */
-  const openPaywall = (value: { required: number; balance: number; kind?: "scene" | "character" }) => {
+  const openPaywall = (value: { required: number; balance: number; kind?: "scene" | "character" | "audio" }) => {
     setShortfall(value);
     trackFunnel("studio_paywall", { kind: value.kind || "scene", required: value.required });
   };
@@ -479,6 +483,13 @@ export default function CartoonStudio() {
       alive = false;
     };
   }, [loadBalance, i18n.language]);
+
+  useEffect(() => {
+    void (async () => {
+      const res = await fetchData<AudioConfig>("cartoon/audio/config/", "GET", null, false);
+      if (res.ok && res.data) setAudioConfig(res.data);
+    })();
+  }, []);
 
   // Опрос, пока что-то считается.
   const refresh = useCallback(async (id: number) => {
@@ -980,6 +991,17 @@ export default function CartoonStudio() {
         reason={authFor ?? "render"}
         onClose={() => setAuthFor(null)}
       />
+      <SceneAudioDialog
+        scene={audioScene}
+        config={audioConfig}
+        characters={timelineCharacters.map((c) => ({ id: c.id, name: c.name }))}
+        onClose={() => setAudioScene(null)}
+        onChanged={() => {
+          void loadBalance();
+          if (project) void refresh(project.id);
+        }}
+        onNeedCredits={(required, bal) => openPaywall({ required, balance: bal, kind: "audio" })}
+      />
 
       {/* Свои мультфильмы. Показываем, только когда есть куда переключаться:
           иначе строка занимала бы место у того, кто снимает первый ролик. */}
@@ -1355,6 +1377,13 @@ export default function CartoonStudio() {
               framingId={framingId}
               frameCredits={presets[0]?.tryon_credits ?? 4}
               onTryOn={tryOnTimelineScene}
+              onAudio={
+                audioConfig?.enabled
+                  ? authed
+                    ? (s) => setAudioScene(s)
+                    : () => openAuth("render")
+                  : undefined
+              }
               tryingOnId={tryingOn}
               tryOnLabel={
                 authed
