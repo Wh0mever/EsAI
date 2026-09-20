@@ -1855,6 +1855,7 @@
 		"custom_too_short": "Опишите сцену хотя бы парой слов",
 		"custom_hero": "Герой сцены: {{name}}",
 		"frame_btn": "Кадр · {{credits}} кр",
+		"redraw_frame": "🔄 Кадр заново · {{credits}} кр",
 		"collapse": "Свернуть",
 		"voiceall_cta": "🎙 Озвучить весь мультфильм",
 		"voiceall_planning": "ИИ придумывает реплики…",

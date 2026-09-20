@@ -761,6 +761,23 @@ export default function CartoonStudio() {
     openAuth("render");
   };
 
+  /** Нарисовать кадр сцены заново: прежний не понравился или вышел не тот герой. */
+  const redrawFrame = async (scene: StudioScene) => {
+    if (!project) return;
+    markBusy(scene.id, true);
+    const res = await fetchData(`cartoon/scenes/${scene.id}/`, "PATCH",
+                                { new_keyframe: true }, true);
+    markBusy(scene.id, false);
+    if (!res.ok) {
+      setError((res.data as any)?.detail || t("studio_ui.err_scene"));
+      return;
+    }
+    // Кадра больше нет — сразу рисуем новый, чтобы человек не искал кнопку.
+    if (scene.custom_text) await frameScene(scene);
+    else await tryOnTimelineScene(scene);
+    await refresh(project.id);
+  };
+
   /** Поставить на сцену другого героя. Работает, пока сцена не снята. */
   const setSceneCharacter = async (scene: StudioScene, characterId: number) => {
     if (!project) return;
@@ -1422,6 +1439,7 @@ export default function CartoonStudio() {
               framingId={framingId}
               frameCredits={presets[0]?.tryon_credits ?? 4}
               onTryOn={tryOnTimelineScene}
+              onRedraw={redrawFrame}
               onAudio={
                 audioConfig?.enabled
                   ? authed

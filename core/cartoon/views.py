@@ -360,6 +360,11 @@ class CharactersView(StudioPublicAPIView):
             source=CartoonCharacter.SOURCE_UPLOAD,
         )
         _attach_thumb(char)
+        # Кто на картинке — нужно знать ДО первой примерки: без описания модель
+        # рисует «человека вообще» вместо загруженного героя.
+        from .services import ensure_description
+
+        ensure_description(char)
         return Response(character_json(char, _lang(request)), status=status.HTTP_201_CREATED)
 
 
@@ -934,6 +939,26 @@ class SceneDetailView(StudioAPIView):
             scene.keyframe = ""
             scene.save(update_fields=["character", "keyframe", "updated_at"])
             _attach_ready_keyframe(scene)
+
+        # «Кадр заново» без съёмки: кадр мог получиться неудачным (герой не
+        # тот, поза не та), и заменить его до сих пор было нечем — оставалось
+        # удалять сцену. Сам кадр потом рисует примерка, за свою цену.
+        if request.data.get("new_keyframe") and not request.data.get("retry"):
+            if scene.status not in (CartoonScene.STATUS_DRAFT, CartoonScene.STATUS_FAILED):
+                return Response({"detail": "Сцена уже снимается — кадр не поменять"},
+                                status=status.HTTP_400_BAD_REQUEST)
+            if scene.keyframe:
+                scene.keyframe = ""
+                scene.save(update_fields=["keyframe", "updated_at"])
+            # Общий кадр этой пары «герой + сцена» тоже неудачный — иначе
+            # примерка вернула бы ту же картинку из кэша.
+            character = scene.character or scene.project.character
+            if character and not scene.custom_text:
+                from .models import CartoonKeyframe
+
+                CartoonKeyframe.objects.filter(preset_id=scene.preset_id,
+                                               character=character).delete()
+            return Response(scene_json(scene, _lang(request)))
 
         if request.data.get("retry"):
             # Сцена уже в работе — второй задачи не ставим: обе сняли бы видео и

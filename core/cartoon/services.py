@@ -19,10 +19,13 @@
 from __future__ import annotations
 
 import base64
+import json
 import logging
+import re
 import uuid
 
 import requests
+from django.conf import settings
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 
@@ -51,13 +54,100 @@ def _save_bytes(raw: bytes, folder: str, ext: str) -> str:
     return default_storage.save(f"{folder}/{uuid.uuid4().hex}.{ext}", ContentFile(raw))
 
 
+_DESCRIBE_SYSTEM = (
+    "You look at a picture of a cartoon hero and describe WHO it is, for an image generator "
+    "that will draw this same hero in other scenes.\n"
+    'Answer JSON only: {"description": "...", "name": "..."}.\n'
+    "description: one short English noun phrase — species first, then colours, body and clothing, "
+    'e.g. "a fluffy grey kitten with green eyes in a red scarf" or "a bearded man in a blue hoodie". '
+    "At most 120 characters, no sentences, no scene, no background.\n"
+    "name: a short friendly name in Russian, one or two words, no quotes."
+)
+
+# Имя из имени файла («13209910», «IMG_2024», «photo 3») именем героя не является:
+# такое заменяем на человеческое, придуманное по картинке.
+_FILE_NAME_RE = re.compile(
+    r"^(?:img|image|photo|pic|screenshot|снимок|фото)?[\s_\-]*\d[\d\s_\-]*$", re.IGNORECASE)
+
+
+def describe_character(character) -> dict:
+    """Кто на картинке: {description, name}. Пустой словарь — если не вышло.
+
+    Дешёвая модель со зрением, один раз на персонажа: доли цента.
+    """
+    ref = getattr(character, "image", None)
+    if not ref:
+        return {}
+    cfg = _openrouter_config()
+    body = {
+        "model": getattr(settings, "STUDIO_SCENE_MODEL", "google/gemini-2.5-flash"),
+        "messages": [
+            {"role": "system", "content": _DESCRIBE_SYSTEM},
+            {"role": "user", "content": [
+                {"type": "text", "text": "Кто на этой картинке?"},
+                {"type": "image_url", "image_url": {"url": _site_url(ref.url)}},
+            ]},
+        ],
+        "temperature": 0.2,
+        "max_tokens": 200,
+        "response_format": {"type": "json_object"},
+    }
+    r = requests.post(
+        f"{cfg['base_url'].rstrip('/')}/chat/completions", json=body,
+        headers={"Authorization": f"Bearer {cfg['api_key']}", "Content-Type": "application/json"},
+        timeout=(10, 60))
+    if not (200 <= r.status_code < 300):
+        raise RuntimeError(f"описание героя: http {r.status_code}: {r.text[:200]}")
+    content = (((r.json() or {}).get("choices") or [{}])[0].get("message") or {}).get("content") or ""
+    match = re.search(r"\{.*\}", content, flags=re.S)
+    data = json.loads(match.group(0) if match else content)
+    if not isinstance(data, dict):
+        return {}
+    return {"description": " ".join(str(data.get("description") or "").split())[:200],
+            "name": " ".join(str(data.get("name") or "").split())[:60]}
+
+
+def ensure_description(character) -> None:
+    """Дописать описание герою, если его нет.
+
+    Без описания в промпт сцены уходит «the main character», и модель рисует
+    человека вообще: загруженный кот превращался в выпускника-мужчину. Описание
+    пишем один раз по самой картинке и сохраняем.
+    """
+    if not character or character.description or not getattr(character, "image", None):
+        return
+    try:
+        data = describe_character(character)
+    except Exception:
+        logger.exception("описание героя %s не составилось", getattr(character, "pk", "?"))
+        return
+    description = data.get("description") or ""
+    if not description:
+        return
+    fields = ["description"]
+    character.description = description
+    # Имя из имени файла меняем на человеческое — «13209910» героем не выглядит.
+    if data.get("name") and _FILE_NAME_RE.match(character.name or ""):
+        character.name = data["name"]
+        fields.append("name")
+    character.save(update_fields=fields)
+    # Кадры, нарисованные без описания, теперь неправильные: уберём из общего
+    # кэша, чтобы примерка нарисовала героя заново, а не отдала старую ошибку.
+    try:
+        from .models import CartoonKeyframe
+
+        CartoonKeyframe.objects.filter(character=character).delete()
+    except Exception:
+        logger.exception("кадры героя %s не почистились", character.pk)
+
+
 def build_scene_prompt(preset, character) -> str:
     """Склеить промпт сцены: описание героя + что происходит + стиль.
 
     Слово «character» в промпте пресета заменяется описанием конкретного
     персонажа — так один пресет работает с любым героем.
     """
-    who = (getattr(character, "description", "") or "the main character").strip()
+    who = (getattr(character, "description", "") or "the character from the reference image").strip()
     scene = (preset.scene_prompt or "").strip()
     if "character" in scene.lower():
         # Заменяем аккуратно, сохраняя остальной текст пресета.
@@ -69,7 +159,11 @@ def build_scene_prompt(preset, character) -> str:
     else:
         scene = f"{who}. {scene}"
     parts = [scene, (preset.style_prompt or "").strip(),
-             "Keep the character identical to the reference image."]
+             # Без этой строчки модель уводило в «обычного человека»: на сцене
+             # выпускного загруженный кот превращался в парня в мантии.
+             "The reference image shows exactly who the character is: keep the same species, "
+             "body, face, colours and outfit, only change the pose and the surroundings. "
+             "Never replace the character with a human or with anyone else."]
     return " ".join(p for p in parts if p)
 
 
@@ -77,8 +171,9 @@ def generate_keyframe(preset, character) -> str:
     """Кадр сцены с нужным персонажем. Возвращает путь в хранилище.
 
     Референсом идёт изображение персонажа — именно оно удерживает героя
-    одинаковым от сцены к сцене.
+    одинаковым от сцены к сцене, а описание не даёт модели подменить его.
     """
+    ensure_description(character)
     cfg = _openrouter_config()
     body = {
         "model": preset.image_model.openrouter_id,
