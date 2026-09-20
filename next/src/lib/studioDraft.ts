@@ -22,6 +22,8 @@ export type DraftScene = {
   character_id: number | null;
   /** Своя сцена: что делает герой, словами человека. */
   custom_text?: string;
+  /** Что герой говорит в сцене. */
+  dialogue?: string;
 };
 
 export type StudioDraft = {

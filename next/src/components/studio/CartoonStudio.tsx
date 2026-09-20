@@ -453,6 +453,8 @@ export default function CartoonStudio() {
               character_id: s.character_id,
               // Своя сцена переезжает вместе с описанием, иначе она пропала бы.
               ...(s.custom_text ? { custom_text: s.custom_text } : {}),
+              // Реплика героя тоже едет: её человек уже написал.
+              ...(s.dialogue ? { dialogue: s.dialogue } : {}),
             })),
           }, true);
           if (!alive) return;
@@ -761,6 +763,26 @@ export default function CartoonStudio() {
     openAuth("render");
   };
 
+  /** Реплика героя: её играет модель в кадре и ею же озвучивается сцена. */
+  const setSceneDialogue = async (scene: StudioScene, text: string) => {
+    if (!project) return;
+    markBusy(scene.id, true);
+    const res = await fetchData(`cartoon/scenes/${scene.id}/`, "PATCH", { dialogue: text }, true);
+    markBusy(scene.id, false);
+    if (!res.ok) {
+      setError((res.data as any)?.detail || t("studio_ui.err_scene"));
+      return;
+    }
+    await refresh(project.id);
+  };
+
+  /** Гость реплику тоже пишет — она переедет вместе с лентой после входа. */
+  const guestDialogue = (scene: StudioScene, text: string) =>
+    updateDraft((d) => ({
+      ...d,
+      scenes: d.scenes.map((s, i) => (i === guestIndex(scene) ? { ...s, dialogue: text } : s)),
+    }));
+
   /** Нарисовать кадр сцены заново: прежний не понравился или вышел не тот герой. */
   const redrawFrame = async (scene: StudioScene) => {
     if (!project) return;
@@ -916,6 +938,7 @@ export default function CartoonStudio() {
             id: -(i + 1),
             order: i,
             custom_text: s.custom_text || "",
+            dialogue: s.dialogue || "",
             preset: {
               id: s.preset_id,
               title: custom ? (s.custom_text || "").slice(0, 60) : p?.title || "…",
@@ -1439,7 +1462,8 @@ export default function CartoonStudio() {
               framingId={framingId}
               frameCredits={presets[0]?.tryon_credits ?? 4}
               onTryOn={tryOnTimelineScene}
-              onRedraw={redrawFrame}
+              onRedraw={authed ? redrawFrame : undefined}
+              onDialogue={authed ? setSceneDialogue : guestDialogue}
               onAudio={
                 audioConfig?.enabled
                   ? authed

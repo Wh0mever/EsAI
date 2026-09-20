@@ -169,6 +169,7 @@ def scene_json(s: CartoonScene, lang: str = "ru", pair_videos: dict | None = Non
         "order": s.order,
         # Своя сцена: название — из описания человека, превью у неё нет.
         "custom_text": s.custom_text,
+        "dialogue": s.dialogue,
         "preset": {"id": s.preset_id,
                    "title": ((s.custom_title or s.custom_text[:60]) if custom
                              else (_tr(s.preset, "title", lang) if s.preset_id else "")),
@@ -531,6 +532,7 @@ class ProjectImportView(StudioAPIView):
                     character=_pick_character(request, r.get("character_id")),
                     order=order, status=CartoonScene.STATUS_DRAFT,
                     custom_text=custom_text, custom_title=custom_text[:60],
+                    dialogue=_dialogue(r.get("dialogue")),
                 )
                 order += 1
 
@@ -588,9 +590,15 @@ class ProjectScenesView(StudioAPIView):
             status=CartoonScene.STATUS_DRAFT,
             custom_text=custom_text,
             custom_title=custom_text[:60],
+            dialogue=_dialogue(request.data.get("dialogue")),
         )
         _attach_ready_keyframe(scene)
         return Response(scene_json(scene, _lang(request)), status=status.HTTP_201_CREATED)
+
+
+def _dialogue(raw) -> str:
+    """Реплика героя: одна строка, до 300 символов, на языке человека."""
+    return " ".join(str(raw or "").split())[:300]
 
 
 def _custom_slug() -> str:
@@ -828,11 +836,12 @@ def _scene_price(scene, *, keyframe_ready: bool) -> int:
     что и списание в задаче: разойдись гейт со счётом — человек либо не смог бы
     переснять при достаточном балансе, либо ушёл бы в минус.
     """
+    from .pricing import video_credits
+
     preset = scene.preset
     if not keyframe_ready:
         return preset.estimated_credits()
-    return max(1, round(int(preset.duration or 5)
-                        * float(preset.video_model.markup_coefficient or 1)))
+    return video_credits(preset.video_model, preset.duration)
 
 
 def _no_credits(need: int, balance: int) -> Response:
@@ -937,7 +946,8 @@ class SceneDetailView(StudioAPIView):
             scene.character = _pick_character(request, request.data.get("character_id"))
             # Кадр рисовался под прежнего героя, с новым он не годится.
             scene.keyframe = ""
-            scene.save(update_fields=["character", "keyframe", "updated_at"])
+            scene.video_prompt = ""
+            scene.save(update_fields=["character", "keyframe", "video_prompt", "updated_at"])
             _attach_ready_keyframe(scene)
 
         # «Кадр заново» без съёмки: кадр мог получиться неудачным (герой не
@@ -959,6 +969,16 @@ class SceneDetailView(StudioAPIView):
                 CartoonKeyframe.objects.filter(preset_id=scene.preset_id,
                                                character=character).delete()
             return Response(scene_json(scene, _lang(request)))
+
+        if "dialogue" in request.data:
+            if scene.status not in (CartoonScene.STATUS_DRAFT, CartoonScene.STATUS_FAILED):
+                return Response({"detail": "Сцена уже снимается — реплику не поменять"},
+                                status=status.HTTP_400_BAD_REQUEST)
+            scene.dialogue = _dialogue(request.data.get("dialogue"))
+            # Промпт съёмки собран под прежнюю реплику — соберём заново.
+            scene.video_prompt = ""
+            scene.video_negative = ""
+            scene.save(update_fields=["dialogue", "video_prompt", "video_negative", "updated_at"])
 
         if request.data.get("retry"):
             # Сцена уже в работе — второй задачи не ставим: обе сняли бы видео и

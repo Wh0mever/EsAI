@@ -276,7 +276,17 @@ def build_plan(project, lang: str = "ru") -> dict:
     # деньги на реплики, которые нечем озвучить.
     voices = pick_voices(heroes, fixed=known_voices(project))
 
-    texts = write_lines(scenes, lang)
+    # Реплики, написанные человеком, не трогаем: их же играет и видеомодель.
+    own = {i: (s.dialogue or "").strip()
+           for i, s in enumerate(scenes, start=1) if (s.dialogue or "").strip()}
+    need_model = [s for i, s in enumerate(scenes, start=1) if i not in own]
+    texts = dict(own)
+    if need_model:
+        numbers = [i for i in range(1, len(scenes) + 1) if i not in own]
+        written = write_lines(need_model, lang)
+        for position, n in enumerate(numbers, start=1):
+            if written.get(position):
+                texts[n] = written[position]
 
     voiced = set(project.scenes.filter(audio_tracks__kind="voice")
                  .values_list("pk", flat=True))
