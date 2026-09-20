@@ -127,8 +127,10 @@ def _generate(request, scene, *, kind, price, reason, make, text="", voice_id=""
 
     if _balance(request.user) < price:
         return _no_credits(price, _balance(request.user))
-    lock = f"studio:audio:{request.user.pk}"
-    if not cache.add(lock, "1", timeout=180):
+    # Замок держится дольше самой долгой генерации и снимается досрочно в
+    # finally. Именной: чужой запрос не должен снимать наш.
+    lock, token = f"studio:audio:{request.user.pk}", uuid.uuid4().hex
+    if not cache.add(lock, token, timeout=600):
         return Response({"detail": "Предыдущий звук ещё делается — подождите пару секунд"},
                         status=status.HTTP_429_TOO_MANY_REQUESTS)
     try:
@@ -154,7 +156,8 @@ def _generate(request, scene, *, kind, price, reason, make, text="", voice_id=""
         # Сведённый ролик устарел: в нём ещё нет новой дорожки.
         _drop_mix(scene)
     finally:
-        cache.delete(lock)
+        if cache.get(lock) == token:
+            cache.delete(lock)
     return Response(track_json(track), status=status.HTTP_201_CREATED)
 
 

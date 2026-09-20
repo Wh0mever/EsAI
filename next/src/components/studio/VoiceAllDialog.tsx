@@ -61,7 +61,9 @@ export default function VoiceAllDialog({
   useEffect(() => {
     if (!plan) return;
     setLines(plan.lines);
-    setOff(new Set());
+    // Уже озвученные сцены снимаем с галочки: их реплики оплачены, и молча
+    // заменять их новыми нельзя — но человек может включить их обратно.
+    setOff(new Set(plan.lines.filter((l) => l.has_voice).map((l) => l.scene_id)));
     setError("");
   }, [plan]);
 
@@ -132,7 +134,11 @@ export default function VoiceAllDialog({
   // Человек переписал реплики — случайный клик мимо окна не должен их стереть.
   const edited =
     Boolean(plan) &&
-    (off.size > 0 || lines.some((l, i) => l.text !== (plan?.lines[i]?.text ?? l.text)));
+    lines.some(
+      (l, i) =>
+        l.text !== (plan?.lines[i]?.text ?? l.text) ||
+        off.has(l.scene_id) !== Boolean(plan?.lines[i]?.has_voice)
+    );
 
   const close = () => {
     if (edited && !confirm(t("studio_ui.voiceall_discard"))) return;
@@ -144,7 +150,7 @@ export default function VoiceAllDialog({
       <div className="flex flex-col gap-4">
         <p className="text-sm text-muted">{t("studio_ui.voiceall_note")}</p>
         {alreadyVoiced && (
-          <p className="text-xs text-status-wait">{t("studio_ui.voiceall_replace")}</p>
+          <p className="text-xs text-status-wait">{t("studio_ui.voiceall_keep")}</p>
         )}
 
         <div className="flex flex-col gap-2">
