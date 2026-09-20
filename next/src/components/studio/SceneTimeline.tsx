@@ -30,6 +30,8 @@ export type StudioScene = {
   };
   /** Своя сцена: что делает герой, словами человека. */
   custom_text?: string;
+  /** Что герой говорит в этой сцене: играется в кадре и звучит голосом. */
+  dialogue?: string;
   /** Кем снимается эта сцена: свой герой или герой всего мультфильма. */
   character?: { id: number; name: string; image: string } | null;
   keyframe: string;
@@ -82,7 +84,10 @@ export default function SceneTimeline({
   tryOnLabel,
   onAudio,
   onRedraw,
+  onDialogue,
 }: {
+  /** Сохранить реплику героя. Нет — поле не показываем (гость без проекта). */
+  onDialogue?: (scene: StudioScene, text: string) => void;
   /** Перерисовать кадр сцены: прежний не понравился или вышел не тот герой. */
   onRedraw?: (scene: StudioScene) => void;
   /** Открыть звук сцены. Нет — озвучка выключена, кнопку не показываем. */
@@ -342,6 +347,33 @@ export default function SceneTimeline({
                 {t("studio_ui.frame_btn", { credits: frameCredits })}
               </button>
             )}
+            {/* Реплика героя. Клиент: мультфильм должен смотреться как
+                мультфильм — значит герой должен говорить, и говорить то, что
+                задумал человек. Эта же строчка уходит в съёмку и в озвучку. */}
+            {s.status === "draft" && onDialogue && (
+              <label className="flex flex-col gap-1">
+                <span className="flex items-center justify-between text-[10px] uppercase tracking-wide text-muted-2">
+                  {t("studio_ui.dialogue_label")}
+                  <span className="normal-case tracking-normal">
+                    {t("studio_ui.dialogue_fit", { seconds: s.preset.duration || 5 })}
+                  </span>
+                </span>
+                <textarea
+                  defaultValue={s.dialogue || ""}
+                  onBlur={(e) => {
+                    const next = e.target.value.trim().slice(0, 300);
+                    if (next !== (s.dialogue || "")) onDialogue(s, next);
+                  }}
+                  rows={2}
+                  // Речь — это 2-3 слова в секунду: реплика длиннее сцены не
+                  // поместится, и модель оборвёт её на полуслове.
+                  maxLength={Math.max(40, (s.preset.duration || 5) * 14)}
+                  placeholder={t("studio_ui.dialogue_ph")}
+                  className="rounded-lg border border-border bg-surface-2 px-2 py-1.5 text-[11px] text-foreground outline-none placeholder:text-muted-2 focus:border-accent"
+                />
+              </label>
+            )}
+
             {/* Кадр уже есть, но не тот: нарисовать заново. Без этого
                 неудачный кадр можно было убрать только вместе со сценой. */}
             {s.status === "draft" && s.keyframe && onRedraw && (

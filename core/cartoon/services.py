@@ -167,7 +167,35 @@ def build_scene_prompt(preset, character) -> str:
     return " ".join(p for p in parts if p)
 
 
-def generate_keyframe(preset, character) -> str:
+def last_frame_of(video_path: str) -> str:
+    """Последний кадр ролика картинкой. Пустая строка — если не вышло.
+
+    С него начинается следующая сцена: так герой, одежда и комната не меняются
+    от сцены к сцене (жалоба клиента: «персонажи не сохраняют внешность»).
+    """
+    import subprocess
+    import tempfile
+    from pathlib import Path
+
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            src, dst = Path(tmp) / "scene.mp4", Path(tmp) / "last.jpg"
+            with default_storage.open(video_path, "rb") as fh:
+                src.write_bytes(fh.read())
+            res = subprocess.run(
+                ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-sseof", "-0.5",
+                 "-i", str(src), "-vframes", "1", "-q:v", "3", str(dst)],
+                capture_output=True, timeout=120)
+            if res.returncode != 0 or not dst.exists() or not dst.stat().st_size:
+                logger.warning("последний кадр: ffmpeg rc=%s", res.returncode)
+                return ""
+            return _save_bytes(dst.read_bytes(), "cartoon/keyframes/last", "jpg")
+    except Exception:
+        logger.exception("последний кадр сцены не достался")
+        return ""
+
+
+def generate_keyframe(preset, character, refs: list | None = None) -> str:
     """Кадр сцены с нужным персонажем. Возвращает путь в хранилище.
 
     Референсом идёт изображение персонажа — именно оно удерживает героя
@@ -180,11 +208,19 @@ def generate_keyframe(preset, character) -> str:
         "prompt": build_scene_prompt(preset, character),
         "aspect_ratio": preset.aspect_ratio or "16:9",
     }
+    references = []
     ref = getattr(character, "image", None)
     if ref:
-        body["input_references"] = [
-            {"type": "image_url", "image_url": {"url": _site_url(ref.url)}}
-        ]
+        references.append({"type": "image_url",
+                           "image_url": {"url": _site_url(ref.url)}})
+    # Последний кадр предыдущей сцены: по нему модель держит ту же комнату,
+    # ту же одежду и то же освещение — иначе мультфильм рассыпается.
+    for extra in (refs or []):
+        if extra:
+            references.append({"type": "image_url",
+                               "image_url": {"url": _site_url(default_storage.url(extra))}})
+    if references:
+        body["input_references"] = references
 
     r = requests.post(
         f"{cfg['base_url'].rstrip('/')}/images",
@@ -202,11 +238,16 @@ def generate_keyframe(preset, character) -> str:
     return _save_bytes(base64.b64decode(b64), "cartoon/keyframes", ext)
 
 
-def generate_scene_video(preset, keyframe_path: str) -> str:
+def generate_scene_video(preset, keyframe_path: str, prompt: str = "",
+                         negative: str = "", character=None) -> str:
     """Оживить кадр. Возвращает путь к mp4 в хранилище.
 
     Кадр уходит как first_frame — ролик начинается ровно с того, что человек
     уже увидел, поэтому персонаж и композиция не «прыгают».
+
+    Промпт приходит готовым (его собирает режиссёр в director.py): раньше сюда
+    уходила одна строка движения из пресета, и модель не знала ни героя, ни
+    реплики — отсюда «персонажи не отрабатывают действия».
     """
     cfg = _openrouter_config()
     model_id = preset.video_model.openrouter_id
@@ -215,7 +256,7 @@ def generate_scene_video(preset, keyframe_path: str) -> str:
 
     body = {
         "model": model_id,
-        "prompt": (preset.motion_prompt or preset.scene_prompt or "").strip(),
+        "prompt": (prompt or preset.motion_prompt or preset.scene_prompt or "").strip(),
         "duration": params["duration"],
         "resolution": params["resolution"],
         "frame_images": [{
@@ -226,10 +267,26 @@ def generate_scene_video(preset, keyframe_path: str) -> str:
     }
     if preset.aspect_ratio:
         body["aspect_ratio"] = preset.aspect_ratio
+    if negative:
+        body["negative_prompt"] = negative
+    # Герой уходит референсом и в саму видеомодель: первый кадр задаёт позу, а
+    # референс держит внешность все пять секунд — иначе лицо «плывёт» к концу.
+    ref = getattr(character, "image", None)
+    if ref:
+        body["input_references"] = [{"type": "image_url",
+                                     "image_url": {"url": _site_url(ref.url)}}]
 
     headers = {"Authorization": f"Bearer {cfg['api_key']}"}
-    r = requests.post(f"{cfg['base_url'].rstrip('/')}/videos", json=body,
-                      headers=headers, timeout=VIDEO_SUBMIT_TIMEOUT)
+    url = f"{cfg['base_url'].rstrip('/')}/videos"
+    r = requests.post(url, json=body, headers=headers, timeout=VIDEO_SUBMIT_TIMEOUT)
+    # Не все модели принимают референсы и запреты. Отказ по схеме — не повод
+    # терять сцену: снимаем тем же промптом, но без необязательных полей.
+    if r.status_code == 400 and ("input_references" in body or "negative_prompt" in body):
+        logger.warning("съёмка: модель %s не приняла доп. поля (%s), пробую без них",
+                       model_id, r.text[:200])
+        body.pop("input_references", None)
+        body.pop("negative_prompt", None)
+        r = requests.post(url, json=body, headers=headers, timeout=VIDEO_SUBMIT_TIMEOUT)
     if not (200 <= r.status_code < 300):
         raise RuntimeError(f"video submit http {r.status_code}: {r.text[:200]}")
     polling_url = ((r.json() or {}).get("polling_url") or "").strip()
@@ -497,6 +554,33 @@ def remember_pair_video(scene) -> bool:
         preset_id=scene.preset_id, character=character,
         defaults={"video": scene.video, "clip": clip_path, "source_scene": scene})
     return created
+
+
+def previous_anchor(scene) -> str:
+    """Последний кадр предыдущей снятой сцены мультфильма (или пусто).
+
+    Клиент: «если пользователь выбрал персонажа, он должен оставаться тем же
+    персонажем во всём мультфильме». Опора на конец предыдущей сцены держит и
+    героя, и одежду, и обстановку.
+    """
+    prev = (scene.project.scenes
+            .filter(order__lt=scene.order).exclude(last_frame="")
+            .order_by("-order", "-id").first())
+    return prev.last_frame if prev else ""
+
+
+def draw_linked_keyframe(scene, character, user, anchor: str) -> tuple[str, int]:
+    """Кадр сцены с оглядкой на конец предыдущей. Мимо общего запаса.
+
+    В общий запас такой кадр не кладём: он привязан к конкретной истории, а не
+    к паре «герой + сцена», и чужому человеку не подойдёт.
+    """
+    preset = preset_for_scene(scene) if scene.custom_text else scene.preset
+    path = generate_keyframe(preset, character, refs=[anchor])
+    price = max(1, int(float(preset.image_model.markup_coefficient or 1)))
+    charge(user, price, "cartoon_keyframe",
+           meta={"scene": scene.pk, "linked": True, "character": character.pk})
+    return path, price
 
 
 def get_or_create_keyframe(preset, character, user=None):

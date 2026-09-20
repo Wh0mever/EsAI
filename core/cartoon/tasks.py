@@ -16,8 +16,10 @@ from celery import shared_task
 from django.conf import settings
 
 from .models import CartoonProject, CartoonScene
+from .director import ensure_video_prompt
 from .services import (CustomSceneRejected, assemble_project, charge, draw_custom_keyframe,
-                       ensure_custom_prompt, generate_keyframe, generate_scene_video,
+                       draw_linked_keyframe, ensure_custom_prompt, generate_keyframe,
+                       generate_scene_video, last_frame_of, previous_anchor,
                        get_or_create_keyframe, preset_for_scene, remember_pair_video)
 
 logger = logging.getLogger(__name__)
@@ -73,7 +75,12 @@ def render_scene(self, scene_id: int) -> dict:
         try:
             # Кадр мог быть нарисован раньше — при примерке героя на эту же
             # сцену. Тогда он берётся из запаса, и человек не платит дважды.
-            if scene.custom_text:
+            anchor = previous_anchor(scene)
+            if anchor:
+                # Не первая сцена: рисуем с оглядкой на конец предыдущей,
+                # иначе герой и обстановка меняются от сцены к сцене.
+                scene.keyframe, frame_price = draw_linked_keyframe(scene, character, user, anchor)
+            elif scene.custom_text:
                 scene.keyframe, frame_price = draw_custom_keyframe(scene, character, user)
             else:
                 scene.keyframe, frame_price = get_or_create_keyframe(preset, character, user)
@@ -91,9 +98,18 @@ def render_scene(self, scene_id: int) -> dict:
     scene.status = CartoonScene.STATUS_VIDEO
     scene.save(update_fields=["status", "updated_at"])
     try:
-        scene.video = generate_scene_video(preset, scene.keyframe)
-        video_price = max(1, round(int(preset.duration or 5)
-                                   * float(preset.video_model.markup_coefficient or 1)))
+        # Промпт съёмки: разложенное по секундам действие, реплика героя и
+        # запрет типовых артефактов. Собирается один раз на сцену.
+        plan = ensure_video_prompt(scene, character, preset, int(preset.duration or 5))
+        scene.video = generate_scene_video(preset, scene.keyframe,
+                                           prompt=plan["prompt"],
+                                           negative=plan.get("negative", ""),
+                                           character=character)
+        # Последний кадр пригодится следующей сцене как опора.
+        scene.last_frame = last_frame_of(scene.video)
+        from .pricing import video_credits
+
+        video_price = video_credits(preset.video_model, preset.duration)
         charge(user, video_price, "cartoon_scene",
                meta={"scene": scene.pk, "project": project.pk})
         scene.credits_spent += video_price
@@ -102,8 +118,8 @@ def render_scene(self, scene_id: int) -> dict:
         # Прошлое сведение относилось к прошлому ролику: если его не сбросить,
         # после пересъёмки в ленте продолжал бы играть старый вариант.
         scene.mixed_video = ""
-        scene.save(update_fields=["video", "mixed_video", "credits_spent", "status", "error",
-                                  "updated_at"])
+        scene.save(update_fields=["video", "last_frame", "mixed_video", "credits_spent",
+                                  "status", "error", "updated_at"])
         # Звук, набранный до съёмки, накладывается сам (клиент: «в итоге всё
         # автоматически объединяется»). Сбой сведения не портит снятую сцену.
         try:

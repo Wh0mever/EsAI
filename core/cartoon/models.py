@@ -145,12 +145,17 @@ class CartoonPreset(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     def estimated_credits(self) -> int:
-        """Во сколько обойдётся сцена: кадр + видео, либо ручная цена."""
+        """Во сколько обойдётся сцена: кадр + видео, либо ручная цена.
+
+        Видео считается по длительности, которую МОДЕЛЬ действительно снимет:
+        у Veo это 4/6/8 секунд, и пятисекундный пресет снялся бы на четыре, а
+        списалось бы за пять.
+        """
         if self.credits_override:
             return int(self.credits_override)
-        frame = max(1, int(float(self.image_model.markup_coefficient or 1)))
-        video = max(1, round(int(self.duration) * float(self.video_model.markup_coefficient or 1)))
-        return frame + video
+        from .pricing import frame_credits, video_credits
+
+        return frame_credits(self.image_model) + video_credits(self.video_model, self.duration)
 
     def __str__(self):
         return self.title
@@ -313,6 +318,18 @@ class CartoonScene(models.Model):
     # Отмечена в админке как удачная работа — для рекламы и витрины.
     featured_at = models.DateTimeField(null=True, blank=True, db_index=True,
                                        verbose_name="Отмечена для рекламы")
+    # Что герой говорит в этой сцене — словами человека, на его языке.
+    # Уходит и в промпт съёмки (модель играет реплику), и в озвучку.
+    dialogue = models.CharField(max_length=300, blank=True, default="",
+                                verbose_name="Реплика героя")
+    # Готовый промпт съёмки, разложенный режиссёром по секундам. Кэш: при
+    # пересъёмке его не собирают заново.
+    video_prompt = models.TextField(blank=True, default="", verbose_name="Промпт съёмки")
+    video_negative = models.TextField(blank=True, default="", verbose_name="Чего в кадре быть не должно")
+    # Последний кадр снятого ролика: с него начинается следующая сцена, чтобы
+    # герой, одежда и комната не «прыгали» между сценами.
+    last_frame = models.CharField(max_length=512, blank=True, default="",
+                                  verbose_name="Последний кадр ролика")
     # Звук: видео сцены, сведённое со всеми её дорожками (голоса, музыка,
     # эффекты). Пусто — дорожек нет, играет исходное видео.
     mixed_video = models.CharField(max_length=512, blank=True, default="",
