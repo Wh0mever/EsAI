@@ -32,6 +32,9 @@ urlpatterns = [
     path("scenes/<int:pk>/audio/sfx/", views_audio.SceneSfxView.as_view(), name="scene-audio-sfx"),
     path("scenes/<int:pk>/audio/upload/", views_audio.SceneUploadAudioView.as_view(), name="scene-audio-upload"),
     path("scenes/<int:pk>/audio/mix/", views_audio.SceneMixView.as_view(), name="scene-audio-mix"),
+    # «Озвучить весь мультфильм»: сначала план с ценой, потом запуск.
+    path("projects/<int:pk>/voice-plan/", views_audio.ProjectVoicePlanView.as_view(), name="project-voice-plan"),
+    path("projects/<int:pk>/voice-all/", views_audio.ProjectVoiceAllView.as_view(), name="project-voice-all"),
     # Своя сцена: кадр до съёмки.
     path("scenes/<int:pk>/frame/", views.SceneFrameView.as_view(), name="scene-frame"),
 ]

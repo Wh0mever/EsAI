@@ -593,6 +593,7 @@ if CELERY_MEDIA_QUEUE:
         "ai.tasks.run_generation_job": {"queue": CELERY_MEDIA_QUEUE},
         "cartoon.tasks.render_scene": {"queue": CELERY_MEDIA_QUEUE},
         "cartoon.tasks.assemble_movie": {"queue": CELERY_MEDIA_QUEUE},
+        "cartoon.tasks.voice_movie": {"queue": CELERY_MEDIA_QUEUE},
     }
 
 # --- Guest (anonymous) chat free quota ---

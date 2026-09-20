@@ -17,6 +17,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+import re
 import subprocess
 import tempfile
 import uuid
@@ -37,6 +38,10 @@ MAX_VOICE_CHARS = 1000
 MUSIC_MIN_SEC, MUSIC_MAX_SEC = 3, 120
 SFX_MIN_SEC, SFX_MAX_SEC = 0.5, 30
 UPLOAD_MAX_BYTES = 15 * 1024 * 1024
+UPLOAD_MAX_SECONDS = 300
+# Формат идентификатора голоса у ElevenLabs. Проверяем строго: id подставляется
+# в адрес запроса, и «../» в нём увёл бы наш ключ на чужую ручку провайдера.
+VOICE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{4,64}$")
 VOLUME_MIN, VOLUME_MAX = 0.0, 2.0
 VOICES_CACHE_KEY = "studio:voices:v1"
 
@@ -47,6 +52,10 @@ class AudioNotConfigured(RuntimeError):
 
 class AudioProviderError(RuntimeError):
     """Провайдер ответил ошибкой. Текст — для лога, не для человека."""
+
+
+class AudioTooLong(RuntimeError):
+    """Запись длиннее допустимого. Текст — для человека."""
 
 
 # ------------------------------------------------------------ настройки ---
@@ -117,7 +126,13 @@ def _post_audio(path: str, body: dict) -> bytes:
     return r.content
 
 
+def valid_voice_id(voice_id: str) -> bool:
+    return bool(VOICE_ID_RE.match(str(voice_id or "")))
+
+
 def tts(text: str, voice_id: str) -> bytes:
+    if not valid_voice_id(voice_id):
+        raise AudioProviderError("недопустимый идентификатор голоса")
     model = getattr(settings, "ELEVENLABS_TTS_MODEL", "eleven_multilingual_v2")
     return _post_audio(f"/v1/text-to-speech/{voice_id}", {"text": text, "model_id": model})
 
@@ -203,7 +218,8 @@ def probe(path: Path) -> dict:
     return {"duration": duration, "audio": any(s.get("codec_type") == "audio" for s in streams)}
 
 
-def save_audio(raw: bytes, suffix: str = ".mp3", folder: str = "cartoon/audio") -> tuple[str, float]:
+def save_audio(raw: bytes, suffix: str = ".mp3", folder: str = "cartoon/audio",
+               max_seconds: float | None = None) -> tuple[str, float]:
     """Любой звук (mp3, webm с диктофона, m4a) → mp3 в хранилище. (путь, секунды)."""
     with tempfile.TemporaryDirectory() as tmp:
         src = Path(tmp) / f"in{suffix or '.bin'}"
@@ -215,6 +231,10 @@ def save_audio(raw: bytes, suffix: str = ".mp3", folder: str = "cartoon/audio") 
         info = probe(dst)
         if info["duration"] <= 0:
             raise AudioProviderError("пустая запись")
+        # 15 МБ сильно сжатого звука — это часы: без потолка по длительности
+        # такая дорожка растягивала бы сведение и хранилище.
+        if max_seconds and info["duration"] > max_seconds:
+            raise AudioTooLong(f"звук длиннее {int(max_seconds)} секунд")
         path = default_storage.save(f"{folder}/{uuid.uuid4().hex}.mp3", ContentFile(dst.read_bytes()))
         return path, round(info["duration"], 2)
 
@@ -235,7 +255,9 @@ def mix_scene(scene) -> str:
         with default_storage.open(scene.video, "rb") as fh:
             video.write_bytes(fh.read())
         vinfo = probe(video)
-        duration = vinfo["duration"] or 5.0
+        # Длительность неизвестна (битый контейнер) — тогда не режем вовсе:
+        # обрезка «на глазок» в 5 секунд молча испортила бы длинную сцену.
+        duration = vinfo["duration"]
 
         inputs = ["-i", str(video)]
         parts, labels = [], []
@@ -259,14 +281,17 @@ def mix_scene(scene) -> str:
             labels.append(f"[t{i}]")
         if not labels:
             return ""
-        parts.append(f"anullsrc=r=44100:cl=stereo,atrim=0:{duration:.3f}[base]")
+        base_len = duration if duration > 0 else max(
+            (float(t.start_sec) + float(t.duration) for t in tracks), default=5.0)
+        parts.append(f"anullsrc=r=44100:cl=stereo,atrim=0:{base_len:.3f}[base]")
         mix = "[base]" + "".join(labels) + (
             f"amix=inputs={len(labels) + 1}:duration=first:dropout_transition=0:normalize=0[aout]")
         out = tmpdir / "mixed.mp4"
         cmd = (["ffmpeg", "-hide_banner", "-loglevel", "error", "-y"] + inputs
                + ["-filter_complex", ";".join(parts + [mix]), "-map", "0:v", "-map", "[aout]",
-                  "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-t", f"{duration:.3f}",
-                  "-movflags", "+faststart", str(out)])
+                  "-c:v", "copy", "-c:a", "aac", "-b:a", "192k"]
+               + (["-t", f"{duration:.3f}"] if duration > 0 else ["-shortest"])
+               + ["-movflags", "+faststart", str(out)])
         if not _run(cmd):
             raise AudioProviderError("сведение не удалось")
         return default_storage.save(f"cartoon/scenes/mixed/{uuid.uuid4().hex}.mp4",
@@ -274,8 +299,62 @@ def mix_scene(scene) -> str:
 
 
 def remix_scene(scene) -> None:
-    """Пересобрать сведённый ролик сцены (или убрать, если дорожек нет)."""
-    path = mix_scene(scene) if scene.video else ""
-    if path != scene.mixed_video:
-        scene.mixed_video = path
-        scene.save(update_fields=["mixed_video", "updated_at"])
+    """Пересобрать сведённый ролик сцены (или убрать, если дорожек нет).
+
+    Под общим замком: сцену сводит и окно звука, и озвучка всего мультфильма,
+    а два ffmpeg разом затирают работу друг друга. Ждём чужое сведение и
+    делаем своё — дорожки читаются заново, поэтому ничего не теряется.
+    """
+    import time
+
+    lock = f"studio:mix:{scene.pk}"
+    for _ in range(20):
+        if cache.add(lock, "1", timeout=180):
+            break
+        time.sleep(3)
+    else:
+        logger.warning("сведение сцены %s: замок занят, свожу без него", scene.pk)
+    try:
+        # Сцену могли переснять, пока мы ждали.
+        scene.refresh_from_db(fields=["video", "mixed_video"])
+        path = mix_scene(scene) if scene.video else ""
+        if path != scene.mixed_video:
+            scene.mixed_video = path
+            scene.save(update_fields=["mixed_video", "updated_at"])
+    finally:
+        cache.delete(lock)
+
+
+def has_audio(raw: bytes) -> bool:
+    """Есть ли звуковая дорожка в готовом ролике."""
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "part.mp4"
+        path.write_bytes(raw)
+        return bool(probe(path)["audio"])
+
+
+def add_silence(raw: bytes) -> bytes:
+    """Добавить немому ролику тихую дорожку. При осечке — вернуть как есть."""
+    with tempfile.TemporaryDirectory() as tmp:
+        src, dst = Path(tmp) / "in.mp4", Path(tmp) / "out.mp4"
+        src.write_bytes(raw)
+        ok = _run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(src),
+                   "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo", "-c:v", "copy",
+                   "-c:a", "aac", "-b:a", "128k", "-shortest", "-movflags", "+faststart",
+                   str(dst)])
+        return dst.read_bytes() if ok and dst.exists() and dst.stat().st_size else raw
+
+
+def align_audio(parts: list) -> list:
+    """Уравнять части перед склейкой: со звуком — либо все, либо никто.
+
+    Склейка берёт звук, только если он есть во ВСЕХ частях. Без этого одна
+    неозвученная сцена делала немым весь мультфильм — вместе со сценами, за
+    озвучку которых человек заплатил.
+    """
+    if len(parts) < 2:
+        return parts
+    flags = [has_audio(p) for p in parts]
+    if all(flags) or not any(flags):
+        return parts
+    return [p if ok else add_silence(p) for p, ok in zip(parts, flags)]

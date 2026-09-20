@@ -2,7 +2,7 @@
 
 import { useTranslation } from "react-i18next";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FiChevronDown, FiFilm, FiLoader, FiPlay, FiPlus, FiUser, FiZap } from "react-icons/fi";
+import { FiChevronDown, FiFilm, FiLoader, FiMic, FiPlay, FiPlus, FiUser, FiZap } from "react-icons/fi";
 import { fetchData } from "@/tools/fetchData";
 import { trackFunnel } from "@/tools/funnel";
 import { getOrCreateDeviceKey } from "@/tools/deviceKey";
@@ -25,6 +25,7 @@ import { StudioAuthDialog, StudioPaywallDialog } from "./StudioDialogs";
 import CharacterPicker, { type StudioCharacter } from "./CharacterPicker";
 import SceneTimeline, { type StudioScene } from "./SceneTimeline";
 import SceneAudioDialog, { type AudioConfig } from "./SceneAudioDialog";
+import VoiceAllDialog, { type VoicePlan } from "./VoiceAllDialog";
 import { apiLang } from "@/lib/apiLang";
 
 /**
@@ -72,6 +73,14 @@ type Project = {
   scenes: StudioScene[];
   credits_spent: number;
   created_at?: string;
+  /** Идёт озвучка всего мультфильма: сколько реплик готово из скольких. */
+  voicing?: {
+    done: number;
+    total: number;
+    error?: string;
+    spent?: number;
+    finished?: boolean;
+  } | null;
 };
 
 const WORKING: StudioScene["status"][] = ["new", "keyframe", "video"];
@@ -129,6 +138,9 @@ export default function CartoonStudio() {
   // Звук сцены: какая сцена открыта в окне звука и включена ли озвучка вообще.
   const [audioScene, setAudioScene] = useState<StudioScene | null>(null);
   const [audioConfig, setAudioConfig] = useState<AudioConfig | null>(null);
+  // «Озвучить весь мультфильм»: сперва план с ценой, потом очередь.
+  const [voicePlan, setVoicePlan] = useState<VoicePlan | null>(null);
+  const [planning, setPlanning] = useState(false);
   const [authFor, setAuthFor] = useState<AuthReason | null>(null);
   const [authed, setAuthed] = useState(true);
   // Лента гостя. Клиент: без регистрации человек выбирает героя, набирает
@@ -506,6 +518,7 @@ export default function CartoonStudio() {
     const busy =
       !!project &&
       (project.status === "assembling" ||
+        Boolean(project.voicing && !project.voicing.finished) ||
         project.scenes.some((s) => WORKING.includes(s.status)));
     if (!busy || !project) {
       if (pollRef.current) {
@@ -793,6 +806,25 @@ export default function CartoonStudio() {
     await refresh(project.id);
   };
 
+  /** ИИ пишет реплики на все сцены — бесплатно, только чтобы показать цену. */
+  const planVoiceAll = async () => {
+    if (!project) return;
+    setPlanning(true);
+    setError("");
+    const res = await fetchData<VoicePlan>(
+      `cartoon/projects/${project.id}/voice-plan/`, "POST",
+      { lang: apiLang(i18n.language) }, true
+    );
+    setPlanning(false);
+    if (res.ok && res.data) {
+      setVoicePlan(res.data);
+      return;
+    }
+    const d = res.data as any;
+    if (d?.required) openPaywall({ required: Number(d.required), balance: Number(d.balance ?? 0), kind: "audio" });
+    else setError(d?.detail || t("studio_ui.voiceall_err"));
+  };
+
   const assemble = async () => {
     if (!project) return;
     setAssembling(true);
@@ -927,6 +959,8 @@ export default function CartoonStudio() {
   const readyCount = scenes.filter((s) => s.status === "ready").length;
   const drafts = scenes.filter((s) => s.status === "draft").length;
   const working = scenes.some((s) => WORKING.includes(s.status));
+  // Озвучка всего мультфильма прямо сейчас: кнопка ждёт, лента опрашивается.
+  const voicingNow = Boolean(project?.voicing && !project.voicing.finished);
 
   if (loading) {
     return (
@@ -998,6 +1032,17 @@ export default function CartoonStudio() {
         onClose={() => setAudioScene(null)}
         onChanged={() => {
           void loadBalance();
+          if (project) void refresh(project.id);
+        }}
+        onNeedCredits={(required, bal) => openPaywall({ required, balance: bal, kind: "audio" })}
+      />
+      <VoiceAllDialog
+        open={Boolean(voicePlan)}
+        plan={voicePlan}
+        config={audioConfig}
+        projectId={project?.id ?? null}
+        onClose={() => setVoicePlan(null)}
+        onStarted={() => {
           if (project) void refresh(project.id);
         }}
         onNeedCredits={(required, bal) => openPaywall({ required, balance: bal, kind: "audio" })}
@@ -1433,6 +1478,38 @@ export default function CartoonStudio() {
                 )}
                 {t("studio_ui.assemble")}
               </button>
+              {/* Клиент: «нажал — и весь мультфильм озвучен». Реплики пишет ИИ,
+                  цену человек видит до запуска, в окне их можно поправить. */}
+              {audioConfig?.enabled && scenes.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => void planVoiceAll()}
+                  disabled={planning || voicingNow}
+                  className="inline-flex items-center gap-2 rounded-full border border-accent px-5 py-2.5 text-sm font-bold text-accent transition-colors hover:bg-accent/10 disabled:opacity-50 cursor-pointer"
+                >
+                  {planning || voicingNow ? <FiLoader className="animate-spin" /> : <FiMic />}
+                  {planning
+                    ? t("studio_ui.voiceall_planning")
+                    : voicingNow
+                    ? t("studio_ui.voiceall_progress", {
+                        done: project!.voicing!.done,
+                        total: project!.voicing!.total,
+                      })
+                    : t("studio_ui.voiceall_cta")}
+                </button>
+              )}
+              {/* Озвучка оборвалась — человек должен понять, почему заговорили
+                  не все сцены. Кредиты за неозвученное не списаны. */}
+              {project?.voicing?.finished && project.voicing.error && (
+                <span className="text-xs text-status-wait">
+                  {t(
+                    project.voicing.error === "not_enough_credits"
+                      ? "studio_ui.voiceall_stopped_credits"
+                      : "studio_ui.voiceall_stopped",
+                    { done: project.voicing.done, total: project.voicing.total }
+                  )}
+                </span>
+              )}
               {working && (
                 <span className="text-xs text-muted">
                   {t("studio_ui.working_note")}

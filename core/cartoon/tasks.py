@@ -99,7 +99,11 @@ def render_scene(self, scene_id: int) -> dict:
         scene.credits_spent += video_price
         scene.status = CartoonScene.STATUS_READY
         scene.error = ""
-        scene.save(update_fields=["video", "credits_spent", "status", "error", "updated_at"])
+        # Прошлое сведение относилось к прошлому ролику: если его не сбросить,
+        # после пересъёмки в ленте продолжал бы играть старый вариант.
+        scene.mixed_video = ""
+        scene.save(update_fields=["video", "mixed_video", "credits_spent", "status", "error",
+                                  "updated_at"])
         # Звук, набранный до съёмки, накладывается сам (клиент: «в итоге всё
         # автоматически объединяется»). Сбой сведения не портит снятую сцену.
         try:
@@ -124,6 +128,34 @@ def render_scene(self, scene_id: int) -> dict:
         scene.save(update_fields=["status", "error", "updated_at"])
         _notify_scene(scene, ok=False)
         return {"status": "video_failed"}
+
+
+@shared_task(bind=True, max_retries=0)
+def voice_movie(self, project_id: int, plan: list, replace: bool = True, token: str = "") -> dict:
+    """Озвучить все реплики мультфильма. Каждая реплика оплачивается по факту.
+
+    В очереди, а не во вьюхе: десять реплик — это десятки секунд у ElevenLabs
+    плюс сведение ffmpeg, и держать на этом веб-воркер нельзя.
+    """
+    from django.core.cache import cache
+
+    from .voiceover import lock_key, set_progress, voice_project
+
+    project = CartoonProject.objects.select_related("user").filter(pk=project_id).first()
+    if not project:
+        cache.delete(lock_key(project_id))
+        return {"status": "no_project"}
+    try:
+        return voice_project(project, plan or [], replace)
+    except Exception:
+        # Прогресс должен закрыться в любом случае: иначе студия будет вечно
+        # показывать «озвучиваю» и не даст запустить заново.
+        set_progress(project_id, error="failed", finished=True)
+        raise
+    finally:
+        # Снимаем только свой замок: чужой мог принадлежать новому запуску.
+        if not token or cache.get(lock_key(project_id)) == token:
+            cache.delete(lock_key(project_id))
 
 
 @shared_task(bind=True, max_retries=0)
