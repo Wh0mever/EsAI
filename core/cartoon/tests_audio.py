@@ -130,3 +130,44 @@ class AudioFlowTests(TestCase):
             info = audio.probe(local)
         self.assertTrue(info["audio"])
         self.assertAlmostEqual(info["duration"], 2.0, delta=0.3)
+
+
+@override_settings(CACHES=CACHES)
+@skipUnless(HAS_FFMPEG, "нужен ffmpeg")
+class MovieSoundTests(TestCase):
+    """Одна неозвученная сцена не должна делать немым весь мультфильм."""
+
+    def _clip(self, tmp: Path, name: str, sound: bool) -> bytes:
+        path = tmp / name
+        cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i",
+               "testsrc=size=160x90:rate=10:duration=1"]
+        if sound:
+            cmd += ["-f", "lavfi", "-i", "sine=frequency=330:duration=1", "-c:a", "aac"]
+        cmd += ["-c:v", "libx264", "-pix_fmt", "yuv420p", "-shortest", str(path)]
+        subprocess.run(cmd, check=True)
+        return path.read_bytes()
+
+    def test_silent_scene_gets_silence_and_movie_keeps_sound(self):
+        from ai.video_edit import concat_videos
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            voiced = self._clip(tmp, "a.mp4", sound=True)
+            silent = self._clip(tmp, "b.mp4", sound=False)
+            self.assertTrue(audio.has_audio(voiced))
+            self.assertFalse(audio.has_audio(silent))
+
+            parts = audio.align_audio([voiced, silent])
+            self.assertTrue(all(audio.has_audio(p) for p in parts))
+
+            joined = concat_videos(parts)
+            self.assertTrue(joined)
+            out = tmp / "joined.mp4"
+            out.write_bytes(joined)
+            self.assertTrue(audio.probe(out)["audio"])
+
+    def test_all_silent_parts_are_left_alone(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            parts = [self._clip(tmp, "a.mp4", sound=False), self._clip(tmp, "b.mp4", sound=False)]
+            self.assertEqual(audio.align_audio(parts), parts)
