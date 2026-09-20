@@ -203,6 +203,7 @@ export default function VoiceAllDialog({
                   onChange={(e) => setLine(l.scene_id, { text: e.target.value.slice(0, 200) })}
                   rows={2}
                   disabled={disabled}
+                  placeholder={t("studio_ui.voiceall_line_ph")}
                   className="rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-foreground outline-none focus:border-accent disabled:opacity-60"
                 />
               </div>
