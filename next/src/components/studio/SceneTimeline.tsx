@@ -81,7 +81,10 @@ export default function SceneTimeline({
   tryingOnId = null,
   tryOnLabel,
   onAudio,
+  onRedraw,
 }: {
+  /** Перерисовать кадр сцены: прежний не понравился или вышел не тот герой. */
+  onRedraw?: (scene: StudioScene) => void;
   /** Открыть звук сцены. Нет — озвучка выключена, кнопку не показываем. */
   onAudio?: (scene: StudioScene) => void;
   /** Примерить героя сцены на сцену из библиотеки прямо из ленты. */
@@ -337,6 +340,23 @@ export default function SceneTimeline({
               >
                 {framingId === s.id ? <FiLoader className="animate-spin" /> : <FiFilm />}
                 {t("studio_ui.frame_btn", { credits: frameCredits })}
+              </button>
+            )}
+            {/* Кадр уже есть, но не тот: нарисовать заново. Без этого
+                неудачный кадр можно было убрать только вместе со сценой. */}
+            {s.status === "draft" && s.keyframe && onRedraw && (
+              <button
+                type="button"
+                onClick={() => onRedraw(s)}
+                disabled={busy || tryingOnId !== null || framingId !== null}
+                className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-[11px] text-muted transition-colors hover:border-accent hover:text-foreground disabled:opacity-60 cursor-pointer"
+              >
+                {busy || tryingOnId === s.preset.id || framingId === s.id ? (
+                  <FiLoader className="animate-spin" />
+                ) : (
+                  <FiRefreshCw />
+                )}
+                {t("studio_ui.redraw_frame", { credits: frameCredits })}
               </button>
             )}
             {s.status === "draft" && (
