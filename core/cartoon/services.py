@@ -183,6 +183,15 @@ def assemble_project(project) -> str:
 
     parts = []
     for scene in project.scenes.filter(status="ready").exclude(video="").order_by("order"):
+        # Подстраховка: если человек добавил звук и ушёл, не дождавшись сведения,
+        # мультфильм всё равно должен заговорить.
+        if not scene.mixed_video and scene.audio_tracks.exists():
+            try:
+                from .audio import remix_scene
+
+                remix_scene(scene)
+            except Exception:
+                logger.exception("склейка: сцена %s не свелась со звуком", scene.pk)
         try:
             # Сцена со звуком идёт в мультфильм сведённой.
             with default_storage.open(scene.mixed_video or scene.video, "rb") as fh:
@@ -191,6 +200,14 @@ def assemble_project(project) -> str:
             logger.warning("склейка: сцена %s не читается, пропускаю", scene.pk)
     if not parts:
         raise RuntimeError("нет готовых сцен для склейки")
+    # Склейка берёт звук только если он есть во всех частях, поэтому немым
+    # сценам дописываем тишину — иначе одна такая глушит весь мультфильм.
+    try:
+        from .audio import align_audio
+
+        parts = align_audio(parts)
+    except Exception:
+        logger.exception("склейка: не удалось уравнять звук частей")
     joined = parts[0] if len(parts) == 1 else concat_videos(parts)
     if not joined:
         raise RuntimeError("склейка не удалась")

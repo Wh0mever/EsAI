@@ -207,11 +207,12 @@ def scene_json(s: CartoonScene, lang: str = "ru", pair_videos: dict | None = Non
 
 
 def project_json(p: CartoonProject, lang: str = "ru") -> dict:
-    from django.db.models import Count
+    from django.db.models import Count, Sum
 
     scenes = list(p.scenes.select_related(
         "preset", "character", "project__character").annotate(
-        audio_n=Count("audio_tracks")).order_by("order", "id"))
+        audio_n=Count("audio_tracks"),
+        audio_credits=Sum("audio_tracks__credits_spent")).order_by("order", "id"))
     pairs = _pair_videos_for(scenes)
     return {
         "id": p.id,
@@ -223,8 +224,31 @@ def project_json(p: CartoonProject, lang: str = "ru") -> dict:
         "error": p.error,
         "scenes": [scene_json(s, lang, pairs) for s in scenes],
         "created_at": p.created_at.isoformat(),
-        "credits_spent": sum(s.credits_spent for s in scenes),
+        "credits_spent": (sum(s.credits_spent for s in scenes)
+                          + sum(s.audio_credits or 0 for s in scenes)),
+        # Идёт ли сейчас озвучка всего мультфильма — по ней фронт держит опрос.
+        "voicing": _voicing(p.pk),
     }
+
+
+def _voicing(project_id: int):
+    """Состояние озвучки всего мультфильма: идёт, завершилась или сорвалась.
+
+    Отдаём и завершённое: иначе сбой («не хватило кредитов») пропал бы молча,
+    а человек так и не понял бы, почему заговорили не все сцены.
+    """
+    from .voiceover import get_progress, is_stale
+
+    state = get_progress(project_id)
+    if not state:
+        return None
+    if is_stale(state):
+        # Задачу убили (деплой, перезапуск воркера): показываем обрыв, а не
+        # вечное «озвучиваю» — за неозвученное человек ничего не заплатил.
+        return {**state, "finished": True, "error": state.get("error") or "interrupted"}
+    if state.get("finished") and not state.get("error"):
+        return None
+    return state
 
 
 class PresetsView(StudioPublicAPIView):
@@ -613,6 +637,13 @@ def _attach_ready_keyframe(scene) -> None:
 def _pick_character(request, character_id):
     """Герой из запроса: библиотечный или свой. Чужого не отдаём."""
     if not character_id:
+        return None
+    # Из тела запроса может прийти что угодно: «abc», огромное число, список.
+    try:
+        character_id = int(character_id)
+    except (TypeError, ValueError):
+        return None
+    if not (0 < character_id < 2 ** 31):
         return None
     library = Q(is_public=True, user__isnull=True)
     mine = Q(user=request.user) if request.user.is_authenticated else Q(pk__in=[])

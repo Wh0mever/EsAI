@@ -73,6 +73,21 @@ const TAB_ICON = { voice: FiZap, own: FiMic, music: FiMusic, sfx: FiVolume2 };
 
 const LAST_VOICE_KEY = "esai.studio.voiceByCharacter";
 
+/**
+ * Подпись голоса на языке человека.
+ *
+ * ElevenLabs размечает голоса по-английски («female · middle_aged ·
+ * professional»), и в русском интерфейсе это выглядит как служебный вывод.
+ * Переводим то, что знаем, а незнакомое слово показываем как есть.
+ */
+function voiceTraits(v: Voice, t: (k: string, o?: any) => string): string {
+  const word = (raw: string) =>
+    raw ? t(`studio_ui.voice_w_${raw.toLowerCase().replace(/[^a-z_]+/g, "_")}`, { defaultValue: raw }) : "";
+  return [word(v.gender), word(v.age), word(v.description || v.use_case || v.accent)]
+    .filter(Boolean)
+    .join(" · ");
+}
+
 function readVoiceMemory(): Record<string, string> {
   try {
     return JSON.parse(localStorage.getItem(LAST_VOICE_KEY) || "{}") || {};
@@ -127,6 +142,7 @@ export default function SceneAudioDialog({
 
   const [recording, setRecording] = useState(false);
   const recorderRef = useRef<MediaRecorder | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const previewRef = useRef<HTMLAudioElement | null>(null);
@@ -151,7 +167,20 @@ export default function SceneAudioDialog({
     if (remembered) setVoiceId(remembered);
     void (async () => {
       const res = await fetchData<SceneAudio>(`cartoon/scenes/${scene.id}/audio/`, "GET", undefined, true);
-      if (res.ok && res.data) setData(res.data);
+      if (res.ok && res.data) {
+        setData(res.data);
+        return;
+      }
+      // Не загрузилось — показываем пустой список, а не вечный спиннер:
+      // иначе окно выглядит сломанным, а сделанный звук «пропадает».
+      setData({
+        scene_id: scene.id,
+        sound_volume: 1,
+        has_video: Boolean(scene.video),
+        mixed_video: "",
+        tracks: [],
+      });
+      setError(t("studio_ui.audio_err_load"));
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scene?.id]);
@@ -182,6 +211,21 @@ export default function SceneAudioDialog({
   const musicPrice = prices ? Math.max(1, Math.ceil((seconds * prices.music_per_min) / 60)) : 0;
   const sfxPrice = prices?.sfx ?? 0;
 
+  // Окно закрыли посреди записи или прослушивания — освобождаем микрофон и звук.
+  useEffect(
+    () => () => {
+      try {
+        recorderRef.current?.stop();
+      } catch {
+        /* записи уже нет */
+      }
+      streamRef.current?.getTracks().forEach((tr) => tr.stop());
+      streamRef.current = null;
+      previewRef.current?.pause();
+    },
+    []
+  );
+
   const stopPreview = () => {
     previewRef.current?.pause();
     setPreviewing(null);
@@ -202,7 +246,16 @@ export default function SceneAudioDialog({
   };
 
   const addTrack = (track: Track) => {
-    setData((d) => (d ? { ...d, tracks: [...d.tracks, track].sort((a, b) => a.start_sec - b.start_sec) } : d));
+    setData((d) => {
+      const base: SceneAudio = d || {
+        scene_id: scene?.id ?? 0,
+        sound_volume: 1,
+        has_video: Boolean(scene?.video),
+        mixed_video: "",
+        tracks: [],
+      };
+      return { ...base, tracks: [...base.tracks, track].sort((a, b) => a.start_sec - b.start_sec) };
+    });
     setDirty(true);
   };
 
@@ -268,11 +321,13 @@ export default function SceneAudioDialog({
     setError("");
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
       const rec = new MediaRecorder(stream);
       chunksRef.current = [];
       rec.ondataavailable = (e) => e.data.size && chunksRef.current.push(e.data);
       rec.onstop = () => {
         stream.getTracks().forEach((tr) => tr.stop());
+        streamRef.current = null;
         const type = rec.mimeType || "audio/webm";
         const ext = type.includes("mp4") ? "m4a" : type.includes("ogg") ? "ogg" : "webm";
         void uploadBlob(new Blob(chunksRef.current, { type }), `voice.${ext}`);
@@ -281,6 +336,8 @@ export default function SceneAudioDialog({
       rec.start();
       setRecording(true);
     } catch {
+      streamRef.current?.getTracks().forEach((tr) => tr.stop());
+      streamRef.current = null;
       setError(t("studio_ui.audio_err_mic"));
     }
   };
@@ -292,22 +349,37 @@ export default function SceneAudioDialog({
   };
 
   const patchTrack = async (track: Track, patch: Partial<Pick<Track, "start_sec" | "volume">>) => {
+    const prev = data;
     setData((d) => (d ? { ...d, tracks: d.tracks.map((x) => (x.id === track.id ? { ...x, ...patch } : x)) } : d));
     setDirty(true);
-    await fetchData(`cartoon/audio/${track.id}/`, "PATCH", patch, true);
+    const res = await fetchData(`cartoon/audio/${track.id}/`, "PATCH", patch, true);
+    // Сервер не принял правку — возвращаем то, что есть на самом деле:
+    // иначе ползунок показывал бы одно, а в ролике звучало другое.
+    if (!res.ok) {
+      setData(prev);
+      setError((res.data as any)?.detail || t("studio_ui.audio_err"));
+    }
   };
 
   const removeTrack = async (track: Track) => {
+    const prev = data;
     setData((d) => (d ? { ...d, tracks: d.tracks.filter((x) => x.id !== track.id) } : d));
     setDirty(true);
-    await fetchData(`cartoon/audio/${track.id}/`, "DELETE", undefined, true);
+    const res = await fetchData(`cartoon/audio/${track.id}/`, "DELETE", undefined, true);
+    if (!res.ok) {
+      setData(prev);
+      setError((res.data as any)?.detail || t("studio_ui.audio_err"));
+    }
   };
 
   const setSceneVolume = async (value: number) => {
     if (!scene) return;
+    const prev = data;
     setData((d) => (d ? { ...d, sound_volume: value } : d));
     setDirty(true);
-    await fetchData(`cartoon/scenes/${scene.id}/audio/`, "PATCH", { sound_volume: value }, true);
+    const res = await fetchData(`cartoon/scenes/${scene.id}/audio/`, "PATCH",
+                                { sound_volume: value }, true);
+    if (!res.ok) setData(prev);
   };
 
   /** Свести звук со сценой и закрыть. У не снятой сцены сведение будет после съёмки. */
@@ -443,7 +515,7 @@ export default function SceneAudioDialog({
                       >
                         <div className="truncate text-sm text-foreground">{v.name}</div>
                         <div className="truncate text-[10px] text-muted-2">
-                          {[v.gender, v.age, v.description || v.accent].filter(Boolean).join(" · ")}
+                          {voiceTraits(v, t)}
                         </div>
                       </button>
                     </div>
