@@ -415,6 +415,104 @@ class GenerationJob(models.Model):
         }
 
 
+class GenerationLog(models.Model):
+    """Журнал платных генераций: кто, когда, чем, за сколько и чем кончилось.
+
+    Зачем (просьба клиента, 21.09.2026). В кабинете OpenRouter появилась
+    оплаченная генерация видео на $1.17, а в EsAI её никто не нашёл: человек
+    получил «не удалось запустить», кредиты не списались, ролик пропал. По
+    логам контейнера такое ищется часами, поэтому каждая генерация теперь
+    оставляет строку: пользователь → время → модель → запрос → ID провайдера →
+    стоимость → списанные кредиты → статус → результат или ошибка, и отдельно —
+    ход по шагам (stages).
+
+    По этому же журналу фоновая задача находит оплаченные, но не доставленные
+    ролики и довозит их человеку.
+    """
+
+    KIND_VIDEO = "video"
+    KIND_IMAGE = "image"
+    KIND_KEYFRAME = "keyframe"
+    KIND_VOICE = "voice"
+    KIND_MUSIC = "music"
+    KIND_SFX = "sfx"
+    KIND_CHOICES = [
+        (KIND_VIDEO, "Видео"),
+        (KIND_IMAGE, "Изображение"),
+        (KIND_KEYFRAME, "Кадр студии"),
+        (KIND_VOICE, "Озвучка"),
+        (KIND_MUSIC, "Музыка"),
+        (KIND_SFX, "Звуковой эффект"),
+    ]
+
+    SOURCE_CHAT = "chat"
+    SOURCE_STUDIO = "studio"
+    SOURCE_BOT = "bot"
+    SOURCE_CHOICES = [(SOURCE_CHAT, "Чат"), (SOURCE_STUDIO, "Студия"), (SOURCE_BOT, "Бот")]
+
+    # Путь запроса. submitting — отправляем провайдеру; submitted — провайдер
+    # принял и выдал ID (с этого момента он берёт деньги); delivered — человек
+    # получил результат и заплатил; lost — деньги у провайдера ушли, а результата
+    # у человека нет; recovered — потерянное довезли фоном.
+    STATUS_SUBMITTING = "submitting"
+    STATUS_SUBMITTED = "submitted"
+    STATUS_DELIVERED = "delivered"
+    STATUS_FAILED = "failed"
+    STATUS_LOST = "lost"
+    STATUS_RECOVERED = "recovered"
+    STATUS_CHOICES = [
+        (STATUS_SUBMITTING, "Отправляется"),
+        (STATUS_SUBMITTED, "Принято провайдером"),
+        (STATUS_DELIVERED, "Выдано"),
+        (STATUS_FAILED, "Не удалось"),
+        (STATUS_LOST, "Оплачено, но не выдано"),
+        (STATUS_RECOVERED, "Довезено фоном"),
+    ]
+    OPEN_STATES = (STATUS_SUBMITTING, STATUS_SUBMITTED)
+
+    user = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True,
+                             related_name="generation_logs", verbose_name="Пользователь")
+    kind = models.CharField(max_length=12, choices=KIND_CHOICES, db_index=True, verbose_name="Что")
+    source = models.CharField(max_length=8, choices=SOURCE_CHOICES, default=SOURCE_CHAT,
+                              verbose_name="Откуда")
+    provider = models.CharField(max_length=24, default="openrouter", verbose_name="Провайдер")
+    model = models.CharField(max_length=120, blank=True, default="", verbose_name="Модель")
+    status = models.CharField(max_length=12, choices=STATUS_CHOICES, default=STATUS_SUBMITTING,
+                              db_index=True, verbose_name="Состояние")
+    provider_id = models.CharField(max_length=160, blank=True, default="", db_index=True,
+                                   verbose_name="ID у провайдера")
+    polling_url = models.CharField(max_length=512, blank=True, default="",
+                                   verbose_name="Адрес опроса")
+    prompt = models.TextField(blank=True, default="", verbose_name="Запрос")
+    params = models.JSONField(default=dict, blank=True, verbose_name="Параметры")
+    credits_charged = models.PositiveIntegerField(default=0, verbose_name="Списано кредитов")
+    credits_planned = models.PositiveIntegerField(default=0, verbose_name="Цена в кредитах")
+    provider_cost_usd = models.DecimalField(max_digits=10, decimal_places=4, null=True, blank=True,
+                                            verbose_name="Стоимость у провайдера, $")
+    result_url = models.CharField(max_length=512, blank=True, default="", verbose_name="Результат")
+    error = models.TextField(blank=True, default="", verbose_name="Ошибка")
+    # Ход по шагам: [{"at": iso, "stage": "submitted", "note": "..."}]
+    stages = models.JSONField(default=list, blank=True, verbose_name="Ход")
+    session = models.ForeignKey(AiChatSession, on_delete=models.SET_NULL, null=True, blank=True,
+                                related_name="+", verbose_name="Чат")
+    message = models.ForeignKey(AiChatMessage, on_delete=models.SET_NULL, null=True, blank=True,
+                                related_name="+", verbose_name="Сообщение с результатом")
+    scene_id = models.PositiveIntegerField(null=True, blank=True, verbose_name="Сцена студии")
+    ip = models.GenericIPAddressField(null=True, blank=True, verbose_name="IP")
+    needs_review = models.BooleanField(default=False, db_index=True, verbose_name="Нужен разбор")
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("-id",)
+        verbose_name = "Генерация"
+        verbose_name_plural = "Журнал генераций"
+        indexes = [models.Index(fields=["status", "kind", "updated_at"], name="genlog_status_kind_upd")]
+
+    def __str__(self):
+        return f"{self.get_kind_display()} · {self.model} · {self.get_status_display()}"
+
+
 class OpenRouterAccount(models.Model):
     """Аккаунт OpenRouter, с которого работает весь сайт.
 

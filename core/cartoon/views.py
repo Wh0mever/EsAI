@@ -558,6 +558,11 @@ class ProjectDetailView(StudioAPIView):
         """
         project = get_object_or_404(CartoonProject, pk=pk, user=request.user)
         data = request.data if isinstance(request.data, dict) else {}
+        if "title" in data:
+            # Клиент: человек должен давать название своему мультфильму.
+            title = " ".join(str(data.get("title") or "").split())[:140]
+            project.title = title or "Мой мультфильм"
+            project.save(update_fields=["title", "updated_at"])
         if "aspect_ratio" in data:
             aspect = _aspect(data.get("aspect_ratio"))
             if aspect != project.aspect_ratio:

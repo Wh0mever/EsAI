@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import blocks, openrouter, studio_works, views
+from . import blocks, generations, openrouter, studio_works, views
 
 app_name = "adminapi"
 
@@ -40,6 +40,10 @@ urlpatterns = [
     path("openrouter/<int:pk>/refresh/", openrouter.AccountRefreshView.as_view(), name="openrouter-refresh"),
     # Воронка оплаты: на каком шаге отваливаются.
     path("funnel/", views.FunnelView.as_view(), name="funnel"),
+    # Журнал платных генераций: кто, чем, за сколько и чем кончилось.
+    path("generations/", generations.GenerationsView.as_view(), name="generations"),
+    path("generations/<int:pk>/reviewed/", generations.GenerationReviewedView.as_view(),
+         name="generation-reviewed"),
     # Работы пользователей студии: отбор для рекламы и превью сцен.
     path("studio/works/", studio_works.StudioWorksView.as_view(), name="studio-works"),
     path("studio/works/<str:kind>/<int:pk>/feature/", studio_works.StudioWorkFeatureView.as_view(),

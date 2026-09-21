@@ -25,6 +25,10 @@ from .serializers import AiChatMessageSerializer
 
 logger = logging.getLogger(__name__)
 
+# Сколько ждём ответа на отправку. Провайдер до ответа сам скачивает
+# приложенные картинки, и с тяжёлым фото это заметно дольше полуминуты.
+SUBMIT_READ_TIMEOUT = 150
+
 
 def run_video_generation(*, user, model_obj, selected_model_name: str, message: str,
                          attachments, origin_base: str | None, session,
@@ -34,7 +38,8 @@ def run_video_generation(*, user, model_obj, selected_model_name: str, message: 
                          first_frame: str | None = None,
                          last_frame: str | None = None,
                          extend_video: str | None = None,
-                         cancel_check: Callable[[], bool] | None = None) -> Iterator[dict]:
+                         cancel_check: Callable[[], bool] | None = None,
+                         source: str = "chat", client_ip: str | None = None) -> Iterator[dict]:
     """Сгенерировать ролик и сохранить его как ответ ассистента.
 
     Списание — только за готовый файл: любая ошибка по пути возвращает слот
@@ -86,6 +91,17 @@ def run_video_generation(*, user, model_obj, selected_model_name: str, message: 
             "done": True,
         })
         return
+
+    # Журнал генераций: с этой строки видно, кто, чем и что запустил — даже
+    # если дальше всё оборвётся. Без неё оплаченный ролик терялся бесследно.
+    from . import genlog
+
+    entry = genlog.start(
+        user=user, kind="video", model=selected_model_name, source=source,
+        prompt=message, credits_planned=need, session=session, ip=client_ip,
+        params={"duration": duration, "resolution": resolution,
+                "aspect_ratio": aspect_ratio or "", "images": len(attachments or []),
+                "extend": bool(extend_video)})
 
     # b) Фронт рисует видео-плейсхолдер (аналог image_pending).
     yield ({"video_pending": True, "duration": duration})
@@ -202,28 +218,71 @@ def run_video_generation(*, user, model_obj, selected_model_name: str, message: 
         })
     if _frames:
         _submit_body["frame_images"] = _frames
-    try:
-        resp = _requests.post(
-            f"{cfg['base_url'].rstrip('/')}/videos",
-            json=_submit_body,
-            headers=auth_headers,
-            # (connect, read): худший случай ~40 с < nginx 60 с —
-            # video_pending уже отправлен, следующий кадр после submit.
-            timeout=(10, 30),
-        )
-        if not (200 <= resp.status_code < 300):
-            # Тело ошибки OpenRouter в лог — чтобы видеть причину отказа модели.
-            raise RuntimeError(f"video submit http {resp.status_code}: {resp.text[:300]}")
-        job = resp.json() or {}
-        polling_url = (job.get("polling_url") or "").strip()
-        if not polling_url:
-            raise RuntimeError("video submit: no polling_url")
-    except Exception:
-        logger.exception("video generation submit failed (model=%s dur=%s res=%s image_to_video=%s)",
-                         selected_model_name, duration, resolution, bool(first_img_abs_url))
+    # Отправка идёт в отдельном потоке, а человеку всё это время уходят кадры
+    # «отправляем»: провайдер сперва сам скачивает приложенную картинку, и с
+    # тяжёлым фото с телефона это занимает больше полуминуты. Раньше мы ждали
+    # 30 секунд, сдавались и писали «не удалось запустить» — а провайдер тем
+    # временем запрос принимал, снимал ролик и брал за него деньги. Так
+    # потерялся оплаченный ролик 21.09.2026 (gen-vid-1789973061…).
+    from concurrent.futures import ThreadPoolExecutor
+    from concurrent.futures import TimeoutError as _FutureTimeout
+
+    entry.stage("submitting", f"картинок: {1 if first_img_abs_url else 0}")
+    _pool = ThreadPoolExecutor(max_workers=1)
+    _future = _pool.submit(
+        _requests.post, f"{cfg['base_url'].rstrip('/')}/videos",
+        json=_submit_body, headers=auth_headers, timeout=(10, SUBMIT_READ_TIMEOUT))
+    resp = None
+    submit_error: Exception | None = None
+    while True:
+        try:
+            resp = _future.result(timeout=5)
+            break
+        except _FutureTimeout:
+            # Кадр — чтобы nginx и Cloudflare не оборвали молчащее соединение.
+            yield ({"video_progress": "submitting"})
+        except Exception as exc:  # noqa: BLE001 — сеть, таймаут, DNS
+            submit_error = exc
+            break
+    _pool.shutdown(wait=False)
+
+    polling_url = ""
+    if submit_error is not None:
+        # Ответа нет — значит исход НЕИЗВЕСТЕН: провайдер мог принять запрос и
+        # взять деньги. Это не «не удалось», это «потеряли» — в разбор.
+        logger.error("video submit: ответа нет (model=%s dur=%s res=%s i2v=%s): %s",
+                     selected_model_name, duration, resolution, bool(first_img_abs_url),
+                     submit_error)
+        entry.lost(f"нет ответа на отправку: {submit_error}")
         _release_daily_request(user)
         yield ({"error": "Не удалось запустить генерацию видео. Попробуйте ещё раз.", "done": True})
         return
+    if not (200 <= resp.status_code < 300):
+        # Провайдер отказал сам — денег он за это не берёт.
+        logger.error("video submit http %s (model=%s dur=%s res=%s i2v=%s): %s",
+                     resp.status_code, selected_model_name, duration, resolution,
+                     bool(first_img_abs_url), resp.text[:300])
+        entry.failed(f"http {resp.status_code}: {resp.text[:500]}")
+        _release_daily_request(user)
+        yield ({"error": "Не удалось запустить генерацию видео. Попробуйте ещё раз.", "done": True})
+        return
+    try:
+        job = resp.json() or {}
+    except ValueError:
+        job = {}
+    job_id = str(job.get("id") or job.get("generation_id") or "").strip()
+    polling_url = str(job.get("polling_url") or "").strip()
+    if not polling_url and job_id:
+        # Адрес опроса не пришёл, но задача принята: строим его сами, иначе
+        # потеряли бы уже оплаченный ролик.
+        polling_url = f"{cfg['base_url'].rstrip('/')}/videos/{job_id}"
+    if not polling_url:
+        logger.error("video submit: принято, но нет ни id, ни polling_url: %s", str(job)[:300])
+        entry.lost(f"принято без id: {str(job)[:300]}")
+        _release_daily_request(user)
+        yield ({"error": "Не удалось запустить генерацию видео. Попробуйте ещё раз.", "done": True})
+        return
+    entry.submitted(job_id, polling_url)
 
     # d) Poll каждые 5 с до VIDEO_GEN_TIMEOUT_S. Кадр video_progress на
     #    КАЖДОЙ итерации ОБЯЗАТЕЛЕН — это keepalive против обрыва прокси
@@ -233,10 +292,12 @@ def run_video_generation(*, user, model_obj, selected_model_name: str, message: 
     poll = {}
     status = "pending"
     completed = False
+    _beats = 0
     while _time.monotonic() < deadline:
         _time.sleep(5)
         if cancel_check and cancel_check():
             logger.info("video generation canceled by user %s", getattr(user, 'pk', None))
+            entry.failed("отменено пользователем (провайдер мог успеть взять деньги)")
             _release_daily_request(user)
             yield ({"error": "Генерация отменена. Кредиты не списаны.",
                     "error_code": "canceled", "done": True})
@@ -251,6 +312,9 @@ def run_video_generation(*, user, model_obj, selected_model_name: str, message: 
         except Exception:
             # Транзиентная ошибка поллинга — не роняем, ждём следующую итерацию.
             pass
+        _beats += 1
+        if _beats % 6 == 0:
+            entry.touch()
         yield ({"video_progress": status})
         if status == "completed":
             completed = True
@@ -264,7 +328,16 @@ def run_video_generation(*, user, model_obj, selected_model_name: str, message: 
             status, (poll or {}).get("error"), str(poll)[:300],
         )
         _release_daily_request(user)
-        yield ({"error": "Видео не получилось сгенерировать. Кредиты не списаны.", "done": True})
+        if status == "failed":
+            entry.failed(str((poll or {}).get("error") or "провайдер вернул failed")[:500])
+            yield ({"error": "Видео не получилось сгенерировать. Кредиты не списаны.", "done": True})
+            return
+        # Не дождались, но провайдер ещё снимает (и возьмёт за это деньги).
+        # Запись остаётся открытой: фоновая задача довезёт ролик в этот чат.
+        entry.stage("timeout", f"ждали {timeout_s} с, статус {status}")
+        yield ({"error": "Видео снимается дольше обычного. Оно появится в этом чате, "
+                         "как только будет готово — кредиты спишутся только тогда.",
+                "error_code": "video_delayed", "done": True})
         return
 
     # e) Скачать mp4 (URL временный — качаем сразу) → default_storage,
@@ -292,6 +365,7 @@ def run_video_generation(*, user, model_obj, selected_model_name: str, message: 
                 # (nginx proxy_read_timeout оборвёт SSE).
                 if now - last_beat >= 5:
                     last_beat = now
+                    entry.touch()
                     yield ({"video_progress": "downloading"})
         new_bytes = b"".join(chunks)
 
@@ -325,10 +399,15 @@ def run_video_generation(*, user, model_obj, selected_model_name: str, message: 
             "prompt": (message or "")[:2000],
             "model": selected_model_name,
         }]
-    except Exception:
+    except Exception as exc:
         logger.exception("video download/save failed")
+        # Ролик у провайдера готов и оплачен — запись остаётся открытой, его
+        # заберёт фоновая задача.
+        entry.stage("download_failed", str(exc)[:200])
         _release_daily_request(user)
-        yield ({"error": "Видео не получилось сгенерировать. Кредиты не списаны.", "done": True})
+        yield ({"error": "Видео готово, но не успело загрузиться. Оно появится в этом чате "
+                         "через несколько минут — кредиты спишутся только тогда.",
+                "error_code": "video_delayed", "done": True})
         return
 
     # f) Ответ ассистента + meta (usage.cost из poll может отсутствовать).
@@ -349,6 +428,14 @@ def run_video_generation(*, user, model_obj, selected_model_name: str, message: 
     }
     if provider_cost is not None:
         usage_meta["provider_cost_usd"] = provider_cost
+
+    # Пока мы скачивали, ролик могла выдать фоновая задача довоза (если поток
+    # надолго замолкал). Второй раз не выдаём и второй раз не списываем.
+    if not entry.is_open():
+        logger.warning("video: ролик уже выдан фоном, повторно не списываю")
+        yield ({"error": "Видео уже в этом чате — обновите страницу.",
+                "error_code": "video_delayed", "done": True})
+        return
 
     # g) Сохранение + списание — ТЕМ ЖЕ паттерном, что текстовый путь ниже.
     with transaction.atomic():
@@ -385,6 +472,10 @@ def run_video_generation(*, user, model_obj, selected_model_name: str, message: 
                     })
                 except InsufficientTokens as exc2:
                     new_balance = exc2.balance
+
+    entry.stage("saved", atts[0]["url"])
+    entry.delivered(credits=need, cost=provider_cost, result_url=atts[0]["url"],
+                    message=assistant_msg)
 
     # extract_user_memory / summarize_session_context для видео НЕ
     # запускаем — из «сгенерируй видео» нечего извлекать, не сжигаем

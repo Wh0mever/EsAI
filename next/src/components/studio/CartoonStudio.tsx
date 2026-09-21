@@ -797,6 +797,20 @@ export default function CartoonStudio() {
     openAuth("render");
   };
 
+  /** Название мультфильма. Клиент: человек должен сам назвать свою серию. */
+  const renameMovie = async (value: string) => {
+    if (!project) return;
+    const title = value.replace(/\s+/g, " ").trim().slice(0, 140);
+    if (!title || title === project.title) return;
+    const res = await fetchData<Project>(`cartoon/projects/${project.id}/`, "PATCH", { title }, true);
+    if (res.ok && res.data) {
+      setProject(res.data);
+      setProjects((prev) => prev.map((x) => (x.id === res.data!.id ? res.data! : x)));
+    } else {
+      setError((res.data as any)?.detail || t("studio_ui.err_scene"));
+    }
+  };
+
   /** Реплика героя: её играет модель в кадре и ею же озвучивается сцена. */
   const setSceneDialogue = async (scene: StudioScene, text: string) => {
     if (!project) return;
@@ -1503,6 +1517,22 @@ export default function CartoonStudio() {
           <section ref={timelineRef} className="mt-8 flex flex-col gap-3 scroll-mt-24">
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-lg font-bold text-foreground">{t("studio_ui.step3")}</h2>
+              {/* Название серии: пишется прямо здесь и сохраняется, когда человек
+                  уходит с поля. Под ним мультфильм потом ищется в «Моих». */}
+              {authed && project && (
+                <input
+                  key={project.id}
+                  defaultValue={project.title}
+                  onBlur={(e) => void renameMovie(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+                  }}
+                  maxLength={140}
+                  aria-label={t("studio_ui.movie_title")}
+                  placeholder={t("studio_ui.movie_title")}
+                  className="min-w-0 flex-1 basis-40 rounded-lg border border-border bg-surface px-3 py-1.5 text-sm text-foreground outline-none placeholder:text-muted focus:border-accent sm:max-w-xs"
+                />
+              )}
               {authed && project && scenes.length > 0 && (
                 <button
                   type="button"

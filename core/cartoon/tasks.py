@@ -104,11 +104,32 @@ def render_scene(self, scene_id: int) -> dict:
         # Промпт съёмки: разложенное по секундам действие, реплика героя и
         # запрет типовых артефактов. Собирается один раз на сцену.
         plan = ensure_video_prompt(scene, character, preset, int(preset.duration or 5))
-        scene.video = generate_scene_video(preset, scene.keyframe,
-                                           prompt=plan["prompt"],
-                                           negative=plan.get("negative", ""),
-                                           character=character,
-                                           aspect=project.aspect_ratio or "")
+        # Журнал генераций: по нему в админке видно, кто и что снимал, и
+        # сверяются списания провайдера.
+        from ai import genlog
+        from .pricing import video_credits as _planned
+
+        entry = genlog.start(
+            user=user, kind="video", source="studio", model=preset.video_model.openrouter_id,
+            prompt=plan["prompt"], scene_id=scene.pk,
+            credits_planned=_planned(preset.video_model, preset.duration),
+            params={"duration": preset.duration, "aspect_ratio": project.aspect_ratio or "",
+                    "project": project.pk})
+        try:
+            scene.video = generate_scene_video(preset, scene.keyframe,
+                                               prompt=plan["prompt"],
+                                               negative=plan.get("negative", ""),
+                                               character=character,
+                                               aspect=project.aspect_ratio or "",
+                                               entry=entry)
+        except Exception as video_exc:
+            # Провайдер запрос принял (есть ID) — значит мог взять деньги, а
+            # ролика у человека нет: это в разбор, а не просто «ошибка».
+            if getattr(getattr(entry, "row", None), "polling_url", ""):
+                entry.lost(str(video_exc)[:500])
+            else:
+                entry.failed(str(video_exc)[:500])
+            raise
         # Последний кадр пригодится следующей сцене как опора.
         scene.last_frame = last_frame_of(scene.video)
         from .pricing import video_credits
@@ -124,6 +145,7 @@ def render_scene(self, scene_id: int) -> dict:
         scene.mixed_video = ""
         scene.save(update_fields=["video", "last_frame", "mixed_video", "credits_spent",
                                   "status", "error", "updated_at"])
+        entry.delivered(credits=video_price, result_url=scene.video)
         # Звук, набранный до съёмки, накладывается сам (клиент: «в итоге всё
         # автоматически объединяется»). Сбой сведения не портит снятую сцену.
         try:
@@ -148,6 +170,67 @@ def render_scene(self, scene_id: int) -> dict:
         scene.save(update_fields=["status", "error", "updated_at"])
         _notify_scene(scene, ok=False)
         return {"status": "video_failed"}
+
+
+@shared_task(bind=True, max_retries=0)
+def make_audio(self, track_id: int) -> dict:
+    """Сделать музыку или эффект для дорожки. Списание — только за готовый звук."""
+    from django.core.files.storage import default_storage
+    from django.db import transaction
+
+    from ai import genlog
+    from plans.wallet import InsufficientTokens
+
+    from . import audio
+    from .models import CartoonAudioTrack
+
+    track = (CartoonAudioTrack.objects.select_related("scene__project__user")
+             .filter(pk=track_id, status=CartoonAudioTrack.STATUS_PENDING).first())
+    if not track:
+        return {"status": "no_track"}
+    user = track.scene.project.user
+    music = track.kind == CartoonAudioTrack.KIND_MUSIC
+    entry = genlog.start(
+        user=user, kind="music" if music else "sfx", source="studio", provider="elevenlabs",
+        model="music_v1" if music else "eleven_text_to_sound_v2", prompt=track.text,
+        credits_planned=track.credits_planned, scene_id=track.scene_id,
+        params={"seconds": track.seconds_asked})
+
+    def fail(text: str, shown: str) -> dict:
+        entry.failed(text)
+        track.status = CartoonAudioTrack.STATUS_FAILED
+        track.error = shown[:300]
+        track.save(update_fields=["status", "error"])
+        return {"status": "failed"}
+
+    try:
+        raw = (audio.music(track.text, track.seconds_asked) if music
+               else audio.sound_effect(track.text, track.seconds_asked or None))
+        path, duration = audio.save_audio(raw)
+    except Exception as exc:
+        logger.exception("звук студии: дорожка %s не получилась", track_id)
+        return fail(str(exc)[:500], "Не получилось сделать звук — попробуйте ещё раз")
+    try:
+        with transaction.atomic():
+            charge(user, track.credits_planned,
+                   "cartoon_music" if music else "cartoon_sfx",
+                   meta={"scene": track.scene_id, "kind": track.kind, "track": track.pk})
+            track.file = path
+            track.duration = duration
+            track.credits_spent = track.credits_planned
+            track.status = CartoonAudioTrack.STATUS_READY
+            track.save(update_fields=["file", "duration", "credits_spent", "status"])
+    except InsufficientTokens:
+        default_storage.delete(path)
+        return fail("не хватило кредитов к моменту готовности", "Не хватило кредитов")
+    entry.delivered(credits=track.credits_spent, result_url=default_storage.url(path))
+    # Сцена уже снята — звук сразу ложится на ролик.
+    try:
+        if track.scene.video:
+            audio.remix_scene(track.scene)
+    except Exception:
+        logger.exception("звук студии: сцена %s не свелась", track.scene_id)
+    return {"status": "ready"}
 
 
 @shared_task(bind=True, max_retries=0)

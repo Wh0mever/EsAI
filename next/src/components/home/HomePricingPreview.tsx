@@ -25,6 +25,14 @@ import CurrencySwitch from "@/components/pricing/CurrencySwitch";
  * показываем её ни как активную, ни как "скоро".
  */
 
+/** Колонок столько, сколько пакетов: ряд стоит по центру при любом их числе. */
+function gridFor(count: number): string {
+  if (count >= 4) return "grid-cols-2 lg:grid-cols-4";
+  if (count === 3) return "max-w-4xl grid-cols-1 sm:grid-cols-3";
+  if (count === 2) return "max-w-2xl grid-cols-1 sm:grid-cols-2";
+  return "max-w-sm grid-cols-1";
+}
+
 export default function HomePricingPreview() {
   const { t } = useTranslation("common");
   const { data: packages, loading, error: errored } = usePackagesValue();
@@ -57,8 +65,8 @@ export default function HomePricingPreview() {
       </div>
 
       {loading && (
-        <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
-          {[0, 1, 2, 3].map((i) => (
+        <div className="mx-auto grid max-w-4xl grid-cols-1 gap-3 sm:grid-cols-3 sm:gap-4">
+          {[0, 1, 2].map((i) => (
             <div
               key={i}
               className="rounded-2xl border border-border bg-surface-2 p-3.5 flex flex-col gap-2 animate-pulse"
@@ -77,7 +85,10 @@ export default function HomePricingPreview() {
       )}
 
       {!loading && !nothingToShow && (
-        <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
+        // Тарифов теперь три (клиент убрал стартовый). Сетка на четыре колонки
+        // оставляла пустое место справа — ряд «уезжал» влево. Колонок ровно
+        // столько, сколько пакетов, и весь ряд стоит по центру.
+        <div className={`mx-auto grid gap-3 sm:gap-4 ${gridFor(packages.length)}`}>
           {packages.map((p) => {
             const v = p.value || {};
             const rows: { key: string; node: string }[] = [];

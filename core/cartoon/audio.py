@@ -178,6 +178,52 @@ def list_voices() -> list:
     return out
 
 
+# Фраза для примера голоса — на языке человека. Клиент: «при нажатии ▶ пример
+# должен звучать на русском»: родной образец ElevenLabs английский, и по нему не
+# понять, как голос прозвучит в мультфильме.
+PREVIEW_LINES = {
+    "ru": "Привет! Я могу озвучить вашего героя. Вот так я звучу в мультфильме.",
+    "en": "Hi! I can voice your hero. This is how I sound in a cartoon.",
+    "kg": "Салам! Мен сиздин каарманыңызды үндөй алам. Мультфильмде мен ушундай угулам.",
+}
+
+
+def voice_preview(voice_id: str, lang: str = "ru") -> str:
+    """Путь к примеру голоса на нужном языке. Делается один раз и хранится.
+
+    Один пример — около семидесяти символов, то есть доли цента, и на каждый
+    голос он генерируется единожды за всё время.
+    """
+    lang = lang if lang in PREVIEW_LINES else "ru"
+    if not valid_voice_id(voice_id):
+        raise AudioProviderError("недопустимый идентификатор голоса")
+    path = f"cartoon/audio/previews/{voice_id}-{lang}.mp3"
+    if default_storage.exists(path):
+        return path
+    # Чужих голосов не озвучиваем: только те, что есть в нашем списке.
+    if voice_id not in {v["id"] for v in (list_voices() or [])}:
+        raise AudioProviderError("голоса нет в списке")
+    lock = f"studio:voice-preview:{voice_id}:{lang}"
+    if not cache.add(lock, "1", timeout=120):
+        raise AudioProviderError("пример уже готовится")
+    try:
+        raw = tts(PREVIEW_LINES[lang], voice_id)
+        with tempfile.TemporaryDirectory() as tmp:
+            src, dst = Path(tmp) / "in.mp3", Path(tmp) / "out.mp3"
+            src.write_bytes(raw)
+            ok = _run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(src),
+                       "-vn", "-ac", "1", "-ar", "44100", "-b:a", "96k", str(dst)])
+            data = dst.read_bytes() if ok and dst.exists() else raw
+        # Имя фиксированное: второй раз не генерируем. Если хранилище добавило
+        # суффикс (файл успел появиться) — берём уже лежащий.
+        saved = default_storage.save(path, ContentFile(data))
+        if saved != path:
+            default_storage.delete(saved)
+        return path
+    finally:
+        cache.delete(lock)
+
+
 def healthcheck() -> dict:
     if not is_configured():
         return {"ok": False, "error": "Ключ ElevenLabs не задан."}
@@ -246,7 +292,8 @@ def mix_scene(scene) -> str:
     задержкой и громкостью. Длина — ровно как у видео: реплика, вылезшая за
     конец сцены, обрезается (интерфейс об этом предупреждает).
     """
-    tracks = list(scene.audio_tracks.exclude(file="").order_by("start_sec", "id"))
+    tracks = list(scene.audio_tracks.exclude(file="").filter(status="ready")
+                  .order_by("start_sec", "id"))
     if not scene.video or not tracks:
         return ""
     with tempfile.TemporaryDirectory() as tmp:

@@ -998,6 +998,16 @@ def _openrouter_video_catalog(model_id: str) -> dict:
     return next((m for m in catalog if m.get("id") == model_id), None) or {}
 
 
+def _genlog_ip(request) -> str | None:
+    """IP клиента для журнала генераций: откуда пришёл запрос."""
+    try:
+        from users.antifraud import get_client_ip
+
+        return get_client_ip(request)
+    except Exception:
+        return None
+
+
 def _video_model_params(model_id: str, cfg: dict, want_duration: int, want_resolution: str) -> dict:
     """Подобрать ДОПУСТИМЫЕ для конкретной video-модели duration и resolution.
 
@@ -2294,6 +2304,7 @@ def _authed_chat_stream(request):
                     want_resolution=req_video_resolution, aspect_ratio=req_aspect_ratio,
                     first_frame=req_first_frame, last_frame=req_last_frame,
                     extend_video=req_extend_video,
+                    source="chat", client_ip=_genlog_ip(request),
                 ):
                     yield _sse(_frame)
                 return
@@ -2339,12 +2350,20 @@ def _authed_chat_stream(request):
                                 flux_refs.append(origin_base.rstrip("/") + _u)
                 except Exception:
                     flux_refs = []
+                from . import genlog as _genlog
+
+                _entry = _genlog.start(
+                    user=user, kind="image", model=selected_model_name, source="chat",
+                    prompt=message, credits_planned=flux_need, session=session,
+                    ip=_genlog_ip(request), params={"references": len(flux_refs),
+                                                    "aspect_ratio": _aspect_for_images or ""})
                 try:
                     gen_atts, provider_cost = _flux_generate_image(
                         selected_model_name, message, references=flux_refs,
                         aspect_ratio=_aspect_for_images,
                     )
-                except Exception:
+                except Exception as _exc:
+                    _entry.failed(str(_exc)[:500])
                     logger.exception("flux image generation failed")
                     # Ошибка/не-2xx — кредиты не тронуты, слот лимита возвращаем.
                     _release_daily_request(user)
@@ -2396,6 +2415,9 @@ def _authed_chat_stream(request):
                             except InsufficientTokens as exc2:
                                 new_balance = exc2.balance
 
+                _entry.delivered(
+                    credits=flux_charge, cost=provider_cost, message=assistant_msg,
+                    result_url=str((gen_atts[0] or {}).get("url") or "") if gen_atts else "")
                 yield _sse({
                     "done": True,
                     "session": {
@@ -2868,12 +2890,20 @@ def OpenAIHandler(request):
                         _flux_refs.append(_u if _u.startswith("http") else _origin + _u)
             except Exception:
                 _flux_refs = []
+            from . import genlog as _genlog
+
+            _entry = _genlog.start(
+                user=request.user, kind="image", model=selected_model_name, source="chat",
+                prompt=message, credits_planned=flux_need, session=session,
+                ip=_genlog_ip(request), params={"references": len(_flux_refs),
+                                                "aspect_ratio": _aspect_for_images or ""})
             try:
                 gen_atts, provider_cost = _flux_generate_image(
                     selected_model_name, message, references=_flux_refs,
                     aspect_ratio=_aspect_for_images,
                 )
-            except Exception:
+            except Exception as _exc:
+                _entry.failed(str(_exc)[:500])
                 logger.exception("flux image generation failed (non-stream)")
                 # Ошибка/не-2xх — кредиты не тронуты, слот лимита возвращаем.
                 _release_daily_request(request.user)
@@ -2923,6 +2953,9 @@ def OpenAIHandler(request):
                     except InsufficientTokens as exc2:
                         new_balance = exc2.balance
 
+            _entry.delivered(
+                credits=flux_charge, cost=provider_cost, message=assistant_msg,
+                result_url=str((gen_atts[0] or {}).get("url") or "") if gen_atts else "")
             return {
                 "session": {
                     "id": session.id,

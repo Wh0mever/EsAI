@@ -25,6 +25,8 @@ urlpatterns = [
     # Звук: голоса, музыка, эффекты, свой голос и сведение со сценой.
     path("audio/config/", views_audio.AudioConfigView.as_view(), name="audio-config"),
     path("audio/voices/", views_audio.VoicesView.as_view(), name="audio-voices"),
+    path("audio/voices/<str:voice_id>/preview/", views_audio.VoicePreviewView.as_view(),
+         name="audio-voice-preview"),
     path("audio/<int:pk>/", views_audio.AudioTrackDetailView.as_view(), name="audio-track"),
     path("scenes/<int:pk>/audio/", views_audio.SceneAudioView.as_view(), name="scene-audio"),
     path("scenes/<int:pk>/audio/voice/", views_audio.SceneVoiceView.as_view(), name="scene-audio-voice"),
