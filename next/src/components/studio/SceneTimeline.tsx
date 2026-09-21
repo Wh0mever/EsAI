@@ -85,7 +85,10 @@ export default function SceneTimeline({
   onAudio,
   onRedraw,
   onDialogue,
+  aspect = "16:9",
 }: {
+  /** Формат мультфильма: карточка показывает кадр в тех же пропорциях. */
+  aspect?: string;
   /** Сохранить реплику героя. Нет — поле не показываем (гость без проекта). */
   onDialogue?: (scene: StudioScene, text: string) => void;
   /** Перерисовать кадр сцены: прежний не понравился или вышел не тот герой. */
@@ -168,7 +171,12 @@ export default function SceneTimeline({
               </div>
             )}
 
-            <div className="relative aspect-video overflow-hidden rounded-xl bg-surface-2">
+            {/* Пропорции — как у будущего ролика: человек сразу видит, что
+                получит в Reels или на YouTube. */}
+            <div
+              className="relative overflow-hidden rounded-xl bg-surface-2"
+              style={{ aspectRatio: aspect.replace(":", "/") }}
+            >
               {s.video ? (
                 // Снятая сцена играет в ленте сама, без звука и по кругу
                 // (клиент: лента сразу показывает героя, сцену и движение).

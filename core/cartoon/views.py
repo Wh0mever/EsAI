@@ -459,7 +459,7 @@ class ProjectsView(StudioAPIView):
             user=request.user,
             title=(request.data.get("title") or "Мой мультфильм").strip()[:140],
             character=character,
-            aspect_ratio=(request.data.get("aspect_ratio") or "16:9").strip()[:8],
+            aspect_ratio=_aspect(request.data.get("aspect_ratio")),
         )
         return Response(project_json(project, _lang(request)), status=status.HTTP_201_CREATED)
 
@@ -510,7 +510,7 @@ class ProjectImportView(StudioAPIView):
                 user=request.user,
                 title=(str(data.get("title") or "") or "Мой мультфильм").strip()[:140],
                 character=character,
-                aspect_ratio="16:9",
+                aspect_ratio=_aspect(data.get("aspect_ratio")),
                 import_key=key,
             )
             order = 0
@@ -547,6 +547,32 @@ class ProjectDetailView(StudioAPIView):
 
     def get(self, request, pk):
         project = get_object_or_404(CartoonProject, pk=pk, user=request.user)
+        return Response(project_json(project, _lang(request)))
+
+    def patch(self, request, pk):
+        """Формат мультфильма: вертикальный, горизонтальный или квадрат.
+
+        Клиент: формат применяется ко ВСЕМ сценам серии. Уже снятые сцены
+        переснять нельзя (за них заплачено), но при склейке они вписываются в
+        общий кадр — мультфильм всё равно выходит одного размера.
+        """
+        project = get_object_or_404(CartoonProject, pk=pk, user=request.user)
+        data = request.data if isinstance(request.data, dict) else {}
+        if "aspect_ratio" in data:
+            aspect = _aspect(data.get("aspect_ratio"))
+            if aspect != project.aspect_ratio:
+                project.aspect_ratio = aspect
+                project.save(update_fields=["aspect_ratio", "updated_at"])
+                # Кадры черновиков рисовались под прежний формат — сбрасываем
+                # и подставляем готовые нужного формата, если они есть.
+                drafts = list(project.scenes.filter(status=CartoonScene.STATUS_DRAFT)
+                              .exclude(keyframe="").select_related("project__character",
+                                                                   "character"))
+                for scene in drafts:
+                    scene.keyframe = ""
+                    scene.video_prompt = ""
+                    scene.save(update_fields=["keyframe", "video_prompt", "updated_at"])
+                    _attach_ready_keyframe(scene)
         return Response(project_json(project, _lang(request)))
 
     def delete(self, request, pk):
@@ -596,6 +622,21 @@ class ProjectScenesView(StudioAPIView):
         return Response(scene_json(scene, _lang(request)), status=status.HTTP_201_CREATED)
 
 
+STUDIO_ASPECTS = ("16:9", "9:16", "1:1")
+
+
+def _aspect(raw) -> str:
+    """Формат мультфильма: вертикальный, горизонтальный или квадрат.
+
+    Клиент: выбранный формат применяется ко ВСЕМ сценам серии, чтобы при
+    склейке они были одинакового размера.
+    """
+    from ai.aspect import normalize
+
+    value = normalize(raw) or ""
+    return value if value in STUDIO_ASPECTS else "16:9"
+
+
 def _dialogue(raw) -> str:
     """Реплика героя: одна строка, до 300 символов, на языке человека."""
     return " ".join(str(raw or "").split())[:300]
@@ -641,7 +682,8 @@ def _attach_ready_keyframe(scene) -> None:
     if not character or scene.keyframe or scene.custom_text:
         return
     ready = CartoonKeyframe.objects.filter(
-        preset_id=scene.preset_id, character=character).first()
+        preset_id=scene.preset_id, character=character,
+        aspect_ratio=scene.project.aspect_ratio or "16:9").first()
     if ready and ready.image:
         scene.keyframe = ready.image
         scene.save(update_fields=["keyframe", "updated_at"])
@@ -683,7 +725,11 @@ class PreviewsView(StudioPublicAPIView):
         from .models import CartoonKeyframe, CartoonPairVideo
 
         out: dict = {}
-        for r in CartoonKeyframe.objects.filter(character=character).exclude(image=""):
+        # Кадры своего формата: вертикальному мультфильму горизонтальные не
+        # показываем — человек увидел бы не то, что получит.
+        aspect = _aspect(request.query_params.get("aspect_ratio"))
+        for r in (CartoonKeyframe.objects.filter(character=character, aspect_ratio=aspect)
+                  .exclude(image="")):
             out.setdefault(str(r.preset_id), {"frame": "", "video": ""})["frame"] = _media(r.image)
         for r in CartoonPairVideo.objects.filter(character=character).exclude(video=""):
             out.setdefault(str(r.preset_id), {"frame": "", "video": ""})["video"] = _pair_video_url(r)
@@ -735,14 +781,18 @@ class PresetTryOnView(StudioPublicAPIView):
 
         from .models import CartoonKeyframe
 
-        ready = CartoonKeyframe.objects.filter(preset=preset, character=character).first()
+        # Формат: вертикальный мультфильм примеряет вертикальный кадр.
+        aspect = _aspect((request.data or {}).get("aspect_ratio")
+                         if isinstance(request.data, dict) else None)
+        ready = CartoonKeyframe.objects.filter(preset=preset, character=character,
+                                               aspect_ratio=aspect).first()
         if ready and ready.image:
             return Response({"image": _media(ready.image), "charged": 0})
 
         # Гость: одна примерка без входа, дальше — регистрация. Готовые пары
         # выше отдаются всем и всегда, в лимит они не входят: они ничего не стоят.
         if not request.user.is_authenticated:
-            return _guest_try_on(request, preset, character)
+            return _guest_try_on(request, preset, character, aspect)
 
         price = _tryon_price(preset)
         balance = int(getattr(request.user, "token_balance", 0) or 0)
@@ -753,7 +803,7 @@ class PresetTryOnView(StudioPublicAPIView):
         from .services import get_or_create_keyframe
 
         try:
-            path, charged = get_or_create_keyframe(preset, character, request.user)
+            path, charged = get_or_create_keyframe(preset, character, request.user, aspect)
         except Exception as exc:
             logger.exception("примерка героя: кадр не нарисовался")
             return Response({"detail": f"Кадр не получился: {exc}"[:200]},
@@ -761,7 +811,7 @@ class PresetTryOnView(StudioPublicAPIView):
         return Response({"image": _media(path), "charged": charged})
 
 
-def _guest_try_on(request, preset, character) -> Response:
+def _guest_try_on(request, preset, character, aspect: str = "16:9") -> Response:
     """Бесплатная примерка для гостя — одна на устройство.
 
     Ответ «нужен вход» отдаём 403 с need_auth, а не 401: на 401 фронт пробует
@@ -813,7 +863,7 @@ def _guest_try_on(request, preset, character) -> Response:
         return Response({"detail": "Кадр уже рисуется — подождите несколько секунд",
                          "busy": True}, status=status.HTTP_429_TOO_MANY_REQUESTS)
     try:
-        path, _ = get_or_create_keyframe(preset, character, user=None)
+        path, _ = get_or_create_keyframe(preset, character, user=None, aspect=aspect)
         try:
             CartoonGuestTryOn.objects.create(
                 device_key=device_key, ip=ip or None, preset=preset, character=character)

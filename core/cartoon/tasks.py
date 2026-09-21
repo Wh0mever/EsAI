@@ -75,15 +75,18 @@ def render_scene(self, scene_id: int) -> dict:
         try:
             # Кадр мог быть нарисован раньше — при примерке героя на эту же
             # сцену. Тогда он берётся из запаса, и человек не платит дважды.
+            aspect = project.aspect_ratio or "16:9"
             anchor = previous_anchor(scene)
             if anchor:
                 # Не первая сцена: рисуем с оглядкой на конец предыдущей,
                 # иначе герой и обстановка меняются от сцены к сцене.
-                scene.keyframe, frame_price = draw_linked_keyframe(scene, character, user, anchor)
+                scene.keyframe, frame_price = draw_linked_keyframe(scene, character, user,
+                                                                   anchor, aspect)
             elif scene.custom_text:
-                scene.keyframe, frame_price = draw_custom_keyframe(scene, character, user)
+                scene.keyframe, frame_price = draw_custom_keyframe(scene, character, user, aspect)
             else:
-                scene.keyframe, frame_price = get_or_create_keyframe(preset, character, user)
+                scene.keyframe, frame_price = get_or_create_keyframe(preset, character, user,
+                                                                     aspect)
             scene.credits_spent += frame_price
             scene.save(update_fields=["keyframe", "credits_spent", "updated_at"])
         except Exception as exc:
@@ -104,7 +107,8 @@ def render_scene(self, scene_id: int) -> dict:
         scene.video = generate_scene_video(preset, scene.keyframe,
                                            prompt=plan["prompt"],
                                            negative=plan.get("negative", ""),
-                                           character=character)
+                                           character=character,
+                                           aspect=project.aspect_ratio or "")
         # Последний кадр пригодится следующей сцене как опора.
         scene.last_frame = last_frame_of(scene.video)
         from .pricing import video_credits

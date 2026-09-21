@@ -50,6 +50,24 @@ def _site_url(path: str) -> str:
     return path if path.startswith("http") else base + path
 
 
+def supported_aspect(model_id: str, cfg: dict, want: str) -> str:
+    """Формат, который эта видеомодель действительно принимает.
+
+    Неверное значение отвергается целиком (400), поэтому если модель вертикаль
+    не умеет, лучше снять горизонтально, чем не снять вовсе.
+    """
+    from ai.aspect import resolve as _resolve_aspect
+
+    try:
+        from ai.handlers import _openrouter_video_catalog
+
+        spec = _openrouter_video_catalog(model_id) or {}
+        return _resolve_aspect(want, "", spec.get("supported_aspect_ratios") or []) or want
+    except Exception:
+        logger.exception("формат: каталог модели %s недоступен", model_id)
+        return want
+
+
 def _save_bytes(raw: bytes, folder: str, ext: str) -> str:
     return default_storage.save(f"{folder}/{uuid.uuid4().hex}.{ext}", ContentFile(raw))
 
@@ -195,7 +213,7 @@ def last_frame_of(video_path: str) -> str:
         return ""
 
 
-def generate_keyframe(preset, character, refs: list | None = None) -> str:
+def generate_keyframe(preset, character, refs: list | None = None, aspect: str = "") -> str:
     """Кадр сцены с нужным персонажем. Возвращает путь в хранилище.
 
     Референсом идёт изображение персонажа — именно оно удерживает героя
@@ -206,7 +224,7 @@ def generate_keyframe(preset, character, refs: list | None = None) -> str:
     body = {
         "model": preset.image_model.openrouter_id,
         "prompt": build_scene_prompt(preset, character),
-        "aspect_ratio": preset.aspect_ratio or "16:9",
+        "aspect_ratio": aspect or preset.aspect_ratio or "16:9",
     }
     references = []
     ref = getattr(character, "image", None)
@@ -239,7 +257,7 @@ def generate_keyframe(preset, character, refs: list | None = None) -> str:
 
 
 def generate_scene_video(preset, keyframe_path: str, prompt: str = "",
-                         negative: str = "", character=None) -> str:
+                         negative: str = "", character=None, aspect: str = "") -> str:
     """Оживить кадр. Возвращает путь к mp4 в хранилище.
 
     Кадр уходит как first_frame — ролик начинается ровно с того, что человек
@@ -265,8 +283,11 @@ def generate_scene_video(preset, keyframe_path: str, prompt: str = "",
             "frame_type": "first_frame",
         }],
     }
-    if preset.aspect_ratio:
-        body["aspect_ratio"] = preset.aspect_ratio
+    # Формат мультфильма важнее формата пресета: человек выбрал его под то
+    # место, куда выложит ролик. Сверяем с тем, что умеет модель.
+    want_aspect = aspect or preset.aspect_ratio
+    if want_aspect:
+        body["aspect_ratio"] = supported_aspect(model_id, cfg, want_aspect)
     if negative:
         body["negative_prompt"] = negative
     # Герой уходит референсом и в саму видеомодель: первый кадр задаёт позу, а
@@ -324,6 +345,63 @@ def generate_scene_video(preset, keyframe_path: str, prompt: str = "",
     return _save_bytes(blob.content, "cartoon/scenes", "mp4")
 
 
+def _target_size(aspect: str) -> tuple[int, int]:
+    """Размер кадра мультфильма под выбранный формат."""
+    return {"9:16": (720, 1280), "1:1": (1080, 1080)}.get(aspect or "16:9", (1280, 720))
+
+
+def _size_of(raw: bytes) -> tuple[int, int]:
+    """Размер кадра ролика. (0, 0) — если прочитать не вышло."""
+    import json as _json
+    import subprocess
+    import tempfile
+    from pathlib import Path
+
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "part.mp4"
+            path.write_bytes(raw)
+            out = subprocess.run(
+                ["ffprobe", "-v", "error", "-select_streams", "v:0", "-print_format", "json",
+                 "-show_streams", str(path)], capture_output=True, timeout=60).stdout
+            stream = ((_json.loads(out or b"{}") or {}).get("streams") or [{}])[0]
+            return int(stream.get("width") or 0), int(stream.get("height") or 0)
+    except Exception:
+        return 0, 0
+
+
+def fit_to_format(raw: bytes, width: int, height: int) -> bytes:
+    """Привести ролик к общему размеру: вписать целиком и добить полями.
+
+    Сцены могли сниматься в разное время и в разном формате (человек поменял
+    формат мультфильма на полпути). Склейка требует одинаковых кадров, а
+    растягивать героя нельзя — поэтому вписываем и добиваем чёрным.
+    """
+    import subprocess
+    import tempfile
+    from pathlib import Path
+
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            src, dst = Path(tmp) / "in.mp4", Path(tmp) / "out.mp4"
+            src.write_bytes(raw)
+            vf = (f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
+                  f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=black,setsar=1")
+            res = subprocess.run(
+                ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(src),
+                 "-vf", vf, "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+                 "-pix_fmt", "yuv420p", "-c:a", "copy", "-movflags", "+faststart", str(dst)],
+                capture_output=True, timeout=300)
+            if res.returncode != 0 or not dst.exists() or not dst.stat().st_size:
+                logger.warning("формат: ролик не привёлся к %sx%s (rc=%s)", width, height,
+                               res.returncode)
+                return raw
+            return dst.read_bytes()
+    except Exception:
+        logger.exception("формат: приведение ролика не удалось")
+        return raw
+
+
 def assemble_project(project) -> str:
     """Склеить сцены проекта по порядку в один ролик. Путь в хранилище.
 
@@ -352,6 +430,15 @@ def assemble_project(project) -> str:
             logger.warning("склейка: сцена %s не читается, пропускаю", scene.pk)
     if not parts:
         raise RuntimeError("нет готовых сцен для склейки")
+    # Все части — одного размера: иначе concat либо откажется, либо растянет
+    # кадр. Формат берём у мультфильма, его выбрал человек.
+    width, height = _target_size(project.aspect_ratio)
+    try:
+        parts = [p if _size_of(p) == (width, height) else fit_to_format(p, width, height)
+                 for p in parts]
+    except Exception:
+        logger.exception("склейка: размеры частей не выровнялись")
+
     # Склейка берёт звук только если он есть во всех частях, поэтому немым
     # сценам дописываем тишину — иначе одна такая глушит весь мультфильм.
     try:
@@ -504,12 +591,12 @@ def preset_for_scene(scene):
     return preset
 
 
-def draw_custom_keyframe(scene, character, user) -> tuple[str, int]:
+def draw_custom_keyframe(scene, character, user, aspect: str = "") -> tuple[str, int]:
     """Кадр своей сцены. Мимо общего запаса: пресет у всех своих сцен один,
     и кадр одного человека показался бы другому."""
     ensure_custom_prompt(scene)
     preset = preset_for_scene(scene)
-    path = generate_keyframe(preset, character)
+    path = generate_keyframe(preset, character, aspect=aspect)
     price = max(1, int(float(preset.image_model.markup_coefficient or 1)))
     charge(user, price, "cartoon_keyframe",
            meta={"scene": scene.pk, "custom": True, "character": character.pk})
@@ -569,21 +656,22 @@ def previous_anchor(scene) -> str:
     return prev.last_frame if prev else ""
 
 
-def draw_linked_keyframe(scene, character, user, anchor: str) -> tuple[str, int]:
+def draw_linked_keyframe(scene, character, user, anchor: str,
+                         aspect: str = "") -> tuple[str, int]:
     """Кадр сцены с оглядкой на конец предыдущей. Мимо общего запаса.
 
     В общий запас такой кадр не кладём: он привязан к конкретной истории, а не
     к паре «герой + сцена», и чужому человеку не подойдёт.
     """
     preset = preset_for_scene(scene) if scene.custom_text else scene.preset
-    path = generate_keyframe(preset, character, refs=[anchor])
+    path = generate_keyframe(preset, character, refs=[anchor], aspect=aspect)
     price = max(1, int(float(preset.image_model.markup_coefficient or 1)))
     charge(user, price, "cartoon_keyframe",
            meta={"scene": scene.pk, "linked": True, "character": character.pk})
     return path, price
 
 
-def get_or_create_keyframe(preset, character, user=None):
+def get_or_create_keyframe(preset, character, user=None, aspect: str = "16:9"):
     """Кадр «герой в сцене»: из общего запаса или нарисовать.
 
     Возвращает (путь, списано_кредитов). Уже нарисованный кадр отдаётся
@@ -593,16 +681,17 @@ def get_or_create_keyframe(preset, character, user=None):
     from .models import CartoonKeyframe
 
     existing = CartoonKeyframe.objects.filter(
-        preset=preset, character=character).first()
+        preset=preset, character=character, aspect_ratio=aspect).first()
     if existing and existing.image:
         return existing.image, 0
 
-    path = generate_keyframe(preset, character)
+    path = generate_keyframe(preset, character, aspect=aspect)
     price = max(1, int(float(preset.image_model.markup_coefficient or 1)))
     if user is not None:
         charge(user, price, "cartoon_keyframe",
                meta={"preset": preset.pk, "character": character.pk})
     # get_or_create, а не create: два запроса на одну пару могли прийти разом.
     CartoonKeyframe.objects.get_or_create(
-        preset=preset, character=character, defaults={"image": path})
+        preset=preset, character=character, aspect_ratio=aspect,
+        defaults={"image": path})
     return path, price
