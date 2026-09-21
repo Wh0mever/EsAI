@@ -29,7 +29,13 @@ export type PlanLine = {
   has_voice: boolean;
 };
 
-export type VoicePlan = { lines: PlanLine[]; total_credits: number; balance?: number };
+export type VoicePlan = {
+  lines: PlanLine[];
+  total_credits: number;
+  balance?: number;
+  /** Сколько сцен уже говорят голосом модели — их озвучивать не надо. */
+  spoken_in_video?: number;
+};
 
 type Voice = { id: string; name: string; gender: string; age: string; description: string };
 
@@ -151,6 +157,11 @@ export default function VoiceAllDialog({
         <p className="text-sm text-muted">{t("studio_ui.voiceall_note")}</p>
         {alreadyVoiced && (
           <p className="text-xs text-status-wait">{t("studio_ui.voiceall_keep")}</p>
+        )}
+        {Boolean(plan?.spoken_in_video) && (
+          <p className="text-xs text-muted-2">
+            {t("studio_ui.voiceall_spoken", { count: plan!.spoken_in_video! })}
+          </p>
         )}
 
         <div className="flex flex-col gap-2">

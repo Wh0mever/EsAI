@@ -259,12 +259,19 @@ def write_lines(scenes: list, lang: str = "ru") -> dict:
 
 
 def build_plan(project, lang: str = "ru") -> dict:
-    """План озвучки всего мультфильма: реплика и голос на каждую сцену + цена."""
-    scenes = list(project.scenes.select_related("preset", "character", "project__character")
-                  .order_by("order", "id"))
-    scenes = [s for s in scenes if _scene_hero(s)][:MAX_LINES]
+    """План озвучки всего мультфильма: реплика и голос на каждую сцену + цена.
+
+    Сцены, где человек сам написал реплику, сюда не попадают: эту реплику уже
+    произносит сам персонаж в кадре, с попаданием в губы. Озвучивать её
+    вторым голосом поверх — значит платить дважды и получить эхо.
+    """
+    everything = list(project.scenes.select_related("preset", "character", "project__character")
+                      .order_by("order", "id"))
+    everything = [s for s in everything if _scene_hero(s)]
+    spoken = [s for s in everything if (s.dialogue or "").strip()]
+    scenes = [s for s in everything if not (s.dialogue or "").strip()][:MAX_LINES]
     if not scenes:
-        return {"lines": [], "total_credits": 0}
+        return {"lines": [], "total_credits": 0, "spoken_in_video": len(spoken)}
 
     heroes, seen = [], set()
     for scene in scenes:
@@ -276,17 +283,7 @@ def build_plan(project, lang: str = "ru") -> dict:
     # деньги на реплики, которые нечем озвучить.
     voices = pick_voices(heroes, fixed=known_voices(project))
 
-    # Реплики, написанные человеком, не трогаем: их же играет и видеомодель.
-    own = {i: (s.dialogue or "").strip()
-           for i, s in enumerate(scenes, start=1) if (s.dialogue or "").strip()}
-    need_model = [s for i, s in enumerate(scenes, start=1) if i not in own]
-    texts = dict(own)
-    if need_model:
-        numbers = [i for i in range(1, len(scenes) + 1) if i not in own]
-        written = write_lines(need_model, lang)
-        for position, n in enumerate(numbers, start=1):
-            if written.get(position):
-                texts[n] = written[position]
+    texts = write_lines(scenes, lang)
 
     voiced = set(project.scenes.filter(audio_tracks__kind="voice")
                  .values_list("pk", flat=True))
@@ -311,7 +308,7 @@ def build_plan(project, lang: str = "ru") -> dict:
             "credits": price,
             "has_voice": scene.pk in voiced,
         })
-    return {"lines": lines, "total_credits": total}
+    return {"lines": lines, "total_credits": total, "spoken_in_video": len(spoken)}
 
 
 # ------------------------------------------------------------- озвучка ---

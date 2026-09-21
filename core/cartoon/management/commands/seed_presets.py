@@ -6,9 +6,13 @@
 
 Модели одинаковые у всех пресетов не случайно: кадр рисует Nano Banana (только
 она удерживает персонажа по референсу и укладывается в секунды), а видео —
-Wan 2.7: 1080p со звуком, ролики от 2 секунд, и секунда дешевле, чем у Kling
-или Seedance. У любого пресета модель меняется в админке — цена пересчитается
-сама.
+Seedance 2.0. Её выбрали после жалобы клиента на качество (17.09): она играет
+реплику голосом персонажа с попаданием в губы, держит героя по референсу,
+стыкует сцены по кадрам и умеет ровно пять секунд — у Veo пятисекундных сцен
+нет вовсе. Сцена стоит дороже прежней Wan 2.7 (164 против 109 кредитов), и это
+сознательный размен: клиент просил качество даже ценой цены.
+У любого пресета модель меняется в админке, у всех сразу —
+командой studio_video_model. Цена пересчитается сама.
 
 Запуск:  python manage.py seed_presets [--force]
 """
@@ -34,10 +38,11 @@ class Command(BaseCommand):
         image_model = GPTModels.objects.filter(
             openrouter_id="google/gemini-2.5-flash-image", is_active=True).first()
         video_model = GPTModels.objects.filter(
-            openrouter_id="alibaba/wan-2.7", is_active=True).first()
+            openrouter_id="bytedance/seedance-2.0", is_active=True).first()
         if not image_model or not video_model:
             self.stderr.write(self.style.ERROR(
-                "Нет нужных моделей: требуются google/gemini-2.5-flash-image и alibaba/wan-2.7"))
+                "Нет нужных моделей: требуются google/gemini-2.5-flash-image "
+                "и bytedance/seedance-2.0"))
             return
 
         cats = {}

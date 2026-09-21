@@ -1861,6 +1861,8 @@
 		"voiceall_total_other": "{{count}} scenes · {{credits}} cr",
 		"voiceall_btn": "Voice everything · {{credits}} cr",
 		"voiceall_err": "Couldn't voice it — please try again",
+		"voiceall_spoken_one": "{{count}} scene already speaks in the character's own voice — skipped.",
+		"voiceall_spoken_other": "{{count}} scenes already speak in the characters' own voices — skipped.",
 		"voiceall_line_ph": "No line yet — write one or untick the scene",
 		"voiceall_keep": "Scenes that already have a voice are left alone — their checkboxes are off. Tick one to re-voice it (the old line is replaced).",
 		"audio_err_load": "Couldn't load the scene's sound — please refresh the page",
