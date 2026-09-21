@@ -369,7 +369,7 @@ export default function SceneTimeline({
             {/* Реплика героя. Клиент: мультфильм должен смотреться как
                 мультфильм — значит герой должен говорить, и говорить то, что
                 задумал человек. Эта же строчка уходит в съёмку и в озвучку. */}
-            {s.status === "draft" && onDialogue && (
+            {(s.status === "draft" || s.status === "ready" || s.status === "failed") && onDialogue && (
               <label className="flex flex-col gap-1">
                 <span className="flex items-center justify-between text-[10px] uppercase tracking-wide text-muted-2">
                   {t("studio_ui.dialogue_label")}
@@ -390,7 +390,26 @@ export default function SceneTimeline({
                   placeholder={t("studio_ui.dialogue_ph")}
                   className="rounded-lg border border-border bg-surface-2 px-2 py-1.5 text-[11px] text-foreground outline-none placeholder:text-muted-2 focus:border-accent"
                 />
+                {/* Клиент: «а нельзя, чтоб рот открывался?» Можно — но только
+                    если реплику произносит сама модель при съёмке. */}
+                <span className="text-[10px] leading-snug text-muted-2">
+                  {t(s.status === "ready" ? "studio_ui.dialogue_hint_ready" : "studio_ui.dialogue_hint")}
+                </span>
               </label>
+            )}
+            {/* Готовая сцена с репликой: переснять, чтобы герой её произнёс. */}
+            {s.status === "ready" && Boolean(s.dialogue) && (
+              <button
+                type="button"
+                onClick={() => onRetry(s)}
+                disabled={busy}
+                className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-accent px-3 py-1.5 text-[11px] font-semibold text-accent transition-colors hover:bg-accent/10 disabled:opacity-60 cursor-pointer"
+              >
+                {busy ? <FiLoader className="animate-spin" /> : <FiRefreshCw />}
+                {t("studio_ui.reshoot_with_line", {
+                  credits: Math.max(1, (s.preset.credits || 0) - frameCredits),
+                })}
+              </button>
             )}
 
             {/* Кадр уже есть, но не тот: нарисовать заново. Без этого

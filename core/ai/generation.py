@@ -227,6 +227,7 @@ def run_video_generation(*, user, model_obj, selected_model_name: str, message: 
     from concurrent.futures import ThreadPoolExecutor
     from concurrent.futures import TimeoutError as _FutureTimeout
 
+    _t0 = _time.monotonic()
     entry.stage("submitting", f"картинок: {1 if first_img_abs_url else 0}")
     _pool = ThreadPoolExecutor(max_workers=1)
     _future = _pool.submit(
@@ -253,6 +254,9 @@ def run_video_generation(*, user, model_obj, selected_model_name: str, message: 
                     entry.submitted(late_id, late_url)
                 else:
                     entry.lost(f"принято без id (человек ушёл): {str(data)[:300]}")
+            elif late.status_code >= 500:
+                entry.lost(f"http {late.status_code} на отправке, исход неизвестен: "
+                           f"{late.text[:400]}")
             else:
                 entry.failed(f"http {late.status_code}: {late.text[:500]}")
         except Exception as exc:  # noqa: BLE001
@@ -304,8 +308,17 @@ def run_video_generation(*, user, model_obj, selected_model_name: str, message: 
         _release_daily_request(user)
         yield ({"error": "Не удалось запустить генерацию видео. Попробуйте ещё раз.", "done": True})
         return
+    if resp.status_code >= 500:
+        # Ошибка шлюза (502/504/524): запрос мог дойти до провайдера и быть
+        # принят, как и при таймауте. Это не отказ, а неизвестный исход.
+        logger.error("video submit http %s — исход неизвестен (model=%s): %s",
+                     resp.status_code, selected_model_name, resp.text[:300])
+        entry.lost(f"http {resp.status_code} на отправке, исход неизвестен: {resp.text[:400]}")
+        _release_daily_request(user)
+        yield ({"error": "Не удалось запустить генерацию видео. Попробуйте ещё раз.", "done": True})
+        return
     if not (200 <= resp.status_code < 300):
-        # Провайдер отказал сам — денег он за это не берёт.
+        # Провайдер отказал сам (4xx) — денег он за это не берёт.
         logger.error("video submit http %s (model=%s dur=%s res=%s i2v=%s): %s",
                      resp.status_code, selected_model_name, duration, resolution,
                      bool(first_img_abs_url), resp.text[:300])
@@ -335,7 +348,9 @@ def run_video_generation(*, user, model_obj, selected_model_name: str, message: 
     #    КАЖДОЙ итерации ОБЯЗАТЕЛЕН — это keepalive против обрыва прокси
     #    (nginx proxy_read_timeout 60s), генерация идёт 30–180 секунд.
     timeout_s = int(getattr(settings, "VIDEO_GEN_TIMEOUT_S", 480) or 480)
-    deadline = _time.monotonic() + timeout_s
+    # Отправка тоже съела время: вместе с опросом укладываемся в 540 с — иначе
+    # gunicorn (600 с) убьёт воркер раньше кадра «видео появится позже».
+    deadline = min(_time.monotonic() + timeout_s, _t0 + 540)
     poll = {}
     status = "pending"
     completed = False
@@ -344,7 +359,8 @@ def run_video_generation(*, user, model_obj, selected_model_name: str, message: 
         _time.sleep(5)
         if cancel_check and cancel_check():
             logger.info("video generation canceled by user %s", getattr(user, 'pk', None))
-            entry.failed("отменено пользователем (провайдер мог успеть взять деньги)")
+            entry.failed("отменено пользователем (провайдер мог успеть взять деньги)",
+                         review=True)
             _release_daily_request(user)
             yield ({"error": "Генерация отменена. Кредиты не списаны.",
                     "error_code": "canceled", "done": True})
