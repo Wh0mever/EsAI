@@ -156,15 +156,17 @@ class DialogueAndVoiceTests(TestCase):
             project=self.project, preset=self.preset, order=0, dialogue="Вернуть?")
         self.without = CartoonScene.objects.create(project=self.project, preset=self.preset, order=1)
 
-    def test_voice_plan_keeps_the_written_line_and_asks_only_for_the_rest(self):
+    def test_scene_with_a_written_line_is_not_voiced_twice(self):
+        """Такую реплику персонаж уже говорит в кадре — второй голос поверх лишний."""
         voices = [{"id": "m1", "name": "Георгий", "gender": "male"},
                   {"id": "f1", "name": "Лаура", "gender": "female"}]
         with patch("cartoon.audio.list_voices", return_value=voices), \
              patch("cartoon.voiceover.write_lines", return_value={1: "Придумано ИИ"}) as writer:
             plan = voiceover.build_plan(self.project)
         lines = {l["scene_id"]: l["text"] for l in plan["lines"]}
-        self.assertEqual(lines[self.with_line.pk], "Вернуть?")
+        self.assertNotIn(self.with_line.pk, lines)
         self.assertEqual(lines[self.without.pk], "Придумано ИИ")
+        self.assertEqual(plan["spoken_in_video"], 1)
         # Модель спрашивали только про сцену без реплики.
         self.assertEqual(writer.call_count, 1)
         self.assertEqual([s.pk for s in writer.call_args[0][0]], [self.without.pk])
