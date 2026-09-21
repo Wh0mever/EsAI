@@ -232,18 +232,65 @@ def run_video_generation(*, user, model_obj, selected_model_name: str, message: 
     _future = _pool.submit(
         _requests.post, f"{cfg['base_url'].rstrip('/')}/videos",
         json=_submit_body, headers=auth_headers, timeout=(10, SUBMIT_READ_TIMEOUT))
+    # Человек может уйти, пока мы ждём ответа (телефон заснул, вкладку закрыли).
+    # Поток при этом доработает, и ответ провайдера с ID ролика нельзя выбросить:
+    # по нему фоновая задача довезёт оплаченное видео. Поэтому ответ разбирает
+    # ещё и сам поток — но только если генератор уже закрыт.
+    _alive = {"value": True}
+    _base_url = cfg["base_url"].rstrip("/")
+
+    def _late_answer(future) -> None:
+        if _alive["value"]:
+            return
+        try:
+            late = future.result()
+            if 200 <= late.status_code < 300:
+                data = late.json() or {}
+                late_id = str(data.get("id") or data.get("generation_id") or "").strip()
+                late_url = str(data.get("polling_url") or "").strip() or (
+                    f"{_base_url}/videos/{late_id}" if late_id else "")
+                if late_url:
+                    entry.submitted(late_id, late_url)
+                else:
+                    entry.lost(f"принято без id (человек ушёл): {str(data)[:300]}")
+            else:
+                entry.failed(f"http {late.status_code}: {late.text[:500]}")
+        except Exception as exc:  # noqa: BLE001
+            entry.lost(f"нет ответа на отправку (человек ушёл): {exc}")
+        finally:
+            from django.db import connection
+
+            connection.close()
+
+    _future.add_done_callback(_late_answer)
+
     resp = None
     submit_error: Exception | None = None
-    while True:
-        try:
-            resp = _future.result(timeout=5)
-            break
-        except _FutureTimeout:
-            # Кадр — чтобы nginx и Cloudflare не оборвали молчащее соединение.
-            yield ({"video_progress": "submitting"})
-        except Exception as exc:  # noqa: BLE001 — сеть, таймаут, DNS
-            submit_error = exc
-            break
+    try:
+        while True:
+            try:
+                resp = _future.result(timeout=5)
+                break
+            except _FutureTimeout:
+                # TimeoutError бывает и у самого запроса (это тот же класс, что у
+                # ожидания future): если задача уже завершилась — это её ошибка,
+                # а не «ещё ждём», иначе цикл крутился бы вечно.
+                if _future.done():
+                    submit_error = _future.exception() or TimeoutError("submit timeout")
+                    break
+                # Кадр — чтобы nginx и Cloudflare не оборвали молчащее соединение.
+                yield ({"video_progress": "submitting"})
+            except Exception as exc:  # noqa: BLE001 — сеть, таймаут, DNS
+                submit_error = exc
+                break
+    except GeneratorExit:
+        _alive["value"] = False
+        # Ответ мог прийти за мгновение до ухода человека — тогда колбэк его
+        # уже пропустил, разбираем сами.
+        if _future.done():
+            _late_answer(_future)
+        _pool.shutdown(wait=False)
+        raise
     _pool.shutdown(wait=False)
 
     polling_url = ""
