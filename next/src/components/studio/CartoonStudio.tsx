@@ -205,6 +205,29 @@ export default function CartoonStudio() {
     if (el) cardObserver.current?.observe(el);
   }, []);
 
+  // Формат мультфильма. Клиент: 9:16 для Reels и TikTok, 16:9 для YouTube,
+  // 1:1 для ленты — и один на всю серию, чтобы сцены склеились ровно.
+  const aspect = project?.aspect_ratio || draft?.aspect_ratio || "16:9";
+
+  /** Сменить формат: у проекта — на сервере, у гостя — в черновике. */
+  const setAspect = async (value: string) => {
+    if (value === aspect) return;
+    if (!authed || !project) {
+      updateDraft((d) => ({ ...d, aspect_ratio: value }));
+      return;
+    }
+    setError("");
+    const res = await fetchData<Project>(
+      `cartoon/projects/${project.id}/`, "PATCH", { aspect_ratio: value }, true
+    );
+    if (res.ok && res.data) {
+      setProject(res.data);
+      setProjects((prev) => prev.map((x) => (x.id === res.data!.id ? res.data! : x)));
+    } else {
+      setError((res.data as any)?.detail || t("studio_ui.err_scene"));
+    }
+  };
+
   // Готовые кадры героев. Их отдают бесплатно, поэтому подставляем сразу и
   // молча: для человека это выглядит так, будто сцены сами перерисовались под
   // его персонажа. Спрашиваем по каждому герою один раз — и для выбранного, и
@@ -224,7 +247,8 @@ export default function CartoonStudio() {
       fetchedChars.current.add(id);
       void (async () => {
         const res = await fetchData<Record<string, { frame: string; video: string }>>(
-          `cartoon/previews/?character_id=${id}`, "GET", null, true
+          `cartoon/previews/?character_id=${id}&aspect_ratio=${encodeURIComponent(aspect)}`,
+          "GET", null, true
         );
         if (!res.ok || !res.data) {
           fetchedChars.current.delete(id);
@@ -240,7 +264,14 @@ export default function CartoonStudio() {
         setVideosByChar((prev) => ({ ...prev, [id]: { ...videos, ...(prev[id] || {}) } }));
       })();
     }
-  }, [wantedChars]);
+  }, [wantedChars, aspect]);
+
+  // Формат поменяли — прежние кадры были другого размера.
+  useEffect(() => {
+    fetchedChars.current.clear();
+    setFramesByChar({});
+    setVideosByChar({});
+  }, [aspect]);
 
   const tryOn: Record<number, string> = (character && framesByChar[character.id]) || {};
   const heroVideos: Record<number, string> = (character && videosByChar[character.id]) || {};
@@ -282,7 +313,8 @@ export default function CartoonStudio() {
     // за истёкшую сессию и уводит со страницы. Ключ устройства — чтобы сервер
     // посчитал «одну бесплатную на устройство».
     const res = await fetchData<{ image: string; charged: number; free?: boolean }>(
-      `cartoon/presets/${preset.id}/try-on/`, "POST", { character_id: heroId }, authed,
+      `cartoon/presets/${preset.id}/try-on/`, "POST",
+      { character_id: heroId, aspect_ratio: aspect }, authed,
       { "X-Device-Key": getOrCreateDeviceKey() }
     );
     setTryingOn(null);
@@ -448,6 +480,7 @@ export default function CartoonStudio() {
           const res = await fetchData<Project>("cartoon/projects/import/", "POST", {
             draft_id: saved.id,
             character_id: saved.character_id,
+            aspect_ratio: saved.aspect_ratio || "16:9",
             scenes: saved.scenes.map((s) => ({
               preset_id: s.preset_id,
               character_id: s.character_id,
@@ -545,7 +578,8 @@ export default function CartoonStudio() {
     if (project) return project;
     if (!character) return null;
     const res = await fetchData<Project>(
-      "cartoon/projects/", "POST", { character_id: character.id }, true
+      "cartoon/projects/", "POST",
+      { character_id: character.id, aspect_ratio: aspect }, true
     );
     if (res.ok && res.data) {
       setProject(res.data);
@@ -1023,6 +1057,47 @@ export default function CartoonStudio() {
         </p>
       </header>
 
+      {/* Формат будущего ролика. Клиент: в Reels горизонтальное видео
+          показывается узкой полоской посреди экрана — значит формат надо
+          выбирать заранее и одинаковый на всю серию, иначе сцены не склеятся
+          ровно. */}
+      <div className="mb-6">
+        <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-2">
+          {t("studio_ui.format_title")}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {([
+            ["9:16", "format_vertical", "h-6 w-3.5"],
+            ["16:9", "format_horizontal", "h-3.5 w-6"],
+            ["1:1", "format_square", "h-5 w-5"],
+          ] as const).map(([value, key, box]) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => void setAspect(value)}
+              className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-left transition-colors cursor-pointer ${
+                aspect === value
+                  ? "border-accent bg-accent/10 text-foreground"
+                  : "border-border text-muted hover:border-accent/60 hover:text-foreground"
+              }`}
+            >
+              <span
+                className={`${box} shrink-0 rounded-sm border-2 ${
+                  aspect === value ? "border-accent" : "border-current"
+                }`}
+              />
+              <span className="flex flex-col leading-tight">
+                <span className="text-sm font-semibold">{value}</span>
+                <span className="text-[11px] text-muted-2">{t(`studio_ui.${key}`)}</span>
+              </span>
+            </button>
+          ))}
+        </div>
+        {readyCount > 0 && (
+          <p className="mt-1.5 text-[11px] text-status-wait">{t("studio_ui.format_note")}</p>
+        )}
+      </div>
+
       {/* Для кого снимаем: сужает и библиотеку героев, и разделы сцен. */}
       {presets.some((p) => p.audience === "adults") && (
         <div className="mb-6 inline-flex rounded-full border border-border bg-surface p-1">
@@ -1464,6 +1539,7 @@ export default function CartoonStudio() {
               onTryOn={tryOnTimelineScene}
               onRedraw={authed ? redrawFrame : undefined}
               onDialogue={authed ? setSceneDialogue : guestDialogue}
+              aspect={aspect}
               onAudio={
                 audioConfig?.enabled
                   ? authed

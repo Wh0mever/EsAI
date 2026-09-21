@@ -381,11 +381,14 @@ class CartoonKeyframe(models.Model):
     character = models.ForeignKey(
         CartoonCharacter, on_delete=models.CASCADE, related_name="keyframes",
         verbose_name="Герой")
+    # Формат — часть ключа: вертикальному мультфильму горизонтальный кадр не
+    # подходит, а раньше он достался бы ему из общего запаса.
+    aspect_ratio = models.CharField(max_length=8, default="16:9", verbose_name="Формат")
     image = models.CharField(max_length=512, verbose_name="Кадр")
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        unique_together = ("preset", "character")
+        unique_together = ("preset", "character", "aspect_ratio")
         verbose_name = "Кадр героя в сцене"
         verbose_name_plural = "Кадры героев в сценах"
 

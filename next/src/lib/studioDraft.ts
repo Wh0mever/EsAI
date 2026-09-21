@@ -30,6 +30,8 @@ export type StudioDraft = {
   /** Ключ черновика: сервер по нему не заведёт второй такой же проект. */
   id: string;
   character_id: number | null;
+  /** Формат будущего мультфильма: 16:9, 9:16 или 1:1. */
+  aspect_ratio?: string;
   scenes: DraftScene[];
   updated_at: number;
 };
