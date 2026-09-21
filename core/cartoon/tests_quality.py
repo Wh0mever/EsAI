@@ -170,3 +170,71 @@ class DialogueAndVoiceTests(TestCase):
         # Модель спрашивали только про сцену без реплики.
         self.assertEqual(writer.call_count, 1)
         self.assertEqual([s.pk for s in writer.call_args[0][0]], [self.without.pk])
+
+
+@override_settings(CACHES=CACHES)
+class FormatTests(TestCase):
+    """Формат выбирается один на весь мультфильм — иначе сцены не склеятся ровно."""
+
+    def setUp(self):
+        image, video = _models()
+        self.preset = CartoonPreset.objects.create(
+            slug="p", title="Сцена", is_active=True, duration=5, scene_prompt="x",
+            aspect_ratio="16:9", image_model=image, video_model=video)
+        self.hero = CartoonCharacter.objects.create(name="Кот", image="cartoon/characters/c.png",
+                                                    is_public=True)
+        self.user = get_user_model().objects.create_user(email="f@example.com", password="x-12345678")
+
+    def test_vertical_movie_does_not_reuse_a_horizontal_frame(self):
+        from cartoon.models import CartoonKeyframe
+        from cartoon.services import get_or_create_keyframe
+
+        CartoonKeyframe.objects.create(preset=self.preset, character=self.hero,
+                                       aspect_ratio="16:9", image="cartoon/keyframes/wide.png")
+        with patch("cartoon.services.generate_keyframe", return_value="cartoon/keyframes/tall.png") as draw:
+            path, price = get_or_create_keyframe(self.preset, self.hero, self.user, "9:16")
+        self.assertEqual(path, "cartoon/keyframes/tall.png")
+        self.assertEqual(draw.call_args.kwargs.get("aspect"), "9:16")
+        self.assertEqual(price, 4)
+        # А горизонтальный по-прежнему отдаётся бесплатно из запаса.
+        with patch("cartoon.services.generate_keyframe") as again:
+            path, price = get_or_create_keyframe(self.preset, self.hero, self.user, "16:9")
+        self.assertEqual(path, "cartoon/keyframes/wide.png")
+        self.assertEqual(price, 0)
+        self.assertEqual(again.call_count, 0)
+
+    def test_changing_the_format_resets_draft_frames(self):
+        from rest_framework.test import APIRequestFactory, force_authenticate
+
+        from cartoon.views import ProjectDetailView
+
+        project = CartoonProject.objects.create(user=self.user, character=self.hero,
+                                                aspect_ratio="16:9")
+        draft = CartoonScene.objects.create(project=project, preset=self.preset, order=0,
+                                            keyframe="cartoon/keyframes/wide.png",
+                                            video_prompt="старое задание")
+        shot = CartoonScene.objects.create(project=project, preset=self.preset, order=1,
+                                           status=CartoonScene.STATUS_READY,
+                                           keyframe="cartoon/keyframes/wide2.png",
+                                           video="cartoon/scenes/1.mp4")
+        request = APIRequestFactory().patch("/x/", {"aspect_ratio": "9:16"}, format="json")
+        force_authenticate(request, user=self.user)
+        response = ProjectDetailView.as_view()(request, pk=project.pk)
+
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data["aspect_ratio"], "9:16")
+        draft.refresh_from_db()
+        shot.refresh_from_db()
+        # Черновик перерисуется в новом формате, а снятая сцена остаётся как есть:
+        # за неё уже заплачено, и при сборке она впишется в общий кадр.
+        self.assertEqual(draft.keyframe, "")
+        self.assertEqual(draft.video_prompt, "")
+        self.assertEqual(shot.keyframe, "cartoon/keyframes/wide2.png")
+
+    def test_unknown_format_falls_back_to_horizontal(self):
+        from cartoon.views import _aspect
+
+        self.assertEqual(_aspect("9:16"), "9:16")
+        self.assertEqual(_aspect("9х16"), "9:16")  # кириллическое «х»
+        self.assertEqual(_aspect("21:9"), "16:9")  # не из трёх наших
+        self.assertEqual(_aspect(None), "16:9")
