@@ -456,7 +456,19 @@ class CartoonAudioTrack(models.Model):
     voice_id = models.CharField(max_length=64, blank=True, default="", verbose_name="Голос (id)")
     voice_name = models.CharField(max_length=120, blank=True, default="", verbose_name="Голос")
     text = models.TextField(blank=True, default="", verbose_name="Текст или описание")
-    file = models.CharField(max_length=512, verbose_name="Файл")
+    # Музыка и эффекты делаются в фоне (до пары минут): дорожка появляется
+    # сразу в состоянии «готовится», файл приходит позже.
+    STATUS_PENDING = "pending"
+    STATUS_READY = "ready"
+    STATUS_FAILED = "failed"
+    STATUS_CHOICES = [(STATUS_PENDING, "Готовится"), (STATUS_READY, "Готова"),
+                      (STATUS_FAILED, "Не получилась")]
+    status = models.CharField(max_length=8, choices=STATUS_CHOICES, default=STATUS_READY,
+                              verbose_name="Состояние")
+    error = models.CharField(max_length=300, blank=True, default="", verbose_name="Ошибка")
+    credits_planned = models.PositiveIntegerField(default=0, verbose_name="Цена в кредитах")
+    seconds_asked = models.FloatField(default=0, verbose_name="Запрошенная длительность, с")
+    file = models.CharField(max_length=512, blank=True, default="", verbose_name="Файл")
     duration = models.FloatField(default=0, verbose_name="Длительность, с")
     start_sec = models.FloatField(default=0, verbose_name="Начало, с")
     volume = models.FloatField(default=1.0, verbose_name="Громкость")

@@ -257,7 +257,8 @@ def generate_keyframe(preset, character, refs: list | None = None, aspect: str =
 
 
 def generate_scene_video(preset, keyframe_path: str, prompt: str = "",
-                         negative: str = "", character=None, aspect: str = "") -> str:
+                         negative: str = "", character=None, aspect: str = "",
+                         entry=None) -> str:
     """Оживить кадр. Возвращает путь к mp4 в хранилище.
 
     Кадр уходит как first_frame — ролик начинается ровно с того, что человек
@@ -310,9 +311,16 @@ def generate_scene_video(preset, keyframe_path: str, prompt: str = "",
         r = requests.post(url, json=body, headers=headers, timeout=VIDEO_SUBMIT_TIMEOUT)
     if not (200 <= r.status_code < 300):
         raise RuntimeError(f"video submit http {r.status_code}: {r.text[:200]}")
-    polling_url = ((r.json() or {}).get("polling_url") or "").strip()
+    job = r.json() or {}
+    polling_url = str(job.get("polling_url") or "").strip()
+    job_id = str(job.get("id") or job.get("generation_id") or "").strip()
+    if not polling_url and job_id:
+        # Задача принята и будет оплачена — адрес опроса строим сами.
+        polling_url = f"{cfg['base_url'].rstrip('/')}/videos/{job_id}"
     if not polling_url:
         raise RuntimeError("video submit: не пришёл polling_url")
+    if entry is not None:
+        entry.submitted(job_id, polling_url)
 
     import time
 

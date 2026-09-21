@@ -523,6 +523,12 @@ CELERY_BEAT_SCHEDULE = {
         "task": "ai.tasks.openrouter_autoswitch",
         "schedule": timedelta(minutes=5),
     },
+    # Оплаченные, но не выданные ролики: соединение с человеком оборвалось, а
+    # провайдер видео снял и деньги взял. Довозим в чат (см. ai/recovery.py).
+    "ai:recover_generations": {
+        "task": "ai.tasks.recover_generations",
+        "schedule": timedelta(minutes=3),
+    },
     "payments:reconcile_token_payments": {
         "task": "payments.tasks.reconcile_pending_token_payments",
         "schedule": timedelta(minutes=2),
@@ -594,6 +600,7 @@ if CELERY_MEDIA_QUEUE:
         "cartoon.tasks.render_scene": {"queue": CELERY_MEDIA_QUEUE},
         "cartoon.tasks.assemble_movie": {"queue": CELERY_MEDIA_QUEUE},
         "cartoon.tasks.voice_movie": {"queue": CELERY_MEDIA_QUEUE},
+        "cartoon.tasks.make_audio": {"queue": CELERY_MEDIA_QUEUE},
     }
 
 # --- Guest (anonymous) chat free quota ---

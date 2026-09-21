@@ -49,6 +49,9 @@ def track_json(t: CartoonAudioTrack) -> dict:
         "voice_name": t.voice_name,
         "character": ({"id": t.character_id, "name": t.character.name} if t.character_id else None),
         "file": _url(t.file),
+        "status": t.status,
+        "error": t.error,
+        "credits_planned": t.credits_planned,
         "duration": t.duration,
         "start_sec": t.start_sec,
         "volume": t.volume,
@@ -118,6 +121,45 @@ def _drop_mix(scene) -> None:
         scene.save(update_fields=["mixed_video", "updated_at"])
 
 
+def _queue(request, scene, *, kind, price, text, seconds=0):
+    """Поставить музыку или эффект в очередь и сразу ответить человеку.
+
+    Минутная мелодия делается у провайдера дольше минуты. Раньше веб-запрос ждал
+    её до конца, не укладывался в лимит Cloudflare (100 с) и человек видел
+    «The origin web server returned an invalid or incomplete response». Теперь
+    дорожка появляется сразу в состоянии «готовится», а звук делает фоновая
+    задача; кредиты списываются, только когда звук готов.
+    """
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from .tasks import make_audio
+
+    if _balance(request.user) < price:
+        return _no_credits(price, _balance(request.user))
+    # Двойной клик не должен заказать (и оплатить) два одинаковых звука.
+    fresh = timezone.now() - timedelta(minutes=5)
+    if CartoonAudioTrack.objects.filter(scene__project__user=request.user,
+                                        status=CartoonAudioTrack.STATUS_PENDING,
+                                        created_at__gte=fresh).exists():
+        return Response({"detail": "Предыдущий звук ещё делается — подождите немного"},
+                        status=status.HTTP_429_TOO_MANY_REQUESTS)
+    start, volume = _start_and_volume(_data(request))
+    track = CartoonAudioTrack.objects.create(
+        scene=scene, kind=kind, text=text, start_sec=start, volume=volume,
+        status=CartoonAudioTrack.STATUS_PENDING, credits_planned=price,
+        seconds_asked=float(seconds or 0))
+    try:
+        make_audio.delay(track.pk)
+    except Exception:
+        logger.exception("звук студии: задача не поставилась")
+        track.delete()
+        return Response({"detail": "Очередь занята — попробуйте через минуту"},
+                        status=status.HTTP_503_SERVICE_UNAVAILABLE)
+    return Response(track_json(track), status=status.HTTP_202_ACCEPTED)
+
+
 def _generate(request, scene, *, kind, price, reason, make, text="", voice_id="", voice_name="",
               character=None, meta=None):
     """Сгенерировать звук, сохранить и только потом списать."""
@@ -134,13 +176,21 @@ def _generate(request, scene, *, kind, price, reason, make, text="", voice_id=""
         return Response({"detail": "Предыдущий звук ещё делается — подождите пару секунд"},
                         status=status.HTTP_429_TOO_MANY_REQUESTS)
     try:
+        from ai import genlog
+
+        entry = genlog.start(
+            user=request.user, kind=kind if kind in ("voice", "music", "sfx") else "voice",
+            source="studio", provider="elevenlabs", model=voice_id or kind, prompt=text,
+            credits_planned=price, scene_id=scene.pk, params=meta or {})
         try:
             raw = make()
             path, duration = audio.save_audio(raw)
         except audio.AudioNotConfigured:
+            entry.failed("ключ ElevenLabs не задан")
             return Response({"detail": "Озвучка пока не подключена"},
                             status=status.HTTP_503_SERVICE_UNAVAILABLE)
-        except Exception:
+        except Exception as exc:
+            entry.failed(str(exc)[:500])
             logger.exception("звук студии (%s): генерация не удалась", kind)
             return Response({"detail": "Не получилось сделать звук — попробуйте ещё раз"},
                             status=status.HTTP_502_BAD_GATEWAY)
@@ -148,6 +198,8 @@ def _generate(request, scene, *, kind, price, reason, make, text="", voice_id=""
             charge(request.user, price, reason, meta={"scene": scene.pk, "kind": kind, **(meta or {})})
         except InsufficientTokens:
             default_storage.delete(path)
+            # Звук провайдер сделал и деньги за него взял, а человек не получил.
+            entry.lost("не хватило кредитов к моменту готовности")
             return _no_credits(price, _balance(request.user))
         start, volume = _start_and_volume(_data(request))
         track = CartoonAudioTrack.objects.create(
@@ -155,6 +207,7 @@ def _generate(request, scene, *, kind, price, reason, make, text="", voice_id=""
             text=text, file=path, duration=duration, start_sec=start, volume=volume, credits_spent=price)
         # Сведённый ролик устарел: в нём ещё нет новой дорожки.
         _drop_mix(scene)
+        entry.delivered(credits=price, result_url=_url(path))
     finally:
         if cache.get(lock) == token:
             cache.delete(lock)
@@ -180,6 +233,24 @@ class VoicesView(StudioPublicAPIView):
         except Exception:
             logger.exception("голоса ElevenLabs не загрузились")
             return Response([])
+
+
+class VoicePreviewView(StudioPublicAPIView):
+    """GET — пример голоса на языке человека (по-русски, а не родной английский)."""
+
+    def get(self, request, voice_id):
+        if (resp := _need_config()):
+            return resp
+        lang = str(request.query_params.get("lang") or "").lower()
+        if lang not in audio.PREVIEW_LINES:
+            lang = _lang(request)
+        try:
+            path = audio.voice_preview(voice_id, lang)
+        except Exception:
+            logger.exception("пример голоса %s не получился", voice_id)
+            return Response({"detail": "Пример пока недоступен"},
+                            status=status.HTTP_502_BAD_GATEWAY)
+        return Response({"url": _url(path)})
 
 
 class SceneAudioView(StudioAPIView):
@@ -243,9 +314,8 @@ class SceneMusicView(StudioAPIView):
         if not (audio.MUSIC_MIN_SEC <= seconds <= audio.MUSIC_MAX_SEC):
             return Response({"detail": f"Длительность — от {audio.MUSIC_MIN_SEC} до {audio.MUSIC_MAX_SEC} секунд"},
                             status=status.HTTP_400_BAD_REQUEST)
-        return _generate(request, scene, kind=CartoonAudioTrack.KIND_MUSIC, price=audio.music_price(seconds),
-                         reason="cartoon_music", make=lambda: audio.music(prompt, seconds), text=prompt,
-                         meta={"seconds": seconds})
+        return _queue(request, scene, kind=CartoonAudioTrack.KIND_MUSIC,
+                      price=audio.music_price(seconds), text=prompt, seconds=seconds)
 
 
 class SceneSfxView(StudioAPIView):
@@ -268,8 +338,8 @@ class SceneSfxView(StudioAPIView):
                                 status=status.HTTP_400_BAD_REQUEST)
         if len(prompt) < 3:
             return Response({"detail": "Опишите звук хотя бы парой слов"}, status=status.HTTP_400_BAD_REQUEST)
-        return _generate(request, scene, kind=CartoonAudioTrack.KIND_SFX, price=audio.sfx_price(),
-                         reason="cartoon_sfx", make=lambda: audio.sound_effect(prompt, seconds), text=prompt)
+        return _queue(request, scene, kind=CartoonAudioTrack.KIND_SFX,
+                      price=audio.sfx_price(), text=prompt, seconds=seconds or 0)
 
 
 class SceneUploadAudioView(StudioAPIView):

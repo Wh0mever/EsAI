@@ -173,9 +173,19 @@ export default function SceneTimeline({
 
             {/* Пропорции — как у будущего ролика: человек сразу видит, что
                 получит в Reels или на YouTube. */}
+            {/* Клиент: с вертикальным форматом карточка «поплыла» — кадр 9:16 во
+                всю ширину занимал пол-экрана телефона, и лента переставала
+                читаться. Высоту кадра ограничиваем: вертикальный и квадратный
+                встают по центру в тех же пропорциях, карточка остаётся
+                компактной, как была. */}
+            <div className="flex justify-center rounded-xl bg-surface-2">
             <div
               className="relative overflow-hidden rounded-xl bg-surface-2"
-              style={{ aspectRatio: aspect.replace(":", "/") }}
+              style={
+                aspect === "16:9"
+                  ? { aspectRatio: "16/9", width: "100%" }
+                  : { aspectRatio: aspect.replace(":", "/"), height: "11rem" }
+              }
             >
               {s.video ? (
                 // Снятая сцена играет в ленте сама, без звука и по кругу
@@ -304,6 +314,7 @@ export default function SceneTimeline({
                   )}
                 </span>
               )}
+            </div>
             </div>
 
             <div className="flex items-center gap-1 text-[11px]">

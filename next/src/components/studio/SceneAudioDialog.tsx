@@ -47,6 +47,10 @@ type Voice = {
 
 type Track = {
   id: number;
+  /** Музыка и эффекты делаются в фоне: сперва «готовится», потом «готова». */
+  status?: "pending" | "ready" | "failed";
+  error?: string;
+  credits_planned?: number;
   kind: "voice" | "own" | "music" | "sfx";
   text: string;
   voice_id: string;
@@ -80,12 +84,32 @@ const LAST_VOICE_KEY = "esai.studio.voiceByCharacter";
  * professional»), и в русском интерфейсе это выглядит как служебный вывод.
  * Переводим то, что знаем, а незнакомое слово показываем как есть.
  */
+/** «Bella - Professional, Bright, Warm» → «Bella». */
+function voiceShortName(v: Voice): string {
+  return (v.name || "").split(" - ")[0].trim() || v.name;
+}
+
+/** Характер голоса по-русски: «мягкий, тёплый». Для известных голосов —
+ *  написанное руками описание, для остальных — перевод слов из названия. */
+function voiceCharacter(v: Voice, t: (k: string, o?: any) => string): string {
+  const key = voiceShortName(v).toLowerCase().replace(/[^a-z]+/g, "");
+  const known = t(`studio_ui.voice_n_${key}`, { defaultValue: "" });
+  if (known) return known;
+  const tail = (v.name || "").split(" - ")[1] || v.description || "";
+  return tail
+    .split(/,| and /)
+    .map((w) => w.trim())
+    .filter(Boolean)
+    .map((w) =>
+      t(`studio_ui.voice_w_${w.toLowerCase().replace(/[^a-z]+/g, "_")}`, { defaultValue: w })
+    )
+    .join(", ");
+}
+
 function voiceTraits(v: Voice, t: (k: string, o?: any) => string): string {
   const word = (raw: string) =>
     raw ? t(`studio_ui.voice_w_${raw.toLowerCase().replace(/[^a-z_]+/g, "_")}`, { defaultValue: raw }) : "";
-  return [word(v.gender), word(v.age), word(v.description || v.use_case || v.accent)]
-    .filter(Boolean)
-    .join(" · ");
+  return [word(v.gender), word(v.age)].filter(Boolean).join(" · ");
 }
 
 function readVoiceMemory(): Record<string, string> {
@@ -124,7 +148,7 @@ export default function SceneAudioDialog({
   onChanged: () => void;
   onNeedCredits: (required: number, balance: number) => void;
 }) {
-  const { t } = useTranslation("common");
+  const { t, i18n } = useTranslation("common");
   const open = Boolean(scene);
   const [data, setData] = useState<SceneAudio | null>(null);
   const [voices, setVoices] = useState<Voice[]>([]);
@@ -204,6 +228,28 @@ export default function SceneAudioDialog({
     if (remembered) setVoiceId(remembered);
   }, [characterId]);
 
+  // Музыка и эффекты делаются в фоне. Пока хоть одна дорожка «готовится»,
+  // перечитываем список — человек видит, как она становится готовой.
+  const pendingCount = (data?.tracks || []).filter((x) => x.status === "pending").length;
+  useEffect(() => {
+    if (!scene || pendingCount === 0) return;
+    const sceneId = scene.id;
+    const timer = window.setInterval(async () => {
+      const res = await fetchData<SceneAudio>(`cartoon/scenes/${sceneId}/audio/`, "GET", undefined, true);
+      if (!res.ok || !res.data) return;
+      const fresh = res.data;
+      setData((prev) => {
+        if (!prev) return fresh;
+        // Дорожка доделалась — баланс изменился, а сцена могла получить звук.
+        const wasPending = prev.tracks.filter((x) => x.status === "pending").length;
+        const nowPending = fresh.tracks.filter((x) => x.status === "pending").length;
+        if (nowPending < wasPending) setDirty(true);
+        return fresh;
+      });
+    }, 3000);
+    return () => window.clearInterval(timer);
+  }, [scene, pendingCount]);
+
   const voicePrice = useMemo(() => {
     if (!prices) return 0;
     return Math.max(prices.voice_min, Math.ceil((text.trim().length * prices.voice_per_1k) / 1000));
@@ -231,17 +277,28 @@ export default function SceneAudioDialog({
     setPreviewing(null);
   };
 
-  const playPreview = (v: Voice) => {
-    if (!v.preview) return;
+  /** Пример голоса. Клиент: он должен звучать по-русски — родной образец у
+   *  провайдера английский, и по нему не понять, как заговорит герой. */
+  const playPreview = async (v: Voice) => {
     if (previewing === v.id) {
       stopPreview();
       return;
     }
     previewRef.current?.pause();
-    const a = new Audio(v.preview);
+    setPreviewing(v.id);
+    const lang = (i18n.language || "ru").slice(0, 2);
+    const res = await fetchData<{ url: string }>(
+      `cartoon/audio/voices/${encodeURIComponent(v.id)}/preview/?lang=${lang === "ky" ? "kg" : lang}`,
+      "GET", undefined, false
+    );
+    const src = (res.ok && res.data?.url) || v.preview;
+    if (!src) {
+      setPreviewing(null);
+      return;
+    }
+    const a = new Audio(src);
     previewRef.current = a;
     a.onended = () => setPreviewing(null);
-    setPreviewing(v.id);
     void a.play().catch(() => setPreviewing(null));
   };
 
@@ -489,7 +546,10 @@ export default function SceneAudioDialog({
           {tab === "voice" && (
             <div className="flex flex-col gap-3">
               <div className="flex flex-col gap-1">
-                <span className="text-xs text-muted">{t("studio_ui.audio_voice")}</span>
+                <span className="text-sm font-semibold text-foreground">
+                  {t("studio_ui.audio_voice")}
+                </span>
+                <span className="text-[11px] text-muted-2">{t("studio_ui.audio_voice_note")}</span>
                 <div className="grid max-h-44 grid-cols-1 gap-1.5 overflow-y-auto pr-1 sm:grid-cols-2">
                   {voices.length === 0 && <span className="text-xs text-muted-2">{t("studio_ui.audio_loading")}</span>}
                   {voices.map((v) => (
@@ -501,8 +561,7 @@ export default function SceneAudioDialog({
                     >
                       <button
                         type="button"
-                        onClick={() => playPreview(v)}
-                        disabled={!v.preview}
+                        onClick={() => void playPreview(v)}
                         title={t("studio_ui.audio_listen")}
                         className="grid size-7 shrink-0 place-items-center rounded-full bg-surface-2 text-foreground disabled:opacity-40 cursor-pointer"
                       >
@@ -513,7 +572,10 @@ export default function SceneAudioDialog({
                         onClick={() => setVoiceId(v.id)}
                         className="min-w-0 flex-1 text-left cursor-pointer"
                       >
-                        <div className="truncate text-sm text-foreground">{v.name}</div>
+                        <div className="truncate text-sm text-foreground">
+                          <span className="font-semibold">{voiceShortName(v)}</span>
+                          <span className="text-muted"> — {voiceCharacter(v, t)}</span>
+                        </div>
                         <div className="truncate text-[10px] text-muted-2">
                           {voiceTraits(v, t)}
                         </div>
@@ -670,7 +732,17 @@ export default function SceneAudioDialog({
                       <FiTrash2 />
                     </button>
                   </div>
+                  {tr.status === "pending" && (
+                    <p className="flex items-center gap-2 text-xs text-muted">
+                      <FiLoader className="animate-spin" /> {t("studio_ui.audio_pending")}
+                    </p>
+                  )}
+                  {tr.status === "failed" && (
+                    <p className="text-xs text-red-400">{tr.error || t("studio_ui.audio_failed")}</p>
+                  )}
+                  {(!tr.status || tr.status === "ready") && (
                   <audio src={tr.file} controls preload="none" className="h-8 w-full" />
+                  )}
                   <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                     <label className="flex items-center gap-2 text-[11px] text-muted">
                       <span className="w-14 shrink-0">{t("studio_ui.audio_start_short")}</span>

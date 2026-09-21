@@ -171,3 +171,112 @@ class MovieSoundTests(TestCase):
             tmp = Path(tmpdir)
             parts = [self._clip(tmp, "a.mp4", sound=False), self._clip(tmp, "b.mp4", sound=False)]
             self.assertEqual(audio.align_audio(parts), parts)
+
+
+@override_settings(CACHES=CACHES, ELEVENLABS_API_KEY="test-key")
+@skipUnless(HAS_FFMPEG, "нужен ffmpeg")
+class BackgroundAudioTests(TestCase):
+    """Музыка делается в фоне: веб-запрос не ждёт провайдера по две минуты.
+
+    Жалоба клиента (21.09): при создании музыки Cloudflare отвечал «origin
+    returned an invalid or incomplete response» — генерация шла внутри запроса
+    и не укладывалась в лимит.
+    """
+
+    def setUp(self):
+        model = GPTModels.objects.create(name="m", openrouter_id="test/m", max_tokens=10,
+                                         markup_coefficient=Decimal("4"))
+        preset = CartoonPreset.objects.create(slug="bg-scene", title="Сцена", is_active=True,
+                                              scene_prompt="x", image_model=model, video_model=model)
+        hero = CartoonCharacter.objects.create(name="Кот", image="cartoon/characters/c.png", is_public=True)
+        self.user = get_user_model().objects.create_user(email="bg@example.com", password="x-12345678")
+        self.user.token_balance = 100
+        self.user.save(update_fields=["token_balance"])
+        project = CartoonProject.objects.create(user=self.user, character=hero)
+        self.scene = CartoonScene.objects.create(project=project, preset=preset, order=0)
+        self.mp3 = _silent_mp3()
+
+    def _post(self, view, body):
+        request = APIRequestFactory().post("/x/", body, format="json")
+        force_authenticate(request, user=self.user)
+        return view.as_view()(request, pk=self.scene.pk)
+
+    def _balance(self):
+        self.user.refresh_from_db()
+        return self.user.token_balance
+
+    def test_music_answers_at_once_and_is_charged_when_ready(self):
+        from cartoon.tasks import make_audio
+
+        with patch("cartoon.tasks.make_audio.delay") as delay, \
+             patch("cartoon.audio.music") as provider:
+            response = self._post(SceneMusicView, {"prompt": "весёлая мелодия", "seconds": 30})
+        self.assertEqual(response.status_code, 202, response.data)
+        self.assertEqual(response.data["status"], "pending")
+        self.assertEqual(response.data["credits_planned"], 15)
+        # Запрос ответил сразу: провайдера никто не ждал, кредиты не тронуты.
+        self.assertEqual(provider.call_count, 0)
+        self.assertEqual(self._balance(), 100)
+        track_id = delay.call_args[0][0]
+
+        with patch("cartoon.audio.music", return_value=self.mp3):
+            result = make_audio.apply(args=[track_id]).get()
+        self.assertEqual(result["status"], "ready")
+        track = CartoonAudioTrack.objects.get(pk=track_id)
+        self.assertEqual(track.status, "ready")
+        self.assertTrue(track.file)
+        self.assertEqual(track.credits_spent, 15)
+        self.assertEqual(self._balance(), 85)
+
+    def test_provider_failure_in_background_costs_nothing(self):
+        from cartoon.tasks import make_audio
+
+        with patch("cartoon.tasks.make_audio.delay") as delay:
+            response = self._post(SceneSfxView, {"prompt": "стук в дверь"})
+        self.assertEqual(response.status_code, 202, response.data)
+        with patch("cartoon.audio.sound_effect", side_effect=audio.AudioProviderError("http 500")):
+            result = make_audio.apply(args=[delay.call_args[0][0]]).get()
+        self.assertEqual(result["status"], "failed")
+        track = CartoonAudioTrack.objects.get()
+        self.assertEqual(track.status, "failed")
+        self.assertTrue(track.error)
+        self.assertEqual(self._balance(), 100)
+
+    def test_double_click_does_not_order_two_sounds(self):
+        with patch("cartoon.tasks.make_audio.delay") as delay:
+            first = self._post(SceneMusicView, {"prompt": "весёлая мелодия", "seconds": 30})
+            second = self._post(SceneMusicView, {"prompt": "весёлая мелодия", "seconds": 30})
+        self.assertEqual(first.status_code, 202)
+        self.assertEqual(second.status_code, 429)
+        self.assertEqual(delay.call_count, 1)
+
+    def test_pending_track_is_not_mixed_into_the_scene(self):
+        CartoonAudioTrack.objects.create(scene=self.scene, kind="music", status="pending",
+                                         text="мелодия", credits_planned=15)
+        self.scene.video = "cartoon/scenes/whatever.mp4"
+        self.assertEqual(audio.mix_scene(self.scene), "")
+
+
+@override_settings(CACHES=CACHES, ELEVENLABS_API_KEY="test-key")
+@skipUnless(HAS_FFMPEG, "нужен ffmpeg")
+class VoicePreviewTests(TestCase):
+    """Пример голоса звучит на языке человека и делается один раз."""
+
+    def test_russian_sample_is_generated_once_and_reused(self):
+        voices = [{"id": "voice01", "name": "Bella"}]
+        mp3 = _silent_mp3()
+        with patch("cartoon.audio.list_voices", return_value=voices), \
+             patch("cartoon.audio.tts", return_value=mp3) as tts:
+            first = audio.voice_preview("voice01", "ru")
+            second = audio.voice_preview("voice01", "ru")
+        self.assertEqual(first, second)
+        self.assertEqual(tts.call_count, 1)
+        self.assertIn("Привет", tts.call_args[0][0])
+        default_storage.delete(first)
+
+    def test_unknown_voice_is_refused(self):
+        with patch("cartoon.audio.list_voices", return_value=[{"id": "voice01", "name": "Bella"}]), \
+             patch("cartoon.audio.tts") as tts:
+            with self.assertRaises(audio.AudioProviderError):
+                audio.voice_preview("stranger9", "ru")
+        self.assertEqual(tts.call_count, 0)

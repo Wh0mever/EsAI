@@ -163,6 +163,14 @@ def summarize_session_context(session_id: int) -> dict:
         return {"status": "error", "error": str(exc)}
 
 
+@shared_task(name="ai.tasks.recover_generations")
+def recover_generations() -> dict:
+    """Довезти ролики, которые провайдер снял и оплатил, а человек не получил."""
+    from .recovery import recover_open_videos
+
+    return recover_open_videos()
+
+
 @shared_task(name="ai.tasks.openrouter_autoswitch")
 def openrouter_autoswitch() -> dict:
     """Обновить балансы аккаунтов OpenRouter и включить запасной, если пора.
@@ -387,6 +395,7 @@ def run_generation_job(self, job_id: int) -> dict:
             last_frame=params.get("video_last_frame"),
             extend_video=params.get("extend_video_url"),
             cancel_check=canceled,
+            source="bot",
         )
         for frame in frames:
             if frame.get("error"):
