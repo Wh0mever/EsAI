@@ -100,6 +100,8 @@ def render_scene(self, scene_id: int) -> dict:
     # --- 2) видео из кадра ---
     scene.status = CartoonScene.STATUS_VIDEO
     scene.save(update_fields=["status", "updated_at"])
+    entry = None
+    _video_entry_closed = False
     try:
         # Промпт съёмки: разложенное по секундам действие, реплика героя и
         # запрет типовых артефактов. Собирается один раз на сцену.
@@ -125,7 +127,13 @@ def render_scene(self, scene_id: int) -> dict:
         except Exception as video_exc:
             # Провайдер запрос принял (есть ID) — значит мог взять деньги, а
             # ролика у человека нет: это в разбор, а не просто «ошибка».
-            if getattr(getattr(entry, "row", None), "polling_url", ""):
+            import requests as _rq
+
+            accepted = bool(getattr(getattr(entry, "row", None), "polling_url", ""))
+            # Сетевой сбой без ответа (таймаут, обрыв) — провайдер мог успеть
+            # принять запрос: это ровно сценарий потерянного ролика 21.09.
+            no_answer = isinstance(video_exc, (_rq.Timeout, _rq.ConnectionError))
+            if accepted or no_answer:
                 entry.lost(str(video_exc)[:500])
             else:
                 entry.failed(str(video_exc)[:500])
@@ -146,6 +154,7 @@ def render_scene(self, scene_id: int) -> dict:
         scene.save(update_fields=["video", "last_frame", "mixed_video", "credits_spent",
                                   "status", "error", "updated_at"])
         entry.delivered(credits=video_price, result_url=scene.video)
+        _video_entry_closed = True
         # Звук, набранный до съёмки, накладывается сам (клиент: «в итоге всё
         # автоматически объединяется»). Сбой сведения не портит снятую сцену.
         try:
@@ -164,6 +173,13 @@ def render_scene(self, scene_id: int) -> dict:
         return {"status": "ready", "scene": scene.pk}
     except Exception as exc:
         logger.exception("сцена %s: видео не получилось", scene_id)
+        # Ролик снят и оплачен провайдеру, но сломалось списание или сохранение:
+        # запись не должна остаться «в работе» навсегда — это в разбор.
+        try:
+            if entry is not None and not _video_entry_closed and entry.is_open():
+                entry.lost(f"ролик снят, но не выдан: {exc}"[:500])
+        except Exception:
+            logger.exception("сцена %s: журнал генераций не закрылся", scene_id)
         scene.status = CartoonScene.STATUS_FAILED
         # Кадр остаётся: пересоздать видео можно с ним же, не сдвинув героя.
         scene.error = f"Видео не получилось: {exc}"[:500]

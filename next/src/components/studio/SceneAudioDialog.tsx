@@ -545,6 +545,9 @@ export default function SceneAudioDialog({
 
           {tab === "voice" && (
             <div className="flex flex-col gap-3">
+              <p className="rounded-lg border border-accent/30 bg-accent/5 px-3 py-2 text-[11px] leading-snug text-muted">
+                {t("studio_ui.audio_lips_note")}
+              </p>
               <div className="flex flex-col gap-1">
                 <span className="text-sm font-semibold text-foreground">
                   {t("studio_ui.audio_voice")}

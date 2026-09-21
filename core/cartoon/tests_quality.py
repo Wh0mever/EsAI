@@ -240,3 +240,51 @@ class FormatTests(TestCase):
         self.assertEqual(_aspect("9х16"), "9:16")  # кириллическое «х»
         self.assertEqual(_aspect("21:9"), "16:9")  # не из трёх наших
         self.assertEqual(_aspect(None), "16:9")
+
+
+@override_settings(CACHES=CACHES)
+class ReshootWithLineTests(TestCase):
+    """Клиент: «а нельзя, чтоб рот открывался?» — можно, если реплику говорит модель.
+
+    Значит, её должно быть можно вписать и у уже снятой сцены, чтобы переснять.
+    """
+
+    def setUp(self):
+        image, video = _models()
+        self.preset = CartoonPreset.objects.create(
+            slug="p", title="Сцена", is_active=True, duration=5, scene_prompt="x",
+            image_model=image, video_model=video)
+        hero = CartoonCharacter.objects.create(name="Кот", image="cartoon/characters/c.png",
+                                               is_public=True)
+        self.user = get_user_model().objects.create_user(email="l@example.com", password="x-12345678")
+        project = CartoonProject.objects.create(user=self.user, character=hero)
+        self.scene = CartoonScene.objects.create(
+            project=project, preset=self.preset, order=0, status=CartoonScene.STATUS_READY,
+            keyframe="cartoon/keyframes/k.png", video="cartoon/scenes/v.mp4",
+            video_prompt="старое задание без реплики")
+
+    def _patch(self, body):
+        from rest_framework.test import APIRequestFactory, force_authenticate
+
+        from cartoon.views import SceneDetailView
+
+        request = APIRequestFactory().patch("/x/", body, format="json")
+        force_authenticate(request, user=self.user)
+        return SceneDetailView.as_view()(request, pk=self.scene.pk)
+
+    def test_line_can_be_added_to_a_filmed_scene_and_resets_the_shooting_plan(self):
+        response = self._patch({"dialogue": "Какой чудесный день на пляже!"})
+        self.assertEqual(response.status_code, 200, response.data)
+        self.scene.refresh_from_db()
+        self.assertEqual(self.scene.dialogue, "Какой чудесный день на пляже!")
+        # Задание на съёмку писалось без реплики — при пересъёмке соберётся заново.
+        self.assertEqual(self.scene.video_prompt, "")
+        # Сама сцена остаётся готовой, пока человек не нажал «Переснять».
+        self.assertEqual(self.scene.status, CartoonScene.STATUS_READY)
+        self.assertEqual(self.scene.video, "cartoon/scenes/v.mp4")
+
+    def test_line_cannot_be_changed_while_the_scene_is_being_filmed(self):
+        self.scene.status = CartoonScene.STATUS_VIDEO
+        self.scene.save(update_fields=["status"])
+        response = self._patch({"dialogue": "Привет"})
+        self.assertEqual(response.status_code, 400)

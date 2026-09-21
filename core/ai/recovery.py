@@ -90,6 +90,22 @@ def _notify(user, session) -> None:
         logger.debug("довоз ролика: пуш не ушёл", exc_info=True)
 
 
+def _send_to_telegram(user, url: str, charged: int) -> None:
+    """Ролик заказывали в боте — там его и ждут."""
+    try:
+        from django.conf import settings
+
+        from botapi.tasks import notify_user_telegram
+
+        base = (getattr(settings, "SITE_BASE_URL", "") or "https://esai.kg").rstrip("/")
+        absolute = url if url.startswith("http") else base + url
+        notify_user_telegram(user.pk, "ready",
+                             f"🎬 Видео готово — снималось дольше обычного. Списано {charged} кр.",
+                             video_url=absolute)
+    except Exception:
+        logger.exception("довоз ролика: в Telegram не ушло")
+
+
 def deliver(row: GenerationLog) -> str:
     """Довезти один ролик. Возвращает итог: delivered|pending|failed|lost|skipped."""
     from .handlers import _openrouter_config
@@ -101,7 +117,12 @@ def deliver(row: GenerationLog) -> str:
         poll = requests.get(row.polling_url, headers=headers, timeout=(10, 30)).json() or {}
     except Exception as exc:  # noqa: BLE001
         entry.stage("recover_poll_failed", str(exc)[:200])
+        if timezone.now() - row.created_at > GIVE_UP_AFTER:
+            entry.lost(f"опрос провайдера не удаётся: {exc}")
+            return "lost"
         return "pending"
+    if not isinstance(poll, dict):
+        poll = {}
     status = str((poll or {}).get("status") or "").lower()
 
     if status in ("failed", "error", "canceled"):
@@ -153,6 +174,8 @@ def deliver(row: GenerationLog) -> str:
             "provider_cost_usd": cost})
     entry.delivered(credits=charged, cost=cost, result_url=url, message=message, recovered=True)
     _notify(row.user, session)
+    if row.source == GenerationLog.SOURCE_BOT:
+        _send_to_telegram(row.user, url, charged)
     return "delivered"
 
 
@@ -171,9 +194,13 @@ def recover_open_videos(limit: int = 20) -> dict:
         row.refresh_from_db()
         try:
             result = deliver(row)
-        except Exception:
+        except Exception as exc:
             logger.exception("довоз ролика %s упал", row.pk)
             result = "error"
+            # Сбой на нашей стороне не должен оставлять запись открытой навсегда.
+            if timezone.now() - row.created_at > GIVE_UP_AFTER:
+                genlog.Entry(row).lost(f"довоз не удаётся: {exc}")
+                result = "lost"
         outcome[result] = outcome.get(result, 0) + 1
     # Отправки, на которые так и не пришёл ответ: исход неизвестен — в разбор.
     stuck = GenerationLog.objects.filter(

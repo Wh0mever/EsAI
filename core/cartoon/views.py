@@ -1026,7 +1026,10 @@ class SceneDetailView(StudioAPIView):
             return Response(scene_json(scene, _lang(request)))
 
         if "dialogue" in request.data:
-            if scene.status not in (CartoonScene.STATUS_DRAFT, CartoonScene.STATUS_FAILED):
+            # У готовой сцены реплику тоже можно вписать: рот двигается только
+            # когда её произносит сама модель, и такую сцену потом переснимают.
+            if scene.status not in (CartoonScene.STATUS_DRAFT, CartoonScene.STATUS_FAILED,
+                                    CartoonScene.STATUS_READY):
                 return Response({"detail": "Сцена уже снимается — реплику не поменять"},
                                 status=status.HTTP_400_BAD_REQUEST)
             scene.dialogue = _dialogue(request.data.get("dialogue"))
