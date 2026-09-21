@@ -204,36 +204,43 @@ export default function CharacterPicker({
         />
       </div>
 
-      <div className="rounded-2xl border border-border bg-surface-2/60 p-3">
-        <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+      {/* Клиент: человек не понимал, куда вводить описание — поле выглядело
+          как строка-пример. Поэтому схема простая и одинаковая во всей студии:
+          заголовок → короткая подсказка → большое поле → кнопка во всю ширину. */}
+      <div className="max-w-xl rounded-2xl border border-border bg-surface-2/60 p-4">
+        <div className="flex items-center gap-2 text-base font-bold text-foreground">
           <FiZap className="text-accent" />
           {t("studio_ui.draw_title")}
         </div>
-        <p className="mt-1 text-xs text-muted-2">
+        <p className="mt-1 text-sm text-muted">
           {t("studio_ui.draw_note")}
         </p>
-        <div className="mt-2 flex flex-col gap-2 sm:flex-row">
-          <input
+        <div className="mt-3 flex flex-col gap-2">
+          <textarea
             value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
+            onChange={(e) => setPrompt(e.target.value.slice(0, 300))}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && !busy) void generate();
+              if (e.key === "Enter" && !e.shiftKey && !busy) {
+                e.preventDefault();
+                void generate();
+              }
             }}
+            rows={2}
             placeholder={t("studio_ui.draw_placeholder")}
-            className="flex-1 rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-foreground outline-none placeholder:text-muted-2 focus:border-accent"
+            className="w-full resize-none rounded-xl border-2 border-border bg-surface px-4 py-3 text-base text-foreground shadow-inner outline-none transition-colors placeholder:text-muted focus:border-accent"
           />
           <button
             type="button"
             onClick={() => void generate()}
             disabled={busy !== null}
-            className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-on-accent transition-colors hover:bg-accent-strong disabled:opacity-60 cursor-pointer"
+            className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-accent px-5 py-3 text-base font-bold text-on-accent transition-colors hover:bg-accent-strong disabled:opacity-60 cursor-pointer"
           >
             {busy === "generate" ? <FiLoader className="animate-spin" /> : <FiPlus />}
             {busy === "generate" ? t("studio_ui.drawing") : t("studio_ui.draw_btn")}
           </button>
         </div>
         {balance !== null && (
-          <p className="mt-1.5 text-[11px] text-muted-2">{t("studio_ui.balance", { count: balance })}</p>
+          <p className="mt-2 text-xs text-muted-2">{t("studio_ui.balance", { count: balance })}</p>
         )}
       </div>
 
