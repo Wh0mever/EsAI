@@ -1231,13 +1231,13 @@ export default function CartoonStudio() {
             {/* Своя сцена: второй путь рядом с библиотекой — описать словами, что
                 делает герой. Сцена встаёт в ленту черновиком; студия сама
                 превратит описание в сцену при съёмке, с тем же героем. */}
-            <div className="rounded-2xl border border-border bg-surface-2/60 p-3">
-              <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
+            <div className="rounded-2xl border border-border bg-surface-2/60 p-4">
+              <div className="flex items-center gap-2 text-base font-bold text-foreground">
                 <span aria-hidden>✍️</span>
                 {t("studio_ui.custom_title")}
               </div>
-              <p className="mt-1 text-xs text-muted-2">{t("studio_ui.custom_note")}</p>
-              <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-start">
+              <p className="mt-1 text-sm text-muted">{t("studio_ui.custom_note")}</p>
+              <div className="mt-3 flex flex-col gap-2">
                 <textarea
                   value={customText}
                   onChange={(e) => setCustomText(e.target.value.slice(0, 300))}
@@ -1247,25 +1247,25 @@ export default function CartoonStudio() {
                       void addCustomScene();
                     }
                   }}
-                  rows={2}
+                  rows={3}
                   placeholder={t("studio_ui.custom_placeholder")}
-                  className="min-h-[3rem] flex-1 resize-none rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-foreground outline-none placeholder:text-muted-2 focus:border-accent"
+                  className="w-full resize-none rounded-xl border-2 border-border bg-surface px-4 py-3 text-base text-foreground shadow-inner outline-none transition-colors placeholder:text-muted focus:border-accent"
                 />
                 <button
                   type="button"
                   onClick={() => void addCustomScene()}
                   disabled={adding !== null || customText.trim().length < 3}
-                  className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-on-accent transition-colors hover:bg-accent-strong disabled:opacity-50 cursor-pointer"
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-accent px-5 py-3 text-base font-bold text-on-accent transition-colors hover:bg-accent-strong disabled:opacity-50 cursor-pointer"
                 >
                   {adding === -1 ? <FiLoader className="animate-spin" /> : <FiPlus />}
-                  {t("studio_ui.add")}
+                  {t("studio_ui.custom_btn")}
                 </button>
               </div>
-              {character && (
-                <p className="mt-1.5 text-[11px] text-muted-2">
-                  {t("studio_ui.custom_hero", { name: character.name })}
-                </p>
-              )}
+              <p className="mt-2 text-xs text-muted-2">
+                {character
+                  ? t("studio_ui.custom_hero", { name: character.name })
+                  : t("studio_ui.custom_pick_hero")}
+              </p>
             </div>
 
             {/* Герои этого мультфильма — под рукой прямо над сценами: следующую
