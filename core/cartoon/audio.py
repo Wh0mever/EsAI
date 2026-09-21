@@ -41,7 +41,7 @@ UPLOAD_MAX_BYTES = 15 * 1024 * 1024
 UPLOAD_MAX_SECONDS = 300
 # Формат идентификатора голоса у ElevenLabs. Проверяем строго: id подставляется
 # в адрес запроса, и «../» в нём увёл бы наш ключ на чужую ручку провайдера.
-VOICE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{4,64}$")
+VOICE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{2,64}$")
 VOLUME_MIN, VOLUME_MAX = 0.0, 2.0
 VOICES_CACHE_KEY = "studio:voices:v1"
 

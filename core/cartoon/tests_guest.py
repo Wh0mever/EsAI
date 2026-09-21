@@ -51,7 +51,7 @@ class GuestTryOnTests(TestCase):
         return PresetTryOnView.as_view()(request, pk=preset.pk)
 
     def _fake_draw(self):
-        def draw(preset, character, user=None):
+        def draw(preset, character, user=None, aspect="16:9"):
             path = f"cartoon/keyframes/{preset.pk}-{character.pk}.png"
             CartoonKeyframe.objects.get_or_create(
                 preset=preset, character=character, defaults={"image": path})
@@ -254,12 +254,15 @@ class CustomSceneTests(TestCase):
             "custom_text": "катается на скейте", "character_id": self.hero.pk}).data["id"])
         seen = {}
 
-        def fake_frame(preset, character):
+        def fake_frame(preset, character, **kwargs):
             seen["frame_prompt"] = preset.scene_prompt
             return "cartoon/keyframes/custom.png"
 
-        def fake_video(preset, keyframe):
+        def fake_video(preset, keyframe, **kwargs):
+            # Промпт теперь собирает режиссёр, но движение пресета должно в
+            # него попасть — на это и смотрит тест.
             seen["motion"] = preset.motion_prompt
+            seen["prompt"] = kwargs.get("prompt", "")
             return "cartoon/scenes/custom.mp4"
 
         with self._fake_llm({"ok": True, "title": "Скейт", "scene": "The character rides a skateboard at night.",
