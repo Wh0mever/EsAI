@@ -184,6 +184,8 @@ class FormatTests(TestCase):
         self.hero = CartoonCharacter.objects.create(name="Кот", image="cartoon/characters/c.png",
                                                     is_public=True)
         self.user = get_user_model().objects.create_user(email="f@example.com", password="x-12345678")
+        self.user.token_balance = 100
+        self.user.save(update_fields=["token_balance"])
 
     def test_vertical_movie_does_not_reuse_a_horizontal_frame(self):
         from cartoon.models import CartoonKeyframe

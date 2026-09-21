@@ -112,7 +112,8 @@ class VoiceAllTests(TestCase):
         self.assertEqual(writer.call_count, 0)
 
     def test_plan_failure_is_not_a_silent_success(self):
-        with patch("cartoon.voiceover.write_lines", side_effect=voiceover.PlanFailed("нет json")):
+        with patch("cartoon.audio.list_voices", return_value=VOICES), \
+             patch("cartoon.voiceover.write_lines", side_effect=voiceover.PlanFailed("нет json")):
             response = self._post(ProjectVoicePlanView)
         self.assertEqual(response.status_code, 502)
         self.assertEqual(self._balance(), 100)
