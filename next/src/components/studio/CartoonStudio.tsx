@@ -1226,6 +1226,10 @@ export default function CartoonStudio() {
           value={character}
           onPick={pickHero}
           onCreated={(c) => setCharacters((prev) => [c, ...prev])}
+          onDeleted={(id) => {
+            setCharacters((prev) => prev.filter((c) => c.id !== id));
+            if (character?.id === id) setCharacter(null);
+          }}
           balance={balance}
         />
       </div>

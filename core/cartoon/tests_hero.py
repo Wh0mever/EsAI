@@ -142,3 +142,56 @@ class RedrawFrameTests(TestCase):
         self.assertEqual(response.status_code, 400)
         self.scene.refresh_from_db()
         self.assertEqual(self.scene.keyframe, "cartoon/keyframes/wrong.png")
+
+
+@override_settings(CACHES=CACHES)
+class DeleteHeroTests(TestCase):
+    """Клиент: «надо, чтоб своего героя можно было удалить». Чужого и общего — нельзя."""
+
+    def setUp(self):
+        from rest_framework.test import APIRequestFactory, force_authenticate
+
+        from cartoon.views import CharacterDetailView
+
+        model = GPTModels.objects.create(name="m", openrouter_id="test/m", max_tokens=10,
+                                         markup_coefficient=Decimal("4"))
+        self.preset = CartoonPreset.objects.create(
+            slug="p", title="Сцена", is_active=True, duration=5, scene_prompt="x",
+            image_model=model, video_model=model)
+        self.me = get_user_model().objects.create_user(email="me@example.com", password="x-12345678")
+        self.other = get_user_model().objects.create_user(email="o@example.com", password="x-12345678")
+        self.mine = CartoonCharacter.objects.create(user=self.me, name="Мой", image="cartoon/characters/m.png")
+        self.library = CartoonCharacter.objects.create(name="Общий", image="cartoon/characters/l.png",
+                                                       is_public=True)
+
+        def call(pk, user):
+            request = APIRequestFactory().delete("/x/")
+            force_authenticate(request, user=user)
+            return CharacterDetailView.as_view()(request, pk=pk)
+
+        self.call = call
+
+    def test_own_hero_is_deleted_and_filmed_scene_survives(self):
+        project = CartoonProject.objects.create(user=self.me, character=self.mine)
+        shot = CartoonScene.objects.create(project=project, preset=self.preset, order=0,
+                                           status=CartoonScene.STATUS_READY,
+                                           video="cartoon/scenes/1.mp4")
+        self.assertEqual(self.call(self.mine.pk, self.me).status_code, 204)
+        self.assertFalse(CartoonCharacter.objects.filter(pk=self.mine.pk).exists())
+        shot.refresh_from_db()
+        self.assertEqual(shot.video, "cartoon/scenes/1.mp4")
+        project.refresh_from_db()
+        self.assertIsNone(project.character)
+
+    def test_library_and_foreign_heroes_are_untouchable(self):
+        self.assertEqual(self.call(self.library.pk, self.me).status_code, 404)
+        self.assertEqual(self.call(self.mine.pk, self.other).status_code, 404)
+        self.assertTrue(CartoonCharacter.objects.filter(pk=self.mine.pk).exists())
+
+    def test_hero_busy_in_a_running_scene_is_kept(self):
+        project = CartoonProject.objects.create(user=self.me, character=self.mine)
+        CartoonScene.objects.create(project=project, preset=self.preset, order=0,
+                                    status=CartoonScene.STATUS_VIDEO)
+        response = self.call(self.mine.pk, self.me)
+        self.assertEqual(response.status_code, 400)
+        self.assertTrue(CartoonCharacter.objects.filter(pk=self.mine.pk).exists())

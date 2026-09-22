@@ -14,6 +14,7 @@ urlpatterns = [
     path("previews/", views.PreviewsView.as_view(), name="previews"),
     path("characters/", views.CharactersView.as_view(), name="characters"),
     path("characters/generate/", views.CharacterGenerateView.as_view(), name="character-generate"),
+    path("characters/<int:pk>/", views.CharacterDetailView.as_view(), name="character-detail"),
     path("projects/", views.ProjectsView.as_view(), name="projects"),
     # Лента гостя после входа: перенос одним запросом.
     path("projects/import/", views.ProjectImportView.as_view(), name="projects-import"),

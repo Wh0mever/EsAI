@@ -1742,7 +1742,9 @@
 	},
 	"studio_ui": {
 		"title": "Cartoon Studio",
-		"subtitle": "Pick a character, collect scenes — and the studio puts them together into a finished clip. No prompts to write.",
+		"subtitle": "Pick a hero, pick the scenes — and the studio puts them together into a finished clip. No prompts to write.",
+		"hero_delete": "Delete hero",
+		"hero_delete_confirm": "Delete “{{name}}”? Scenes you already filmed will stay.",
 		"err_load": "Could not load the scenes. Please refresh the page.",
 		"err_project": "Could not start the cartoon",
 		"err_scene": "Could not add the scene",
