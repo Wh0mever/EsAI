@@ -946,8 +946,11 @@ export default function CartoonStudio() {
   };
 
   // Пустые черновики в список не берём: проект создаётся при первой сцене, и
-  // брошенная попытка не должна засорять переключатель.
-  const myMovies = projects.filter((m) => m.scenes.length > 0);
+  // брошенная попытка не должна засорять переключатель. Исключение — тот, что
+  // открыт сейчас: человек удалил из него последнюю сцену, и мультфильм не
+  // должен пропасть с экрана вместе с ней (жалоба клиента: «удалил сцену —
+  // исчезли оба»).
+  const myMovies = projects.filter((m) => m.scenes.length > 0 || m.id === project?.id);
 
   /** Ссылка на публичную страницу мультфильма.
    *
@@ -1179,7 +1182,7 @@ export default function CartoonStudio() {
 
       {/* Свои мультфильмы. Показываем, только когда есть куда переключаться:
           иначе строка занимала бы место у того, кто снимает первый ролик. */}
-      {myMovies.length > (project ? 1 : 0) && (
+      {myMovies.some((m) => m.id !== project?.id) && (
         <div className="mb-6">
           <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-2">
             {t("studio_ui.my_movies")}
