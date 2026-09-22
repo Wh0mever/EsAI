@@ -225,7 +225,18 @@ def make_audio(self, track_id: int) -> dict:
         path, duration = audio.save_audio(raw)
     except Exception as exc:
         logger.exception("звук студии: дорожка %s не получилась", track_id)
-        return fail(str(exc)[:500], "Не получилось сделать звук — попробуйте ещё раз")
+        text = str(exc)
+        # Отказ провайдера — словами: «попробуйте ещё раз» бессмысленно, если
+        # музыка не открыта на тарифе ElevenLabs (случай 22.09: 402 paid_plan_required).
+        if "paid_plan_required" in text or "not available for free users" in text:
+            shown = "Музыка временно недоступна — мы уже знаем. Кредиты не списаны."
+        elif "http 402" in text or "quota" in text.lower():
+            shown = "Сервис звука временно недоступен — кредиты не списаны, попробуйте позже."
+        elif "http 429" in text:
+            shown = "Сервис звука перегружен — подождите минуту и попробуйте снова."
+        else:
+            shown = "Не получилось сделать звук — попробуйте ещё раз"
+        return fail(text[:500], shown)
     try:
         with transaction.atomic():
             charge(user, track.credits_planned,
