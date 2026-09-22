@@ -1,5 +1,7 @@
 from pathlib import Path
 from datetime import timedelta
+
+from celery.schedules import crontab
 import os
 import environ
 
@@ -495,6 +497,9 @@ CELERY_ACCEPT_CONTENT = ["json"]
 CELERY_TASK_SERIALIZER = "json"
 CELERY_RESULT_SERIALIZER = "json"
 CELERY_IMPORTS = ("mails.tasks", "plans.tasks", "users.tasks",)
+# Расписание по местному времени, а не по UTC: «в 10 утра» — это 10 утра в Бишкеке.
+CELERY_TIMEZONE = TIME_ZONE
+CELERY_ENABLE_UTC = False
 CELERY_BEAT_SCHEDULE = {
     # Refresh currency rates hourly (kept small; adjust as you prefer)
     "plans:refresh_currency_rates": {
@@ -502,10 +507,13 @@ CELERY_BEAT_SCHEDULE = {
         "schedule": timedelta(hours=1),
         "args": (),
     },
-    # 3.3 Daily Retention Bonus (ТЗ): раз/24ч доводим баланс не-платных до 800, если <300.
+    # 3.3 Daily Retention Bonus (ТЗ): раз в день доводим баланс не-платных до 800, если <300.
+    # Ровно в 10:00 по Бишкеку (просьба клиента 22.09.2026): интервал «раз в 24 ч»
+    # отсчитывался от запуска планировщика, бонус приходил в 06:20 и уезжал
+    # после каждого перезапуска.
     "plans:apply_daily_retention_bonus": {
         "task": "plans.tasks.apply_daily_retention_bonus",
-        "schedule": timedelta(hours=24),
+        "schedule": crontab(hour=10, minute=0),
     },
     # 4.3 Анти-фрод: обработка отложенных (pending) welcome-бонусов раз в час.
     "users:process_pending_bonuses": {
