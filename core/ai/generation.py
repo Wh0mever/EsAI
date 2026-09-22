@@ -324,7 +324,12 @@ def run_video_generation(*, user, model_obj, selected_model_name: str, message: 
                      bool(first_img_abs_url), resp.text[:300])
         entry.failed(f"http {resp.status_code}: {resp.text[:500]}")
         _release_daily_request(user)
-        yield ({"error": "Не удалось запустить генерацию видео. Попробуйте ещё раз.", "done": True})
+        # Человек должен понять, ЧТО не так, а не пробовать шесть раз подряд:
+        # «на картинке реальный человек — возьмите рисунок» вместо «попробуйте ещё».
+        from .provider_errors import explain_video_error
+
+        shown, code = explain_video_error(resp.text)
+        yield ({"error": shown, "error_code": code, "done": True})
         return
     try:
         job = resp.json() or {}
