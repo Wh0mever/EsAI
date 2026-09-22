@@ -68,6 +68,22 @@ def supported_aspect(model_id: str, cfg: dict, want: str) -> str:
         return want
 
 
+def human_error(exc, what: str = "video") -> str:
+    """Отказ провайдера — словами, понятными человеку в студии.
+
+    «Кадр не получился: keyframe http 400: {...PrivacyInformation...}» никому
+    ничего не говорит; «модель не принимает фото реальных людей» — говорит.
+    """
+    from ai.provider_errors import explain_image_error, explain_video_error
+
+    text = str(exc or "")
+    shown, code = (explain_video_error if what == "video" else explain_image_error)(text)
+    if code == "provider_error":
+        return ("Видео не получилось — попробуйте ещё раз" if what == "video"
+                else "Кадр не получился — попробуйте ещё раз")
+    return shown
+
+
 def _save_bytes(raw: bytes, folder: str, ext: str) -> str:
     return default_storage.save(f"{folder}/{uuid.uuid4().hex}.{ext}", ContentFile(raw))
 
@@ -247,7 +263,7 @@ def generate_keyframe(preset, character, refs: list | None = None, aspect: str =
         timeout=IMAGE_TIMEOUT,
     )
     if not (200 <= r.status_code < 300):
-        raise RuntimeError(f"keyframe http {r.status_code}: {r.text[:200]}")
+        raise RuntimeError(f"keyframe http {r.status_code}: {r.text[:600]}")
     item = ((r.json() or {}).get("data") or [{}])[0]
     b64 = item.get("b64_json") or ""
     if not b64:
@@ -310,7 +326,7 @@ def generate_scene_video(preset, keyframe_path: str, prompt: str = "",
         body.pop("negative_prompt", None)
         r = requests.post(url, json=body, headers=headers, timeout=VIDEO_SUBMIT_TIMEOUT)
     if not (200 <= r.status_code < 300):
-        raise RuntimeError(f"video submit http {r.status_code}: {r.text[:200]}")
+        raise RuntimeError(f"video submit http {r.status_code}: {r.text[:600]}")
     job = r.json() or {}
     polling_url = str(job.get("polling_url") or "").strip()
     job_id = str(job.get("id") or job.get("generation_id") or "").strip()

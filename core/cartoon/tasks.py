@@ -19,7 +19,7 @@ from .models import CartoonProject, CartoonScene
 from .director import ensure_video_prompt
 from .services import (CustomSceneRejected, assemble_project, charge, draw_custom_keyframe,
                        draw_linked_keyframe, ensure_custom_prompt, generate_keyframe,
-                       generate_scene_video, last_frame_of, previous_anchor,
+                       generate_scene_video, human_error, last_frame_of, previous_anchor,
                        get_or_create_keyframe, preset_for_scene, remember_pair_video)
 
 logger = logging.getLogger(__name__)
@@ -92,7 +92,7 @@ def render_scene(self, scene_id: int) -> dict:
         except Exception as exc:
             logger.exception("сцена %s: кадр не получился", scene_id)
             scene.status = CartoonScene.STATUS_FAILED
-            scene.error = f"Кадр не получился: {exc}"[:500]
+            scene.error = human_error(exc, "image")[:500]
             scene.save(update_fields=["status", "error", "updated_at"])
             _notify_scene(scene, ok=False)
             return {"status": "keyframe_failed"}
@@ -182,7 +182,7 @@ def render_scene(self, scene_id: int) -> dict:
             logger.exception("сцена %s: журнал генераций не закрылся", scene_id)
         scene.status = CartoonScene.STATUS_FAILED
         # Кадр остаётся: пересоздать видео можно с ним же, не сдвинув героя.
-        scene.error = f"Видео не получилось: {exc}"[:500]
+        scene.error = human_error(exc, "video")[:500]
         scene.save(update_fields=["status", "error", "updated_at"])
         _notify_scene(scene, ok=False)
         return {"status": "video_failed"}

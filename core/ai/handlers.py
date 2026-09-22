@@ -2367,7 +2367,10 @@ def _authed_chat_stream(request):
                     logger.exception("flux image generation failed")
                     # Ошибка/не-2xx — кредиты не тронуты, слот лимита возвращаем.
                     _release_daily_request(user)
-                    yield _sse({"error": "Не удалось сгенерировать изображение. Кредиты не списаны.", "done": True})
+                    from .provider_errors import explain_image_error
+
+                    _shown, _code = explain_image_error(str(_exc))
+                    yield _sse({"error": _shown, "error_code": _code, "done": True})
                     return
 
                 answer = "Готово — изображение сгенерировано ✨"
@@ -2907,7 +2910,10 @@ def OpenAIHandler(request):
                 logger.exception("flux image generation failed (non-stream)")
                 # Ошибка/не-2xх — кредиты не тронуты, слот лимита возвращаем.
                 _release_daily_request(request.user)
-                return {"error": "Не удалось сгенерировать изображение. Кредиты не списаны."}
+                from .provider_errors import explain_image_error
+
+                _shown, _code = explain_image_error(str(_exc))
+                return {"error": _shown, "error_code": _code}
 
             answer = "Готово — изображение сгенерировано ✨"
             flux_charge = flux_need

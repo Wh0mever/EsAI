@@ -422,7 +422,7 @@ class CharacterGenerateView(StudioAPIView):
                 raise RuntimeError("в ответе нет изображения")
         except Exception as exc:
             logger.exception("персонаж не сгенерировался")
-            return Response({"detail": f"Не удалось нарисовать персонажа: {exc}"},
+            return Response({"detail": _human(exc)},
                             status=status.HTTP_502_BAD_GATEWAY)
 
         char = CartoonCharacter(
@@ -811,7 +811,7 @@ class PresetTryOnView(StudioPublicAPIView):
             path, charged = get_or_create_keyframe(preset, character, request.user, aspect)
         except Exception as exc:
             logger.exception("примерка героя: кадр не нарисовался")
-            return Response({"detail": f"Кадр не получился: {exc}"[:200]},
+            return Response({"detail": _human(exc)},
                             status=status.HTTP_502_BAD_GATEWAY)
         return Response({"image": _media(path), "charged": charged})
 
@@ -876,7 +876,7 @@ def _guest_try_on(request, preset, character, aspect: str = "16:9") -> Response:
             pass
     except Exception as exc:
         logger.exception("бесплатная примерка гостя: кадр не нарисовался")
-        return Response({"detail": f"Кадр не получился: {exc}"[:200]},
+        return Response({"detail": _human(exc)},
                         status=status.HTTP_502_BAD_GATEWAY)
     finally:
         cache.delete(lock)
@@ -897,6 +897,12 @@ def _scene_price(scene, *, keyframe_ready: bool) -> int:
     if not keyframe_ready:
         return preset.estimated_credits()
     return video_credits(preset.video_model, preset.duration)
+
+
+def _human(exc) -> str:
+    from .services import human_error
+
+    return human_error(exc, "image")
 
 
 def _no_credits(need: int, balance: int) -> Response:
@@ -941,7 +947,7 @@ class SceneFrameView(StudioAPIView):
                             status=status.HTTP_400_BAD_REQUEST)
         except Exception as exc:
             logger.exception("своя сцена %s: кадр не нарисовался", scene.pk)
-            return Response({"detail": f"Кадр не получился: {exc}"[:200]},
+            return Response({"detail": _human(exc)},
                             status=status.HTTP_502_BAD_GATEWAY)
         scene.credits_spent += price
         scene.error = ""
