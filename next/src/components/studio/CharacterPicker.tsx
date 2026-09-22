@@ -2,7 +2,7 @@
 
 import { useTranslation } from "react-i18next";
 import { useRef, useState } from "react";
-import { FiLoader, FiPlus, FiUpload, FiZap } from "react-icons/fi";
+import { FiLoader, FiPlus, FiUpload, FiX, FiZap } from "react-icons/fi";
 import { fetchData } from "@/tools/fetchData";
 
 export type StudioCharacter = {
@@ -35,6 +35,7 @@ export default function CharacterPicker({
   value,
   onPick,
   onCreated,
+  onDeleted,
   balance,
 }: {
   /** Вошёл ли человек: гостю нельзя ни загрузить своего героя, ни нарисовать. */
@@ -48,6 +49,8 @@ export default function CharacterPicker({
   value: StudioCharacter | null;
   onPick: (c: StudioCharacter) => void;
   onCreated: (c: StudioCharacter) => void;
+  /** Свой герой удалён — убрать из списка. */
+  onDeleted?: (id: number) => void;
   balance: number | null;
 }) {
   const { t } = useTranslation("common");
@@ -73,6 +76,15 @@ export default function CharacterPicker({
     return head;
   })();
   const hiddenCount = Math.max(0, characters.length - COLLAPSED);
+
+  /** Удалить своего героя. Клиент: «надо, чтоб своего героя можно было удалить». */
+  const remove = async (c: StudioCharacter) => {
+    if (!confirm(t("studio_ui.hero_delete_confirm", { name: c.name }))) return;
+    setError("");
+    const res = await fetchData(`cartoon/characters/${c.id}/`, "DELETE", null, true);
+    if (res.ok) onDeleted?.(c.id);
+    else setError((res.data as any)?.detail || t("studio_ui.err_upload"));
+  };
 
   const upload = async (file: File) => {
     setBusy("upload");
@@ -136,11 +148,11 @@ export default function CharacterPicker({
         {shownCharacters.map((c) => {
           const active = value?.id === c.id;
           return (
+            <div key={c.id} className="relative">
             <button
-              key={c.id}
               type="button"
               onClick={() => onPick(c)}
-              className={`group relative aspect-square overflow-hidden rounded-xl border-2 transition-all cursor-pointer ${
+              className={`group relative aspect-square w-full overflow-hidden rounded-xl border-2 transition-all cursor-pointer ${
                 active ? "border-accent shadow-lg" : "border-border hover:border-accent/50"
               }`}
               title={c.name}
@@ -157,6 +169,22 @@ export default function CharacterPicker({
                 {c.name}
               </span>
             </button>
+            {/* Своего героя можно убрать. Библиотечных — нет: они общие. */}
+            {c.is_mine && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void remove(c);
+                }}
+                title={t("studio_ui.hero_delete")}
+                aria-label={t("studio_ui.hero_delete")}
+                className="absolute right-1 top-1 grid size-6 place-items-center rounded-full bg-black/60 text-white transition-colors hover:bg-red-500 cursor-pointer"
+              >
+                <FiX className="text-sm" />
+              </button>
+            )}
+            </div>
           );
         })}
 

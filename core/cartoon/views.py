@@ -369,6 +369,31 @@ class CharactersView(StudioPublicAPIView):
         return Response(character_json(char, _lang(request)), status=status.HTTP_201_CREATED)
 
 
+class CharacterDetailView(StudioAPIView):
+    """DELETE — убрать своего героя из библиотеки.
+
+    Только свой (загруженный или нарисованный): библиотечные общие, их правит
+    админ. Снятые сцены герой не теряют — у них своё видео, а ссылка на героя
+    просто обнуляется (SET_NULL). Но сцену, которая снимается прямо сейчас,
+    без героя оставлять нельзя: съёмке он ещё нужен.
+    """
+
+    def delete(self, request, pk):
+        char = CartoonCharacter.objects.filter(pk=pk, user=request.user).first()
+        if not char:
+            return Response({"detail": "Это не ваш герой"}, status=status.HTTP_404_NOT_FOUND)
+        busy = CartoonScene.objects.filter(
+            Q(character=char) | Q(character__isnull=True, project__character=char),
+            status__in=(CartoonScene.STATUS_NEW, CartoonScene.STATUS_KEYFRAME,
+                        CartoonScene.STATUS_VIDEO),
+        ).exists()
+        if busy:
+            return Response({"detail": "С этим героем сейчас снимается сцена — дождитесь конца съёмки"},
+                            status=status.HTTP_400_BAD_REQUEST)
+        char.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
 class CharacterGenerateView(StudioAPIView):
     """POST — нарисовать персонажа по описанию и сохранить в свою библиотеку.
 
