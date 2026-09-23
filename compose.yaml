@@ -1,5 +1,14 @@
+# Логи контейнеров (stdout gunicorn, next, nginx) по умолчанию растут без
+# предела и однажды съедают диск. Держим пять файлов по 20 МБ на сервис.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "5"
+
 services:
   db:
+    logging: *default-logging
     image: postgres:16-alpine
     restart: always
     env_file: .env
@@ -17,6 +26,7 @@ services:
     networks: [web]
 
   redis:
+    logging: *default-logging
     image: redis:7-alpine
     restart: always
     command: ["redis-server", "--appendonly", "yes"]
@@ -31,6 +41,7 @@ services:
     networks: [web]
 
   core:
+    logging: *default-logging
     user: "0:0"
     build:
       context: ./core
@@ -39,6 +50,11 @@ services:
     environment:
       CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
       CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
+      # Потоки в каждом из трёх процессов gunicorn. Синхронный воркер держал
+      # целый процесс на каждый ответ чата (SSE) и на каждую генерацию картинки
+      # или видео внутри запроса — три таких запроса, и вход, оплаты и весь
+      # остальной API ждали минутами.
+      GUNICORN_CMD_ARGS: ${GUNICORN_CMD_ARGS:---worker-class gthread --threads 8}
     depends_on:
       db:
         condition: service_healthy
@@ -55,6 +71,7 @@ services:
     networks: [web]
 
   celery:
+    logging: *default-logging
     build:
       context: ./core
       dockerfile: Dockerfile
@@ -63,6 +80,10 @@ services:
       CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
       CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
       C_FORCE_ROOT: "1"
+      # Миграции и статику делает только core: четыре одновременных migrate
+      # при старте могли дважды применить одну миграцию данных.
+      RUN_MIGRATIONS: "0"
+      RUN_COLLECTSTATIC: "0"
     command: >
       sh -lc "celery -A core worker
       --loglevel=${CELERY_LOG_LEVEL:-INFO}
@@ -79,6 +100,10 @@ services:
       - ./media:/app/media
       # Share the same logs directory so Celery writes to host-mounted logs
       - ./logs:/app/logs
+      # Код — с диска, как у core. Запечённый в образ код жил своей жизнью:
+      # после обычной выкладки воркер молча крутил старые задачи и старый
+      # биллинг, пока не пересоберёшь образ. Теперь хватает рестарта.
+      - ./core:/app
     restart: always
     healthcheck:
       test: ["CMD-SHELL", "test -f /tmp/celery.pid && kill -0 $(cat /tmp/celery.pid)"]
@@ -90,6 +115,7 @@ services:
   # Отдельный воркер для долгих задач: видео из бота и сцены студии. В общей
   # очереди десятиминутный ролик задерживал бы письма, бонусы и уведомления.
   celery_media:
+    logging: *default-logging
     build:
       context: ./core
       dockerfile: Dockerfile
@@ -98,6 +124,10 @@ services:
       CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
       CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
       C_FORCE_ROOT: "1"
+      # Миграции и статику делает только core: четыре одновременных migrate
+      # при старте могли дважды применить одну миграцию данных.
+      RUN_MIGRATIONS: "0"
+      RUN_COLLECTSTATIC: "0"
     command: >
       sh -lc "celery -A core worker
       -Q ${CELERY_MEDIA_QUEUE:-media}
@@ -114,7 +144,12 @@ services:
       - ./static:/app/static
       - ./media:/app/media
       - ./logs:/app/logs
+      - ./core:/app
     restart: always
+    # Сцена снимается до ~10 минут. По умолчанию docker ждёт 10 секунд и
+    # убивает воркер — каждая выкладка обрывала съёмки, за которые провайдер
+    # уже взял деньги. Celery на SIGTERM дорабатывает начатое.
+    stop_grace_period: 12m
     healthcheck:
       test: ["CMD-SHELL", "test -f /tmp/celery_media.pid && kill -0 $(cat /tmp/celery_media.pid)"]
       interval: 10s
@@ -123,6 +158,7 @@ services:
     networks: [web]
 
   celery_beat:
+    logging: *default-logging
     build:
       context: ./core
       dockerfile: Dockerfile
@@ -130,6 +166,8 @@ services:
     environment:
       CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
       CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
+      RUN_MIGRATIONS: "0"
+      RUN_COLLECTSTATIC: "0"
     command: >
       sh -lc "celery -A core beat
       --loglevel=${CELERY_LOG_LEVEL:-INFO}
@@ -151,8 +189,10 @@ services:
     volumes:
       # Celery beat may also emit logs via Django logging config
       - ./logs:/app/logs
+      - ./core:/app
 
   next:
+    logging: *default-logging
     build:
       context: ./next
       dockerfile: Dockerfile
@@ -173,6 +213,8 @@ services:
     environment:
       NODE_ENV: production
       NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+      # middleware.ts обновляет токен входа напрямую у core, мимо Cloudflare.
+      INTERNAL_API_ORIGIN: ${INTERNAL_API_ORIGIN:-http://core:8000}
       # Ensure runtime access for API route and window.__FP_ENV__ injection
       FREEDOM_PAY_PUBLIC_KEY: ${FREEDOM_PAY_PUBLIC_KEY}
       FREEDOM_PAY_TOKEN: ${FREEDOM_PAY_TOKEN}
@@ -195,6 +237,7 @@ services:
     networks: [web]
 
   bot:
+    logging: *default-logging
     build:
       context: .
       dockerfile: bot/Dockerfile
@@ -218,6 +261,7 @@ services:
     networks: [web]
 
   nginx:
+    logging: *default-logging
     image: nginx:1.27-alpine
     depends_on:
       - core

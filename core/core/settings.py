@@ -21,6 +21,10 @@ ALLOWED_HOSTS = env.list(
     "DJANGO_ALLOWED_HOSTS",
     default=["localhost", "127.0.0.1"],
 )
+# Имя контейнера в docker-сети: так к Django ходит middleware Next (обновление
+# токена входа), минуя Cloudflare. Снаружи этот адрес недостижим.
+if "core" not in ALLOWED_HOSTS and "*" not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS.append("core")
 
 # Behind nginx reverse proxy: trust X-Forwarded-Proto
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
@@ -237,8 +241,11 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # --- REST framework (Session + JWT) ---
 REST_FRAMEWORK = {
+    # Только JWT: сайт, бот и админка ходят с Bearer-токеном. Сессия Django
+    # нужна лишь на мгновение соцвхода (allauth -> auth/complete). С сессией
+    # первой в списке DRF отвечал «нет входа» кодом 403 вместо 401 — и ветки
+    # фронта «сессия истекла, обновить токен» (они ждут 401) не срабатывали.
     "DEFAULT_AUTHENTICATION_CLASSES": [
-        "rest_framework.authentication.SessionAuthentication",
         "rest_framework_simplejwt.authentication.JWTAuthentication",
     ],
     "DEFAULT_PERMISSION_CLASSES": [
@@ -262,6 +269,9 @@ REST_FRAMEWORK = {
         "crypto_ipn": env.str("DRF_THROTTLE_CRYPTO_IPN", default="120/min"),
         # Бот ходит из одного контейнера: анонимного лимита по IP ему мало.
         "bot_service": env.str("DRF_THROTTLE_BOT_SERVICE", default="600/min"),
+        # Свой лимит на каждого человека в боте (ключ — telegram_id из подписанного
+        # запроса); общий bot_service выше — потолок на всех вместе.
+        "bot_service_user": env.str("DRF_THROTTLE_BOT_SERVICE_USER", default="30/min"),
         "stt": env.str("DRF_THROTTLE_STT", default="20/min"),
     },
 }
@@ -554,6 +564,20 @@ CELERY_BEAT_SCHEDULE = {
     "payments:reconcile_star_transactions": {
         "task": "payments.tasks.reconcile_star_transactions",
         "schedule": timedelta(minutes=10),
+    },
+    # ЮKassa: уведомление приходит один раз на событие. Если в эту секунду
+    # сервер был недоступен, рублёвая оплата осталась бы без кредитов —
+    # раз в 5 минут спрашиваем про незакрытые заказы за сутки сами.
+    "payments:reconcile_yookassa_payments": {
+        "task": "payments.tasks.reconcile_yookassa_payments",
+        "schedule": timedelta(minutes=5),
+    },
+    # Студия: сцена или сборка, чей воркер умер (выкладка, лимит времени),
+    # иначе висели бы «в работе» вечно — без кнопки «переснять» и с
+    # бесконечным опросом на странице. Раз в 5 минут снимаем зависшее.
+    "cartoon:fail_stale_work": {
+        "task": "cartoon.tasks.fail_stale_work",
+        "schedule": timedelta(minutes=5),
     },
 }
 

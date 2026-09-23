@@ -20,9 +20,25 @@ dc up -d --force-recreate core
 # Проверка, что миграции в порядке:
 dc exec -T core python manage.py makemigrations --check --dry-run   # ждём "No changes detected"
 
+# Воркеры Celery тоже читают код с диска (./core:/app), но всегда
+# ПЕРЕСОЗДАЁМ их, а не `restart`: restart поднимает контейнер с прежними
+# настройками и не видит правок compose.yaml (монтирование кода, env,
+# stop_grace_period, logging). Контейнер, созданный до монтирования, так и
+# крутил бы старый код из образа — без новых задач beat и фиксов биллинга.
+# --no-deps — чтобы заодно не пересоздались core и redis. При смене
+# requirements/Dockerfile добавить --build.
+# celery_media дорабатывает начатые съёмки до 12 минут (stop_grace_period) —
+# команда может ждать, это нормально.
+dc up -d --force-recreate --no-deps celery celery_beat celery_media
+
 # Фронтенд (всегда пересобирать образ — Next standalone):
 dc build next
 dc up -d --force-recreate next
+# nginx спрашивает адреса core/next у docker-DNS на каждый запрос, рестарт
+# nginx после пересоздания контейнеров больше не нужен. После правки
+# nginx/nginx-ssl.conf — только пересоздание (файл примонтирован одиночным
+# bind-mount, reload внутри контейнера видит старый файл):
+# dc up -d --force-recreate --no-deps nginx
 ```
 
 ## Применить миграции вручную (при необходимости)
@@ -42,7 +58,37 @@ dc ps
 curl -s -o /dev/null -w "%{http_code}\n" https://esai.kg/
 curl -s https://esai.kg/api/ai/models/ | head -c 200
 dc logs core --tail 50
+# /media/ показывает в браузере только картинки, звук, видео и PDF, остальное —
+# на скачивание в песочнице (защита от скриптов в загруженных файлах):
+echo '<rss/>' > media/_hdrcheck.rss
+curl -sI https://esai.kg/media/_hdrcheck.rss | grep -i '^content-disposition'   # ждём attachment
+rm media/_hdrcheck.rss
 ```
+
+## Разово: старые вложения чата
+
+До проверки расширений загрузка чата сохраняла файл под любым именем от
+клиента, так что в `media/uploads/chat` могут лежать `.html`, `.svg`, `.rss`,
+`.atom` и т. п. nginx их уже отдаёт только на скачивание, но лучше убрать их из
+`/media` совсем. Не удаляем, а переносим в карантин вне `/media` — на них
+ссылается старая история чатов (там они станут 404).
+
+```bash
+cd /opt/esai
+# 1) посмотреть, что не проходит нынешний allowlist загрузки чата:
+find media/uploads/chat -type f ! -iregex '.*\.\(jpe?g\|png\|gif\|webp\|bmp\|heic\|heif\|pdf\|docx?\|xlsx?\|pptx?\|txt\)' -print
+# 2) перенести их в карантин с сохранением путей:
+find media/uploads/chat -type f ! -iregex '.*\.\(jpe?g\|png\|gif\|webp\|bmp\|heic\|heif\|pdf\|docx?\|xlsx?\|pptx?\|txt\)' \
+  -exec sh -c 'q=$0; for f; do mkdir -p "$q/$(dirname "$f")" && mv "$f" "$q/$f"; done' /opt/esai-quarantine {} +
+# 3) остальной /media — только просмотреть (там могут быть законные SVG, их не трогать вслепую):
+find media -type f -iregex '.*\.\(rss\|atom\|kml\|xspf\|mml\|x?html?\|shtml\|xht\|svgz?\|xml\|xsl\|m?js\)' -print
+```
+
+# 4) После выкладки nginx и карантина — сбросить кэш Cloudflare (Caching →
+# Configuration → Purge Everything или Custom Purge по адресам из шага 1).
+# SVG Cloudflare кэширует, а `/media/` отдаётся с `expires 7d`: без сброса
+# старый ответ (без attachment и песочницы) ещё до недели живёт на краю сети,
+# в том числе у перенесённых в карантин файлов.
 
 > Перед крупным обновлением сделайте бэкап БД: `bash scripts/db-backup.sh`.
 
@@ -51,8 +97,9 @@ dc logs core --tail 50
 ```bash
 # бэкенд бота живёт в core (миграции botapi/ai/payments/plans применятся на старте core)
 docker compose up -d --force-recreate --no-deps core
-# задачи запечены в образы воркеров — пересобрать все три
-docker compose up -d --build celery celery_beat celery_media
+# воркеры читают код с диска, но именно пересоздаём (restart не применяет
+# правки compose.yaml, см. «Обычное обновление»); при смене зависимостей — ещё --build
+docker compose up -d --force-recreate --no-deps celery celery_beat celery_media
 # сам бот
 docker compose up -d --build bot
 docker compose exec -T bot python -m bot.selfcheck

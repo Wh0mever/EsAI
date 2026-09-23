@@ -17,3 +17,4 @@ backups/
 
 # Локальные настройки для прогона тестов на машине разработчика.
 core/core/settings_localtest.py
+core/core/settings_sqlitetest.py
