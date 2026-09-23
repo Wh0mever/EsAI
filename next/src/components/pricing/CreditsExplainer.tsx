@@ -162,6 +162,16 @@ export default function CreditsExplainer() {
                 </li>
               ))}
             </ul>
+            {/* Тариф видео — за секунду в обычном качестве. 1080p и 4K у провайдера
+                в разы дороже, и цена ролика это учитывает — говорим заранее. */}
+            {g.key === "video" && (
+              <p className="border-t border-border px-4 py-2.5 text-xs text-muted-2">
+                {t("packages.credits_video_note", {
+                  defaultValue:
+                    "Цена за секунду в обычном качестве (720p). Ролики в 1080p и 4K дороже — точную цену вы увидите перед съёмкой.",
+                })}
+              </p>
+            )}
           </div>
         ))}
 

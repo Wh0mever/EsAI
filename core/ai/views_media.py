@@ -224,10 +224,19 @@ class GenerationJobCreateView(APIView):
                 want_resolution or str(getattr(settings, "VIDEO_GEN_RESOLUTION", "720p")),
             )
             duration = int(params["duration"])
+            resolution = str(params["resolution"])
         except Exception:
             duration = want_duration or int(getattr(settings, "VIDEO_GEN_DURATION", 5) or 5)
-        coeff = float(getattr(model_obj, "markup_coefficient", 1) or 1)
-        need = max(1, math.ceil(duration * coeff))
+            resolution = want_resolution or str(getattr(settings, "VIDEO_GEN_RESOLUTION", "720p"))
+        # Та же цена, что спишет генерация: с разрешением и не ниже себестоимости.
+        from .handlers import _openrouter_video_catalog
+        from .video_cost import video_credits
+
+        try:
+            spec = _openrouter_video_catalog(selected)
+        except Exception:
+            spec = {}
+        need = video_credits(model_obj, spec, resolution, duration)
 
         try:
             user.refresh_from_db(fields=["token_balance"])

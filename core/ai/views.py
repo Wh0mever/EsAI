@@ -718,6 +718,7 @@ class VideoModelParamsAPIView(APIView):
         sizes: list[str] = []
         frames: list[str] = []
         generate_audio = False
+        spec = {}
         try:
             from .handlers import _openrouter_video_catalog
 
@@ -751,8 +752,24 @@ class VideoModelParamsAPIView(APIView):
             # Какие кадры принимает модель: first_frame / last_frame.
             "frame_images": frames,
             "generate_audio": generate_audio,
+            # Базовый тариф модели (кр/с при обычном разрешении) — для старых клиентов.
             "credits_per_second": coeff,
+            # Точные цены: {разрешение: {секунды: кредиты}}. Цена зависит от
+            # разрешения и не бывает ниже себестоимости (ai/video_cost.py) — фронт
+            # и бот показывают отсюда то, что потом и спишется.
+            "price_table": _price_table_safe(obj, spec, resolutions or [default_resolution],
+                                             sorted(set(durations)) or [default_duration]),
         }, status=status.HTTP_200_OK)
+
+
+def _price_table_safe(obj, spec, resolutions, durations) -> dict:
+    try:
+        from .video_cost import price_table
+
+        return price_table(obj, spec, resolutions, durations)
+    except Exception:
+        logger.exception("video price table failed for %s", getattr(obj, "openrouter_id", "?"))
+        return {}
 
 
 class CartoonModelsListAPIView(APIView):
