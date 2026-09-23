@@ -185,15 +185,22 @@ def extract_text_from_file(file, filename: str) -> str:
                 return ""
             wb = load_workbook(io.BytesIO(raw), read_only=True, data_only=True)
             parts = []
+            # Текущая длина — счётчиком: пересчёт sum() по всем строкам на каждой
+            # новой строке делал разбор большой таблицы квадратичным.
+            _total = 0
             for ws in wb.worksheets:
-                parts.append(f"# {ws.title}")
+                title = f"# {ws.title}"
+                parts.append(title)
+                _total += len(title)
                 for row in ws.iter_rows(values_only=True):
                     cells = [str(c) for c in row if c is not None]
                     if cells:
-                        parts.append("\t".join(cells))
-                    if sum(len(p) for p in parts) > DOCUMENT_TEXT_MAX_CHARS:
+                        line = "\t".join(cells)
+                        parts.append(line)
+                        _total += len(line)
+                    if _total > DOCUMENT_TEXT_MAX_CHARS:
                         break
-                if sum(len(p) for p in parts) > DOCUMENT_TEXT_MAX_CHARS:
+                if _total > DOCUMENT_TEXT_MAX_CHARS:
                     break
             try:
                 wb.close()
@@ -427,11 +434,32 @@ class ChatSessionListAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
+        # Раньше prefetch_related("messages") тянул ВСЕ сообщения всех чатов
+        # (с текстами документов и вложениями), а сериализатор ещё и делал по
+        # запросу на чат за последним сообщением — у активного пользователя
+        # список чатов грузил десятки мегабайт. Теперь счётчик и последнее
+        # сообщение считает сама база подзапросами; форма ответа прежняя.
+        from django.db.models import Count, DateTimeField, IntegerField, OuterRef, Subquery
+        from django.db.models.functions import Coalesce, Substr
+
+        last = AiChatMessage.objects.filter(session=OuterRef("pk")).order_by("-created_at", "-id")
+        counts = (AiChatMessage.objects.filter(session=OuterRef("pk"))
+                  .order_by().values("session").annotate(n=Count("id")).values("n"))
         qs = (
             AiChatSession.objects
             .filter(user=request.user)
-            .order_by("-updated_at")
-            .prefetch_related("messages")
+            .annotate(
+                messages_count_value=Coalesce(Subquery(counts, output_field=IntegerField()), 0),
+                last_message_role=Subquery(last.values("role")[:1]),
+                # 201 символ: сериализатор режет до 200 и ставит «…», если длиннее.
+                last_message_content=Subquery(last.annotate(
+                    short=Substr("content", 1, 201)).values("short")[:1]),
+                last_message_at=Subquery(last.values("created_at")[:1]),
+            )
+            # Свежая переписка — наверху: по времени последнего сообщения.
+            .annotate(activity_at=Coalesce(
+                "last_message_at", "updated_at", output_field=DateTimeField()))
+            .order_by("-activity_at", "-id")
         )
         data = AiChatSessionListSerializer(qs, many=True).data
         return Response(data)
@@ -766,15 +794,49 @@ class ChatAttachmentUploadAPIView(APIView):
     throttle_classes = [UserRateThrottle]
 
     # Расширения изображений — определяем тип по содержимому/расширению,
-    # а не доверяем client-присланному content_type.
+    # а не доверяем client-присланному content_type. SVG убран: это документ
+    # со скриптами, отданный из /media/ он исполнялся бы на нашем домене.
     _IMAGE_EXTENSIONS = {
-        ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".svg", ".heic", ".heif",
+        ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".heic", ".heif",
     }
+    # content_type → расширение для файлов без расширения (вставка скриншота
+    # из буфера приходит как «image.png», но бывает и просто «blob»).
+    _IMAGE_CTYPE_EXT = {
+        "image/jpeg": ".jpg", "image/jpg": ".jpg", "image/png": ".png", "image/gif": ".gif",
+        "image/webp": ".webp", "image/bmp": ".bmp", "image/heic": ".heic", "image/heif": ".heif",
+    }
+
+    def _validated_ext(self, f) -> str | None:
+        """Расширение файла, если мы такой тип принимаем, иначе None."""
+        ext = os.path.splitext((f.name or "").lower())[1]
+        if ext in self._IMAGE_EXTENSIONS or ext in _DOCUMENT_EXTENSIONS:
+            return ext
+        if not ext:
+            ctype = (getattr(f, "content_type", "") or "").lower().split(";")[0].strip()
+            return self._IMAGE_CTYPE_EXT.get(ctype)
+        return None
 
     def post(self, request):
         files = request.FILES.getlist("files")
         if not files:
             return Response({"detail": "No files provided"}, status=400)
+
+        # Принимаем только картинки и документы, из которых умеем брать текст.
+        # Раньше сохранялось что угодно под именем от клиента — .html/.svg/.js
+        # из /media/ открывались браузером на нашем домене (хранимый XSS).
+        for f in files:
+            if self._validated_ext(f) is None:
+                return Response(
+                    {
+                        "detail": (
+                            f"Файл «{get_valid_filename(f.name or 'file')}» нельзя прикрепить. "
+                            "Подходят картинки (JPG, PNG, GIF, WEBP, BMP, HEIC) и документы "
+                            "(PDF, DOC, DOCX, XLS, XLSX, PPT, PPTX, TXT)."
+                        ),
+                        "error_code": "unsupported_file_type",
+                    },
+                    status=400,
+                )
 
         # Лимит количества файлов на запрос (ТЗ 8): защита от массовой загрузки.
         if len(files) > MAX_ATTACHMENTS_PER_REQUEST:
@@ -799,27 +861,19 @@ class ChatAttachmentUploadAPIView(APIView):
 
         uploaded = []
         for f in files:
-            # sanitize and build path: uploads/chat/{user}/{uuid}/{filename}
-            subdir = f"uploads/chat/{request.user.id}/{uuid.uuid4().hex}"
+            # Имя на диске — наше (uuid + проверенное расширение), а не клиента:
+            # так в /media/ не попадёт ни «.html», ни «x.png.svg», ни путь.
+            # Исходное имя остаётся только в ответе (name) — для подписи чипа.
+            ext = self._validated_ext(f)
             name = get_valid_filename(f.name or "file")
-            path = os.path.join(subdir, name)
+            path = f"uploads/chat/{request.user.id}/{uuid.uuid4().hex}{ext}"
             saved_path = default_storage.save(path, f)
             url = default_storage.url(saved_path)
             ctype = getattr(f, "content_type", "application/octet-stream") or "application/octet-stream"
 
-            ext = os.path.splitext((f.name or "").lower())[1]
             # Тип определяем по расширению (надёжнее), а content_type клиента
-            # используем лишь как дополнительный сигнал — ему нельзя слепо
-            # доверять (его задаёт клиент и может подделать).
-            if ext in self._IMAGE_EXTENSIONS:
-                typ = "image"
-            elif ext in _DOCUMENT_EXTENSIONS:
-                typ = "document"
-            elif not ext and ctype.startswith("image/"):
-                # Расширения нет — мягкий фолбэк на content_type для картинок.
-                typ = "image"
-            else:
-                typ = "file"
+            # используем лишь для файлов без расширения (см. _validated_ext).
+            typ = "document" if ext in _DOCUMENT_EXTENSIONS else "image"
 
             item = {
                 "type": typ,
@@ -889,8 +943,6 @@ class VideoShareCreateAPIView(APIView):
     throttle_classes = [UserRateThrottle]
 
     def post(self, request):
-        from django.db.models import Q
-
         from .models import SharedVideo
         from .video_edit import extract_poster, probe_video
 
@@ -907,14 +959,13 @@ class VideoShareCreateAPIView(APIView):
         # Делиться можно только СВОИМ роликом. Имена файлов — uuid4 и наружу не
         # утекают, но проверять принадлежность по «его не угадаешь» нельзя:
         # достаточно один раз увидеть чужую ссылку, чтобы завести на чужое видео
-        # свою страницу. Ищем вложение среди сообщений в сессиях пользователя.
-        media_ref = default_storage.url(name)
-        owns = AiChatMessage.objects.filter(
-            session__user=request.user,
-        ).filter(
-            Q(attachments__contains=[{"url": media_ref}])
-            | Q(attachments__contains=[{"url": name}])
-        ).exists()
+        # свою страницу. Раньше искали ссылку во ВСЕХ вложениях сессий
+        # пользователя — а вложения своих сообщений пишет сам клиент: вставил
+        # чужую ссылку в своё сообщение — и «владеешь» роликом. Теперь верим
+        # только записям сервера: журналу генераций и видео-ответам ассистента.
+        from .handlers import _user_owns_video
+
+        owns = _user_owns_video(request.user, raw_url)
 
         # Готовый мультфильм лежит не во вложениях чата, а в своём проекте:
         # студия делится тем же механизмом, что и ролики, поэтому право на

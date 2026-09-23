@@ -52,9 +52,16 @@ class JobCreateTests(TestCase):
         user = _user()
         p1, p2, enqueue = _mocks()
         with p1, p2, enqueue as enqueue:
-            response = _client(user).post(URL, {"message": "кот на скейте", "model": "test/video",
-                                               "notify": "telegram", "video_duration": 5},
-                                          format="json")
+            # Очередь — только после коммита (ATOMIC_REQUESTS): до него воркер
+            # не нашёл бы задачу в базе.
+            with self.captureOnCommitCallbacks(execute=False) as callbacks:
+                response = _client(user).post(URL, {"message": "кот на скейте",
+                                                   "model": "test/video",
+                                                   "notify": "telegram", "video_duration": 5},
+                                              format="json")
+            enqueue.assert_not_called()
+            for callback in callbacks:
+                callback()
         self.assertEqual(response.status_code, 202, response.data)
         job = GenerationJob.objects.get(uid=response.data["job_id"])
         self.assertEqual(job.status, "queued")
@@ -65,6 +72,21 @@ class JobCreateTests(TestCase):
         self.assertEqual(AiChatMessage.objects.filter(session=job.session, role="user").count(), 1)
         enqueue.assert_called_once()
         self.assertEqual(enqueue.call_args.kwargs.get("queue"), "media")
+
+    def test_queue_failure_after_commit_closes_job_and_returns_slot(self):
+        user = _user()
+        p1, p2, enqueue = _mocks()
+        with p1, p2, enqueue as enqueue, \
+                patch("ai.handlers._release_daily_request") as release:
+            enqueue.side_effect = RuntimeError("broker down")
+            with self.captureOnCommitCallbacks(execute=True):
+                response = _client(user).post(URL, {"message": "кот", "model": "test/video"},
+                                              format="json")
+        self.assertEqual(response.status_code, 202)
+        job = GenerationJob.objects.get(uid=response.data["job_id"])
+        self.assertEqual(job.status, "failed")
+        self.assertEqual(job.error_code, "queue_unavailable")
+        release.assert_called_once()
 
     def test_premium_locked_for_free_user(self):
         user = _user(paid=False)

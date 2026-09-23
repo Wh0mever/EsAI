@@ -51,20 +51,37 @@ class AiChatMessageSerializer(serializers.ModelSerializer):
 
 class AiChatSessionListSerializer(serializers.ModelSerializer):
     last_message = serializers.SerializerMethodField()
-    messages_count = serializers.IntegerField(source="messages.count", read_only=True)
+    messages_count = serializers.SerializerMethodField()
 
     class Meta:
         model = AiChatSession
         fields = ("id", "uid", "title", "provider_id", "created_at", "updated_at", "is_active", "messages_count", "last_message", "chat_mode")
 
+    # Список чатов аннотирует счётчик и последнее сообщение подзапросами
+    # (ChatSessionListAPIView) — без запроса на каждый чат. Без аннотаций
+    # (другие вызовы) — прежний путь через связь messages.
+    def get_messages_count(self, obj) -> int:
+        value = getattr(obj, "messages_count_value", None)
+        if value is not None:
+            return int(value)
+        return obj.messages.count()
+
     def get_last_message(self, obj):
-        m = obj.messages.order_by("-created_at").first()
-        if not m:
-            return None
+        if hasattr(obj, "last_message_at"):
+            if obj.last_message_at is None:
+                return None
+            content = obj.last_message_content
+            role = obj.last_message_role
+            created_at = obj.last_message_at
+        else:
+            m = obj.messages.order_by("-created_at").first()
+            if not m:
+                return None
+            content, role, created_at = m.content, m.role, m.created_at
         return {
-            "role": m.role,
-            "content": (m.content[:200] + "…") if m.content and len(m.content) > 200 else m.content,
-            "created_at": m.created_at,
+            "role": role,
+            "content": (content[:200] + "…") if content and len(content) > 200 else content,
+            "created_at": created_at,
         }
 
 class AiChatSessionMetaSerializer(serializers.ModelSerializer):

@@ -16,6 +16,7 @@ import math
 from typing import Callable, Iterator
 
 from django.conf import settings
+from django.core.cache import cache
 from django.db import transaction
 
 from plans.wallet import InsufficientTokens, charge_tokens
@@ -29,27 +30,126 @@ logger = logging.getLogger(__name__)
 # приложенные картинки, и с тяжёлым фото это заметно дольше полуминуты.
 SUBMIT_READ_TIMEOUT = 150
 
+# Замок «один ролик за раз» для чата на сайте. У бота он свой (GenerationJob),
+# а в чате его не было: пять вкладок с «сгенерируй видео» проходили проверку
+# баланса все разом (каждая видела полный баланс) — провайдеру платили за пять
+# роликов, а списать удавалось только за те, на что хватило. Срок — с запасом
+# на самую долгую генерацию: отправка 150 с + опрос до 540 с + скачивание 180 с.
+VIDEO_LOCK_TTL = 900
+VIDEO_BUSY_ERROR = "У вас уже снимается видео — дождитесь его."
 
-def run_video_generation(*, user, model_obj, selected_model_name: str, message: str,
-                         attachments, origin_base: str | None, session,
-                         want_duration: int | None = None,
-                         want_resolution: str | None = None,
-                         aspect_ratio: str | None = None,
-                         first_frame: str | None = None,
-                         last_frame: str | None = None,
-                         extend_video: str | None = None,
-                         cancel_check: Callable[[], bool] | None = None,
-                         source: str = "chat", client_ip: str | None = None) -> Iterator[dict]:
+
+def _video_lock_key(user) -> str:
+    return f"ai:video:lock:{getattr(user, 'pk', None)}"
+
+
+def reserved_video_credits(user) -> int:
+    """Кредиты, уже обещанные за ролики, которые провайдер принял, а мы не выдали.
+
+    Списание — только при выдаче, поэтому баланс такие ролики не уменьшают.
+    Замок чата держится лишь пока открыто соединение: закрыл вкладку (или
+    получил «видео снимается дольше») — и следующий ролик проходил проверку
+    баланса по полной сумме. Провайдеру платили за N роликов, а довоз списывал
+    за первый целиком, за остальные — сколько осталось (то есть ноль). Теперь
+    открытые записи журнала (чат и бот — их довозит recovery и списывает
+    credits_planned) вычитаются из баланса. Старше GIVE_UP_AFTER довоз уже не
+    ждёт — такие не держат баланс вечно.
+    """
+    from django.db.models import Sum
+    from django.utils import timezone
+
+    from .models import GenerationLog
+    from .recovery import GIVE_UP_AFTER
+
+    if not getattr(user, "pk", None):
+        return 0
+    try:
+        total = GenerationLog.objects.filter(
+            user=user, kind=GenerationLog.KIND_VIDEO,
+            source__in=(GenerationLog.SOURCE_CHAT, GenerationLog.SOURCE_BOT),
+            status__in=GenerationLog.OPEN_STATES,
+            created_at__gte=timezone.now() - GIVE_UP_AFTER,
+        ).aggregate(total=Sum("credits_planned"))["total"]
+    except Exception:
+        # Журнал не читается — не блокируем платящего (как с замком выше).
+        logger.warning("video reserve: журнал не прочитан, резерв не учтён", exc_info=True)
+        return 0
+    return max(0, int(total or 0))
+
+
+def video_balance_error(bal: int, reserved: int, need: int) -> dict | None:
+    """Отказ «не хватает кредитов» с учётом резерва (None — хватает).
+
+    balance_tokens — свободный остаток: витрина пэйволла пишет «на балансе X,
+    нужно Y», и X должен быть тем, что правда можно потратить.
+    """
+    available = max(0, int(bal) - int(reserved))
+    if available >= need:
+        return None
+    payload = {
+        "error": "Недостаточно кредитов для генерации видео.",
+        "error_code": "insufficient_balance",
+        "balance_tokens": available,
+        "required_estimate": need,
+    }
+    if reserved > 0:
+        payload["error"] = ("Недостаточно кредитов: часть баланса ждёт оплаты за видео, "
+                            "которое ещё снимается. Дождитесь его или пополните баланс.")
+        payload["reserved_credits"] = int(reserved)
+    return payload
+
+
+def run_video_generation(*, user, source: str = "chat", **kwargs) -> Iterator[dict]:
     """Сгенерировать ролик и сохранить его как ответ ассистента.
 
     Списание — только за готовый файл: любая ошибка по пути возвращает слот
-    дневного лимита и ничего не берёт с баланса.
+    дневного лимита и ничего не берёт с баланса. В чате сайта — не больше
+    одного ролика на человека одновременно (VIDEO_LOCK_TTL).
     """
+    if source != "chat":
+        yield from _run_video_generation(user=user, source=source, **kwargs)
+        return
+
+    key = _video_lock_key(user)
+    try:
+        locked = bool(cache.add(key, "1", timeout=VIDEO_LOCK_TTL))
+    except Exception:
+        # Кэш недоступен — не блокируем платящего (как с дневным лимитом).
+        logger.warning("video lock: кэш недоступен, работаем без замка", exc_info=True)
+        locked, key = True, None
+    if not locked:
+        from .handlers import _release_daily_request
+
+        _release_daily_request(user)
+        yield {"error": VIDEO_BUSY_ERROR, "error_code": "video_in_progress", "done": True}
+        return
+    try:
+        yield from _run_video_generation(user=user, source=source, **kwargs)
+    finally:
+        if key:
+            try:
+                cache.delete(key)
+            except Exception:
+                logger.warning("video lock: не снялся", exc_info=True)
+
+
+def _run_video_generation(*, user, model_obj, selected_model_name: str, message: str,
+                          attachments, origin_base: str | None, session,
+                          want_duration: int | None = None,
+                          want_resolution: str | None = None,
+                          aspect_ratio: str | None = None,
+                          first_frame: str | None = None,
+                          last_frame: str | None = None,
+                          extend_video: str | None = None,
+                          cancel_check: Callable[[], bool] | None = None,
+                          source: str = "chat", client_ip: str | None = None,
+                          log_params: dict | None = None) -> Iterator[dict]:
     from .handlers import (
         _openrouter_config,
         _openrouter_video_catalog,
         _read_own_media,
         _release_daily_request,
+        _user_owns_video,
         _video_model_params,
     )
 
@@ -75,21 +175,29 @@ def run_video_generation(*, user, model_obj, selected_model_name: str, message: 
     coeff = float(getattr(model_obj, "markup_coefficient", 1) or 1)
     need = max(1, math.ceil(duration * coeff))
 
-    # a) Пред-чек баланса ТОЧНОЙ стоимостью (цена видео известна заранее).
+    # Продлевать можно только СВОЙ ролик: файл читается с нашего диска, и чужая
+    # ссылка иначе превращала чужое видео в начало своего (см. _user_owns_video).
+    if extend_video and not _user_owns_video(user, extend_video):
+        logger.warning("extend: ролик не принадлежит пользователю %s: %s",
+                       getattr(user, "pk", None), str(extend_video)[:120])
+        _release_daily_request(user)
+        yield ({"error": "Продлить можно только своё видео из этого аккаунта.",
+                "error_code": "extend_not_owned", "done": True})
+        return
+
+    # a) Пред-чек баланса ТОЧНОЙ стоимостью (цена видео известна заранее),
+    #    за вычетом роликов, которые уже сняты/снимаются, но ещё не списаны
+    #    (reserved_video_credits). Замок чата сериализует эту проверку с
+    #    genlog.start ниже, так что две вкладки не проскочат её обе.
     try:
         user.refresh_from_db(fields=["token_balance"])
     except Exception:
         pass
     bal = int(getattr(user, "token_balance", 0) or 0)
-    if bal < need:
+    refusal = video_balance_error(bal, reserved_video_credits(user), need)
+    if refusal:
         _release_daily_request(user)
-        yield ({
-            "error": "Недостаточно кредитов для генерации видео.",
-            "error_code": "insufficient_balance",
-            "balance_tokens": bal,
-            "required_estimate": need,
-            "done": True,
-        })
+        yield ({**refusal, "done": True})
         return
 
     # Журнал генераций: с этой строки видно, кто, чем и что запустил — даже
@@ -101,7 +209,7 @@ def run_video_generation(*, user, model_obj, selected_model_name: str, message: 
         prompt=message, credits_planned=need, session=session, ip=client_ip,
         params={"duration": duration, "resolution": resolution,
                 "aspect_ratio": aspect_ratio or "", "images": len(attachments or []),
-                "extend": bool(extend_video)})
+                "extend": bool(extend_video), **(log_params or {})})
 
     # b) Фронт рисует видео-плейсхолдер (аналог image_pending).
     yield ({"video_pending": True, "duration": duration})
@@ -497,49 +605,60 @@ def run_video_generation(*, user, model_obj, selected_model_name: str, message: 
     if provider_cost is not None:
         usage_meta["provider_cost_usd"] = provider_cost
 
-    # Пока мы скачивали, ролик могла выдать фоновая задача довоза (если поток
-    # надолго замолкал). Второй раз не выдаём и второй раз не списываем.
-    if not entry.is_open():
-        logger.warning("video: ролик уже выдан фоном, повторно не списываю")
-        yield ({"error": "Видео уже в этом чате — обновите страницу.",
-                "error_code": "video_delayed", "done": True})
-        return
-
     # g) Сохранение + списание — ТЕМ ЖЕ паттерном, что текстовый путь ниже.
+    #    Пока мы скачивали, ролик могла выдать фоновая задача довоза (если поток
+    #    надолго замолкал). Раньше это проверялось отдельным чтением статуса, и
+    #    обе стороны успевали сохранить сообщение и списать. Теперь выдачу
+    #    забирает условный UPDATE в той же транзакции (claim_delivery).
+    claimed = False
     with transaction.atomic():
-        assistant_msg = AiChatMessage.objects.create(
-            session=session,
-            role="assistant",
-            content=answer,
-            attachments=atts,
-            meta=usage_meta,
-        )
-        try:
-            new_balance = charge_tokens(
-                user,
-                need,
-                "chat",
-                meta={
-                    "session_id": session.id,
-                    "message_id": assistant_msg.id,
-                    "model": selected_model_name,
-                    "video": True,
-                    "duration": duration,
-                    "provider_cost_usd": provider_cost,
-                },
+        if entry.claim_delivery():
+            claimed = True
+            assistant_msg = AiChatMessage.objects.create(
+                session=session,
+                role="assistant",
+                content=answer,
+                attachments=atts,
+                meta=usage_meta,
             )
-        except InsufficientTokens as exc:
-            new_balance = exc.balance
-            if exc.balance > 0:
-                try:
-                    new_balance = charge_tokens(user, exc.balance, "chat", meta={
+            try:
+                new_balance = charge_tokens(
+                    user,
+                    need,
+                    "chat",
+                    meta={
                         "session_id": session.id,
                         "message_id": assistant_msg.id,
-                        "partial": True,
-                        "required": need,
-                    })
-                except InsufficientTokens as exc2:
-                    new_balance = exc2.balance
+                        "model": selected_model_name,
+                        "video": True,
+                        "duration": duration,
+                        "provider_cost_usd": provider_cost,
+                    },
+                )
+            except InsufficientTokens as exc:
+                new_balance = exc.balance
+                if exc.balance > 0:
+                    try:
+                        new_balance = charge_tokens(user, exc.balance, "chat", meta={
+                            "session_id": session.id,
+                            "message_id": assistant_msg.id,
+                            "partial": True,
+                            "required": need,
+                        })
+                    except InsufficientTokens as exc2:
+                        new_balance = exc2.balance
+            entry.attach_message(assistant_msg, credits=need, result_url=atts[0]["url"])
+
+    if not claimed:
+        # Ролик уже выдал довоз — второй раз не выдаём и не списываем. Свою
+        # копию файла убираем, а человеку показываем уже выданное сообщение.
+        logger.warning("video: ролик уже выдан фоном, повторно не списываю")
+        try:
+            default_storage.delete(path)
+        except Exception:
+            logger.debug("video: лишняя копия ролика не удалилась", exc_info=True)
+        yield _already_delivered_frame(entry, user, session)
+        return
 
     entry.stage("saved", atts[0]["url"])
     entry.delivered(credits=need, cost=provider_cost, result_url=atts[0]["url"],
@@ -564,3 +683,36 @@ def run_video_generation(*, user, model_obj, selected_model_name: str, message: 
         "balance_tokens": new_balance,
     })
     return
+
+
+def _already_delivered_frame(entry, user, session) -> dict:
+    """Кадр для стороны, проигравшей выдачу: ролик уже лежит в чате.
+
+    Если сообщение довоза найдено — отдаём его обычным кадром done (сайт сразу
+    покажет видео, бот запишет задачу как готовую, а не «не получилось»).
+    """
+    message = None
+    charged = 0
+    try:
+        entry.row.refresh_from_db(fields=["message", "credits_charged"])
+        message = entry.row.message
+        charged = int(entry.row.credits_charged or 0)
+    except Exception:
+        message = None
+    if message is None:
+        return {"error": "Видео уже в этом чате — обновите страницу.",
+                "error_code": "video_delivered", "done": True}
+    try:
+        user.refresh_from_db(fields=["token_balance"])
+    except Exception:
+        pass
+    target = message.session or session
+    return {
+        "done": True,
+        "already_delivered": True,
+        "session": {"id": target.id, "uid": target.uid, "title": target.title,
+                    "chat_mode": target.chat_mode},
+        "message": AiChatMessageSerializer(message).data,
+        "tokens_charged": charged,
+        "balance_tokens": int(getattr(user, "token_balance", 0) or 0),
+    }
