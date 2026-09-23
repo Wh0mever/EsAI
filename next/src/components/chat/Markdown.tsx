@@ -35,7 +35,8 @@ function CodeBlock({ children }: { children: ReactNode }) {
       <button
         type="button"
         onClick={copy}
-        className="absolute top-2 right-2 z-10 inline-flex items-center gap-1 rounded-md bg-black/40 hover:bg-black/60 text-neutral-200 text-xs px-2 py-1 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
+        // На тач-экранах hover нет — кнопка была невидимой; там показываем её всегда.
+        className="absolute top-2 right-2 z-10 inline-flex items-center gap-1 rounded-md bg-black/40 hover:bg-black/60 text-neutral-200 text-xs px-2 py-1 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 pointer-coarse:opacity-100 transition-opacity cursor-pointer"
         title={t("chat.actions.copy", { defaultValue: "Копировать" })}
       >
         {copied ? <FiCheck /> : <FiCopy />}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { usePathname } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import Cookies from "js-cookie";
 import { autoResubscribe } from "@/tools/webPush";
@@ -32,12 +33,37 @@ function isIos(): boolean {
 }
 
 /**
+ * Встроенные браузеры мессенджеров/соцсетей (Telegram, Instagram, Facebook,
+ * LINE): «На экран Домой» там нет, подсказка про установку только мешает.
+ */
+function isInAppBrowser(): boolean {
+  if (typeof window === "undefined") return false;
+  const ua = window.navigator.userAgent || "";
+  const w = window as Window & {
+    TelegramWebviewProxy?: unknown;
+    Telegram?: { WebApp?: { initData?: unknown } };
+  };
+  return (
+    /Telegram|Instagram|FBAN|FBAV|FB_IAB|\bLine\//i.test(ua) ||
+    typeof w.TelegramWebviewProxy !== "undefined" ||
+    typeof w.Telegram?.WebApp?.initData === "string"
+  );
+}
+
+/** Страницы с чатом: поле ввода внизу экрана — туда баннер ставить нельзя. */
+function isChatPath(pathname: string | null): boolean {
+  if (!pathname) return false;
+  return pathname === "/" || pathname.startsWith("/dashboard");
+}
+
+/**
  * PwaManager — registers the service worker and renders the brand-styled
  * "Install app" banner (beforeinstallprompt on Android/Chrome, manual hint on iOS).
  * Mounted once in the root layout. Renders nothing until something is actionable.
  */
 export default function PwaManager() {
   const { t } = useTranslation("common");
+  const pathname = usePathname();
   const [deferred, setDeferred] = useState<BeforeInstallPromptEvent | null>(null);
   const [showBanner, setShowBanner] = useState(false);
   const [showIosHint, setShowIosHint] = useState(false);
@@ -84,6 +110,8 @@ export default function PwaManager() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (isStandalone()) return; // already installed
+    // Во встроенном браузере Telegram/Instagram установить PWA нельзя.
+    if (isInAppBrowser()) return;
 
     let dismissed = false;
     try {
@@ -149,8 +177,19 @@ export default function PwaManager() {
 
   if (!showBanner && !showIosHint) return null;
 
+  // На страницах чата баннер внизу закрывал поле ввода (особенно iOS-подсказка,
+  // которая всплывает сама через 3.5 с) — там показываем его сверху, под шапкой.
+  const onChat = isChatPath(pathname);
+
   return (
-    <div className="fixed inset-x-0 bottom-0 z-[1100] px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pointer-events-none">
+    <div
+      className={
+        "fixed inset-x-0 z-[1100] px-3 pointer-events-none " +
+        (onChat
+          ? "top-[calc(3.5rem_+_env(safe-area-inset-top,0px)_+_0.5rem)]"
+          : "bottom-0 pb-[max(0.75rem,env(safe-area-inset-bottom))]")
+      }
+    >
       <div className="pointer-events-auto mx-auto max-w-md rounded-2xl border border-border bg-surface shadow-lg p-3.5 flex items-start gap-3">
         {/* ring: тёмный квадрат метки не сливается с bg-surface в тёмной теме */}
         <img src="/esai-mark.svg" alt="EsAI" className="w-10 h-10 rounded-xl ring-1 ring-border shrink-0" />

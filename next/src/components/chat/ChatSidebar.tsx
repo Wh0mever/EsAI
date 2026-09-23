@@ -31,7 +31,7 @@ import EsaiLogo from "@/components/brand/EsaiLogo";
 import { ConfirmationModal, Modal } from "@/components/dialog/Dialog";
 import MemoryModal from "@/components/chat/MemoryModal";
 import PromoActivate from "@/components/cabinet/PromoActivate";
-import { fetchData } from "@/tools/fetchData";
+import { clearAuthTokens, fetchData } from "@/tools/fetchData";
 import { useTheme } from "@/hooks/useTheme";
 import { useBonusSettings } from "@/hooks/useBonusSettings";
 import { pushSupported, pushPermission, enablePush } from "@/tools/webPush";
@@ -46,6 +46,13 @@ type Props = {
   balance: number | null;
   onTopUp: () => void;
   onNewChat: () => void;
+  /**
+   * Чат удалён. wasActive — удалили открытый сейчас: родитель сбрасывает
+   * сессию, иначе следующее сообщение уходило в удалённый чат.
+   */
+  onChatDeleted?: (id: string, wasActive: boolean) => void;
+  /** Вошёл ли пользователь (родитель знает точнее: access мог обновиться по refresh). */
+  authed?: boolean;
 };
 
 /**
@@ -60,6 +67,8 @@ export default function ChatSidebar({
   balance,
   onTopUp,
   onNewChat,
+  onChatDeleted,
+  authed,
 }: Props) {
   const { t, i18n } = useTranslation("common");
   const router = useRouter();
@@ -69,7 +78,7 @@ export default function ChatSidebar({
   const [clearing, setClearing] = useState(false);
   const [memoryOpen, setMemoryOpen] = useState(false);
   const [promoOpen, setPromoOpen] = useState(false);
-  const isAuthed = typeof window !== "undefined" ? Boolean(Cookies.get("access")) : false;
+  const isAuthed = authed ?? (typeof window !== "undefined" ? Boolean(Cookies.get("access")) : false);
 
   // Push-уведомления о бонусах. Показываем пункт только если браузер поддерживает
   // Web Push. Разрешение запрашиваем СТРОГО из жеста (клик) — iOS иначе молча
@@ -195,6 +204,7 @@ export default function ChatSidebar({
       if (res.ok) {
         const remaining = items.filter((x) => ref(x) !== id);
         setItems(remaining);
+        onChatDeleted?.(id, wasActive);
         // Удалили АКТИВНЫЙ чат → ведём на соседний (самый свежий из оставшихся),
         // а не на основной экран; на "/" уходим только если чатов не осталось.
         if (wasActive) {
@@ -216,10 +226,9 @@ export default function ChatSidebar({
   };
 
   const handleLogout = () => {
-    Cookies.remove("access");
-    Cookies.remove("refresh");
-    Cookies.remove("user");
-    Cookies.remove("sessionid");
+    // Вместе с cookie стираем и копии токенов Mini App (sessionStorage tg_*):
+    // иначе getToken() находил их и «выход» не выходил.
+    clearAuthTokens();
     window.location.href = "/auth/signin";
   };
 

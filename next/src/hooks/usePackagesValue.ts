@@ -28,9 +28,10 @@ export type UsePackagesValueResult = {
  * видимости (напр. TopUpModal — рендерится в дереве чата постоянно, `Modal`
  * внутри просто возвращает `null` при `open=false`), должны передавать
  * `enabled={open}`, чтобы не бить публичный эндпоинт на каждой загрузке
- * чата. Fetch запускается один раз, как только `enabled` впервые становится
- * `true` (ref-флаг), и не повторяется при последующих переключениях —
- * повторные рендеры/переоткрытия используют уже загруженные данные.
+ * чата. Fetch запускается, как только `enabled` становится `true`, и после
+ * УСПЕШНОЙ загрузки не повторяется (ref-флаг) — повторные рендеры/переоткрытия
+ * используют уже загруженные данные; после ошибки следующее открытие
+ * пробует снова.
  */
 export function usePackagesValue(enabled: boolean = true): UsePackagesValueResult {
   const [data, setData] = useState<PkgWithValue[]>([]);
@@ -40,11 +41,13 @@ export function usePackagesValue(enabled: boolean = true): UsePackagesValueResul
   // считается для конкретного языка: после переключения нужны новые данные.
   const { i18n } = useTranslation();
   const lang = apiLang(i18n.language);
-  const startedRef = useRef<string | null>(null);
+  // Язык, для которого пакеты УЖЕ загружены. Ставится только при успехе:
+  // раньше флаг ставился до запроса, и один сбой сети навсегда оставлял
+  // TopUpModal пустым — повторного запроса не было.
+  const loadedRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!enabled || startedRef.current === lang) return;
-    startedRef.current = lang;
+    if (!enabled || loadedRef.current === lang) return;
     let cancelled = false;
     setLoading(true);
     setError(false);
@@ -60,6 +63,7 @@ export function usePackagesValue(enabled: boolean = true): UsePackagesValueResul
         const list = Array.isArray(res?.data?.packages) ? res.data!.packages : [];
         if (res?.ok && list.length) {
           const sorted = [...list].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+          loadedRef.current = lang;
           setData(sorted);
         } else {
           setError(true);

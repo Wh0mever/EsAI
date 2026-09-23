@@ -12,6 +12,9 @@ import { Alert } from "@/components/ui/alert/Alert";
 export default function Questions() {
 	const [open, setOpen] = useState(false);
 	const [showAlert, setShowAlert] = useState(false);
+	// Итог отправки: раньше «отправлено» показывалось всегда — fetchData не
+	// бросает исключений, и вопрос, не дошедший до сервера, молча терялся.
+	const [sendFailed, setSendFailed] = useState(false);
 	const { t } = useTranslation("common");
 
 	return (
@@ -41,9 +44,13 @@ export default function Questions() {
 			<Alert
 				show={showAlert}
 				onClose={() => setShowAlert(false)}
-				type="success"
-				title={t("common.success")}
-				message={t("faq.message_sended")}
+				type={sendFailed ? "error" : "success"}
+				title={sendFailed ? t("status.error") : t("common.success")}
+				message={
+					sendFailed
+						? t("faq.send_error", { defaultValue: "Не удалось отправить сообщение. Проверьте интернет и попробуйте ещё раз." })
+						: t("faq.message_sended")
+				}
 				position="bottom"
 				offset={20}
 				autoClose
@@ -53,12 +60,18 @@ export default function Questions() {
 			<Modal title={t("faq.modalTitle")} open={open} onClose={() => setOpen(false)} size="lg">
 				<SmartForm
 					onSubmit={async (data) => {
-						try {
-							await fetchData("users/question/", "POST", data, false);
+						const res = await fetchData("users/question/", "POST", data, false);
+						if (res.ok) {
+							// Форма живёт внутри модалки: закрытие размонтирует её,
+							// и следующий вопрос начинается с пустых полей.
+							setSendFailed(false);
 							setOpen(false);
 							setShowAlert(true);
-						} catch {
-							setShowAlert(false);
+						} else {
+							// Модалку НЕ закрываем — введённый текст остаётся, можно
+							// просто нажать «Отправить» ещё раз.
+							setSendFailed(true);
+							setShowAlert(true);
 						}
 					}}
 					submitLabel={t("common.submit")}

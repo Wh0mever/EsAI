@@ -12,6 +12,7 @@ export const API = "/api/"; // keep relative; Nginx maps /api/* -> core
 export const BACKEND = ORIGIN || ""; // used to prefix absolute media URLs if needed
 
 import Cookies from "js-cookie";
+import { isJwtExpired, isJwtValid } from "./jwt";
 
 export type ApiResponse<T = any> = {
 	ok: boolean;
@@ -85,6 +86,19 @@ function clearSessionTokens(): void {
     session?.removeItem("tg_refresh");
 }
 
+/** Полный выход: cookie сессии + копии токенов Mini App в sessionStorage. */
+export function clearAuthTokens(): void {
+    try {
+        Cookies.remove("access");
+        Cookies.remove("refresh");
+        Cookies.remove("user");
+        Cookies.remove("sessionid");
+    } catch {}
+    try {
+        clearSessionTokens();
+    } catch {}
+}
+
 // Normalize method to uppercase and build RequestInit
 function buildInit(method: HttpMethodAny, auth: boolean, body?: BodyLike, extra?: Record<string, string>): RequestInit {
     const m = (method || "GET").toString().toUpperCase() as HttpMethod;
@@ -127,9 +141,15 @@ function buildInit(method: HttpMethodAny, auth: boolean, body?: BodyLike, extra?
 	return init;
 }
 
-async function refreshAuth(): Promise<boolean> {
+/**
+ * ok — новые токены сохранены; invalid — сервер отверг refresh (сессия
+ * мертва); error — сеть/5xx, про сессию ничего не известно.
+ */
+type RefreshOutcome = "ok" | "invalid" | "error";
+
+async function doRefresh(): Promise<RefreshOutcome> {
     const refresh = getToken("refresh");
-    if (!refresh) return false;
+    if (!refresh) return "invalid";
 
     try {
         const r = await fetch(`${API}users/token/refresh/`, {
@@ -137,7 +157,16 @@ async function refreshAuth(): Promise<boolean> {
             headers: { "Content-Type": "application/json", Accept: "application/json" },
             body: JSON.stringify({ refresh }),
         });
-        if (!r.ok) return false;
+        if (!r.ok) {
+            // Пока шёл запрос, токен могли обновить в другом месте (middleware
+            // на навигации, другая вкладка) — старый refresh после ротации в
+            // чёрном списке, и 401 тут не значит, что сессия умерла.
+            const current = getToken("refresh");
+            if (current && current !== refresh) {
+                return isJwtValid(getToken("access")) ? "ok" : "error";
+            }
+            return r.status === 401 || r.status === 400 ? "invalid" : "error";
+        }
 
 		const data = await r.json().catch(() => ({}));
 		const newAccess = data?.access;
@@ -151,10 +180,41 @@ async function refreshAuth(): Promise<boolean> {
             if (newAccess) Cookies.set("access", newAccess, { expires: 0.5, secure: true, sameSite: "lax" });
             if (newRefresh) Cookies.set("refresh", newRefresh, { expires: 15, secure: true, sameSite: "lax" });
         }
-        return Boolean(newAccess);
+        return newAccess ? "ok" : "error";
     } catch {
-        return false;
+        return "error";
     }
+}
+
+// Один refresh на всю вкладку. ROTATE_REFRESH_TOKENS + blacklist: раньше
+// несколько параллельных 401 отправляли один и тот же refresh, первый
+// ротировал его, остальные получали «blacklisted» — и стирали уже свежие
+// cookie, выкидывая человека на вход.
+let refreshInFlight: Promise<RefreshOutcome> | null = null;
+
+function refreshShared(): Promise<RefreshOutcome> {
+    if (!refreshInFlight) {
+        refreshInFlight = doRefresh().finally(() => {
+            refreshInFlight = null;
+        });
+    }
+    return refreshInFlight;
+}
+
+/**
+ * Есть ли живой access; если истёк, но есть refresh — тихо обновить.
+ * Нужен всем, кто решает «гость или вошёл» по cookie: access живёт 12 ч, и
+ * вкладка, открытая со вчера, иначе показывала платящему человеку гостевой
+ * режим. Мёртвую сессию (сервер отверг refresh) убираем, но на вход не
+ * перебрасываем — гостевой режим на «/» законен.
+ */
+export async function ensureAccess(): Promise<boolean> {
+    if (isJwtValid(getToken("access"))) return true;
+    const refresh = getToken("refresh");
+    if (!refresh || isJwtExpired(refresh, 0)) return false;
+    const outcome = await refreshShared();
+    if (outcome === "invalid") clearAuthTokens();
+    return outcome === "ok";
 }
 
 async function requestOnce<T = any>(
@@ -210,29 +270,39 @@ export async function fetchData<T = any>(
     auth: boolean = false,
     extraHeaders?: Record<string, string>
 ): Promise<ApiResponse<T>> {
+    const usedToken = auth ? getToken("access") : undefined;
     const first = await requestOnce<T>(endpoint, method, auth, body, extraHeaders);
 
     // Treat both 401 and 403 as auth failures for soft redirect
     if (!(auth && (first.status === 401 || first.status === 403))) return first;
+    // 403 с живым токеном — это «нельзя», а не «сессия истекла»: лишняя
+    // ротация refresh тут только плодит гонки.
+    if (first.status === 403 && isJwtValid(usedToken)) return first;
+
+    // Пока запрос летел, токен уже обновили (параллельный запрос/вкладка) —
+    // просто повторяем с новым, второй раз refresh не крутим.
+    const currentAccess = getToken("access");
+    if (currentAccess && currentAccess !== usedToken && isJwtValid(currentAccess)) {
+        return requestOnce<T>(endpoint, method, auth, body, extraHeaders);
+    }
 
     // Была ли у пользователя сессия (токены) ДО рефреша? Если гость без токенов —
     // не редиректим на /auth/signin (он вправе пользоваться гостевым режимом на «/»).
     const hadSession = Boolean(getToken("access") || getToken("refresh"));
-    const refreshed = await refreshAuth();
-    if (!refreshed) {
+    const outcome = await refreshShared();
+    if (outcome !== "ok") {
         // Гость без сессии: тихо возвращаем 401 вызывающему (покажет пустые данные),
         // НЕ перебрасываем на вход.
         if (!hadSession) {
             return first;
         }
+        // Сеть/5xx на refresh — сессия, скорее всего, жива: не выкидываем
+        // человека из аккаунта из-за мигнувшего интернета.
+        if (outcome === "error") {
+            return first;
+        }
         // Истёкшая сессия залогиненного пользователя — мягкий выход на /auth/signin.
-        try {
-            Cookies.remove("access");
-            Cookies.remove("refresh");
-            Cookies.remove("user");
-            Cookies.remove("sessionid");
-            clearSessionTokens();
-        } catch {}
+        clearAuthTokens();
         if (typeof window !== "undefined") {
             const loc = window.location;
             const current = `${loc.pathname}${loc.search}${loc.hash}` || "/";

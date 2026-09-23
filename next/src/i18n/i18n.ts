@@ -15,10 +15,13 @@ export const initI18n = async (lang: string) => {
   if (!i18n.isInitialized) {
     await i18n.init({
       lng: lang,
-      fallbackLng: ["kg", "ru"],
+      // Russian is the only complete locale: with ["kg","ru"] a key missing in
+      // English was shown in Kyrgyz.
+      fallbackLng: "ru",
       supportedLngs: languages,
       defaultNS: "common",
-      ns: ["common", "header", "home", "privacy", "offer", "terms"],
+      // Only namespaces that have files in src/locales (header/terms never existed).
+      ns: ["common", "home", "privacy", "offer"],
       interpolation: { escapeValue: false },
     });
   } else if (i18n.language !== lang) {

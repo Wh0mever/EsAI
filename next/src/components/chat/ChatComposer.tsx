@@ -69,6 +69,26 @@ type Props = {
   /** Параметры генерации видео (длительность, качество, опорные кадры). */
   videoSettings?: VideoSettings;
   onVideoSettingsChange?: (patch: Partial<VideoSettings>) => void;
+  /**
+   * Можно ли прикреплять файлы. Загрузка требует входа (ai/attachments/upload/
+   * IsAuthenticated): у гостя каждый файл падал, а чип молча пропадал.
+   */
+  canAttach?: boolean;
+};
+
+// Локальный id чипа вложения: результат загрузки пишем по нему, а не по
+// позиции — две параллельные загрузки (или удалённый во время загрузки чип)
+// раньше записывали файлы не в те чипы.
+let attachSeq = 0;
+const nextAttachId = () => `att-${Date.now().toString(36)}-${++attachSeq}`;
+
+/** Телефон/планшет: основной указатель — палец. */
+const isCoarsePointer = () => {
+  try {
+    return typeof window !== "undefined" && !!window.matchMedia?.("(pointer: coarse)").matches;
+  } catch {
+    return false;
+  }
 };
 
 /**
@@ -95,6 +115,7 @@ export default function ChatComposer({
   modelIsImageEdit = false,
   videoSettings,
   onVideoSettingsChange,
+  canAttach = true,
 }: Props) {
   const { t, i18n } = useTranslation("common");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -243,6 +264,11 @@ export default function ChatComposer({
   // translateY-хак здесь конфликтовал (на стартовом экране поле уезжало за верх).
 
   const uploading = Array.isArray(attachments) && attachments.some((a: any) => a?.status === "uploading");
+  // Файл не загрузился: отправлять без него нельзя — ответ был бы «про файл»,
+  // которого модель не видела. Пусть человек удалит чип и прикрепит заново.
+  const uploadFailed = Array.isArray(attachments) && attachments.some((a) => a?.status === "error");
+  // Гость нажал скрепку / вставил файл — показываем «Войдите…» вместо загрузки.
+  const [attachLoginHint, setAttachLoginHint] = useState(false);
   const hasDocument =
     Array.isArray(attachments) &&
     attachments.some((a: any) => a?.type === "document" || a?.type === "file");
@@ -262,11 +288,17 @@ export default function ChatComposer({
   };
 
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (uploading || imageNeedsVision) return;
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSubmit(e as any);
-    }
+    if (e.key !== "Enter" || e.shiftKey) return;
+    // Набор через IME (китайский/японский, часть мобильных клавиатур): Enter
+    // подтверждает слово, а не отправляет сообщение.
+    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+    // На телефоне Enter — перенос строки; отправка — кнопкой (как в мессенджерах).
+    if (isCoarsePointer()) return;
+    e.preventDefault();
+    // Пока идёт ответ (disabled) Enter раньше отправлял ВТОРОЕ сообщение
+    // поверх стрима. Теперь — ровно те же условия, что у кнопки «Отправить».
+    if (disabled || uploading || uploadFailed || imageNeedsVision || !input.trim()) return;
+    handleSubmit(e as any);
   };
 
   /**
@@ -277,44 +309,64 @@ export default function ChatComposer({
    */
   const uploadFiles = async (files: File[], _kind: "media" | "document" = "media") => {
     if (!files.length) return;
+    if (!canAttach) {
+      setAttachLoginHint(true);
+      return;
+    }
     // Тип чипа определяем ПО ФАЙЛУ: единая скрепка принимает и фото, и документы
     // (отдельная кнопка документов убрана по просьбе клиента). Сервер всё равно
     // отдаёт authoritative type после парсинга.
     const pending = files.map((f) => ({
+      _lid: nextAttachId(),
       name: f.name,
       type: f.type?.startsWith("image/") ? "image" : "document",
       preview: f.type?.startsWith("image/") ? URL.createObjectURL(f) : undefined,
       status: "uploading",
     }));
+    const ids = pending.map((p) => p._lid);
     setAttachments((prev) => [...prev, ...pending]);
+    // Помечаем ошибкой только СВОИ чипы (по _lid) — чужие загрузки не трогаем.
+    const markFailed = () =>
+      setAttachments((prev) =>
+        prev.map((a) => (a && ids.includes(a._lid) && a.status === "uploading" ? { ...a, status: "error" } : a))
+      );
     try {
       const fd = new FormData();
       for (const f of files) fd.append("files", f);
       const res = await fetchData<{ attachments: any[] }>("ai/attachments/upload/", "POST", fd, true);
       const list = (res?.data as any)?.attachments;
       if (!res?.ok || !Array.isArray(list) || list.length === 0) {
-        setAttachments((prev) => {
-          const out = [...prev];
-          for (let i = out.length - pending.length; i < out.length; i++) if (i >= 0) out[i] = { ...out[i], status: "error" };
-          return out;
-        });
+        markFailed();
       } else {
-        setAttachments((prev) => {
-          const out = [...prev];
-          for (let i = out.length - pending.length, j = 0; i < out.length && j < list.length; i++, j++) {
-            try { if (out[i]?.preview) URL.revokeObjectURL(out[i].preview); } catch {}
-            out[i] = { ...list[j], status: "ready" };
-          }
-          return out;
-        });
+        // Сервер отвечает списком в порядке отправленных файлов (всё или ничего):
+        // list[j] принадлежит чипу ids[j]. Удалённый за это время чип просто
+        // пропускаем.
+        setAttachments((prev) =>
+          prev.map((a) => {
+            const j = a ? ids.indexOf(a._lid) : -1;
+            if (j < 0) return a;
+            if (!list[j]) return { ...a, status: "error" };
+            try { if (a.preview) URL.revokeObjectURL(a.preview); } catch {}
+            return { ...list[j], _lid: a._lid, status: "ready" };
+          })
+        );
       }
     } catch {
-      setAttachments((prev) => {
-        const out = [...prev];
-        for (let i = out.length - pending.length; i < out.length; i++) if (i >= 0) out[i] = { ...out[i], status: "error" };
-        return out;
-      });
+      markFailed();
     }
+  };
+
+  const removeAttachment = (a: Props["attachments"][number]) => {
+    try { if (a?.preview && String(a.preview).startsWith("blob:")) URL.revokeObjectURL(a.preview); } catch {}
+    setAttachments((prev) => prev.filter((x) => (a?._lid ? x?._lid !== a._lid : x !== a)));
+  };
+
+  const onAttachClick = () => {
+    if (!canAttach) {
+      setAttachLoginHint(true);
+      return;
+    }
+    fileInputRef.current?.click();
   };
 
   const onFilesPicked = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -363,17 +415,33 @@ export default function ChatComposer({
             const raw = a?.url || a?.preview || "";
             const abs = raw && raw.startsWith("/") ? `${BACKEND}${raw}` : raw;
             return (
-              <div key={idx} className="relative shrink-0">
+              <div key={a?._lid || idx} className="relative shrink-0">
                 <button
                   type="button"
                   className="absolute -top-2 -right-2 z-10 bg-rose-600 text-white rounded-full w-5 h-5 text-xs grid place-items-center cursor-pointer"
-                  onClick={() => setAttachments((prev) => prev.filter((_, i) => i !== idx))}
+                  onClick={() => removeAttachment(a)}
                   title={t("common.cancel", { defaultValue: "Удалить" })}
                 >
                   ×
                 </button>
                 {isImg ? (
-                  <img src={abs} alt={a?.name || "attachment"} className="w-16 h-16 object-cover rounded-lg border border-border" />
+                  <div className="relative">
+                    <img
+                      src={abs}
+                      alt={a?.name || "attachment"}
+                      className={
+                        "w-16 h-16 object-cover rounded-lg border " +
+                        (a?.status === "error" ? "border-rose-500" : "border-border")
+                      }
+                    />
+                    {/* Ошибка загрузки фото раньше была не видна вовсе: чип
+                        выглядел как готовый, а при отправке тихо выпадал. */}
+                    {a?.status === "error" && (
+                      <div className="absolute inset-0 rounded-lg bg-rose-600/70 grid place-items-center text-[10px] font-semibold text-white">
+                        {t("chat.doc_error", { defaultValue: "Ошибка" })}
+                      </div>
+                    )}
+                  </div>
                 ) : (
                   <div
                     className="h-16 max-w-[12rem] bg-surface-2 rounded-lg flex items-center gap-2 px-3 text-foreground border border-border"
@@ -427,7 +495,7 @@ export default function ChatComposer({
             <ModelSelector value={model} onChange={onModelChange} menuDirection={menuDirection} />
             <button
               type="button"
-              onClick={() => fileInputRef.current?.click()}
+              onClick={onAttachClick}
               className="w-9 h-9 grid place-items-center rounded-full text-muted hover:text-foreground hover:bg-surface-2 transition-colors cursor-pointer"
               title={t("chat.attachments", { defaultValue: "Вложения" })}
             >
@@ -435,7 +503,16 @@ export default function ChatComposer({
             </button>
             {/* Единственная скрепка: и фото, и документы (кнопку документов убрали —
                 просьба клиента; на мобиле ряд кнопок вытеснял «Отправить»). */}
-            <input ref={fileInputRef} type="file" multiple className="hidden" onChange={onFilesPicked} />
+            {/* Те же типы, что принимает сервер (core/ai/views.py): иначе один
+                неподходящий файл в пачке отклонял всю загрузку. */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              accept=".jpg,.jpeg,.png,.gif,.webp,.bmp,.heic,.heif,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,image/jpeg,image/png,image/gif,image/webp,image/heic,image/heif"
+              className="hidden"
+              onChange={onFilesPicked}
+            />
             {speechSupported && (
               <button
                 type="button"
@@ -481,7 +558,7 @@ export default function ChatComposer({
           </div>
           <button
             type="submit"
-            disabled={disabled || uploading || imageNeedsVision || !input.trim()}
+            disabled={disabled || uploading || uploadFailed || imageNeedsVision || !input.trim()}
             className="w-10 h-10 grid place-items-center rounded-full bg-accent text-on-accent hover:bg-accent-strong transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
             title={t("chat.send", { defaultValue: "Отправить" })}
           >
@@ -489,6 +566,27 @@ export default function ChatComposer({
           </button>
         </div>
       </form>
+
+      {attachLoginHint && !canAttach && (
+        <p className="mt-2 text-center text-xs text-muted">
+          <a href="/auth/signin" className="text-accent-strong underline underline-offset-2">
+            {t("chat.attach_login", { defaultValue: "Войдите, чтобы прикреплять файлы" })}
+          </a>
+        </p>
+      )}
+
+      {uploadFailed && (
+        <p className="mt-2 text-center text-xs text-rose-500">
+          {t("chat.attach_failed", {
+            defaultValue: "Файл не загрузился. Удалите его (×) и прикрепите ещё раз.",
+          })}
+        </p>
+      )}
+      {!uploadFailed && uploading && (
+        <p className="mt-2 text-center text-xs text-muted-2">
+          {t("chat.attach_wait", { defaultValue: "Файл загружается — отправить можно после загрузки" })}
+        </p>
+      )}
 
       {imageNeedsVision && (
         <p className="mt-2 text-center text-xs text-amber-700 dark:text-amber-500">
@@ -518,7 +616,11 @@ export default function ChatComposer({
           значения приходят с бэкенда по конкретной модели. */}
       {modelIsVideo && model && videoSettings && (
         <div className="mt-2">
+          {/* key={model}: иначе при смене видео-модели панель успевала
+              подставить длительность/качество ПРЕДЫДУЩЕЙ модели (её params ещё
+              лежали в состоянии), и они оставались выбранными. */}
           <VideoParamsPanel
+            key={model}
             model={model}
             value={videoSettings}
             onChange={onVideoSettingsChange || (() => {})}

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import { fetchData, BACKEND } from "@/tools/fetchData";
 
 type VideoParams = {
@@ -67,7 +68,8 @@ function IconRatio({ className = "" }: { className?: string }) {
   );
 }
 
-/** Подписи к пропорциям — чтобы не гадать, где вертикаль, а где широкий кадр. */
+/** Подписи к пропорциям — чтобы не гадать, где вертикаль, а где широкий кадр.
+ *  Русский текст — defaultValue; перевод по ключу chat.aspect_<w>_<h>. */
 export const ASPECT_HINT: Record<string, string> = {
   "16:9": "Горизонтальное — YouTube, презентации",
   "9:16": "Вертикальное — сторис, Reels, TikTok",
@@ -80,6 +82,13 @@ export const ASPECT_HINT: Record<string, string> = {
   "21:9": "Кинематографичное, очень широкое",
   "9:21": "Очень узкое вертикальное",
 };
+
+/** Переведённая подпись к пропорции (или сама пропорция, если подписи нет). */
+export function aspectHint(t: TFunction, ratio: string): string {
+  const ru = ASPECT_HINT[ratio];
+  if (!ru) return ratio;
+  return t(`chat.aspect_${ratio.replace(":", "_")}`, { defaultValue: ru });
+}
 
 export function IconAspect({ className = "" }: { className?: string }) {
   return (
@@ -108,11 +117,11 @@ function IconPlus({ className = "" }: { className?: string }) {
   );
 }
 
-function IconTrash({ className = "" }: { className?: string }) {
+function IconX({ className = "" }: { className?: string }) {
   return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}
-      strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden>
-      <path d="M4 7h16M9 7V5h6v2M7 7l1 13h8l1-13" />
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={3}
+      strokeLinecap="round" className={className} aria-hidden>
+      <path d="M6 6l12 12M18 6 6 18" />
     </svg>
   );
 }
@@ -130,6 +139,7 @@ function FrameSlot({
   onPick: (file: File) => Promise<void>;
   onClear: () => void;
 }) {
+  const { t } = useTranslation("common");
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
   const abs = url ? (url.startsWith("/") ? BACKEND + url : url) : null;
@@ -155,16 +165,19 @@ function FrameSlot({
         }}
       />
       {abs ? (
-        <div className="group relative size-16 overflow-hidden rounded-xl border border-border">
+        <div className="relative size-16">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={abs} alt={label} className="size-full object-cover" />
+          <img src={abs} alt={label} className="size-full object-cover rounded-xl border border-border" />
+          {/* Маленький видимый ✕ в углу. Раньше кнопка-невидимка накрывала всю
+              миниатюру: на телефоне (hover нет) любой тап по кадру молча его удалял. */}
           <button
             type="button"
             onClick={onClear}
-            aria-label="Убрать кадр"
-            className="absolute inset-0 grid place-items-center bg-black/60 text-white opacity-0 transition-opacity duration-200 group-hover:opacity-100 focus:opacity-100 cursor-pointer"
+            aria-label={t("chat.video_remove_frame", { defaultValue: "Убрать кадр" })}
+            title={t("chat.video_remove_frame", { defaultValue: "Убрать кадр" })}
+            className="absolute -top-2 -right-2 z-10 grid size-5 place-items-center rounded-full bg-rose-600 text-white shadow cursor-pointer"
           >
-            <IconTrash className="size-4" />
+            <IconX className="size-3" />
           </button>
         </div>
       ) : (
@@ -179,7 +192,7 @@ function FrameSlot({
           ) : (
             <>
               <IconPlus className="size-4" />
-              <span className="text-[10px]">Кадр</span>
+              <span className="text-[10px]">{t("chat.video_frame", { defaultValue: "Кадр" })}</span>
             </>
           )}
         </button>
@@ -326,7 +339,11 @@ export default function VideoParamsPanel({ model, value, onChange }: Props) {
                     type="button"
                     onClick={() => onChange({ duration: d })}
                     className={chip(dur === d)}
-                    title={d + " сек — " + Math.max(1, Math.ceil(d * perSec)) + " кредитов"}
+                    title={t("chat.video.duration_cost", {
+                      seconds: d,
+                      credits: Math.max(1, Math.ceil(d * perSec)),
+                      defaultValue: "{{seconds}} сек — {{credits}} кредитов",
+                    })}
                   >
                     {d}
                     {t("chat.video.sec_short", { defaultValue: "с" })}
@@ -369,7 +386,7 @@ export default function VideoParamsPanel({ model, value, onChange }: Props) {
                       type="button"
                       onClick={() => onChange({ aspectRatio: value.aspectRatio === r ? null : r })}
                       className={chip(value.aspectRatio === r)}
-                      title={ASPECT_HINT[r] || r}
+                      title={aspectHint(t, r)}
                     >
                       {r}
                     </button>

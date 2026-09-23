@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { ASPECT_HINT, IconAspect } from "./VideoParamsPanel";
+import { aspectHint, IconAspect } from "./VideoParamsPanel";
 
 /**
  * ImageParamsPanel — пропорции кадра для генерации изображений.
@@ -83,7 +83,7 @@ export default function ImageParamsPanel({
                   // рисует своим размером по умолчанию, и это нормальный выбор.
                   onClick={() => onChange(value === r ? null : r)}
                   className={chip(value === r)}
-                  title={ASPECT_HINT[r] || r}
+                  title={aspectHint(t, r)}
                 >
                   {r}
                 </button>
@@ -91,7 +91,7 @@ export default function ImageParamsPanel({
             </div>
             <p className="text-[11px] text-muted-2 leading-snug">
               {value
-                ? ASPECT_HINT[value] || value
+                ? aspectHint(t, value)
                 : t("chat.image.aspect_hint", {
                     defaultValue: "Не выбрано — модель нарисует своим размером. Можно и словами: «нарисуй вертикально»",
                   })}
