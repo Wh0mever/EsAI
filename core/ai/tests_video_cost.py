@@ -54,9 +54,10 @@ class ProviderCostTests(TestCase):
 class VideoCreditsTests(TestCase):
     def setUp(self):
         cache.clear()
-        # Самый дешёвый кредит — как у MASTER: 4990 сом / 7000 кредитов.
+        # Пакеты как на проде: самый дешёвый кредит у «Максимума» (1990 / 2800).
         TokenPackage.objects.create(name="Про", tokens=500, price=490, is_active=True)
         TokenPackage.objects.create(name="MASTER", tokens=7000, price=4990, is_active=True)
+        TokenPackage.objects.create(name="Максимум", tokens=2800, price=1990, is_active=True)
         self.seedance = GPTModels.objects.create(name="Seedance 2.0", openrouter_id="bytedance/seedance-2.0",
                                                  category="video", markup_coefficient=32,
                                                  max_tokens=1000, is_active=True)
@@ -69,7 +70,7 @@ class VideoCreditsTests(TestCase):
 
     def test_1080p_is_never_below_cost_plus_margin(self):
         price = video_credits(self.seedance, SEEDANCE_20, "1080p", 15)
-        credit_usd = 4990 * 0.0115 / 7000
+        credit_usd = 1990 * 0.0115 / 2800  # «Максимум» — самый дешёвый кредит
         revenue = price * credit_usd
         cost = provider_cost_usd(SEEDANCE_20, "1080p", 15)
         self.assertGreaterEqual(revenue, cost / 0.6 - credit_usd)  # маржа ≥ 40 %
@@ -77,6 +78,16 @@ class VideoCreditsTests(TestCase):
 
     def test_without_price_list_falls_back_to_tariff(self):
         self.assertEqual(video_credits(self.seedance, {}, "1080p", 15), 480)
+
+    def test_lower_quality_is_cheaper(self):
+        # 480p у провайдера вдвое дешевле 720p — и человеку тоже, а не по цене 720p.
+        spec = dict(SEEDANCE_20, supported_resolutions=["480p", "720p", "1080p", "4K"])
+        p480 = video_credits(self.seedance, spec, "480p", 5)
+        p720 = video_credits(self.seedance, spec, "720p", 5)
+        self.assertEqual(p720, 160)
+        self.assertLess(p480, p720 * 0.6)
+        credit_usd = 1990 * 0.0115 / 2800
+        self.assertGreaterEqual(p480 * credit_usd, provider_cost_usd(spec, "480p", 5) / 0.6 - credit_usd)
 
     def test_params_api_shows_what_will_be_charged(self):
         from rest_framework.test import APIClient

@@ -154,14 +154,40 @@ def cheapest_credit_usd() -> float | None:
     return best
 
 
+def reference_resolution(spec: dict | None) -> str:
+    """Качество, в котором задан тариф модели: 720p, если модель его умеет."""
+    default = str(getattr(settings, "VIDEO_GEN_RESOLUTION", "720p") or "720p")
+    supported = [str(r) for r in ((spec or {}).get("supported_resolutions") or []) if r]
+    if not supported:
+        return default
+    low = {r.lower(): r for r in supported}
+    return low.get(default.lower()) or supported[0]
+
+
+def resolution_ratio(spec: dict | None, resolution: str) -> float:
+    """Во сколько раз секунда в этом качестве дешевле/дороже, чем в опорном."""
+    ref = reference_resolution(spec)
+    here = provider_cost_usd(spec or {}, resolution, 1)
+    there = provider_cost_usd(spec or {}, ref, 1)
+    if not here or not there:
+        return 1.0
+    return here / there
+
+
 def video_credits(model_obj, spec: dict | None, resolution: str, duration: int, *, images: int = 0) -> int:
-    """Итоговая цена ролика в кредитах: тариф модели, но не ниже себестоимости + маржа."""
+    """Итоговая цена ролика в кредитах.
+
+    Тариф модели — это цена секунды в обычном качестве (720p). Качество ниже —
+    дешевле ровно во столько раз, во сколько дешевле провайдеру (480p у Seedance
+    вдвое дешевле: раньше человек платил за него как за 720p). Качество выше —
+    не дешевле себестоимости плюс маржа (1080p у Seedance в 2,5 раза дороже).
+    """
     try:
         coeff = float(getattr(model_obj, "markup_coefficient", 1) or 1)
     except Exception:
         coeff = 1.0
     seconds = max(1, int(duration or 1))
-    base = max(1, math.ceil(seconds * coeff))
+    base = max(1, math.ceil(seconds * coeff * min(1.0, resolution_ratio(spec, resolution))))
     cost = provider_cost_usd(spec or {}, resolution, seconds, images=images)
     credit_usd = cheapest_credit_usd()
     if not cost or not credit_usd:
