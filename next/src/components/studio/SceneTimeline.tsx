@@ -41,6 +41,8 @@ export type StudioScene = {
   status: "draft" | "new" | "keyframe" | "video" | "ready" | "failed";
   error: string;
   credits_spent: number;
+  /** Сколько спишет съёмка прямо сейчас (с готовым кадром — только видео). */
+  render_credits?: number;
   /** Сколько звуковых дорожек у сцены (голоса, музыка, эффекты). */
   audio_count?: number;
 };
@@ -323,7 +325,7 @@ export default function SceneTimeline({
                   <FiCheck /> {t("studio_ui.st_ready")}
                 </span>
               ) : s.status === "failed" ? (
-                <span className="truncate text-red-400" title={s.error}>
+                <span className="truncate text-red-400">
                   {t("studio_ui.st_failed")}
                 </span>
               ) : s.status === "draft" ? (
@@ -337,6 +339,12 @@ export default function SceneTimeline({
                 <span className="ml-auto shrink-0 text-muted-2">{s.credits_spent} {t("studio_ui.credits_short")}</span>
               )}
             </div>
+
+            {/* Причина — текстом, а не подсказкой при наведении: на телефоне
+                наведения нет, и человек видел одно «Не получилось». */}
+            {s.status === "failed" && s.error && (
+              <p className="line-clamp-4 text-[11px] leading-snug text-red-400">{s.error}</p>
+            )}
 
             {/* Черновик снимается отсюда: клиент просил, чтобы человек сначала
                 набирал ленту, а потом генерировал любую сцену из неё. */}
@@ -407,7 +415,7 @@ export default function SceneTimeline({
               >
                 {busy ? <FiLoader className="animate-spin" /> : <FiRefreshCw />}
                 {t("studio_ui.reshoot_with_line", {
-                  credits: Math.max(1, (s.preset.credits || 0) - frameCredits),
+                  credits: s.render_credits ?? Math.max(1, (s.preset.credits || 0) - frameCredits),
                 })}
               </button>
             )}
@@ -486,8 +494,11 @@ export default function SceneTimeline({
                   onClick={() => onRetry(s)}
                   disabled={busy}
                   // Кадр не трогаем: пересобираем только ролик, поэтому герой и
-                  // композиция остаются прежними, а платим лишь за видео.
-                  title={t(s.status === "failed" ? "studio_ui.retry_failed" : "studio_ui.retry")}
+                  // композиция остаются прежними, а платим лишь за видео. Цена —
+                  // прямо в подсказке, готовую сцену ещё и подтверждают.
+                  title={`${t(s.status === "failed" ? "studio_ui.retry_failed" : "studio_ui.retry")}${
+                    s.render_credits ? ` · ${s.render_credits} ${t("studio_ui.credits_short")}` : ""
+                  }`}
                   className="grid size-7 place-items-center rounded-lg text-muted transition-colors hover:bg-surface-2 hover:text-accent disabled:opacity-40 cursor-pointer"
                 >
                   <FiRefreshCw className={busy ? "animate-spin" : ""} />
@@ -505,11 +516,19 @@ export default function SceneTimeline({
                   className="grid size-7 place-items-center rounded-lg text-muted transition-colors hover:bg-surface-2 hover:text-accent cursor-pointer"
                 />
               )}
+              {/* Снимающуюся сцену не удалить: ролик доснимется, а класть его
+                  будет некуда (сервер тоже откажет). */}
               <button
                 type="button"
                 onClick={() => onDelete(s)}
-                disabled={busy}
-                title={t("studio_ui.remove")}
+                disabled={busy || working}
+                title={
+                  working
+                    ? t("studio_ui.remove_working", {
+                        defaultValue: "Сцена снимается — удалить можно после съёмки",
+                      })
+                    : t("studio_ui.remove")
+                }
                 className="ml-auto grid size-7 place-items-center rounded-lg text-muted transition-colors hover:bg-surface-2 hover:text-red-400 disabled:opacity-40 cursor-pointer"
               >
                 <FiTrash2 />

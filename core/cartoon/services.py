@@ -39,7 +39,11 @@ logger = logging.getLogger(__name__)
 IMAGE_TIMEOUT = (10, 180)
 VIDEO_SUBMIT_TIMEOUT = (10, 60)
 VIDEO_POLL_TIMEOUT = (10, 30)
-VIDEO_POLL_LIMIT = 120  # попыток по 5 с ≈ 10 минут
+# Ожидание ролика — по часам, а не по числу попыток: сто двадцать попыток с
+# тридцатисекундным таймаутом каждая могли растянуться на час и пережить лимит
+# задачи. Бюджет заметно меньше мягкого лимита render_scene (tasks.py).
+VIDEO_POLL_SECONDS = 12 * 60
+VIDEO_POLL_INTERVAL = 5
 
 
 def _site_url(path: str) -> str:
@@ -77,11 +81,50 @@ def human_error(exc, what: str = "video") -> str:
     from ai.provider_errors import explain_image_error, explain_video_error
 
     text = str(exc or "")
+    if what != "video":
+        refused = image_refusal(text, hero=what == "hero")
+        if refused:
+            return refused
     shown, code = (explain_video_error if what == "video" else explain_image_error)(text)
     if code == "provider_error":
         return ("Видео не получилось — попробуйте ещё раз" if what == "video"
                 else "Кадр не получился — попробуйте ещё раз")
     return shown
+
+
+# Отказы Nano Banana (Gemini) по модерации. Из логов за пять дней: около двадцати
+# пяти «нарисовать героя» упали с «Gemini blocked this request through content
+# moderation» (block_reason SAFETY / PROHIBITED_CONTENT), и человек видел 502 и
+# общее «попробуйте ещё раз» — то есть пробовал то же самое описание снова.
+_IMAGE_BLOCKED_RE = re.compile(
+    r"content moderation|block_reason|PROHIBITED_CONTENT|IMAGE_SAFETY|\"SAFETY\"", re.IGNORECASE)
+# «Gemini could not generate an image (STOP)» и ответ без картинки: не запрет, а осечка.
+_IMAGE_EMPTY_RE = re.compile(
+    r"could not generate an image|в ответе нет изображения|no images? (?:was |were )?(?:generated|returned)",
+    re.IGNORECASE)
+
+IMAGE_BLOCKED_HERO = ("Модель отказалась рисовать это описание: похоже на реального человека, "
+                      "ребёнка в откровенном виде или запрещённую тему. Опишите героя по-другому — "
+                      "например, как мультяшного персонажа.")
+IMAGE_BLOCKED_FRAME = ("Модель отказалась рисовать этот кадр: похоже на реального человека, "
+                       "ребёнка в откровенном виде или запрещённую тему. Возьмите другого героя "
+                       "или опишите сцену по-другому.")
+IMAGE_EMPTY = "Картинка не получилась — попробуйте ещё раз или чуть измените описание."
+
+
+def image_refusal(text: str, hero: bool = False) -> str:
+    """Понятный текст, если модель картинок отказала по модерации или вернула пусто."""
+    text = str(text or "")
+    if _IMAGE_BLOCKED_RE.search(text):
+        return IMAGE_BLOCKED_HERO if hero else IMAGE_BLOCKED_FRAME
+    if _IMAGE_EMPTY_RE.search(text):
+        return IMAGE_EMPTY
+    return ""
+
+
+def image_blocked(exc) -> bool:
+    """Отказ модерации — это не сбой сервиса, а «так рисовать нельзя» (ответ 422)."""
+    return bool(_IMAGE_BLOCKED_RE.search(str(exc or "")))
 
 
 def _save_bytes(raw: bytes, folder: str, ext: str) -> str:
@@ -274,7 +317,7 @@ def generate_keyframe(preset, character, refs: list | None = None, aspect: str =
 
 def generate_scene_video(preset, keyframe_path: str, prompt: str = "",
                          negative: str = "", character=None, aspect: str = "",
-                         entry=None) -> str:
+                         entry=None, heartbeat=None) -> str:
     """Оживить кадр. Возвращает путь к mp4 в хранилище.
 
     Кадр уходит как first_frame — ролик начинается ровно с того, что человек
@@ -341,23 +384,31 @@ def generate_scene_video(preset, keyframe_path: str, prompt: str = "",
     import time
 
     poll: dict = {}
-    for _ in range(VIDEO_POLL_LIMIT):
-        time.sleep(5)
+    deadline = time.monotonic() + VIDEO_POLL_SECONDS
+    while True:
+        if time.monotonic() >= deadline:
+            raise RuntimeError("не дождались готовности видео")
+        time.sleep(VIDEO_POLL_INTERVAL)
+        # Съёмка жива: по этой отметке фоновая уборка отличает идущую съёмку
+        # от оборвавшейся (tasks.fail_stale_work).
+        if heartbeat is not None:
+            heartbeat()
         try:
             p = requests.get(polling_url, headers=headers, timeout=VIDEO_POLL_TIMEOUT)
             data = p.json() or {}
             if isinstance(data, dict):
                 poll = data
-        except Exception:
-            # Разрыв на одной итерации — не повод бросать всё, ждём следующую.
+        except (requests.RequestException, ValueError):
+            # Разрыв или битый ответ на одной итерации — не повод бросать всё,
+            # ждём следующую. Только сетевые ошибки: широкий except глотал
+            # SoftTimeLimitExceeded, и задачу потом молча убивал жёсткий лимит,
+            # оставляя сцену «в работе» навсегда.
             continue
         st = str(poll.get("status") or "").lower()
         if st == "completed":
             break
         if st in ("failed", "error", "canceled"):
             raise RuntimeError(f"провайдер вернул {st}")
-    else:
-        raise RuntimeError("не дождались готовности видео")
 
     # Ссылка лежит в unsigned_urls и требует Bearer — без заголовка отдаёт 401.
     urls = poll.get("unsigned_urls") or []
@@ -617,13 +668,17 @@ def preset_for_scene(scene):
 
 def draw_custom_keyframe(scene, character, user, aspect: str = "") -> tuple[str, int]:
     """Кадр своей сцены. Мимо общего запаса: пресет у всех своих сцен один,
-    и кадр одного человека показался бы другому."""
+    и кадр одного человека показался бы другому.
+
+    user=None — не списывать: съёмка списывает сама, вместе с сохранением кадра.
+    """
     ensure_custom_prompt(scene)
     preset = preset_for_scene(scene)
     path = generate_keyframe(preset, character, aspect=aspect)
     price = max(1, int(float(preset.image_model.markup_coefficient or 1)))
-    charge(user, price, "cartoon_keyframe",
-           meta={"scene": scene.pk, "custom": True, "character": character.pk})
+    if user is not None:
+        charge(user, price, "cartoon_keyframe",
+               meta={"scene": scene.pk, "custom": True, "character": character.pk})
     return path, price
 
 
@@ -639,7 +694,7 @@ def remember_pair_video(scene) -> bool:
     from django.core.files.storage import default_storage
 
     from .clips import make_clip
-    from .models import CartoonPairVideo
+    from .models import CartoonKeyframe, CartoonPairVideo
 
     character = scene.character or scene.project.character
     if not scene.video or not character or character.user_id is not None:
@@ -647,6 +702,15 @@ def remember_pair_video(scene) -> bool:
     # Своя сцена — не пара «герой + сцена библиотеки»: пресет у всех своих
     # сцен общий, и чужой ролик показался бы под чужим описанием.
     if getattr(scene, "custom_text", ""):
+        return False
+    # Реплика — слова самого человека, и модель их произносит в ролике.
+    if (getattr(scene, "dialogue", "") or "").strip():
+        return False
+    # Ролик «как у всех» — только с кадром из общего запаса. Кадр, нарисованный
+    # с оглядкой на прошлую сцену человека, несёт его комнату и его героев
+    # (вплоть до загруженных фото) — показывать такое чужим нельзя.
+    if not (scene.keyframe and CartoonKeyframe.objects.filter(
+            preset_id=scene.preset_id, character=character, image=scene.keyframe).exists()):
         return False
     if CartoonPairVideo.objects.filter(preset_id=scene.preset_id, character=character).exists():
         return False
@@ -686,13 +750,26 @@ def draw_linked_keyframe(scene, character, user, anchor: str,
 
     В общий запас такой кадр не кладём: он привязан к конкретной истории, а не
     к паре «герой + сцена», и чужому человеку не подойдёт.
+
+    user=None — не списывать: съёмка списывает сама, вместе с сохранением кадра.
     """
     preset = preset_for_scene(scene) if scene.custom_text else scene.preset
     path = generate_keyframe(preset, character, refs=[anchor], aspect=aspect)
     price = max(1, int(float(preset.image_model.markup_coefficient or 1)))
-    charge(user, price, "cartoon_keyframe",
-           meta={"scene": scene.pk, "linked": True, "character": character.pk})
+    if user is not None:
+        charge(user, price, "cartoon_keyframe",
+               meta={"scene": scene.pk, "linked": True, "character": character.pk})
     return path, price
+
+
+def pooled_keyframe(preset_id, character, aspect: str = "16:9") -> str:
+    """Уже нарисованный общий кадр пары «сцена + герой» в этом формате (или пусто)."""
+    from .models import CartoonKeyframe
+
+    row = (CartoonKeyframe.objects.filter(preset_id=preset_id, character=character,
+                                          aspect_ratio=aspect or "16:9")
+           .exclude(image="").first())
+    return row.image if row else ""
 
 
 def get_or_create_keyframe(preset, character, user=None, aspect: str = "16:9"):

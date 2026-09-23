@@ -38,6 +38,15 @@ LOCK_TTL = 300
 # Если прогресс не обновлялся столько секунд — считаем, что задача умерла
 # (перезапуск воркера, деплой): иначе кнопка висела бы заблокированной.
 STALE_AFTER = 180
+# Запуск ещё стоит в очереди media (там идут минутные съёмки) — это не обрыв.
+# Раньше через три минуты ожидания его объявляли брошенным, кнопка оживала, и
+# второй запуск ставил вторую задачу: обе потом озвучивали и обе списывали.
+# Замок на время очереди живёт столько же.
+QUEUED_STALE_AFTER = 30 * 60
+
+
+class Superseded(RuntimeError):
+    """Запуск перехвачен новым (замок уже чужой) — дальше не озвучиваем и не списываем."""
 
 LANG_NAMES = {"ru": "русском", "en": "английском", "kg": "кыргызском"}
 
@@ -95,13 +104,19 @@ def is_stale(state: dict | None) -> bool:
     """Прогресс есть, но давно не обновлялся: задачу убили на середине."""
     if not state or state.get("finished"):
         return False
-    return (time.time() - float(state.get("at") or 0)) > STALE_AFTER
+    limit = QUEUED_STALE_AFTER if state.get("queued") else STALE_AFTER
+    return (time.time() - float(state.get("at") or 0)) > limit
 
 
-def touch_lock(project_id: int) -> None:
-    """Продлить замок запуска, пока задача действительно работает."""
+def lock_owned(project_id: int, token: str = "") -> bool:
+    """Замок всё ещё у этого запуска. Без токена (старые вызовы) — считаем, что да."""
+    return not token or cache.get(lock_key(project_id)) == token
+
+
+def touch_lock(project_id: int, token: str = "") -> None:
+    """Продлить замок запуска, пока задача действительно работает. Только свой."""
     value = cache.get(lock_key(project_id))
-    if value:
+    if value and (not token or value == token):
         cache.set(lock_key(project_id), value, LOCK_TTL)
 
 
@@ -314,11 +329,14 @@ def build_plan(project, lang: str = "ru") -> dict:
 # ------------------------------------------------------------- озвучка ---
 
 def voice_line(scene, text: str, voice_id: str, voice_name: str = "", character=None,
-               replace: bool = True):
+               replace: bool = True, guard=None):
     """Озвучить одну реплику сцены и списать кредиты ПОСЛЕ готового звука.
 
     replace — убрать прежние ИИ-реплики сцены: повторная озвучка мультфильма не
     должна наслаивать голоса друг на друга.
+
+    guard — проверка «запуск всё ещё мой» прямо перед списанием: пока шёл
+    синтез, человек мог перезапустить озвучку, и тогда платит новый запуск.
 
     Деньги и дорожка пишутся одной транзакцией: иначе обрыв между списанием и
     записью оставил бы человека без звука, но с минусом на балансе.
@@ -334,6 +352,9 @@ def voice_line(scene, text: str, voice_id: str, voice_name: str = "", character=
     price = audio.voice_price(text)
     raw = audio.tts(text, voice_id)
     path, duration = audio.save_audio(raw)
+    if guard is not None and not guard():
+        default_storage.delete(path)
+        raise Superseded("озвучку перезапустили")
     try:
         with transaction.atomic():
             if replace:
@@ -352,8 +373,13 @@ def voice_line(scene, text: str, voice_id: str, voice_name: str = "", character=
     return track
 
 
-def voice_project(project, plan: list, replace: bool = True) -> dict:
-    """Озвучить все реплики плана и свести снятые сцены. Считает прогресс."""
+def voice_project(project, plan: list, replace: bool = True, token: str = "") -> dict:
+    """Озвучить все реплики плана и свести снятые сцены. Считает прогресс.
+
+    token — замок этого запуска. Потерян (человек перезапустил озвучку, пока эта
+    задача стояла в очереди или висела на синтезе) — останавливаемся до списания
+    и чужой прогресс не трогаем.
+    """
     from celery.exceptions import SoftTimeLimitExceeded
 
     from plans.wallet import InsufficientTokens
@@ -361,9 +387,18 @@ def voice_project(project, plan: list, replace: bool = True) -> dict:
     from .models import CartoonScene
 
     total = len(plan)
-    set_progress(project.pk, done=0, total=total, error="", spent=0, finished=False)
+    if not lock_owned(project.pk, token):
+        logger.warning("озвучка мультфильма %s: запуск уже перехвачен новым", project.pk)
+        return {"done": 0, "total": total, "spent": 0, "error": "superseded"}
+    # Задача началась: с этой секунды «тишина» в прогрессе — уже обрыв.
+    set_progress(project.pk, done=0, total=total, error="", spent=0, finished=False,
+                 queued=False)
+    touch_lock(project.pk, token)
     done, spent, error = 0, 0, ""
     for item in plan:
+        if not lock_owned(project.pk, token):
+            error = "superseded"
+            break
         try:
             scene_id = int(item.get("scene_id") or 0)
         except (TypeError, ValueError):
@@ -377,7 +412,13 @@ def voice_project(project, plan: list, replace: bool = True) -> dict:
         character = scene.character or scene.project.character
         try:
             track = voice_line(scene, item.get("text"), item.get("voice_id"),
-                               item.get("voice_name") or "", character, replace)
+                               item.get("voice_name") or "", character, replace,
+                               guard=lambda: lock_owned(project.pk, token))
+        except Superseded:
+            error = "superseded"
+            logger.warning("озвучка мультфильма %s: перезапущена, эта задача остановилась",
+                           project.pk)
+            break
         except InsufficientTokens:
             error = "not_enough_credits"
             logger.warning("озвучка мультфильма %s: не хватило кредитов на сцене %s",
@@ -396,13 +437,15 @@ def voice_project(project, plan: list, replace: bool = True) -> dict:
             done += 1
             spent += track.credits_spent
             set_progress(project.pk, done=done, spent=spent, error=error)
-            touch_lock(project.pk)
+            touch_lock(project.pk, token)
         # Сведение сразу: снятая сцена начинает говорить, пока идут остальные.
         # Состояние сцены перечитывается внутри remix_scene — её могли доснять.
         try:
             audio.remix_scene(scene)
         except Exception:
             logger.exception("озвучка мультфильма %s: сцена %s не свелась", project.pk, scene.pk)
-        touch_lock(project.pk)
-    set_progress(project.pk, done=done, spent=spent, error=error, finished=True)
+        touch_lock(project.pk, token)
+    if error != "superseded":
+        # Прогресс перехваченного запуска принадлежит новому — его не закрываем.
+        set_progress(project.pk, done=done, spent=spent, error=error, finished=True)
     return {"done": done, "total": total, "spent": spent, "error": error}

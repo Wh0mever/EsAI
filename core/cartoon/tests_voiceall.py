@@ -45,6 +45,10 @@ def _mp3() -> bytes:
 @override_settings(CACHES=CACHES, ELEVENLABS_API_KEY="test-key")
 class VoiceAllTests(TestCase):
     def setUp(self):
+        # Замок и прогресс лежат в кэше, а номера проектов в SQLite повторяются
+        # от теста к тесту: без очистки замок прошлого теста блокировал запуск
+        # (те самые два «429 != 202»).
+        cache.clear()
         model = GPTModels.objects.create(name="m", openrouter_id="test/m", max_tokens=10,
                                          markup_coefficient=Decimal("4"))
         self.preset = CartoonPreset.objects.create(slug="walk", title="Прогулка", is_active=True,
@@ -152,8 +156,9 @@ class VoiceAllTests(TestCase):
         body = {"lines": [{"scene_id": self.s1.pk, "text": "Привет", "voice_id": "m1"}]}
         with patch("cartoon.views_audio.voice_movie.delay"):
             self.assertEqual(self._post(ProjectVoiceAllView, body).status_code, 202)
-        # Прогресс перестал обновляться: задачи больше нет.
+        # Задача начала работу, а потом прогресс перестал обновляться: её больше нет.
         state = voiceover.get_progress(self.project.pk)
+        state["queued"] = False
         state["at"] = state["at"] - voiceover.STALE_AFTER - 10
         cache.set(voiceover.progress_key(self.project.pk), state, 60)
         self.assertTrue(voiceover.is_stale(state))

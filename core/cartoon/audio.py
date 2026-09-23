@@ -264,14 +264,37 @@ def probe(path: Path) -> dict:
     return {"duration": duration, "audio": any(s.get("codec_type") == "audio" for s in streams)}
 
 
+# Что принимаем загрузкой «свой голос»: диктофон браузера (webm, ogg, m4a) и
+# обычные аудиофайлы. Расширение приходит от человека и уходит в имя файла для
+# ffmpeg, а по расширению ffmpeg выбирает разборщик — плейлисты (.m3u8) и
+# списки склейки (.ffconcat) умеют читать чужие файлы и ходить в сеть.
+# Диктофоны телефонов пишут ещё в amr/3gp (Android), caf (iPhone), встречаются
+# flac, aiff и wma — это обычные контейнеры звука, ffmpeg их просто декодирует.
+UPLOAD_EXTENSIONS = ("mp3", "m4a", "aac", "wav", "ogg", "oga", "opus", "webm", "mp4", "mov",
+                     "amr", "awb", "3gp", "3gpp", "3ga", "3g2", "flac", "aif", "aiff", "aifc",
+                     "caf", "wma", "mka")
+
+
+def upload_suffix(filename: str) -> str:
+    """Расширение загрузки из белого списка (".mp3") или пусто — такой файл не берём."""
+    name = str(filename or "").strip().lower()
+    ext = name.rsplit(".", 1)[-1] if "." in name else ""
+    return f".{ext}" if ext in UPLOAD_EXTENSIONS else ""
+
+
 def save_audio(raw: bytes, suffix: str = ".mp3", folder: str = "cartoon/audio",
                max_seconds: float | None = None) -> tuple[str, float]:
     """Любой звук (mp3, webm с диктофона, m4a) → mp3 в хранилище. (путь, секунды)."""
+    ext = suffix.lstrip(".").lower() if suffix else ""
+    suffix = f".{ext}" if ext in UPLOAD_EXTENSIONS else ".bin"
     with tempfile.TemporaryDirectory() as tmp:
-        src = Path(tmp) / f"in{suffix or '.bin'}"
+        src = Path(tmp) / f"in{suffix}"
         dst = Path(tmp) / "out.mp3"
         src.write_bytes(raw)
-        if not _run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", str(src),
+        # Вход — только локальный файл: даже если внутри окажется плейлист,
+        # ffmpeg не пойдёт по ссылкам из него ни в сеть, ни в другие протоколы.
+        if not _run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+                     "-protocol_whitelist", "file", "-i", f"file:{src}",
                      "-vn", "-ac", "2", "-ar", "44100", "-b:a", "160k", str(dst)]):
             raise AudioProviderError("звук не читается")
         info = probe(dst)
@@ -345,22 +368,40 @@ def mix_scene(scene) -> str:
                                     ContentFile(out.read_bytes()))
 
 
-def remix_scene(scene) -> None:
+class MixBusy(RuntimeError):
+    """Сцену уже сводит другой запрос."""
+
+
+def mix_lock_key(scene_id: int) -> str:
+    return f"studio:mix:{scene_id}"
+
+
+def remix_scene(scene, wait: bool = True) -> None:
     """Пересобрать сведённый ролик сцены (или убрать, если дорожек нет).
 
     Под общим замком: сцену сводит и окно звука, и озвучка всего мультфильма,
     а два ffmpeg разом затирают работу друг друга. Ждём чужое сведение и
     делаем своё — дорожки читаются заново, поэтому ничего не теряется.
+
+    wait=False — не ждать, а сразу MixBusy: так отвечает окно звука («сцена уже
+    сводится»), не держа веб-воркер. Замок берёт только эта функция: раньше
+    вьюха брала его сама, а здесь ждала саму себя минуту на каждое сведение.
+    Снимаем только свой замок — чужой принадлежит идущему сведению.
     """
     import time
 
-    lock = f"studio:mix:{scene.pk}"
-    for _ in range(20):
-        if cache.add(lock, "1", timeout=180):
-            break
-        time.sleep(3)
-    else:
-        logger.warning("сведение сцены %s: замок занят, свожу без него", scene.pk)
+    lock, token = mix_lock_key(scene.pk), uuid.uuid4().hex
+    owned = cache.add(lock, token, timeout=180)
+    if not owned and not wait:
+        raise MixBusy(f"сцена {scene.pk} уже сводится")
+    if not owned:
+        for _ in range(20):
+            time.sleep(3)
+            if cache.add(lock, token, timeout=180):
+                owned = True
+                break
+        else:
+            logger.warning("сведение сцены %s: замок занят, свожу без него", scene.pk)
     try:
         # Сцену могли переснять, пока мы ждали.
         scene.refresh_from_db(fields=["video", "mixed_video"])
@@ -369,7 +410,8 @@ def remix_scene(scene) -> None:
             scene.mixed_video = path
             scene.save(update_fields=["mixed_video", "updated_at"])
     finally:
-        cache.delete(lock)
+        if owned and cache.get(lock) == token:
+            cache.delete(lock)
 
 
 def has_audio(raw: bytes) -> bool:

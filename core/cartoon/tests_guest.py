@@ -140,13 +140,18 @@ class PairVideoTests(TestCase):
         self.mine = CartoonCharacter.objects.create(
             name="Мой", image="cartoon/characters/mine.png", user=self.user)
 
-    def _ready_scene(self, character):
+    def _ready_scene(self, character, **extra):
         from cartoon.models import CartoonScene
 
+        # Ролик «как у всех» снимается с общего кадра пары (из запаса примерок).
+        frame, _ = CartoonKeyframe.objects.get_or_create(
+            preset=self.preset, character=character, aspect_ratio="16:9",
+            defaults={"image": f"cartoon/keyframes/pool-{character.pk}.png"})
+        fields = {"keyframe": frame.image, **extra}
         project = CartoonProject.objects.create(user=self.user, character=character)
         return CartoonScene.objects.create(
             project=project, preset=self.preset, order=0,
-            status=CartoonScene.STATUS_READY, video="cartoon/scenes/x.mp4")
+            status=CartoonScene.STATUS_READY, video="cartoon/scenes/x.mp4", **fields)
 
     def _remember(self, scene):
         from cartoon.services import remember_pair_video
@@ -165,11 +170,58 @@ class PairVideoTests(TestCase):
         # Лёгкая копия не сделалась — ролик всё равно в запасе, покажется оригинал.
         self.assertEqual(row.clip, "")
 
+    def test_scene_with_users_line_or_linked_frame_is_not_shared(self):
+        """Реплика — слова человека; кадр «с оглядкой» — его комната и его герои."""
+        from cartoon.models import CartoonPairVideo
+
+        self.assertFalse(self._remember(self._ready_scene(self.hero, dialogue="Привет, мама!")))
+        self.assertFalse(self._remember(self._ready_scene(
+            self.hero, keyframe="cartoon/keyframes/linked-from-my-room.png")))
+        self.assertFalse(CartoonPairVideo.objects.exists())
+
     def test_users_own_character_never_shared(self):
         from cartoon.models import CartoonPairVideo
 
         self.assertFalse(self._remember(self._ready_scene(self.mine)))
         self.assertFalse(CartoonPairVideo.objects.exists())
+
+    def test_pairs_shared_before_the_privacy_check_are_purged(self):
+        """Миграция 0019: ролики, попавшие в запас до проверки на личное, убираются."""
+        import importlib
+
+        from django.apps import apps
+
+        from cartoon.models import CartoonPairVideo, CartoonScene
+
+        purge = importlib.import_module("cartoon.migrations.0019_purge_private_pair_videos")
+        rows = {}
+        for name, extra in (("clean", {}), ("line", {"dialogue": "С днём рождения, Айгуль!"}),
+                            ("linked", {"keyframe": "cartoon/keyframes/linked-my-room.png"}),
+                            ("custom", {"custom_text": "танцует у меня дома"}),
+                            ("rerendered", {}), ("orphan", {}), ("old_orphan", {})):
+            self.preset = CartoonPreset.objects.create(
+                slug=f"purge-{name}", title=name, is_active=True, scene_prompt="x",
+                image_model=self.preset.image_model, video_model=self.preset.video_model)
+            scene = self._ready_scene(self.hero, **extra)
+            rows[name] = CartoonPairVideo.objects.create(
+                preset=self.preset, character=self.hero, video=scene.video,
+                clip=f"cartoon/pairs/{self.preset.pk}-{self.hero.pk}.mp4", source_scene=scene)
+        CartoonScene.objects.filter(pk=rows["rerendered"].source_scene_id).update(
+            video="cartoon/scenes/retake.mp4")
+        CartoonScene.objects.filter(pk=rows["orphan"].source_scene_id).delete()
+        # Снят до появления реплик (21.09): проверить нельзя, но и личного там не было.
+        from datetime import datetime, timezone as dt_timezone
+
+        CartoonScene.objects.filter(pk=rows["old_orphan"].source_scene_id).delete()
+        CartoonPairVideo.objects.filter(pk=rows["old_orphan"].pk).update(
+            created_at=datetime(2026, 9, 1, tzinfo=dt_timezone.utc))
+
+        with patch("django.core.files.storage.default_storage.delete") as delete:
+            purge.purge_private_pair_videos(apps, None)
+        self.assertEqual(sorted(CartoonPairVideo.objects.values_list("pk", flat=True)),
+                         sorted([rows["clean"].pk, rows["old_orphan"].pk]))
+        deleted = {c.args[0] for c in delete.call_args_list}
+        self.assertEqual(deleted, {rows[n].clip for n in rows if n not in ("clean", "old_orphan")})
 
     def test_previews_endpoint_and_scene_json_show_the_video(self):
         from cartoon.models import CartoonPairVideo, CartoonScene
@@ -252,6 +304,8 @@ class CustomSceneTests(TestCase):
 
         scene = CartoonScene.objects.get(pk=self._add({
             "custom_text": "катается на скейте", "character_id": self.hero.pk}).data["id"])
+        # Съёмку запускает кнопка «Снять»: она переводит сцену в «Ожидает».
+        CartoonScene.objects.filter(pk=scene.pk).update(status=CartoonScene.STATUS_NEW)
         seen = {}
 
         def fake_frame(preset, character, **kwargs):
@@ -286,6 +340,7 @@ class CustomSceneTests(TestCase):
 
         scene = CartoonScene.objects.get(pk=self._add({
             "custom_text": "что-то недопустимое", "character_id": self.hero.pk}).data["id"])
+        CartoonScene.objects.filter(pk=scene.pk).update(status=CartoonScene.STATUS_NEW)
         with self._fake_llm({"ok": False, "reason": "Такую сцену снять нельзя"}), \
              patch("cartoon.services.generate_keyframe") as frame:
             result = render_scene.apply(args=[scene.pk]).get()
