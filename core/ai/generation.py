@@ -173,7 +173,16 @@ def _run_video_generation(*, user, model_obj, selected_model_name: str, message:
     duration = int(_vp["duration"])
     resolution = str(_vp["resolution"])
     coeff = float(getattr(model_obj, "markup_coefficient", 1) or 1)
-    need = max(1, math.ceil(duration * coeff))
+    # Цена с учётом разрешения и не ниже себестоимости: 1080p у Seedance стоит
+    # у провайдера в 2,5 раза дороже 720p, а тариф «за секунду» один (см. video_cost).
+    from .video_cost import video_credits
+
+    try:
+        _spec = _openrouter_video_catalog(selected_model_name)
+    except Exception:
+        _spec = {}
+    _images = len(attachments or []) + (1 if first_frame else 0) + (1 if last_frame else 0)
+    need = video_credits(model_obj, _spec, resolution, duration, images=_images)
 
     # Продлевать можно только СВОЙ ролик: файл читается с нашего диска, и чужая
     # ссылка иначе превращала чужое видео в начало своего (см. _user_owns_video).

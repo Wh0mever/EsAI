@@ -1474,6 +1474,7 @@
 		"cta_upgrade": "Перейти на платный пакет"
 	},
 	"packages": {
+		"credits_video_note": "Цена за секунду в обычном качестве (720p). Ролики в 1080p и 4K дороже — точную цену вы увидите перед съёмкой.",
 		"credits_table_rate_video": "Кредитов за секунду",
 		"credits_table_rate_image": "Кредитов за картинку",
 		"credits_table_video": "Видео",

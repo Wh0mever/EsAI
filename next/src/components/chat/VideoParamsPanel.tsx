@@ -16,6 +16,9 @@ type VideoParams = {
   frame_images: string[];
   generate_audio: boolean;
   credits_per_second: number;
+  /** Точные цены с сервера: {разрешение: {секунды: кредиты}}. Зависят от
+   *  разрешения (1080p у Seedance в 2,5 раза дороже 720p) — считать самим нельзя. */
+  price_table?: Record<string, Record<string, number>>;
 };
 
 export type VideoSettings = {
@@ -285,7 +288,11 @@ export default function VideoParamsPanel({ model, value, onChange }: Props) {
 
   const perSec = Number(params.credits_per_second) || 0;
   const dur = value.duration ?? params.default_duration;
-  const cost = Math.max(1, Math.ceil(dur * perSec));
+  const res = value.resolution ?? params.default_resolution;
+  // Цена — из таблицы сервера (то же, что спишется); умножение — только запасной путь.
+  const priceOf = (seconds: number) =>
+    Number(params.price_table?.[res]?.[String(seconds)]) || Math.max(1, Math.ceil(seconds * perSec));
+  const cost = priceOf(dur);
   const supportsLast = (params.frame_images || []).includes("last_frame");
 
   const chip = (active: boolean) =>
@@ -341,7 +348,7 @@ export default function VideoParamsPanel({ model, value, onChange }: Props) {
                     className={chip(dur === d)}
                     title={t("chat.video.duration_cost", {
                       seconds: d,
-                      credits: Math.max(1, Math.ceil(d * perSec)),
+                      credits: priceOf(d),
                       defaultValue: "{{seconds}} сек — {{credits}} кредитов",
                     })}
                   >
@@ -367,6 +374,13 @@ export default function VideoParamsPanel({ model, value, onChange }: Props) {
                       className={chip((value.resolution ?? params.default_resolution) === r)}
                     >
                       {r}
+                      {/* Цена прямо на кнопке: качество выше — ролик заметно дороже,
+                          и человек должен видеть это до съёмки, а не после. */}
+                      {params.price_table?.[r]?.[String(dur)] != null && (
+                        <span className="ml-1 font-normal opacity-70">
+                          · {params.price_table[r][String(dur)]}
+                        </span>
+                      )}
                     </button>
                   ))}
                 </div>

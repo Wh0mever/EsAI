@@ -30,10 +30,28 @@ def effective_duration(video_model, want_duration: int) -> int:
         return want
 
 
-def video_credits(video_model, want_duration: int) -> int:
-    """Во сколько обойдётся видео-часть сцены."""
+def video_credits(video_model, want_duration: int, resolution: str = "720p") -> int:
+    """Во сколько обойдётся видео-часть сцены.
+
+    Тариф модели, но не ниже себестоимости у провайдера плюс маржа — та же
+    граница, что у видео в чате (ai/video_cost.py). Сейчас студия снимает в
+    720p, где тариф её и так покрывает; граница — страховка на случай, если в
+    админке поставят другую модель, разрешение или слишком низкую цену.
+    """
     seconds = effective_duration(video_model, want_duration)
-    return max(1, round(seconds * float(getattr(video_model, "markup_coefficient", 1) or 1)))
+    base = max(1, round(seconds * float(getattr(video_model, "markup_coefficient", 1) or 1)))
+    model_id = getattr(video_model, "openrouter_id", "") or ""
+    if not model_id:
+        return base
+    try:
+        from ai.handlers import _openrouter_video_catalog
+        from ai.video_cost import video_credits as cost_floor
+
+        return max(base, cost_floor(video_model, _openrouter_video_catalog(model_id),
+                                    resolution or "720p", seconds))
+    except Exception:
+        logger.exception("цена сцены: себестоимость модели %s не посчиталась", model_id)
+        return base
 
 
 def frame_credits(image_model) -> int:
@@ -50,7 +68,8 @@ def scene_video_credits(preset) -> int:
     override = getattr(preset, "credits_override", None)
     if override:
         return max(1, int(override) - frame_credits(preset.image_model))
-    return video_credits(preset.video_model, preset.duration)
+    return video_credits(preset.video_model, preset.duration,
+                         getattr(preset, "resolution", "") or "720p")
 
 
 def scene_credits(preset, *, keyframe_ready: bool = False) -> int:

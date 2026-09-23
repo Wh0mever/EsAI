@@ -356,9 +356,22 @@ async def _params(token: str, lang: str, chat_id: int, model: str) -> dict:
 
 
 def _cost(draft: dict) -> int:
+    """Цена ролика: из таблицы сервера под выбранное разрешение, иначе по тарифу.
+
+    Сервер знает себестоимость у провайдера (1080p у Seedance в 2,5 раза дороже
+    720p), поэтому своё «секунды × тариф» — только запасной путь для старого ядра.
+    """
     import math
 
-    return max(1, math.ceil(int(draft.get("duration") or 5) * float(draft.get("cps") or 0)))
+    duration = int(draft.get("duration") or 5)
+    table = (draft.get("prices") or {}).get(str(draft.get("res") or "")) or {}
+    try:
+        exact = int(table.get(str(duration)) or 0)
+    except (TypeError, ValueError):
+        exact = 0
+    if exact > 0:
+        return exact
+    return max(1, math.ceil(duration * float(draft.get("cps") or 0)))
 
 
 async def _show_card(message: Message, token: str, lang: str, chat_id: int, draft: dict,
@@ -376,6 +389,8 @@ async def _show_card(message: Message, token: str, lang: str, chat_id: int, draf
         draft["res"] = params.get("default_resolution") or resolutions[0]
     if params.get("credits_per_second"):
         draft["cps"] = float(params["credits_per_second"])
+    if isinstance(params.get("price_table"), dict):
+        draft["prices"] = params["price_table"]
     await _save(chat_id, draft)
 
     try:
