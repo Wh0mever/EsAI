@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import base64
+import io
 import logging
 import uuid
 
@@ -80,6 +81,45 @@ def _attach_thumb(char) -> None:
             char.image_thumb.save(f"char-{char.pk}.jpg", _CF(thumb), save=True)
     except Exception:
         logger.exception("миниатюра персонажа %s не сделалась", char.pk)
+
+
+# Герой с телефона: фото бывает большим, но не бесконечным.
+CHARACTER_UPLOAD_MAX_BYTES = 15 * 1024 * 1024
+
+
+def _clean_character_image(upload):
+    """Проверить, что загружена именно картинка, и пересохранить её в JPEG.
+
+    Раньше файл ложился как есть, с именем и расширением от клиента: .html или
+    .svg из «загрузки героя» раздавался с нашего домена и мог исполнить скрипт.
+    Пересохранение через Pillow оставляет только пиксели. Возвращает
+    ContentFile или None, если это не картинка.
+    """
+    from PIL import Image, ImageOps
+
+    if getattr(upload, "size", 0) and upload.size > CHARACTER_UPLOAD_MAX_BYTES:
+        return None
+    try:
+        raw = upload.read()
+        with Image.open(io.BytesIO(raw)) as probe:
+            probe.verify()
+        img = Image.open(io.BytesIO(raw))
+        img = ImageOps.exif_transpose(img)
+        if img.mode in ("RGBA", "LA", "P"):
+            # Прозрачный фон делаем белым: у JPEG альфы нет, а чёрный фон
+            # модель приняла бы за часть героя.
+            img = img.convert("RGBA")
+            back = Image.new("RGB", img.size, (255, 255, 255))
+            back.paste(img, mask=img.split()[-1])
+            img = back
+        else:
+            img = img.convert("RGB")
+        img.thumbnail((2048, 2048))
+        out = io.BytesIO()
+        img.save(out, "JPEG", quality=90)
+    except Exception:
+        return None
+    return ContentFile(out.getvalue(), name=f"{uuid.uuid4().hex}.jpg")
 
 
 def _media(path: str) -> str:
@@ -160,10 +200,15 @@ def _pair_videos_for(scenes) -> dict:
 
 
 def scene_json(s: CartoonScene, lang: str = "ru", pair_videos: dict | None = None) -> dict:
+    from .pricing import frame_credits, scene_video_credits
+
     hero_id = s.character_id or s.project.character_id
     if pair_videos is None:
         pair_videos = _pair_videos_for([s])
     custom = bool(s.custom_text)
+    # Та же формула, что у проверки баланса и списания (pricing.scene_credits).
+    video_price = scene_video_credits(s.preset) if s.preset_id else 0
+    frame_price = frame_credits(s.preset.image_model) if s.preset_id else 0
     return {
         "id": s.id,
         "order": s.order,
@@ -180,7 +225,7 @@ def scene_json(s: CartoonScene, lang: str = "ru", pair_videos: dict | None = Non
                        else (s.preset.preview_video.url if s.preset.preview_video else "")),
                    # Цена нужна прямо в ленте: снимают оттуда, и человек должен
                    # видеть, во что обойдётся кнопка, до нажатия.
-                   "credits": s.preset.estimated_credits() if s.preset_id else 0,
+                   "credits": frame_price + video_price,
                    "duration": s.preset.duration if s.preset_id else 0,
                    # Обложка нужна черновику: своего кадра у него ещё нет, а
                    # пустой прямоугольник с крутилкой выглядит так, будто
@@ -204,6 +249,9 @@ def scene_json(s: CartoonScene, lang: str = "ru", pair_videos: dict | None = Non
         "status": s.status,
         "error": s.error,
         "credits_spent": s.credits_spent,
+        # Сколько спишет съёмка прямо сейчас: с готовым кадром — только видео.
+        # По этой цифре лента спрашивает подтверждение перед пересъёмкой.
+        "render_credits": video_price if s.keyframe else frame_price + video_price,
     }
 
 
@@ -211,7 +259,8 @@ def project_json(p: CartoonProject, lang: str = "ru") -> dict:
     from django.db.models import Count, Sum
 
     scenes = list(p.scenes.select_related(
-        "preset", "character", "project__character").annotate(
+        "preset", "preset__image_model", "preset__video_model", "character",
+        "project__character").annotate(
         audio_n=Count("audio_tracks"),
         audio_credits=Sum("audio_tracks__credits_spent")).order_by("order", "id"))
     pairs = _pair_videos_for(scenes)
@@ -353,6 +402,10 @@ class CharactersView(StudioPublicAPIView):
         if not image:
             return Response({"detail": "Приложите изображение персонажа"},
                             status=status.HTTP_400_BAD_REQUEST)
+        image = _clean_character_image(image)
+        if image is None:
+            return Response({"detail": "Это не похоже на картинку. Загрузите фото JPG, PNG или WebP до 15 МБ"},
+                            status=status.HTTP_400_BAD_REQUEST)
         char = CartoonCharacter.objects.create(
             user=request.user,
             name=(request.data.get("name") or "Мой персонаж").strip()[:120],
@@ -447,8 +500,7 @@ class CharacterGenerateView(StudioAPIView):
                 raise RuntimeError("в ответе нет изображения")
         except Exception as exc:
             logger.exception("персонаж не сгенерировался")
-            return Response({"detail": _human(exc)},
-                            status=status.HTTP_502_BAD_GATEWAY)
+            return _image_failure(exc, "hero")
 
         char = CartoonCharacter(
             user=request.user,
@@ -594,8 +646,10 @@ class ProjectDetailView(StudioAPIView):
                 project.aspect_ratio = aspect
                 project.save(update_fields=["aspect_ratio", "updated_at"])
                 # Кадры черновиков рисовались под прежний формат — сбрасываем
-                # и подставляем готовые нужного формата, если они есть.
-                drafts = list(project.scenes.filter(status=CartoonScene.STATUS_DRAFT)
+                # и подставляем готовые нужного формата, если они есть. Не
+                # снявшиеся сцены тоже: их пересъёмка пошла бы со старым кадром.
+                drafts = list(project.scenes.filter(status__in=(CartoonScene.STATUS_DRAFT,
+                                                                CartoonScene.STATUS_FAILED))
                               .exclude(keyframe="").select_related("project__character",
                                                                    "character"))
                 for scene in drafts:
@@ -607,6 +661,13 @@ class ProjectDetailView(StudioAPIView):
 
     def delete(self, request, pk):
         project = get_object_or_404(CartoonProject, pk=pk, user=request.user)
+        # Пока идёт съёмка или склейка, мультфильм не удаляем: задача доделает
+        # работу, а сохранить её будет некуда.
+        if (project.status == CartoonProject.STATUS_ASSEMBLING
+                or project.scenes.filter(status__in=WORKING_STATUSES).exists()):
+            return Response({"detail": "Мультфильм сейчас снимается или склеивается — "
+                                       "удалить его можно, когда работа закончится"},
+                            status=status.HTTP_400_BAD_REQUEST)
         project.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -836,8 +897,7 @@ class PresetTryOnView(StudioPublicAPIView):
             path, charged = get_or_create_keyframe(preset, character, request.user, aspect)
         except Exception as exc:
             logger.exception("примерка героя: кадр не нарисовался")
-            return Response({"detail": _human(exc)},
-                            status=status.HTTP_502_BAD_GATEWAY)
+            return _image_failure(exc)
         return Response({"image": _media(path), "charged": charged})
 
 
@@ -901,8 +961,7 @@ def _guest_try_on(request, preset, character, aspect: str = "16:9") -> Response:
             pass
     except Exception as exc:
         logger.exception("бесплатная примерка гостя: кадр не нарисовался")
-        return Response({"detail": _human(exc)},
-                        status=status.HTTP_502_BAD_GATEWAY)
+        return _image_failure(exc)
     finally:
         cache.delete(lock)
     return Response({"image": _media(path), "charged": 0, "free": True})
@@ -912,27 +971,113 @@ def _scene_price(scene, *, keyframe_ready: bool) -> int:
     """Во сколько обойдётся съёмка сцены ПРЯМО СЕЙЧАС.
 
     Готовый кадр заново не рисуется (см. tasks.render_scene), поэтому при
-    пересъёмке с ним платится только видео-часть. Считаем её той же формулой,
+    пересъёмке с ним платится только видео-часть. Считаем той же формулой,
     что и списание в задаче: разойдись гейт со счётом — человек либо не смог бы
     переснять при достаточном балансе, либо ушёл бы в минус.
     """
-    from .pricing import video_credits
+    from .pricing import scene_credits
 
-    preset = scene.preset
-    if not keyframe_ready:
-        return preset.estimated_credits()
-    return video_credits(preset.video_model, preset.duration)
+    return scene_credits(scene.preset, keyframe_ready=keyframe_ready)
 
 
-def _human(exc) -> str:
+def _human(exc, what: str = "image") -> str:
     from .services import human_error
 
-    return human_error(exc, "image")
+    return human_error(exc, what)
 
 
-def _no_credits(need: int, balance: int) -> Response:
-    return Response({"detail": "Недостаточно кредитов", "required": need,
-                     "balance": balance}, status=status.HTTP_402_PAYMENT_REQUIRED)
+def _image_failure(exc, what: str = "image") -> Response:
+    """Модель картинок не нарисовала. Ничего не списано: списание — после картинки.
+
+    Отказ модерации — 422 со словами «опишите по-другому»: повторять то же самое
+    бессмысленно. Остальное — 502 «попробуйте ещё раз».
+    """
+    from .services import image_blocked
+
+    blocked = image_blocked(exc)
+    return Response({"detail": _human(exc, what), "refused": blocked},
+                    status=(status.HTTP_422_UNPROCESSABLE_ENTITY if blocked
+                            else status.HTTP_502_BAD_GATEWAY))
+
+
+def _no_credits(need: int, balance: int, reserved: int = 0) -> Response:
+    body = {"detail": "Недостаточно кредитов", "required": need, "balance": balance}
+    if reserved:
+        # Часть баланса уже обещана сценам, которые снимаются прямо сейчас.
+        body["reserved"] = reserved
+        body["detail"] = ("Недостаточно кредитов: часть баланса уже занята сценами, "
+                          "которые сейчас снимаются")
+    return Response(body, status=status.HTTP_402_PAYMENT_REQUIRED)
+
+
+WORKING_STATUSES = (CartoonScene.STATUS_NEW, CartoonScene.STATUS_KEYFRAME,
+                    CartoonScene.STATUS_VIDEO)
+
+
+def _enqueue_render(scene_id: int) -> None:
+    """Поставить задачу съёмки. Вызывается после коммита: задача забирает сцену
+    только из «Ожидает», и до коммита она бы этого состояния не увидела."""
+    from django.utils import timezone
+
+    try:
+        render_scene.delay(scene_id)
+    except Exception:
+        logger.exception("сцена %s: задача съёмки не поставилась", scene_id)
+        CartoonScene.objects.filter(pk=scene_id, status=CartoonScene.STATUS_NEW).update(
+            status=CartoonScene.STATUS_FAILED, error="Очередь занята — попробуйте через минуту",
+            updated_at=timezone.now())
+
+
+def _queue_render(request, scene, *, new_keyframe: bool = False) -> Response:
+    """Отправить сцену в съёмку: проверить баланс и перевести её в «Ожидает».
+
+    Две вещи, из-за которых раньше терялись деньги:
+      * баланс проверялся по каждой сцене отдельно, а списание идёт в конце
+        съёмки — две сцены при балансе на одну обе проходили проверку, вторая
+        снималась за наш счёт и падала на списании. Теперь из баланса вычитается
+        цена сцен, которые уже снимаются (pricing.reserved_credits);
+      * проверка и смена состояния шли порознь — два запроса разом ставили две
+        задачи. Теперь строка пользователя под замком, а сцена переводится
+        условным UPDATE.
+    """
+    from django.contrib.auth import get_user_model
+    from django.db import transaction
+    from django.utils import timezone
+
+    from .models import CartoonKeyframe
+    from .pricing import reserved_credits
+
+    lang = _lang(request)
+    character = scene.character or scene.project.character
+    if not new_keyframe:
+        # Кадр, который человек уже видел в примерке (и оплатил), съёмка возьмёт
+        # из общего запаса — платить за кадр второй раз не придётся.
+        _attach_ready_keyframe(scene)
+    need = _scene_price(scene, keyframe_ready=bool(scene.keyframe) and not new_keyframe)
+    with transaction.atomic():
+        # Строка пользователя под замком: два «Снять» разом иначе увидели бы
+        # один и тот же свободный остаток.
+        locked = get_user_model().objects.select_for_update().get(pk=request.user.pk)
+        balance = int(getattr(locked, "token_balance", 0) or 0)
+        reserved = reserved_credits(request.user, exclude_scene_id=scene.pk)
+        free = max(0, balance - reserved)
+        if free < need:
+            return _no_credits(need, free, reserved)
+        fields = {"status": CartoonScene.STATUS_NEW, "error": "", "updated_at": timezone.now()}
+        if new_keyframe:
+            fields["keyframe"] = ""
+        claimed = CartoonScene.objects.filter(
+            pk=scene.pk, status__in=(CartoonScene.STATUS_DRAFT, CartoonScene.STATUS_FAILED,
+                                     CartoonScene.STATUS_READY)).update(**fields)
+        if claimed and new_keyframe and character and not scene.custom_text:
+            # Новый кадр — значит, и не из общего запаса: иначе съёмка взяла бы
+            # тот же неудачный кадр пары. Только после проверки баланса: при
+            # отказе «не хватает кредитов» ничего не должно пропасть.
+            CartoonKeyframe.objects.filter(preset_id=scene.preset_id, character=character).delete()
+    if claimed:
+        transaction.on_commit(lambda pk=scene.pk: _enqueue_render(pk))
+    scene.refresh_from_db()
+    return Response(scene_json(scene, lang))
 
 
 class SceneFrameView(StudioAPIView):
@@ -966,14 +1111,16 @@ class SceneFrameView(StudioAPIView):
         if balance < need:
             return _no_credits(need, balance)
         try:
-            scene.keyframe, price = draw_custom_keyframe(scene, character, request.user)
+            # Формат мультфильма: без него кадр своей сцены рисовался в формате
+            # пресета и потом не совпадал с остальными сценами.
+            scene.keyframe, price = draw_custom_keyframe(scene, character, request.user,
+                                                         scene.project.aspect_ratio or "16:9")
         except CustomSceneRejected as exc:
             return Response({"detail": str(exc), "rejected": True},
                             status=status.HTTP_400_BAD_REQUEST)
         except Exception as exc:
             logger.exception("своя сцена %s: кадр не нарисовался", scene.pk)
-            return Response({"detail": _human(exc)},
-                            status=status.HTTP_502_BAD_GATEWAY)
+            return _image_failure(exc)
         scene.credits_spent += price
         scene.error = ""
         scene.save(update_fields=["keyframe", "credits_spent", "error", "updated_at"])
@@ -991,20 +1138,9 @@ class SceneRenderView(StudioAPIView):
         scene = get_object_or_404(
             CartoonScene.objects.select_related("preset__image_model", "preset__video_model"),
             pk=pk, project__user=request.user)
-        if scene.status in (CartoonScene.STATUS_NEW, CartoonScene.STATUS_KEYFRAME,
-                            CartoonScene.STATUS_VIDEO):
+        if scene.status in WORKING_STATUSES:
             return Response(scene_json(scene, _lang(request)))
-
-        need = scene.preset.estimated_credits()
-        balance = int(getattr(request.user, "token_balance", 0) or 0)
-        if balance < need:
-            return _no_credits(need, balance)
-
-        scene.status = CartoonScene.STATUS_NEW
-        scene.error = ""
-        scene.save(update_fields=["status", "error", "updated_at"])
-        render_scene.delay(scene.pk)
-        return Response(scene_json(scene, _lang(request)))
+        return _queue_render(request, scene)
 
 
 class SceneDetailView(StudioAPIView):
@@ -1078,26 +1214,21 @@ class SceneDetailView(StudioAPIView):
 
             # Пересборка идёт с УЖЕ готовым кадром, если он есть: так персонаж
             # и композиция не сдвинутся, а заплатит человек только за видео.
-            new_keyframe = bool(request.data.get("new_keyframe"))
             # Баланс проверяем ЗДЕСЬ, а не в задаче: провайдеру за генерацию мы
             # платим сразу, а списание в Celery упало бы уже после — видео
             # потеряно, деньги студии сгорели.
-            need = _scene_price(scene, keyframe_ready=bool(scene.keyframe) and not new_keyframe)
-            balance = int(getattr(request.user, "token_balance", 0) or 0)
-            if balance < need:
-                return _no_credits(need, balance)
-
-            if new_keyframe:
-                scene.keyframe = ""
-            scene.status = CartoonScene.STATUS_NEW
-            scene.error = ""
-            scene.save(update_fields=["keyframe", "status", "error", "updated_at"])
-            render_scene.delay(scene.pk)
+            return _queue_render(request, scene,
+                                 new_keyframe=bool(request.data.get("new_keyframe")))
 
         return Response(scene_json(scene, _lang(request)))
 
     def delete(self, request, pk):
         scene = get_object_or_404(CartoonScene, pk=pk, project__user=request.user)
+        # Снимающуюся сцену не удаляем: задача доснимет ролик, а сохранить его
+        # будет некуда — провайдеру заплачено, человеку выдать нечего.
+        if scene.status in WORKING_STATUSES:
+            return Response({"detail": "Сцена сейчас снимается — удалить её можно, когда съёмка закончится"},
+                            status=status.HTTP_400_BAD_REQUEST)
         project = scene.project
         scene.delete()
         # Уплотняем порядок, чтобы в таймлайне не осталось дырок.
@@ -1112,10 +1243,35 @@ class ProjectAssembleView(StudioAPIView):
     """POST — склеить готовые сцены в один ролик. Бесплатно."""
 
     def post(self, request, pk):
+        from django.db import transaction
+        from django.utils import timezone
+
         project = get_object_or_404(CartoonProject, pk=pk, user=request.user)
         ready = project.scenes.filter(status=CartoonScene.STATUS_READY).exclude(video="").count()
         if not ready:
             return Response({"detail": "Нет готовых сцен"}, status=status.HTTP_400_BAD_REQUEST)
-        assemble_movie.delay(project.pk)
+        # «Собирается» — сразу и условно. Раньше ответ приходил со старым
+        # состоянием: фронт не показывал крутилку, человек жал ещё раз, и в
+        # очередь вставали две склейки. Уже собирается — вторую не ставим.
+        # Отметка начала сбрасывается: пока задача не взялась, склейка стоит в
+        # очереди, и уборка ждёт её дольше (tasks.fail_stale_work).
+        started = CartoonProject.objects.filter(pk=project.pk).exclude(
+            status=CartoonProject.STATUS_ASSEMBLING).update(
+            status=CartoonProject.STATUS_ASSEMBLING, error="", assembly_started_at=None,
+            updated_at=timezone.now())
+        if started:
+            transaction.on_commit(lambda pk=project.pk: _enqueue_assembly(pk))
         project.refresh_from_db()
         return Response(project_json(project, _lang(request)), status=status.HTTP_202_ACCEPTED)
+
+
+def _enqueue_assembly(project_id: int) -> None:
+    from django.utils import timezone
+
+    try:
+        assemble_movie.delay(project_id)
+    except Exception:
+        logger.exception("мультфильм %s: задача склейки не поставилась", project_id)
+        CartoonProject.objects.filter(pk=project_id, status=CartoonProject.STATUS_ASSEMBLING).update(
+            status=CartoonProject.STATUS_FAILED, error="Очередь занята — попробуйте собрать через минуту",
+            updated_at=timezone.now())

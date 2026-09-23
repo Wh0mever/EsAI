@@ -62,7 +62,9 @@ class SceneRetryMoneyTests(TestCase):
             project=project, preset=self.preset, keyframe=keyframe, status=status)
 
     def _retry(self, user, scene, **body):
-        with patch("cartoon.views.render_scene.delay") as delay:
+        # Задача ставится после коммита (иначе она не увидела бы «Ожидает»).
+        with patch("cartoon.views.render_scene.delay") as delay, \
+             self.captureOnCommitCallbacks(execute=True):
             response = _client(user).patch(f"/api/cartoon/scenes/{scene.pk}/",
                                            {"retry": True, **body}, format="json")
         scene.refresh_from_db()

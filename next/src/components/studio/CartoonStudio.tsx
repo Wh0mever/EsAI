@@ -85,6 +85,9 @@ type Project = {
 
 const WORKING: StudioScene["status"][] = ["new", "keyframe", "video"];
 
+/** Ответ сервера с отказом: текст и, если не хватило кредитов, цена и баланс. */
+type ApiRefusal = { detail?: string; required?: number; balance?: number } | null | undefined;
+
 /** Сколько сцен показываем за раз. Шесть — просьба клиента, ради медленного интернета. */
 const PAGE_SIZE = 6;
 
@@ -168,8 +171,21 @@ export default function CartoonStudio() {
   // (клиент: «быстро выбрать готовую сцену или самому описать, что хочешь»).
   const [customText, setCustomText] = useState("");
   const [framingId, setFramingId] = useState<number | null>(null);
-  const [shareUrl, setShareUrl] = useState("");
+  // Ссылка «поделиться» привязана к ролику, для которого сделана: после
+  // пересборки мультфильма прежняя вела бы на старый ролик.
+  const [share, setShare] = useState<{ video: string; url: string } | null>(null);
   const [sharing, setSharing] = useState(false);
+  // Какой мультфильм открыт — синхронно, без ожидания перерисовки. По нему
+  // отбрасываются ответы опроса старого проекта: иначе запрос, ушедший до
+  // переключения, возвращал на экран прежний мультфильм.
+  const currentIdRef = useRef<number | null>(null);
+  const showProject = useCallback((p: Project | null) => {
+    currentIdRef.current = p?.id ?? null;
+    setProject(p);
+  }, []);
+  // Формат, под который запрошены кадры героев: ответ, пришедший для прежнего
+  // формата, выкидываем — иначе в вертикальную ленту встали бы горизонтальные кадры.
+  const aspectRef = useRef<string | null>(null);
 
   useEffect(() => {
     // Системная просьба «меньше движения» и режим экономии трафика — повод не
@@ -221,7 +237,7 @@ export default function CartoonStudio() {
       `cartoon/projects/${project.id}/`, "PATCH", { aspect_ratio: value }, true
     );
     if (res.ok && res.data) {
-      setProject(res.data);
+      if (currentIdRef.current === res.data.id) showProject(res.data);
       setProjects((prev) => prev.map((x) => (x.id === res.data!.id ? res.data! : x)));
     } else {
       setError((res.data as any)?.detail || t("studio_ui.err_scene"));
@@ -241,15 +257,29 @@ export default function CartoonStudio() {
   }, [character, draft, project]);
 
   useEffect(() => {
+    // Формат поменяли — прежние кадры были другого размера: чистим и тут же
+    // запрашиваем заново. Раньше очистка жила в отдельном эффекте, срабатывала
+    // после запроса и стирала превью героев насовсем.
+    if (aspectRef.current !== aspect) {
+      if (aspectRef.current !== null) {
+        fetchedChars.current.clear();
+        setFramesByChar({});
+        setVideosByChar({});
+      }
+      aspectRef.current = aspect;
+    }
+    const wanted = aspect;
     const ids = wantedChars ? wantedChars.split(",").map(Number) : [];
     for (const id of ids) {
       if (fetchedChars.current.has(id)) continue;
       fetchedChars.current.add(id);
       void (async () => {
         const res = await fetchData<Record<string, { frame: string; video: string }>>(
-          `cartoon/previews/?character_id=${id}&aspect_ratio=${encodeURIComponent(aspect)}`,
+          `cartoon/previews/?character_id=${id}&aspect_ratio=${encodeURIComponent(wanted)}`,
           "GET", null, true
         );
+        // Пока шёл запрос, формат сменили: ответ относится к прежнему.
+        if (aspectRef.current !== wanted) return;
         if (!res.ok || !res.data) {
           fetchedChars.current.delete(id);
           return;
@@ -265,13 +295,6 @@ export default function CartoonStudio() {
       })();
     }
   }, [wantedChars, aspect]);
-
-  // Формат поменяли — прежние кадры были другого размера.
-  useEffect(() => {
-    fetchedChars.current.clear();
-    setFramesByChar({});
-    setVideosByChar({});
-  }, [aspect]);
 
   const tryOn: Record<number, string> = (character && framesByChar[character.id]) || {};
   const heroVideos: Record<number, string> = (character && videosByChar[character.id]) || {};
@@ -307,6 +330,7 @@ export default function CartoonStudio() {
   /** Кадр «этот герой в этой сцене». Потом он же пойдёт первым кадром съёмки. */
   const tryOnPair = async (presetId: number, heroId: number) => {
     const preset = { id: presetId };
+    const wanted = aspect;
     trackFunnel("studio_tryon", { preset_id: preset.id, authed });
     setTryingOn(preset.id);
     // Гость шлёт запрос без токена: ответ «нужен вход» (403) иначе принимается
@@ -320,7 +344,10 @@ export default function CartoonStudio() {
     setTryingOn(null);
     if (res.ok && res.data?.image) {
       const image = res.data.image;
-      setFramesByChar((prev) => ({ ...prev, [heroId]: { ...(prev[heroId] || {}), [preset.id]: image } }));
+      // Кадр прежнего формата в новую ленту не ставим.
+      if (aspectRef.current === wanted) {
+        setFramesByChar((prev) => ({ ...prev, [heroId]: { ...(prev[heroId] || {}), [preset.id]: image } }));
+      }
       if (res.data.free) {
         markFreeTryUsed();
         setFreeTryUsed(true);
@@ -514,7 +541,7 @@ export default function CartoonStudio() {
         || (remembered && mineList.find((x) => x.id === remembered))
         || mineList.find((x) => x.scenes.length > 0);
       if (last) {
-        setProject(last);
+        showProject(last);
         if (last.character) setCharacter(last.character);
       }
       setLoading(false);
@@ -529,7 +556,7 @@ export default function CartoonStudio() {
     return () => {
       alive = false;
     };
-  }, [loadBalance, i18n.language]);
+  }, [loadBalance, i18n.language, showProject, t]);
 
   useEffect(() => {
     void (async () => {
@@ -538,16 +565,17 @@ export default function CartoonStudio() {
     })();
   }, []);
 
-  // Опрос, пока что-то считается.
-  const refresh = useCallback(async (id: number) => {
+  // Опрос, пока что-то считается. adopt — открыть именно этот мультфильм;
+  // без него ответ по мультфильму, который уже не открыт, экран не трогает.
+  const refresh = useCallback(async (id: number, adopt = false) => {
     const res = await fetchData<Project>(`cartoon/projects/${id}/`, "GET", null, true);
     if (res.ok && res.data) {
       const fresh = res.data;
-      setProject(fresh);
+      if (adopt || currentIdRef.current === fresh.id) showProject(fresh);
       setProjects((prev) => prev.map((x) => (x.id === fresh.id ? fresh : x)));
     }
     return res.data || null;
-  }, []);
+  }, [showProject]);
 
   useEffect(() => {
     const busy =
@@ -582,13 +610,15 @@ export default function CartoonStudio() {
       { character_id: character.id, aspect_ratio: aspect }, true
     );
     if (res.ok && res.data) {
-      setProject(res.data);
+      showProject(res.data);
       setProjects((prev) => [res.data as Project, ...prev]);
       return res.data;
     }
     setError((res.data as any)?.detail || t("studio_ui.err_project"));
     return null;
-  }, [project, character]);
+    // Формат — в зависимостях: без него новый мультфильм заводился в
+    // прежнем формате, выбранном до переключения.
+  }, [project, character, aspect, t, showProject]);
 
   // Открытый мультфильм запоминаем: после оплаты и входа студия откроет его же.
   useEffect(() => {
@@ -646,7 +676,7 @@ export default function CartoonStudio() {
     setAdding(null);
     if (res.ok && res.data) {
       trackFunnel("studio_scene_add", { preset_id: preset.id, authed: true });
-      await refresh(p.id);
+      await refresh(p.id, true);
       // Лента ниже сцен, и без прокрутки человек не понимает, куда делась
       // добавленная сцена.
       timelineRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -751,7 +781,7 @@ export default function CartoonStudio() {
     if (res.ok && res.data) {
       trackFunnel("studio_scene_add", { custom: true, authed: true });
       setCustomText("");
-      await refresh(p.id);
+      await refresh(p.id, true);
       scrollToTimeline();
     } else {
       setError((res.data as any)?.detail || t("studio_ui.err_scene"));
@@ -804,7 +834,7 @@ export default function CartoonStudio() {
     if (!title || title === project.title) return;
     const res = await fetchData<Project>(`cartoon/projects/${project.id}/`, "PATCH", { title }, true);
     if (res.ok && res.data) {
-      setProject(res.data);
+      if (currentIdRef.current === res.data.id) showProject(res.data);
       setProjects((prev) => prev.map((x) => (x.id === res.data!.id ? res.data! : x)));
     } else {
       setError((res.data as any)?.detail || t("studio_ui.err_scene"));
@@ -852,9 +882,10 @@ export default function CartoonStudio() {
   const setSceneCharacter = async (scene: StudioScene, characterId: number) => {
     if (!project) return;
     markBusy(scene.id, true);
-    await fetchData(`cartoon/scenes/${scene.id}/`, "PATCH",
-                    { character_id: characterId }, true);
+    const res = await fetchData(`cartoon/scenes/${scene.id}/`, "PATCH",
+                                { character_id: characterId }, true);
     markBusy(scene.id, false);
+    if (!res.ok) setError((res.data as ApiRefusal)?.detail || t("studio_ui.err_scene"));
     await refresh(project.id);
   };
 
@@ -877,19 +908,37 @@ export default function CartoonStudio() {
     await refresh(project.id);
   };
 
+  /** Переснять сцену. Готовую — только после подтверждения с ценой: это
+   *  ~160 кредитов, а значок ↻ легко задеть случайно. */
   const retryScene = async (scene: StudioScene) => {
     if (!project) return;
+    if (scene.status === "ready") {
+      const credits = scene.render_credits ?? scene.preset.credits ?? 0;
+      if (!window.confirm(t("studio_ui.reshoot_confirm", {
+        defaultValue: "Переснять сцену заново? Спишется {{credits}} кр., нынешний ролик заменится новым.",
+        credits,
+      }))) return;
+    }
+    setError("");
     markBusy(scene.id, true);
-    await fetchData(`cartoon/scenes/${scene.id}/`, "PATCH", { retry: true }, true);
+    const res = await fetchData<StudioScene>(`cartoon/scenes/${scene.id}/`, "PATCH", { retry: true }, true);
     markBusy(scene.id, false);
+    if (!res.ok) {
+      // Как у «Снять»: не хватает кредитов — окно покупки, а не тишина.
+      const d = res.data as ApiRefusal;
+      if (d?.required) openPaywall({ required: Number(d.required), balance: Number(d.balance ?? 0) });
+      else setError(d?.detail || t("studio_ui.err_scene"));
+    }
     await refresh(project.id);
   };
 
   const deleteScene = async (scene: StudioScene) => {
     if (!project) return;
+    setError("");
     markBusy(scene.id, true);
-    await fetchData(`cartoon/scenes/${scene.id}/`, "DELETE", null, true);
+    const res = await fetchData(`cartoon/scenes/${scene.id}/`, "DELETE", null, true);
     markBusy(scene.id, false);
+    if (!res.ok) setError((res.data as ApiRefusal)?.detail || t("studio_ui.err_scene"));
     await refresh(project.id);
   };
 
@@ -913,35 +962,43 @@ export default function CartoonStudio() {
   };
 
   const assemble = async () => {
-    if (!project) return;
+    if (!project || project.status === "assembling") return;
+    // В мультфильм идут только снятые сцены — остальные молча пропали бы.
+    const left = project.scenes.filter((s) => s.status !== "ready").length;
+    if (left > 0 && !window.confirm(t("studio_ui.assemble_skip_confirm", {
+      defaultValue: "Не снятые сцены не войдут в мультфильм: {{n}} шт. Собрать из готовых?",
+      n: left,
+    }))) return;
     setAssembling(true);
     setError("");
     const res = await fetchData<Project>(
       `cartoon/projects/${project.id}/assemble/`, "POST", {}, true
     );
     setAssembling(false);
-    if (res.ok && res.data) setProject(res.data);
-    else setError((res.data as any)?.detail || t("studio_ui.err_assemble"));
+    // Сервер сразу отвечает «собирается» — по нему включаются крутилка и опрос.
+    if (res.ok && res.data) {
+      if (currentIdRef.current === res.data.id) showProject(res.data);
+    } else setError((res.data as any)?.detail || t("studio_ui.err_assemble"));
   };
 
   /** Начать новый мультфильм: проект обнуляется, герой остаётся выбранным —
    *  чаще всего следующую историю снимают тем же персонажем. Старый проект
    *  никуда не девается, к нему можно вернуться списком ниже. */
   const startNewMovie = () => {
-    setShareUrl("");
-    setProject(null);
+    setShare(null);
+    showProject(null);
     setShortfall(null);
     setError("");
     setBusyIds(new Set());
   };
 
   const openProject = async (id: number) => {
-    setShareUrl("");
+    setShare(null);
     setShortfall(null);
     setError("");
     const known = projects.find((x) => x.id === id);
-    if (known) setProject(known);
-    const fresh = await refresh(id);
+    if (known) showProject(known);
+    const fresh = await refresh(id, true);
     if (fresh?.character) setCharacter(fresh.character);
   };
 
@@ -958,21 +1015,23 @@ export default function CartoonStudio() {
    *  играют ролик прямо в переписке) и призыв «Создайте свой мультфильм» с
    *  переходом в студию. Отправленный mp4 не сказал бы про EsAI ничего.
    */
+  const resultVideo = project?.result_video || "";
+  const shareUrl = share && share.video === resultVideo ? share.url : "";
   const makeShareLink = useCallback(async () => {
-    if (!project?.result_video || shareUrl || sharing) return;
+    if (!resultVideo || shareUrl || sharing) return;
     setSharing(true);
     const res = await fetchData<{ share_url: string }>(
-      "ai/video/share/", "POST", { url: project.result_video }, true
+      "ai/video/share/", "POST", { url: resultVideo }, true
     );
     setSharing(false);
-    if (res.ok && res.data?.share_url) setShareUrl(res.data.share_url);
-  }, [project?.result_video, shareUrl, sharing]);
+    if (res.ok && res.data?.share_url) setShare({ video: resultVideo, url: res.data.share_url });
+  }, [resultVideo, shareUrl, sharing]);
 
   // Готовый ролик появляется после склейки — ссылку готовим сразу, чтобы
   // кнопки соцсетей не заставляли ждать ещё один запрос.
   useEffect(() => {
-    if (project?.result_video) void makeShareLink();
-  }, [project?.result_video, makeShareLink]);
+    if (resultVideo) void makeShareLink();
+  }, [resultVideo, makeShareLink]);
 
   // Лента гостя в том же виде, что и сцены проекта: так её рисует та же
   // SceneTimeline, и гость видит ровно то, что увидит после входа.
@@ -1665,6 +1724,13 @@ export default function CartoonStudio() {
                   )}
                 </span>
               )}
+              {project?.status === "assembling" && (
+                <span className="text-xs text-muted">
+                  {t("studio_ui.assembling_note", {
+                    defaultValue: "Склеиваем мультфильм — это пара минут. Можно не ждать на странице.",
+                  })}
+                </span>
+              )}
               {working && (
                 <span className="text-xs text-muted">
                   {t("studio_ui.working_note")}
@@ -1734,7 +1800,12 @@ export default function CartoonStudio() {
           )}
 
           {project?.status === "failed" && project.error && (
-            <p className="mt-3 text-sm text-red-400">Склейка не удалась: {project.error}</p>
+            <p className="mt-3 text-sm text-red-400">
+              {t("studio_ui.assemble_failed", {
+                defaultValue: "Склейка не удалась: {{error}}",
+                error: project.error,
+              })}
+            </p>
           )}
         </>
       )}

@@ -151,11 +151,11 @@ class CartoonPreset(models.Model):
         у Veo это 4/6/8 секунд, и пятисекундный пресет снялся бы на четыре, а
         списалось бы за пять.
         """
-        if self.credits_override:
-            return int(self.credits_override)
-        from .pricing import frame_credits, video_credits
+        # Ручная цена учитывается там же, где и списание (pricing.scene_credits):
+        # раньше она меняла только витрину, а списывалось по моделям.
+        from .pricing import scene_credits
 
-        return frame_credits(self.image_model) + video_credits(self.video_model, self.duration)
+        return scene_credits(self)
 
     def __str__(self):
         return self.title
@@ -256,6 +256,11 @@ class CartoonProject(models.Model):
         max_length=512, blank=True, default="", verbose_name="Готовый ролик",
         help_text="Путь в хранилище после склейки.")
     error = models.TextField(blank=True, default="", verbose_name="Последняя ошибка")
+    # Когда задача склейки реально взялась за работу. Пусто при «Собирается» —
+    # склейка ещё стоит в очереди media за съёмками: уборка не должна считать
+    # это ожидание оборвавшейся склейкой.
+    assembly_started_at = models.DateTimeField(null=True, blank=True,
+                                               verbose_name="Склейка началась")
 
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)

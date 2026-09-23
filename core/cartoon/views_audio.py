@@ -353,10 +353,15 @@ class SceneUploadAudioView(StudioAPIView):
         if upload.size > audio.UPLOAD_MAX_BYTES:
             return Response({"detail": f"Файл больше {audio.UPLOAD_MAX_BYTES // (1024 * 1024)} МБ"},
                             status=status.HTTP_400_BAD_REQUEST)
-        name = (upload.name or "").lower()
-        suffix = "." + name.rsplit(".", 1)[-1] if "." in name else ".bin"
+        # Расширение — только из короткого списка: оно уходит в имя файла для
+        # ffmpeg, а по нему выбирается разборщик (плейлист .m3u8 читал бы чужие
+        # файлы и ходил бы в сеть).
+        suffix = audio.upload_suffix(upload.name)
+        if not suffix:
+            return Response({"detail": "Этот формат не подходит — загрузите запись MP3, M4A, WAV, "
+                                       "OGG, WEBM, AMR, 3GP или FLAC"}, status=status.HTTP_400_BAD_REQUEST)
         try:
-            path, duration = audio.save_audio(upload.read(), suffix=suffix[:8],
+            path, duration = audio.save_audio(upload.read(), suffix=suffix,
                                               max_seconds=audio.UPLOAD_MAX_SECONDS)
         except audio.AudioTooLong:
             return Response({"detail": f"Запись длиннее {audio.UPLOAD_MAX_SECONDS // 60} минут"},
@@ -381,17 +386,17 @@ class SceneMixView(StudioAPIView):
         scene = _my_scene(request, pk)
         if not scene.video:
             return Response(_scene_audio_json(scene))
-        lock = f"studio:mix:{scene.pk}"
-        if not cache.add(lock, "1", timeout=120):
-            return Response({"detail": "Сцена уже сводится"}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+        # Замок берёт сам remix_scene; сюда — без ожидания. Раньше вьюха брала
+        # тот же замок заранее, и remix_scene минуту ждал саму вьюху — каждое
+        # сведение шло 60 секунд и держало веб-воркер.
         try:
-            audio.remix_scene(scene)
+            audio.remix_scene(scene, wait=False)
+        except audio.MixBusy:
+            return Response({"detail": "Сцена уже сводится"}, status=status.HTTP_429_TOO_MANY_REQUESTS)
         except Exception:
             logger.exception("сведение сцены %s не удалось", scene.pk)
             return Response({"detail": "Не получилось свести звук со сценой"},
                             status=status.HTTP_502_BAD_GATEWAY)
-        finally:
-            cache.delete(lock)
         return Response(_scene_audio_json(scene))
 
 
@@ -507,21 +512,25 @@ class ProjectVoiceAllView(StudioAPIView):
 
         lock = voiceover.lock_key(project.pk)
         token = uuid.uuid4().hex
-        # Замок короткий, задача продлевает его после каждой реплики. Если
-        # воркер умер (деплой, перезапуск), прогресс перестаёт обновляться —
-        # такой запуск считается брошенным, и человек может начать заново, а
-        # не ждать, глядя на «озвучиваю 3 из 12».
-        if not cache.add(lock, token, timeout=voiceover.LOCK_TTL):
+        # Пока задача стоит в очереди, замок держится столько же, сколько
+        # считается живой очередь; начав работу, задача продлевает его после
+        # каждой реплики. Если воркер умер (деплой, перезапуск), прогресс
+        # перестаёт обновляться — такой запуск считается брошенным, и человек
+        # может начать заново, а не ждать, глядя на «озвучиваю 3 из 12».
+        # Прежний запуск, если он всё же проснётся, увидит чужой замок и
+        # остановится до списания (voiceover.voice_project).
+        if not cache.add(lock, token, timeout=voiceover.QUEUED_STALE_AFTER):
             if not voiceover.is_stale(voiceover.get_progress(project.pk)):
                 return Response({"detail": "Мультфильм уже озвучивается"},
                                 status=status.HTTP_429_TOO_MANY_REQUESTS)
-            cache.set(lock, token, voiceover.LOCK_TTL)
+            cache.set(lock, token, voiceover.QUEUED_STALE_AFTER)
         voiceover.set_progress(project.pk, done=0, total=len(plan), error="", spent=0,
-                               finished=False)
+                               finished=False, queued=True)
         try:
             voice_movie.delay(project.pk, plan, bool(_data(request).get("replace", True)), token)
         except Exception:
-            cache.delete(lock)
+            if cache.get(lock) == token:
+                cache.delete(lock)
             voiceover.clear_progress(project.pk)
             logger.exception("озвучка мультфильма %s: задача не поставилась", project.pk)
             return Response({"detail": "Очередь занята — попробуйте через минуту"},

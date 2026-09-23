@@ -1,7 +1,7 @@
 "use client";
 
 import { useTranslation } from "react-i18next";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { FiLoader, FiMic } from "react-icons/fi";
 import { Modal } from "@/components/dialog/Dialog";
 import { fetchData } from "@/tools/fetchData";
@@ -84,13 +84,16 @@ export default function VoiceAllDialog({
   const prices = config?.prices;
   // Пустая строка не стоит ничего: сцена без реплики остаётся в списке, чтобы
   // её было видно, но платить за неё не за что.
-  const priceOf = (text: string) =>
-    prices && text.trim()
-      ? Math.max(prices.voice_min, Math.ceil((text.trim().length * prices.voice_per_1k) / 1000))
-      : 0;
+  const priceOf = useCallback(
+    (text: string) =>
+      prices && text.trim()
+        ? Math.max(prices.voice_min, Math.ceil((text.trim().length * prices.voice_per_1k) / 1000))
+        : 0,
+    [prices]
+  );
 
   const active = useMemo(() => lines.filter((l) => !off.has(l.scene_id) && l.text.trim()), [lines, off]);
-  const total = useMemo(() => active.reduce((sum, l) => sum + priceOf(l.text), 0), [active, prices]);
+  const total = useMemo(() => active.reduce((sum, l) => sum + priceOf(l.text), 0), [active, priceOf]);
   const alreadyVoiced = lines.some((l) => l.has_voice);
 
   const setLine = (sceneId: number, patch: Partial<PlanLine>) =>
