@@ -759,13 +759,20 @@ class VideoModelParamsAPIView(APIView):
             # и бот показывают отсюда то, что потом и спишется.
             "price_table": _price_table_safe(obj, spec, resolutions or [default_resolution],
                                              sorted(set(durations)) or [default_duration]),
+            # Если пропорции меняют цену (у Seedance 21:9 на треть больше пикселей,
+            # чем 16:9) — отдельные таблицы по пропорциям, иначе пусто.
+            "price_table_by_aspect": _price_table_safe(
+                obj, spec, resolutions or [default_resolution],
+                sorted(set(durations)) or [default_duration], by_aspect=True),
         }, status=status.HTTP_200_OK)
 
 
-def _price_table_safe(obj, spec, resolutions, durations) -> dict:
+def _price_table_safe(obj, spec, resolutions, durations, by_aspect: bool = False) -> dict:
     try:
-        from .video_cost import price_table
+        from .video_cost import price_table, price_tables_by_aspect
 
+        if by_aspect:
+            return price_tables_by_aspect(obj, spec, resolutions, durations)
         return price_table(obj, spec, resolutions, durations)
     except Exception:
         logger.exception("video price table failed for %s", getattr(obj, "openrouter_id", "?"))

@@ -59,7 +59,8 @@ class Command(BaseCommand):
 
         was = sum(p.estimated_credits() for p in presets) / len(presets)
         new_frame = frame_credits(image or presets[0].image_model)
-        new_video = video_credits(video, duration or presets[0].duration)
+        new_video = video_credits(video, duration or presets[0].duration,
+                                  opts.get("resolution") or presets[0].resolution or "720p")
         self.stdout.write(
             f"Сцен: {len(presets)}. Сейчас в среднем {was:.0f} кр. "
             f"Станет {new_frame + new_video} кр (кадр {new_frame} + видео {new_video} за {real} с).")

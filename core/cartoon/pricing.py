@@ -44,11 +44,16 @@ def video_credits(video_model, want_duration: int, resolution: str = "720p") -> 
     if not model_id:
         return base
     try:
-        from ai.handlers import _openrouter_video_catalog
+        from ai.handlers import _openrouter_config, _openrouter_video_catalog, _video_model_params
         from ai.video_cost import video_credits as cost_floor
 
+        # Цена — в том качестве, в котором модель реально снимет (съёмка тоже
+        # «примагничивает» разрешение к поддерживаемому): иначе 1080p в пресете
+        # у модели, умеющей только 720p, стоил бы как 1080p.
+        snapped = _video_model_params(model_id, _openrouter_config(), seconds,
+                                      resolution or "720p").get("resolution") or resolution or "720p"
         return max(base, cost_floor(video_model, _openrouter_video_catalog(model_id),
-                                    resolution or "720p", seconds))
+                                    str(snapped), seconds))
     except Exception:
         logger.exception("цена сцены: себестоимость модели %s не посчиталась", model_id)
         return base

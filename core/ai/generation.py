@@ -181,8 +181,19 @@ def _run_video_generation(*, user, model_obj, selected_model_name: str, message:
         _spec = _openrouter_video_catalog(selected_model_name)
     except Exception:
         _spec = {}
-    _images = len(attachments or []) + (1 if first_frame else 0) + (1 if last_frame else 0)
-    need = video_credits(model_obj, _spec, resolution, duration, images=_images)
+    # Считаем ровно то, что уйдёт провайдеру: один первый кадр (из панели или
+    # картинка из вложений) и один последний; пропорции — как их поймёт submit ниже.
+    _has_first = bool(first_frame) or any(
+        str((a or {}).get("type") or "") == "image" for a in (attachments or []))
+    _images = (1 if _has_first else 0) + (1 if last_frame else 0)
+    try:
+        from .aspect import resolve as _resolve_aspect_for_price
+
+        _price_ar = _resolve_aspect_for_price(
+            aspect_ratio, message, (_spec or {}).get("supported_aspect_ratios") or [])
+    except Exception:
+        _price_ar = None
+    need = video_credits(model_obj, _spec, resolution, duration, images=_images, aspect=_price_ar)
 
     # Продлевать можно только СВОЙ ролик: файл читается с нашего диска, и чужая
     # ссылка иначе превращала чужое видео в начало своего (см. _user_owns_video).

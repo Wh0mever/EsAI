@@ -236,7 +236,16 @@ class GenerationJobCreateView(APIView):
             spec = _openrouter_video_catalog(selected)
         except Exception:
             spec = {}
-        need = video_credits(model_obj, spec, resolution, duration)
+        try:
+            from .aspect import resolve as _resolve_aspect
+
+            price_ar = _resolve_aspect(str(data.get("aspect_ratio") or "").strip() or None,
+                                       str(data.get("message") or ""),
+                                       (spec or {}).get("supported_aspect_ratios") or [])
+        except Exception:
+            price_ar = None
+        frames = (1 if str(data.get("video_first_frame") or "").strip() else 0) +             (1 if str(data.get("video_last_frame") or "").strip() else 0)
+        need = video_credits(model_obj, spec, resolution, duration, images=frames, aspect=price_ar)
 
         try:
             user.refresh_from_db(fields=["token_balance"])

@@ -1304,20 +1304,45 @@ def _openrouter_video_catalog(model_id: str) -> dict:
     ai/video-params/ (он показывает пользователю доступные длительности) и не
     дублировал запрос к каталогу.
     """
+    return next((m for m in _load_video_catalog() if m.get("id") == model_id), None) or {}
+
+
+def _load_video_catalog(cfg: dict | None = None) -> list:
+    """Каталог видео-моделей OpenRouter с ценами (кэш 1 ч + последняя удачная копия).
+
+    Раньше в кэш на час попадал и пустой список, если OpenRouter ответил ошибкой
+    (401/429/5xx с JSON). Весь этот час цена видео не знала себестоимости и
+    откатывалась к плоскому тарифу — ровно тот убыток, что был 23.09 на 1080p.
+    Теперь кладём только удачный непустой ответ, храним последнюю удачную копию
+    на неделю и при сбое берём её; сбой помним минуту, чтобы не долбить API.
+    """
     import requests as _requests
     from django.core.cache import cache
 
     catalog = cache.get("or_video_models")
-    if catalog is None:
-        cfg = _openrouter_config()
+    if catalog:
+        return catalog
+    if cache.get("or_video_models:failed"):
+        return cache.get("or_video_models:last_good") or []
+    try:
+        cfg = cfg or _openrouter_config()
         r = _requests.get(
             f"{cfg['base_url'].rstrip('/')}/videos/models",
             headers={"Authorization": f"Bearer {cfg['api_key']}"},
             timeout=(10, 20),
         )
-        catalog = (r.json() or {}).get("data") or []
-        cache.set("or_video_models", catalog, 3600)
-    return next((m for m in catalog if m.get("id") == model_id), None) or {}
+        data = (r.json() or {}).get("data") if r.ok else None
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("video catalog: OpenRouter не ответил: %s", exc)
+        data = None
+    if isinstance(data, list) and data:
+        cache.set("or_video_models", data, 3600)
+        cache.set("or_video_models:last_good", data, 7 * 24 * 3600)
+        return data
+    cache.set("or_video_models:failed", 1, 60)
+    last_good = cache.get("or_video_models:last_good") or []
+    logger.warning("video catalog: берём прошлую копию (%s моделей)", len(last_good))
+    return last_good
 
 
 def _genlog_ip(request) -> str | None:
@@ -1339,20 +1364,9 @@ def _video_model_params(model_id: str, cfg: dict, want_duration: int, want_resol
     запрошенные значения к ближайшим поддерживаемым. При любой ошибке — отдаём
     запрошенные как есть (лучше попытаться, чем упасть заранее).
     """
-    import requests as _requests
-    from django.core.cache import cache
-
     result = {"duration": int(want_duration), "resolution": str(want_resolution)}
     try:
-        catalog = cache.get("or_video_models")
-        if catalog is None:
-            r = _requests.get(
-                f"{cfg['base_url'].rstrip('/')}/videos/models",
-                headers={"Authorization": f"Bearer {cfg['api_key']}"},
-                timeout=(10, 20),
-            )
-            catalog = (r.json() or {}).get("data") or []
-            cache.set("or_video_models", catalog, 3600)
+        catalog = _load_video_catalog(cfg)
         spec = next((m for m in catalog if m.get("id") == model_id), None)
         if not spec:
             return result

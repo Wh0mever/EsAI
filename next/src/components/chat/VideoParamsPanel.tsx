@@ -19,6 +19,8 @@ type VideoParams = {
   /** Точные цены с сервера: {разрешение: {секунды: кредиты}}. Зависят от
    *  разрешения (1080p у Seedance в 2,5 раза дороже 720p) — считать самим нельзя. */
   price_table?: Record<string, Record<string, number>>;
+  /** Если цена зависит от пропорций (у Seedance 21:9 на треть больше пикселей). */
+  price_table_by_aspect?: Record<string, Record<string, Record<string, number>>>;
 };
 
 export type VideoSettings = {
@@ -36,7 +38,14 @@ type Props = {
   onChange: (patch: Partial<VideoSettings>) => void;
 };
 
-const cache = new Map<string, VideoParams>();
+// Параметры и цены живут 10 минут: цены считаются по прайсу провайдера и могут
+// поменяться, а вкладку с чатом держат открытой сутками.
+const CACHE_TTL_MS = 10 * 60 * 1000;
+const cache = new Map<string, { at: number; data: VideoParams }>();
+const cached = (model: string): VideoParams | null => {
+  const hit = cache.get(model);
+  return hit && Date.now() - hit.at < CACHE_TTL_MS ? hit.data : null;
+};
 
 /* ---------- иконки: inline SVG, без лишних зависимостей ---------- */
 
@@ -216,12 +225,12 @@ function FrameSlot({
  */
 export default function VideoParamsPanel({ model, value, onChange }: Props) {
   const { t } = useTranslation("common");
-  const [params, setParams] = useState<VideoParams | null>(cache.get(model) || null);
+  const [params, setParams] = useState<VideoParams | null>(cached(model));
   const [open, setOpen] = useState(true);
 
   useEffect(() => {
     if (!model) return;
-    const c = cache.get(model);
+    const c = cached(model);
     if (c) {
       setParams(c);
       return;
@@ -236,7 +245,7 @@ export default function VideoParamsPanel({ model, value, onChange }: Props) {
           false
         );
         if (cancelled || !res?.ok || !res.data) return;
-        cache.set(model, res.data);
+        cache.set(model, { at: Date.now(), data: res.data });
         setParams(res.data);
       } catch {
         /* без параметров панель просто не показывается */
@@ -290,8 +299,10 @@ export default function VideoParamsPanel({ model, value, onChange }: Props) {
   const dur = value.duration ?? params.default_duration;
   const res = value.resolution ?? params.default_resolution;
   // Цена — из таблицы сервера (то же, что спишется); умножение — только запасной путь.
-  const priceOf = (seconds: number) =>
-    Number(params.price_table?.[res]?.[String(seconds)]) || Math.max(1, Math.ceil(seconds * perSec));
+  const tableFor = (r: string) =>
+    (value.aspectRatio && params.price_table_by_aspect?.[value.aspectRatio]?.[r]) || params.price_table?.[r];
+  const priceOf = (seconds: number, r: string = res) =>
+    Number(tableFor(r)?.[String(seconds)]) || Math.max(1, Math.ceil(seconds * perSec));
   const cost = priceOf(dur);
   const supportsLast = (params.frame_images || []).includes("last_frame");
 
@@ -376,10 +387,8 @@ export default function VideoParamsPanel({ model, value, onChange }: Props) {
                       {r}
                       {/* Цена прямо на кнопке: качество выше — ролик заметно дороже,
                           и человек должен видеть это до съёмки, а не после. */}
-                      {params.price_table?.[r]?.[String(dur)] != null && (
-                        <span className="ml-1 font-normal opacity-70">
-                          · {params.price_table[r][String(dur)]}
-                        </span>
+                      {tableFor(r)?.[String(dur)] != null && (
+                        <span className="ml-1 font-normal opacity-70">· {priceOf(dur, r)}</span>
                       )}
                     </button>
                   ))}

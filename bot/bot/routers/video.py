@@ -289,6 +289,11 @@ async def pick_model(call: CallbackQuery, token: str, lang: str, state: FSMConte
         await show_paywall(call.message, lang, ApiError(403, code="premium_locked"))
         return
     draft = await _draft(chat_id)
+    if draft.get("model") != chosen.get("openrouter_id"):
+        # Цены и качество прошлой модели к новой не относятся: иначе на карточке
+        # Veo висела бы цена Seedance 1080p, пока не придут свои параметры.
+        for key in ("prices", "prices_ar", "res"):
+            draft.pop(key, None)
     draft["model"] = chosen.get("openrouter_id")
     draft["model_name"] = chosen.get("name")
     draft["cps"] = float(chosen.get("markup_coefficient") or 0)
@@ -364,7 +369,9 @@ def _cost(draft: dict) -> int:
     import math
 
     duration = int(draft.get("duration") or 5)
-    table = (draft.get("prices") or {}).get(str(draft.get("res") or "")) or {}
+    # У Seedance цена зависит и от пропорций (21:9 — на треть больше пикселей).
+    by_aspect = (draft.get("prices_ar") or {}).get(str(draft.get("ar") or "")) or {}
+    table = (by_aspect or draft.get("prices") or {}).get(str(draft.get("res") or "")) or {}
     try:
         exact = int(table.get(str(duration)) or 0)
     except (TypeError, ValueError):
@@ -389,8 +396,9 @@ async def _show_card(message: Message, token: str, lang: str, chat_id: int, draf
         draft["res"] = params.get("default_resolution") or resolutions[0]
     if params.get("credits_per_second"):
         draft["cps"] = float(params["credits_per_second"])
-    if isinstance(params.get("price_table"), dict):
-        draft["prices"] = params["price_table"]
+    draft["prices"] = params.get("price_table") if isinstance(params.get("price_table"), dict) else {}
+    draft["prices_ar"] = (params.get("price_table_by_aspect")
+                          if isinstance(params.get("price_table_by_aspect"), dict) else {})
     await _save(chat_id, draft)
 
     try:
