@@ -459,8 +459,81 @@ class TokenTransactionListView(generics.ListAPIView):
 # успевает сходить за картой, но не наткнётся завтра на вчерашнюю сумму.
 RESUME_WINDOW_MINUTES = 30
 
+# Скидочная ссылка FreedomPay живёт ровно столько, сколько мы готовы к ней
+# возвращать (pg_lifetime). После этого по ней уже не заплатить, и скидку
+# можно отдать новому платежу.
+DISCOUNT_LINK_LIFETIME_SECONDS = RESUME_WINDOW_MINUTES * 60
+# Запрос к FreedomPay обрывается через 30 с; платёж без ссылки и без ошибки
+# старше этого — оборванный старт, ссылку по нему человек не получил.
+DISCOUNT_INIT_GRACE = timedelta(minutes=2)
 
-def pending_token_payment(user, package_id=None):
+
+def _offer_free_for_new_payment(offer, now=None) -> bool:
+    """Скидку можно отдать новому платежу.
+
+    Раньше она намертво привязывалась к первому созданному платежу, даже к
+    тому, у которого ссылка на оплату так и не появилась. Но и отдавать её
+    дальше, пока прежняя скидочная ссылка жива, нельзя: обе оставались бы
+    оплачиваемыми со скидкой, и одноразовая скидка срабатывала бы сколько
+    угодно раз. Поэтому скидка переезжает, только когда по прежнему платежу
+    заплатить со скидкой уже невозможно.
+    """
+    if offer.applied_to_payment_id is None:
+        return True
+    applied = getattr(offer, "applied_to_payment", None)
+    if applied is None:
+        return True
+    if applied.success:
+        return False
+    now = now or timezone.now()
+    response = applied.response or {}
+    if any(isinstance(cb, dict) and cb.get("type") == "success"
+           for cb in (response.get("callbacks") or [])):
+        # Банк уже вернул человека со страницы «успешно»: оплата, скорее всего,
+        # прошла и ждёт подтверждения — скидку не трогаем.
+        return False
+    if _redirect_url_of(response):
+        # Ссылка выдана — ждём, пока истечёт срок её жизни у FreedomPay.
+        payload = ((applied.request or {}).get("token_purchase") or {}).get("payload") or {}
+        try:
+            lifetime = int(payload.get("pg_lifetime") or 0)
+        except (TypeError, ValueError):
+            lifetime = 0
+        return bool(lifetime) and now >= applied.created_at + timedelta(seconds=lifetime + 60)
+    # Ссылки нет: старт упал с ошибкой или оборвался — платить не по чему.
+    if applied.error:
+        return True
+    return now - applied.created_at > DISCOUNT_INIT_GRACE
+
+
+def _discount_waiting(request, existing) -> bool:
+    """Есть забранная, ещё не использованная скидка, которой нет в прежней ссылке."""
+    from django.utils import timezone as _tz
+
+    from .exit_discount import _resolve_identity
+
+    try:
+        identity = _resolve_identity(request)
+        offer = None
+        if identity["user"] is not None:
+            offer = ExitDiscountOffer.objects.filter(user=identity["user"]).first()
+        if offer is None and identity["device_key"]:
+            offer = ExitDiscountOffer.objects.filter(device_key=identity["device_key"]).first()
+        if (offer is None or offer.claimed_at is None or offer.redeemed_at is not None
+                or not offer.percent or offer.expires_at is None or _tz.now() > offer.expires_at):
+            return False
+        # Прежняя ссылка уже со скидкой — к ней и возвращаем, новую не заводим.
+        if (getattr(existing, "request", None) or {}).get("exit_discount"):
+            return False
+        # Скидка занята живой скидочной ссылкой — новый платёж её не получит,
+        # так что и прежнюю ссылку по полной цене отбрасывать незачем.
+        return (offer.applied_to_payment_id != getattr(existing, "pk", None)
+                and _offer_free_for_new_payment(offer))
+    except Exception:
+        return False
+
+
+def pending_token_payment(user, package_id=None, currency=None):
     """Незавершённая оплата пакета, к которой можно вернуться.
 
     Разбор воронки показал, зачем это нужно: 73 брошенные попытки — это всего
@@ -484,6 +557,10 @@ def pending_token_payment(user, package_id=None):
     ).order_by("-created_at")
     if package_id:
         qs = qs.filter(request__token_purchase__package_id=int(package_id))
+    if currency:
+        # Начатая в рублях оплата — не та же самая, что в сомах: человек,
+        # переключивший валюту, иначе попадал обратно на страницу ЮKassa.
+        qs = qs.filter(currency=str(currency).upper())
 
     for payment in qs[:20]:
         response = payment.response or {}
@@ -659,7 +736,12 @@ class TokenPurchaseView(APIView):
 
         # Тот же пакет, начатый минуту назад, — это не второй платёж, а тот же
         # самый: человек вернулся и жмёт снова. Отдаём прежнюю ссылку.
-        existing, existing_url = pending_token_payment(request.user, package.id)
+        want_currency = "RUB" if pay_currency == "RUB" else currency
+        existing, existing_url = pending_token_payment(request.user, package.id, currency=want_currency)
+        # Прежняя ссылка — полная цена, а человек с тех пор забрал скидку: не
+        # подсовываем её, иначе на витрине 392, а платёжка просит 490.
+        if existing_url and want_currency != "RUB" and _discount_waiting(request, existing):
+            existing_url = None
         if existing_url:
             return Response({"redirect_url": existing_url, "order_id": existing.order_id,
                              "amount": str(existing.amount), "currency": existing.currency,
@@ -708,7 +790,7 @@ class TokenPurchaseView(APIView):
                 offer is not None
                 and offer.claimed_at is not None
                 and offer.redeemed_at is None
-                and offer.applied_to_payment_id is None
+                and _offer_free_for_new_payment(offer)
                 and offer.expires_at is not None
                 and now <= offer.expires_at
                 and offer.percent
@@ -744,6 +826,10 @@ class TokenPurchaseView(APIView):
                 "pg_post_link": request.build_absolute_uri(reverse("payments:freedompay-tokens-postback")),
                 "pg_testing_mode": int(settings.DEBUG),
             }
+            if discount_offer is not None:
+                # Скидочная ссылка не должна жить сутки (срок FreedomPay по
+                # умолчанию): пока она жива, скидку нельзя отдать другому платежу.
+                payload["pg_lifetime"] = str(DISCOUNT_LINK_LIFETIME_SECONDS)
             payload["pg_sig"] = make_api_signature("init_payment", payload, secret)
 
             request_payload = {
@@ -1008,6 +1094,10 @@ class TokenPurchaseView(APIView):
         order_id = f"tokpkg-{request.user.id}-{package.id}-{uuid.uuid4().hex[:10]}"
         payment = Payment.objects.create(
             user=request.user,
+            # Поле провайдера раньше не заполнялось (стояло по умолчанию
+            # «freedompay»): автосверка спрашивала про рублёвые заказы FreedomPay,
+            # а в админке ЮKassa терялась среди карт.
+            provider="yookassa",
             amount=amount_rub,
             currency="RUB",
             order_id=order_id,

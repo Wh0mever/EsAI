@@ -874,7 +874,29 @@ def _mark_exit_discount_redeemed(payment: "Payment") -> None:
                     .filter(pk=offer_id)
                     .first()
                 )
-        if offer and not offer.redeemed_at:
+        if not offer:
+            return
+        # Заплачено со скидкой, которую этот платёж уже не держал: её погасила
+        # другая оплата или она переехала на другой платёж. Кредиты человек
+        # получает (деньги уже списаны), но такой случай нужно разобрать руками.
+        foreign = offer.applied_to_payment_id != payment.pk and (
+            offer.applied_to_payment_id is not None or offer.redeemed_at is not None)
+        if foreign:
+            logger.warning(
+                "exit_discount: повторное использование скидки offer=%s order=%s applied=%s redeemed=%s",
+                offer.pk, payment.order_id, offer.applied_to_payment_id, offer.redeemed_at,
+            )
+            log_event(
+                "payment",
+                message=(f"exit_discount_reused: order={payment.order_id} offer={offer.pk} "
+                         f"applied_to={offer.applied_to_payment_id} — проверить вручную"),
+                user=payment.user,
+                meta={"order_id": payment.order_id, "offer_id": offer.pk,
+                      "applied_to_payment_id": offer.applied_to_payment_id,
+                      "needs_review": True},
+                level="warning",
+            )
+        if not offer.redeemed_at:
             offer.redeemed_at = timezone.now()
             offer.save(update_fields=["redeemed_at"])
 
@@ -1116,6 +1138,40 @@ def _clawback_token_package_for_payment(payment: "Payment", order_id: str, paylo
     response["token_purchase_clawed_back"] = True
     response["clawback_debited"] = debited
     payment.response = response
+
+    # Доля пригласившего с этой покупки тоже возвращается.
+    from payments.referral import clawback_referral_share
+
+    referral_taken = clawback_referral_share(order_id)
+    if referral_taken:
+        response["referral_clawback"] = referral_taken
+
+    # Платный тариф держится на оплатах. Если других успешных, не возвращённых
+    # покупок нет — человек снова на бесплатном (премиум-модели, лимиты).
+    try:
+        # Флаг возврата лежит в JSON: exclude() по ключу выкинул бы и оплаты
+        # без этого ключа (NULL), поэтому проверяем в Python — оплат у человека мало.
+        others = [p for p in Payment.objects.filter(user=payment.user, success=True)
+                  .exclude(pk=payment.pk).only("response")
+                  if not (p.response or {}).get("token_purchase_clawed_back")]
+        # Одного success мало: крипто-счёт с недоплатой остаётся success=False,
+        # хотя кредиты по нему начислены. Смотрим и в леджер покупок — без
+        # этого заказа и без уже возвращённых.
+        clawed = {p.order_id for p in Payment.objects.filter(user=payment.user)
+                  .only("order_id", "response")
+                  if (p.response or {}).get("token_purchase_clawed_back")}
+        clawed.add(order_id)
+        ledger_paid = any(
+            (meta or {}).get("order_id") not in clawed
+            for meta in TokenTransaction.objects.filter(
+                user=payment.user, reason="purchase", delta__gt=0).values_list("meta", flat=True)
+        )
+        if getattr(payment.user, "is_paid", False) and not others and not ledger_paid:
+            payment.user.is_paid = False
+            payment.user.save(update_fields=["is_paid"])
+            response["paid_tier_revoked"] = True
+    except Exception:
+        logger.exception("clawback: не удалось пересчитать тариф order=%s", order_id)
     try:
         log_event(
             "payment",
@@ -1418,8 +1474,10 @@ class YooKassaWebhookView(APIView):
             fresh = yk.fetch_payment(yk_payment_id)
         except Exception as exc:
             logger.warning("yookassa webhook: fetch failed id=%s err=%s", yk_payment_id, exc)
-            # 200, чтобы ЮKassa не считала эндпоинт нерабочим; повторит сама.
-            return Response({"status": "retry_later"}, status=status.HTTP_200_OK)
+            # Не 200: ЮKassa повторяет уведомление, только если ответ не 200.
+            # Раньше здесь был 200 «повторит сама» — и не повторяла, а один
+            # сбой связи оставлял оплаченный рублёвый заказ без кредитов.
+            return Response({"status": "retry_later"}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
         order_id = str(((fresh.get("metadata") or {}).get("order_id") or "")).strip()
         payment = Payment.objects.filter(order_id=order_id).order_by("-id").first() if order_id else None
@@ -1427,45 +1485,62 @@ class YooKassaWebhookView(APIView):
             logger.warning("yookassa webhook: заказ не найден order_id=%s", order_id)
             return Response({"status": "ok"}, status=status.HTTP_200_OK)
 
-        paid = bool(fresh.get("paid")) and str(fresh.get("status") or "").lower() == "succeeded"
-
-        with transaction.atomic():
-            payment = Payment.objects.select_for_update().get(pk=payment.pk)
-            response = payment.response or {}
-            callbacks = list(response.get("callbacks") or [])
-            callbacks.append({"type": "yookassa_webhook", "payload": fresh})
-            response["callbacks"] = callbacks
-            payment.response = response
-
-            if not paid:
-                payment.success = False
-                payment.error = f"yookassa_status:{fresh.get('status') or 'unknown'}"
-                payment.save(update_fields=["response", "success", "error"])
-                _log_payment_event(payment, "yookassa_not_paid")
-                return Response({"status": "ok"}, status=status.HTTP_200_OK)
-
-            # Сверка суммы и валюты с нашим заказом до начисления.
-            amt = (fresh.get("amount") or {})
-            try:
-                amount_ok = Decimal(str(amt.get("value") or "0")) == (payment.amount or 0)
-            except Exception:
-                amount_ok = False
-            currency_ok = str(amt.get("currency") or "").upper() == (payment.currency or "").upper()
-            if not (amount_ok and currency_ok):
-                payment.success = False
-                payment.error = "amount_mismatch"
-                payment.save(update_fields=["response", "success", "error"])
-                _log_payment_event(payment, "yookassa_amount_mismatch")
-                return Response({"status": "ok"}, status=status.HTTP_200_OK)
-
-            payment.success = True
-            payment.error = ""
-            try:
-                _credit_token_package_for_payment(payment, order_id)
-            except Exception as exc:
-                payment.success = False
-                payment.error = f"token_purchase_apply_failed:{exc}"
-            payment.save(update_fields=["response", "success", "error"])
-
-        _log_payment_event(payment, "yookassa_webhook")
+        apply_yookassa_state(payment, fresh, source="yookassa_webhook")
         return Response({"status": "ok"}, status=status.HTTP_200_OK)
+
+
+def apply_yookassa_state(payment, fresh: dict, *, source: str) -> str:
+    """Применить ответ API ЮKassa к нашему заказу. Идемпотентно.
+
+    Общий путь для вебхука и для сверки (payments.tasks.reconcile_yookassa_payments).
+    Возвращает "credited" / "not_paid" / "pending" / "mismatch" / "failed".
+    """
+    order_id = payment.order_id
+    status_text = str(fresh.get("status") or "").lower()
+    paid = bool(fresh.get("paid")) and status_text == "succeeded"
+    if not paid and status_text in ("pending", "waiting_for_capture", ""):
+        # Человек ещё на странице оплаты — рано что-то решать.
+        return "pending"
+
+    with transaction.atomic():
+        payment = Payment.objects.select_for_update().get(pk=payment.pk)
+        response = payment.response or {}
+        callbacks = list(response.get("callbacks") or [])
+        callbacks.append({"type": source, "payload": fresh})
+        response["callbacks"] = callbacks
+        payment.response = response
+
+        if not paid:
+            payment.success = False
+            payment.error = f"yookassa_status:{fresh.get('status') or 'unknown'}"
+            payment.save(update_fields=["response", "success", "error"])
+            _log_payment_event(payment, "yookassa_not_paid")
+            return "not_paid"
+
+        # Сверка суммы и валюты с нашим заказом до начисления.
+        amt = (fresh.get("amount") or {})
+        try:
+            amount_ok = Decimal(str(amt.get("value") or "0")) == (payment.amount or 0)
+        except Exception:
+            amount_ok = False
+        currency_ok = str(amt.get("currency") or "").upper() == (payment.currency or "").upper()
+        if not (amount_ok and currency_ok):
+            payment.success = False
+            payment.error = "amount_mismatch"
+            payment.save(update_fields=["response", "success", "error"])
+            _log_payment_event(payment, "yookassa_amount_mismatch")
+            return "mismatch"
+
+        payment.success = True
+        payment.error = ""
+        result = "credited"
+        try:
+            _credit_token_package_for_payment(payment, order_id)
+        except Exception as exc:
+            payment.success = False
+            payment.error = f"token_purchase_apply_failed:{exc}"
+            result = "failed"
+        payment.save(update_fields=["response", "success", "error"])
+
+    _log_payment_event(payment, source)
+    return result

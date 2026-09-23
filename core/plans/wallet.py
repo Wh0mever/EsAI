@@ -248,3 +248,34 @@ def clawback_tokens(user, amount: int, reason: str = "refund", meta=None) -> int
     except Exception:
         pass
     return debited
+
+
+# Откуда берутся кредиты, которые можно передать другому человеку: куплены,
+# заработаны на рефералах или сами получены переводом.
+TRANSFERABLE_IN_REASONS = ("purchase", "referral", "transfer_in")
+
+
+def transferable_tokens(user) -> int:
+    """Сколько кредитов человек может перевести другому.
+
+    Подарочные кредиты (ежедневный и приветственный бонусы, промокоды, ручные
+    начисления админа) переводить нельзя: иначе десяток бесплатных аккаунтов
+    каждый день сливал бы свои бонусы на один основной, а после покупки с
+    мгновенным переводом и чарджбэком изымать было бы уже нечего.
+
+    Считаем «платные» поступления минус уже отправленное и изъятое при
+    возвратах, и не больше текущего баланса (потрачено в первую очередь
+    подарочное — так выгоднее человеку).
+    """
+    from django.db.models import Q, Sum
+
+    if not user or not getattr(user, "pk", None):
+        return 0
+    rows = TokenTransaction.objects.filter(user_id=user.pk)
+    came_in = rows.filter(reason__in=TRANSFERABLE_IN_REASONS, delta__gt=0).aggregate(
+        s=Sum("delta"))["s"] or 0
+    went_out = rows.filter(Q(reason="transfer_out") | Q(reason="refund", delta__lt=0),
+                           delta__lt=0).aggregate(s=Sum("delta"))["s"] or 0
+    balance = int(_user_model().objects.filter(pk=user.pk).values_list(
+        "token_balance", flat=True).first() or 0)
+    return max(0, min(balance, int(came_in) + int(went_out)))

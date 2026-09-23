@@ -206,7 +206,13 @@ def reconcile_pending_token_payments() -> dict:
             # статусов и начисление по частям. Спрашивать про неё FreedomPay
             # бессмысленно, а «нет такого заказа» ещё и засоряет журнал.
             .exclude(provider__startswith="crypto_")
-            .order_by("-id")[:60]
+            # Рублёвые заказы идут через ЮKassa — у них своя сверка ниже.
+            .exclude(provider="yookassa")
+            # Уже зачисленные отсекаем в запросе, а не после среза: иначе
+            # шестьдесят свежих брошенных заказов выталкивали из окна старый
+            # оплаченный, и его больше никто не проверял.
+            .exclude(success=True)
+            .order_by("-id")[:200]
         )
         checked = credited = 0
         for p in pays:
@@ -227,6 +233,54 @@ def reconcile_pending_token_payments() -> dict:
         return {"status": "ok", "checked": checked, "credited": credited}
     finally:
         cache.delete(_RECON_LOCK)
+
+
+# --------------------------------------------------------------- ЮKassa ---
+
+_YK_RECON_LOCK = "payments:yookassa_reconcile:lock"
+
+
+@shared_task(name="payments.tasks.reconcile_yookassa_payments")
+def reconcile_yookassa_payments() -> dict:
+    """Досверка рублёвых оплат: спросить ЮKassa про незакрытые заказы.
+
+    Вебхук — основной путь, но он приходит один раз на событие. Если наш сервер
+    был недоступен или ответил ошибкой, оплаченный заказ без этой задачи так и
+    остался бы без кредитов. Смотрим заказы за последние сутки, которые ещё не
+    зачислены и не отменены, и применяем ответ API тем же кодом, что и вебхук.
+    """
+    if not cache.add(_YK_RECON_LOCK, "1", timeout=240):
+        return {"status": "busy"}
+    try:
+        from . import yookassa as yk
+        from .models import Payment
+        from .views import apply_yookassa_state
+
+        if not (getattr(settings, "YOOKASSA_SHOP_ID", "") and getattr(settings, "YOOKASSA_SECRET_KEY", "")):
+            return {"status": "disabled"}
+        since = timezone.now() - timedelta(hours=24)
+        pays = (Payment.objects
+                .filter(provider="yookassa", success=False, created_at__gte=since)
+                .exclude(user=None)
+                .order_by("-id")[:100])
+        checked = credited = 0
+        for p in pays:
+            if str(p.error or "").startswith(("yookassa_status:", "amount_mismatch")):
+                continue  # отменён или сумма не сошлась — решено окончательно
+            yk_id = str((p.request or {}).get("yookassa_payment_id") or "").strip()
+            if not yk_id:
+                continue
+            checked += 1
+            try:
+                if apply_yookassa_state(p, yk.fetch_payment(yk_id), source="yookassa_reconcile") == "credited":
+                    credited += 1
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("yookassa reconcile order=%s failed: %s", p.order_id, exc)
+        if credited:
+            logger.info("reconcile_yookassa_payments checked=%s credited=%s", checked, credited)
+        return {"status": "ok", "checked": checked, "credited": credited}
+    finally:
+        cache.delete(_YK_RECON_LOCK)
 
 
 # --------------------------------------------------------------- крипта ---

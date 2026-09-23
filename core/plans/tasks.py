@@ -440,12 +440,17 @@ def apply_daily_retention_bonus(self) -> dict:
 
         qs = (
             User.objects
-            .filter(is_paid=False, token_balance__lt=threshold)
+            # Отключённые, слитые и удалённые аккаунты бонус не получают.
+            .filter(is_paid=False, is_active=True, token_balance__lt=threshold)
             .only("id", "token_balance", "is_paid")
         )
 
         processed = 0
         failed = 0
+        # Кому начислили — им и рассылка в Telegram. С 6.09 список не заводился:
+        # первый же append падал, пуш «бонус зачислен» не уходил никому, а
+        # задача заканчивалась ошибкой уже после начисления.
+        bonus_user_ids: list[int] = []
         for user in qs.iterator():
             try:
                 set_balance_to(

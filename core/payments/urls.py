@@ -1,3 +1,4 @@
+from django.http import HttpResponse
 from django.urls import path
 
 from .crypto.views import CryptoCurrenciesView, NowPaymentsIpnView
@@ -6,18 +7,6 @@ from .views import (
     StartBindCardAPIView,
     FreedomPayCallbackAPIView,
     RemoveCardAPIView,
-    FreedomPayChargeResultView,
-    FreedomPayChargeFailureView,
-    FreedomPayChargePostbackView,
-    StartOneTimePaymentAPIView,
-    GenerationTopupPricingAPIView,
-    FreedomPayOneTimeSuccessView,
-    FreedomPayOneTimeFailureView,
-    FreedomPayOneTimePostbackView,
-    StartGenerationTopupPaymentAPIView,
-    FreedomPayGenerationTopupSuccessView,
-    FreedomPayGenerationTopupFailureView,
-    FreedomPayGenerationTopupPostbackView,
     FreedomPayTokenPurchaseSuccessView,
     FreedomPayTokenPurchaseFailureView,
     FreedomPayTokenPurchasePostbackView,
@@ -27,6 +16,12 @@ from .views import (
 
 app_name = "payments"
 
+
+def _legacy_callback(request, *args, **kwargs):
+    """Колбэк без подписи: принимаем, чтобы FreedomPay не повторял, и не трогаем базу."""
+    return HttpResponse("OK", content_type="text/plain")
+
+
 urlpatterns = [
     # Шаги воронки оплаты с фронта (открыт всем: до оплаты человек ещё гость).
     path('funnel/event/', FunnelEventView.as_view(), name='funnel-event'),
@@ -34,18 +29,15 @@ urlpatterns = [
     path('card/bind/start/', StartBindCardAPIView.as_view(), name='card-bind-start'),
     path('card/bind/callback/', FreedomPayCallbackAPIView.as_view(), name='card-bind-callback'),
     path('card/remove/', RemoveCardAPIView.as_view(), name='card-remove'),
-    path('card/charge/success/', FreedomPayChargeResultView.as_view(), name='freedompay-charge-success'),
-    path('card/charge/failure/', FreedomPayChargeFailureView.as_view(), name='freedompay-charge-failure'),
-    path('card/charge/postback/', FreedomPayChargePostbackView.as_view(), name='freedompay-charge-postback'),
-    path('one-time/start/<int:plan_id>/', StartOneTimePaymentAPIView.as_view(), name='freedompay-onetime-start'),
-    path('one-time/success/', FreedomPayOneTimeSuccessView.as_view(), name='freedompay-onetime-success'),
-    path('one-time/failure/', FreedomPayOneTimeFailureView.as_view(), name='freedompay-onetime-failure'),
-    path('one-time/postback/', FreedomPayOneTimePostbackView.as_view(), name='freedompay-onetime-postback'),
-    path('topup/pricing/', GenerationTopupPricingAPIView.as_view(), name='freedompay-topup-pricing'),
-    path('topup/start/', StartGenerationTopupPaymentAPIView.as_view(), name='freedompay-topup-start'),
-    path('topup/success/', FreedomPayGenerationTopupSuccessView.as_view(), name='freedompay-topup-success'),
-    path('topup/failure/', FreedomPayGenerationTopupFailureView.as_view(), name='freedompay-topup-failure'),
-    path('topup/postback/', FreedomPayGenerationTopupPostbackView.as_view(), name='freedompay-topup-postback'),
+    # Маршруты эпохи подписок (разовая оплата тарифа, докупка генераций) сняты:
+    # сайт ими не пользуется, а их success/failure/postback принимали запросы
+    # без подписи — любой мог пометить свой неоплаченный заказ «успешным» и
+    # накрутить выручку в админке. Колбэки списания с привязанной карты
+    # оставлены по имени (их адрес уходит в FreedomPay из FreedomPay.charge),
+    # но ничего не меняют: результат списания приходит прямо в ответе API.
+    path('card/charge/success/', _legacy_callback, name='freedompay-charge-success'),
+    path('card/charge/failure/', _legacy_callback, name='freedompay-charge-failure'),
+    path('card/charge/postback/', _legacy_callback, name='freedompay-charge-postback'),
     # Token package purchase callbacks (pay-as-you-go)
     path('tokens/success/', FreedomPayTokenPurchaseSuccessView.as_view(), name='freedompay-tokens-success'),
     path('tokens/failure/', FreedomPayTokenPurchaseFailureView.as_view(), name='freedompay-tokens-failure'),
