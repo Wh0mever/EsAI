@@ -5,6 +5,7 @@ import Footer from "@/components/main/Footer";
 export const metadata: Metadata = {
   title: "Privacy Policy | EsAI",
   description: "Privacy Policy for the EsAI platform.",
+  alternates: { canonical: "/privacy" },
 };
 
 export default function RootLayout({

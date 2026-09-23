@@ -5,7 +5,8 @@ import { Button } from "@/components/ui/buttons/Buttons";
 import formEntries from "@/tools/formEntries";
 
 type Props = {
-  onSubmit: (data: Record<string, any>) => Promise<void> | void;
+  /** form — сам элемент формы: вызывающий может сбросить поля после успеха (form.reset()). */
+  onSubmit: (data: Record<string, any>, form: HTMLFormElement) => Promise<void> | void;
   submitLabel: React.ReactNode;
   className?: string;
   children: React.ReactNode;
@@ -27,9 +28,11 @@ export default function SmartForm({
     e.preventDefault();
     if (loading) return;
     setLoading(true);
+    // currentTarget обнуляется после обработчика — запоминаем форму до await.
+    const form = e.currentTarget;
     try {
-      const data = formEntries(e.currentTarget);
-      await onSubmit(data);
+      const data = formEntries(form);
+      await onSubmit(data, form);
     } finally {
       setLoading(false);
     }

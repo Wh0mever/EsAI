@@ -7,7 +7,10 @@ export default function robots(): MetadataRoute.Robots {
       {
         userAgent: "*",
         allow: "/",
-        disallow: ["/api/", "/admin/", "/auth/", "/dashboard/"],
+        // Служебное и личное: админка, кабинет, Mini App и ссылки на чужие ролики
+        // поисковику не нужны (/v/ сами по себе noindex, но зачем их обходить).
+        disallow: ["/api/", "/admin/", "/admin-new", "/auth/", "/dashboard/", "/profile",
+                   "/transfer", "/tg/"],
       },
     ],
     sitemap: `${SITE_URL}/sitemap.xml`,

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { fetchData } from "@/tools/fetchData";
 import { vendorColorByOpenRouterId } from "@/lib/vendorColors";
+import { fluxCreditsPerImage, isFluxImageModel } from "@/lib/modelBilling";
 
 /**
  * CreditsExplainer — блок «Как списываются кредиты?» для страницы тарифов.
@@ -18,6 +19,7 @@ type ModelRow = {
   markup_coefficient?: number;
   is_free?: boolean;
   sort_order?: number;
+  category?: string;
 };
 
 // Фолбэк = ставки, анонсированные клиентом (кредитов за 1000 токенов).
@@ -60,6 +62,41 @@ export default function CreditsExplainer() {
     };
   }, []);
 
+  // «За картинку» списывают только FLUX (ai/model_billing.flux_charge_credits:
+  // max(1, int(coeff))). Nano Banana тоже category=image, но биллится токенами
+  // (ceil(tokens*coeff/1000)) — её коэффициент под шапкой «за картинку» занижал
+  // реальную цену (17 вместо ≈25). Поэтому держим её в таблице «за 1000 токенов».
+  const kindOf = (m: ModelRow) =>
+    m.category === "video"
+      ? "video"
+      : m.category === "image"
+        ? isFluxImageModel(m.openrouter_id) ? "image" : "image_tokens"
+        : "text";
+  const groups = [
+    {
+      key: "text",
+      title: t("packages.credits_table_text", { defaultValue: "Текстовые модели" }),
+      unit: t("packages.credits_table_rate", { defaultValue: "Кредитов за 1000 токенов" }),
+    },
+    {
+      key: "image",
+      title: t("packages.credits_table_image", { defaultValue: "Картинки" }),
+      unit: t("packages.credits_table_rate_image", { defaultValue: "Кредитов за картинку" }),
+    },
+    {
+      key: "image_tokens",
+      title: t("packages.credits_table_image_tokens", { defaultValue: "Картинки (по токенам)" }),
+      unit: t("packages.credits_table_rate", { defaultValue: "Кредитов за 1000 токенов" }),
+    },
+    {
+      key: "video",
+      title: t("packages.credits_table_video", { defaultValue: "Видео" }),
+      unit: t("packages.credits_table_rate_video", { defaultValue: "Кредитов за секунду" }),
+    },
+  ]
+    .map((g) => ({ ...g, rows: rows.filter((m) => kindOf(m) === g.key) }))
+    .filter((g) => g.rows.length > 0);
+
   return (
     <div className="lg:px-40 px-6 w-full">
       <div className="mt-4 rounded-2xl border border-border bg-surface-2 p-6 md:p-8 flex flex-col gap-4">
@@ -92,39 +129,41 @@ export default function CreditsExplainer() {
           </p>
         </div>
 
-        {/* Тариф по моделям */}
-        <div className="mt-2 overflow-hidden rounded-xl border border-border">
-          <div className="grid grid-cols-[1fr_auto] items-center gap-2 bg-surface px-4 py-2.5 text-xs uppercase tracking-wide text-muted-2">
-            <span>{t("packages.credits_table_model", { defaultValue: "Модель" })}</span>
-            <span className="text-right">
-              {t("packages.credits_table_rate", { defaultValue: "Кредитов за 1000 токенов" })}
-            </span>
+        {/* Тариф по моделям — отдельными таблицами: у текста и токенных картинок
+            цена за 1000 токенов, у FLUX — за картинку, у видео — за секунду. В одной
+            таблице под шапкой «за 1000 токенов» видео читалось как «Veo — 83 за 1000 токенов». */}
+        {groups.map((g) => (
+          <div key={g.key} className="mt-2 overflow-hidden rounded-xl border border-border">
+            <div className="grid grid-cols-[1fr_auto] items-center gap-2 bg-surface px-4 py-2.5 text-xs uppercase tracking-wide text-muted-2">
+              <span>{g.title}</span>
+              <span className="text-right">{g.unit}</span>
+            </div>
+            <ul className="divide-y divide-border">
+              {g.rows.map((m) => (
+                <li
+                  key={m.openrouter_id || m.name}
+                  className="grid grid-cols-[1fr_auto] items-center gap-2 px-4 py-3"
+                >
+                  <span className="flex items-center gap-2.5 min-w-0">
+                    <span
+                      className="h-2.5 w-2.5 rounded-full shrink-0"
+                      style={{ background: vendorColorByOpenRouterId(m.openrouter_id) }}
+                    />
+                    <span className="truncate text-foreground">{m.name}</span>
+                    {m.is_free && (
+                      <span className="shrink-0 rounded-md bg-accent/15 px-1.5 py-0.5 text-[11px] font-medium text-accent-strong">
+                        {t("packages.credits_free_badge", { defaultValue: "бесплатная" })}
+                      </span>
+                    )}
+                  </span>
+                  <span className="text-right tabular-nums font-semibold text-foreground">
+                    {g.key === "image" ? fluxCreditsPerImage(m.markup_coefficient) : Number(m.markup_coefficient)}
+                  </span>
+                </li>
+              ))}
+            </ul>
           </div>
-          <ul className="divide-y divide-border">
-            {rows.map((m) => (
-              <li
-                key={m.openrouter_id || m.name}
-                className="grid grid-cols-[1fr_auto] items-center gap-2 px-4 py-3"
-              >
-                <span className="flex items-center gap-2.5 min-w-0">
-                  <span
-                    className="h-2.5 w-2.5 rounded-full shrink-0"
-                    style={{ background: vendorColorByOpenRouterId(m.openrouter_id) }}
-                  />
-                  <span className="truncate text-foreground">{m.name}</span>
-                  {m.is_free && (
-                    <span className="shrink-0 rounded-md bg-accent/15 px-1.5 py-0.5 text-[11px] font-medium text-accent-strong">
-                      {t("packages.credits_free_badge", { defaultValue: "бесплатная" })}
-                    </span>
-                  )}
-                </span>
-                <span className="text-right tabular-nums font-semibold text-foreground">
-                  {Number(m.markup_coefficient)}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </div>
+        ))}
 
         <p className="text-xs text-muted-2">
           {t("packages.credits_free_note", {

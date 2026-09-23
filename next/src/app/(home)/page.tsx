@@ -1,4 +1,5 @@
 import "@/assets/style.scss";
+import type { Metadata } from "next";
 import ChatWorkspace from "@/components/chat/ChatWorkspace";
 import HomeHero from "@/components/home/HomeHero";
 import WhyEsAI from "@/components/home/WhyEsAI";
@@ -36,6 +37,12 @@ import Footer from "@/components/main/Footer";
 //
 // SEO-статья убрана с главной: клиент попросил, чтобы статьи были ТОЛЬКО в
 // блоге (/blog).
+// Canonical главной живёт здесь, а не в корневом layout — иначе его
+// наследовали все страницы без собственного canonical.
+export const metadata: Metadata = {
+  alternates: { canonical: "/" },
+};
+
 export default function Home() {
   return (
     <ChatWorkspace

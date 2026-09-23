@@ -85,8 +85,16 @@ export default function AdminUsersPage() {
   const [txLoading, setTxLoading] = useState(false);
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Номер последнего поиска: ответы приходят не по порядку, и медленный ответ
+  // на «ив» мог затереть уже показанный результат по «иван».
+  const searchSeqRef = useRef(0);
+  // Запрос, по которому построен текущий список, — «Ещё» догружает именно его,
+  // даже если в поле уже набран новый текст, а поиск по нему ещё не ушёл.
+  const shownQueryRef = useRef("");
 
   const load = useCallback(async (query: string, pageNum: number, append: boolean) => {
+    // Новый поиск отменяет всё, что ещё в пути; догрузка страницы — нет.
+    const seq = append ? searchSeqRef.current : ++searchSeqRef.current;
     if (append) setLoadingMore(true);
     else setLoading(true);
     setError(null);
@@ -96,11 +104,17 @@ export default function AdminUsersPage() {
       null,
       true
     );
+    if (seq !== searchSeqRef.current) {
+      // Устаревший ответ: пока он шёл, начался новый поиск — он и покажет результат.
+      if (append) setLoadingMore(false);
+      return;
+    }
     if (res.ok && res.data) {
       const rows = res.data.results || [];
       setUsers((prev) => (append ? [...prev, ...rows] : rows));
       setCount(res.data.count || 0);
       setPage(pageNum);
+      shownQueryRef.current = query;
     } else {
       setError(res.error || "Не удалось загрузить пользователей");
     }
@@ -143,11 +157,24 @@ export default function AdminUsersPage() {
   };
 
   const submitCredit = async (id: number) => {
-    const n = parseInt(amount, 10);
+    // Только целое число: parseInt молча превращал «1.5» в 1, а «500abc» в 500.
+    const raw = amount.trim();
+    const n = /^-?\d+$/.test(raw) ? parseInt(raw, 10) : NaN;
     if (!n || isNaN(n)) {
-      setCreditMsg("Введите сумму (можно отрицательную для списания)");
+      setCreditMsg("Введите целое число (можно отрицательное для списания)");
       return;
     }
+    // Начисление/списание — реальные деньги пользователя: без подтверждения
+    // лишний ноль или случайный Enter сразу меняли баланс.
+    const target = users.find((u) => u.id === id);
+    const who = target ? target.email || target.username : `#${id}`;
+    if (
+      !confirm(
+        `${n > 0 ? "Начислить" : "Списать"} ${nf(Math.abs(n))} кр пользователю ${who}?` +
+          (target ? `\nТекущий баланс: ${nf(target.token_balance)} кр.` : "")
+      )
+    )
+      return;
     setSubmitting(true);
     setCreditMsg(null);
     const res = await fetchData<{ ok: boolean; balance: number }>(
@@ -253,8 +280,8 @@ export default function AdminUsersPage() {
       {users.length < count && (
         <div className="flex justify-center">
           <button
-            onClick={() => load(q.trim(), page + 1, true)}
-            disabled={loadingMore}
+            onClick={() => load(shownQueryRef.current, page + 1, true)}
+            disabled={loadingMore || loading}
             className="rounded-xl border border-border px-6 py-2.5 text-sm text-muted transition-colors hover:border-accent hover:text-accent disabled:opacity-50"
           >
             {loadingMore

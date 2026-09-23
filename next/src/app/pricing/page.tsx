@@ -31,13 +31,17 @@ export default function Pricing() {
 	const { t } = useTranslation("common");
 	const [paymentInProgress, setPaymentInProgress] = useState(false);
 	const [claiming, setClaiming] = useState(false);
-	const { active, showPopup, popupOffer, deviceKey, claim, dismiss, secondsLeft } =
-		useExitDiscount(paymentInProgress);
 	// Переключатель валют KGS/RUB (задача клиента: показ цен для ЮKassa) —
 	// приоритет: ручной выбор > авто-детект по геолокации IP > KGS. См.
 	// next/src/hooks/useCurrency.ts. currency/convert прокидываются в
 	// TokenPackages — единственное место на /pricing, где показывается цена.
 	const { currency, setCurrency, convert, format, cryptoEnabled } = useCurrency();
+	// Скидка «при уходе» списывается только при оплате в сомах: рубли (ЮKassa)
+	// и крипта на бэкенде идут без неё. Поэтому и попап предлагаем только тем,
+	// кто платит в сомах, — иначе обещаем цену, которую не спишут.
+	const discountApplies = currency === "KGS";
+	const { active, showPopup, popupOffer, deviceKey, claim, dismiss, secondsLeft } =
+		useExitDiscount(paymentInProgress, discountApplies);
 
 	const popupMinutesLeft = useMemo(() => {
 		if (!popupOffer?.expires_at) return null;
@@ -63,15 +67,22 @@ export default function Pricing() {
 		<main className="pt-80 overflow-hidden relative">
 			<Breadcrumb />
 
-			<PayAsYouGoBanner />
+			{/* format — от переключателя валюты страницы, иначе «Старт от» отстаёт от карточек */}
+			<PayAsYouGoBanner format={format} />
 
 			{active && secondsLeft > 0 && (
 				<div className="sticky top-0 z-50 w-full bg-accent text-on-accent text-center text-sm font-semibold py-2 px-4">
-					{t("exitDiscount.banner", {
-						defaultValue: "Скидка {{percent}}% действует ещё {{time}}",
-						percent: active.percent,
-						time: formatMMSS(secondsLeft),
-					})}
+					{discountApplies
+						? t("exitDiscount.banner", {
+								defaultValue: "Скидка {{percent}}% действует ещё {{time}}",
+								percent: active.percent,
+								time: formatMMSS(secondsLeft),
+							})
+						: t("exitDiscount.banner_kgs_only", {
+								defaultValue: "Скидка {{percent}}% действует только при оплате в сомах · ещё {{time}}",
+								percent: active.percent,
+								time: formatMMSS(secondsLeft),
+							})}
 				</div>
 			)}
 
@@ -133,7 +144,7 @@ export default function Pricing() {
 						<p className="text-muted">
 							{t("pricing_referral.referral_desc", {
 								defaultValue:
-									"Получайте бонусные кредиты за каждого нового пользователя, зарегистрированного по вашему реферальному коду.",
+									"Приглашайте друзей по своей ссылке и получайте процент кредитов с каждого их пополнения — пожизненно.",
 							})}
 						</p>
 						<div>

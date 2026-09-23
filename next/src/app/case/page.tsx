@@ -1,5 +1,8 @@
-import "@/assets/style.scss";
+import { redirect } from "next/navigation";
 
+// Раздел «Кейсы» так и не наполнили: по адресу /case стояла голая строка
+// «Case Page». Пока контента нет — уводим на главную (в sitemap её нет,
+// layout помечен noindex).
 export default function Case() {
-	return <main  className="antialiased container mx-auto">Case Page</main>;
+	redirect("/");
 }

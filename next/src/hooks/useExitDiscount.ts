@@ -47,7 +47,7 @@ function isTouchDevice(): boolean {
  * моменту возврата пользователя — уже не exit-intent, а обычный интерстишл).
  * Это не баг, это платформенное ограничение.
  */
-export function useExitDiscount(paymentInProgress: boolean = false) {
+export function useExitDiscount(paymentInProgress: boolean = false, enabled: boolean = true) {
   const pathname = usePathname();
   const onPricingPage = pathname === "/pricing";
 
@@ -60,6 +60,8 @@ export function useExitDiscount(paymentInProgress: boolean = false) {
 
   const triggeredRef = useRef(false);
   const historyArmedRef = useRef(false);
+  // Скидка уже забрана (в этой вкладке или раньше) — «закрыть» её больше нельзя.
+  const claimedRef = useRef(false);
 
   useEffect(() => {
     setDeviceKey(getOrCreateDeviceKey());
@@ -77,6 +79,7 @@ export function useExitDiscount(paymentInProgress: boolean = false) {
       if (res.ok && res.data) {
         setEligible(Boolean(res.data.eligible_for_popup));
         if (res.data.active) {
+          claimedRef.current = true;
           setActive({ percent: res.data.active.percent, expires_at: res.data.active.expires_at });
         }
       }
@@ -110,7 +113,9 @@ export function useExitDiscount(paymentInProgress: boolean = false) {
 
   // Вооружение слушателей exit-intent.
   useEffect(() => {
-    if (!onPricingPage || !eligible || paymentInProgress || !deviceKey) return;
+    // enabled=false — скидка к выбранной валюте не применяется (см. /pricing),
+    // предлагать её незачем.
+    if (!onPricingPage || !enabled || !eligible || paymentInProgress || !deviceKey) return;
     if (triggeredRef.current) return;
 
     const touch = isTouchDevice();
@@ -147,7 +152,7 @@ export function useExitDiscount(paymentInProgress: boolean = false) {
     };
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
-  }, [onPricingPage, eligible, paymentInProgress, deviceKey, onExitTrigger]);
+  }, [onPricingPage, enabled, eligible, paymentInProgress, deviceKey, onExitTrigger]);
 
   const claim = useCallback(async () => {
     if (!deviceKey) return null;
@@ -160,7 +165,12 @@ export function useExitDiscount(paymentInProgress: boolean = false) {
     );
     if (res.ok && res.data) {
       const offer = { percent: res.data.percent, expires_at: res.data.expires_at };
+      claimedRef.current = true;
       setActive(offer);
+      // Скидка забрана — попап закрываем сразу. Раньше он оставался открытым,
+      // и его закрытие крестиком отправляло dismiss уже по забранной скидке.
+      setShowPopup(false);
+      setPopupOffer(null);
       return offer;
     }
     if (res.status === 400) {
@@ -174,6 +184,8 @@ export function useExitDiscount(paymentInProgress: boolean = false) {
   const dismiss = useCallback(() => {
     setShowPopup(false);
     setPopupOffer(null);
+    // «Отказался» после «Забрал» — неправда в статистике воронки.
+    if (claimedRef.current) return;
     if (deviceKey) {
       // Не блокируем UI ответом — закрытие попапа мгновенное.
       fetchData(ENDPOINT.dismiss, "POST", { device_key: deviceKey }, true, {

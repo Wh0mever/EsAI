@@ -1,8 +1,11 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { FiCheck } from "react-icons/fi";
 import { useCurrency } from "@/hooks/useCurrency";
+import { convertFromKgs } from "@/lib/currency";
+import { fetchData } from "@/tools/fetchData";
 
 /**
  * PAY-AS-YOU-GO banner — клиентский референс (скрин с другого сайта),
@@ -25,21 +28,77 @@ type Props = {
   headingLevel?: "h1" | "h2";
   /** Мелкий текстовый вариант для тесных мест (TopUpModal, UserBalanceCard) — без бейджа и без h1/h2. */
   compact?: boolean;
+  /**
+   * format() родителя, у которого стоит CurrencySwitch. Свой useCurrency() баннера
+   * с ним не синхронизирован: после переключения валюты чип «Старт от» оставался
+   * в старой валюте, пока карточки уже показывали новую.
+   */
+  format?: (priceKgs: number, somLabel?: string) => string;
 };
 
-export default function PayAsYouGoBanner({ headingLevel = "h1", compact = false }: Props) {
-  const { t } = useTranslation("common");
-  const { cryptoEnabled } = useCurrency();
+/**
+ * Самый дешёвый активный пакет, в сомах. Один запрос на вкладку: баннер стоит
+ * сразу в нескольких местах. Раньше «от 190» было вписано в текст и осталось на
+ * витрине, когда пакет за 190 сом сняли с продажи.
+ */
+let cheapestPromise: Promise<number | null> | null = null;
+function fetchCheapest(): Promise<number | null> {
+  if (!cheapestPromise) {
+    cheapestPromise = fetchData<{ price: number }[]>("plans/packages/", "GET", null, false)
+      .then((res) => {
+        const prices = (Array.isArray(res.data) ? res.data : [])
+          .map((p) => Number(p.price))
+          .filter((n) => Number.isFinite(n) && n > 0);
+        if (!prices.length) throw new Error("no packages");
+        return Math.min(...prices);
+      })
+      .catch(() => {
+        cheapestPromise = null; // следующий баннер попробует снова
+        return null;
+      });
+  }
+  return cheapestPromise;
+}
+
+export default function PayAsYouGoBanner({ headingLevel = "h1", compact = false, format: parentFormat }: Props) {
+  const { t, i18n } = useTranslation("common");
+  const { cryptoEnabled, format: ownFormat, usdRate } = useCurrency();
+  const format = parentFormat ?? ownFormat;
   const Heading = headingLevel;
+  const [cheapest, setCheapest] = useState<number | null>(null);
+
+  useEffect(() => {
+    let alive = true;
+    void fetchCheapest().then((price) => {
+      if (alive) setCheapest(price);
+    });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  const usdt =
+    cheapest !== null
+      ? convertFromKgs(cheapest, "USD", 0, usdRate).toLocaleString(
+          i18n.language === "en" ? "en-US" : "ru-RU",
+          { maximumFractionDigits: 1 },
+        )
+      : "";
 
   const checks = [
     t("packages.payg_check_no_subscription", { defaultValue: "Без подписок" }),
     t("packages.payg_check_no_hidden_fees", { defaultValue: "Без скрытых платежей" }),
-    t("packages.payg_check_starts_from", { defaultValue: "Старт от 190 сом" }),
+    // Пока цена не пришла — плашку не показываем, чем показывать неправду.
+    ...(cheapest !== null
+      ? [t("packages.payg_check_starts_from", {
+          price: format(cheapest, t("topup.som", { defaultValue: "сом" })),
+          defaultValue: "Старт от {{price}}",
+        })]
+      : []),
     // Плашка про крипту живёт вместе с самим способом оплаты: выключили
     // крипту в админке — обещание с витрины исчезло само.
-    ...(cryptoEnabled
-      ? [t("packages.payg_check_crypto", { defaultValue: "От ≈ 2,2 USDT в криптовалюте" })]
+    ...(cryptoEnabled && usdt
+      ? [t("packages.payg_check_crypto", { amount: usdt, defaultValue: "От ≈ {{amount}} USDT в криптовалюте" })]
       : []),
   ];
 

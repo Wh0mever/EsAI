@@ -17,9 +17,15 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   ];
 
   const staticPages: MetadataRoute.Sitemap = [
+    // Студия — флагманский раздел со своим SEO-заголовком; её в карте не было.
+    { path: "/studio", priority: 0.9 },
     { path: "/models", priority: 0.8 },
     { path: "/pricing", priority: 0.7 },
     { path: "/blog", priority: 0.6 },
+    { path: "/faq", priority: 0.5 },
+    { path: "/referral", priority: 0.4 },
+    { path: "/about", priority: 0.4 },
+    { path: "/contact-us", priority: 0.3 },
   ].map(({ path, priority }) => ({
     url: `${SITE_URL}${path}`,
     lastModified: now,

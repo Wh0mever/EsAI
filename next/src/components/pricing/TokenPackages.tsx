@@ -255,6 +255,29 @@ export default function TokenPackages({
     await startCardPurchase(pkg, currency === "RUB" ? "RUB" : "KGS");
   };
 
+  /**
+   * Текст ошибки оплаты картой. Бэкенд отвечает кодами (yookassa_config_missing,
+   * currency_rate_invalid, package_not_found…) или сырым текстом банка — раньше
+   * всё это показывалось человеку как есть. Как и у крипты, переводим в
+   * понятные слова.
+   */
+  const cardPurchaseError = (status?: number, code?: string): string => {
+    if (status === 401) {
+      return t("crypto.err_unauthorized", {
+        defaultValue: "Сессия истекла. Войдите снова, чтобы продолжить.",
+      });
+    }
+    if (code === "package_not_found" || code === "package_not_payable") {
+      return t("topup.err_package_unavailable", {
+        defaultValue: "Этот пакет сейчас недоступен. Обновите страницу и выберите пакет снова.",
+      });
+    }
+    return t("topup.err_payment_unavailable", {
+      defaultValue:
+        "Не удалось открыть страницу оплаты. Попробуйте ещё раз через минуту или выберите другой способ оплаты.",
+    });
+  };
+
   /** Оплата картой: уходим на страницу банка. Валюта решает, какого. */
   const startCardPurchase = async (pkg: Pkg, payCurrency: "KGS" | "RUB") => {
     if (buyingId != null) return;
@@ -271,7 +294,7 @@ export default function TokenPackages({
         deviceKey ? { "X-Device-Key": deviceKey } : undefined
       );
       if (!res?.ok) {
-        setError(res?.error || t("topup.purchase_error", { defaultValue: "Не удалось начать оплату" }));
+        setError(cardPurchaseError(res?.status, res?.error));
         return;
       }
       const d = res.data || {};
@@ -307,6 +330,12 @@ export default function TokenPackages({
     if (byName !== -1) return byName;
     return packages.length >= 3 ? 1 : -1;
   })();
+
+  // Скидку «при уходе» бэкенд применяет только к оплате в сомах (FreedomPay):
+  // крипта и ЮKassa уходят своим путём раньше и списывают полную цену.
+  // Показывать зачёркнутую цену в рублях или долларах — значит обещать сумму,
+  // которую не спишут (находка аудита).
+  const shownDiscount = currency === "KGS" ? discountPercent : null;
 
   // Подпись валюты у цены. Раньше её склеивали прямо в разметке, но с
   // долларом вариантов стало три, и в двух витринах они разошлись бы.
@@ -375,7 +404,7 @@ export default function TokenPackages({
       )}
 
       {error && (
-        <div className="mx-auto mb-6 max-w-md rounded-lg border border-rose-500/40 bg-rose-500/10 text-rose-300 text-sm px-3 py-2 text-center">
+        <div className="mx-auto mb-6 max-w-md rounded-lg border border-rose-500/40 bg-rose-500/10 text-status-fail text-sm px-3 py-2 text-center">
           {error}
         </div>
       )}
@@ -480,13 +509,13 @@ export default function TokenPackages({
                 <div className="text-center text-foreground text-lg font-semibold">{p.name}</div>
 
                 <div className="text-center">
-                  {discountPercent ? (
+                  {shownDiscount ? (
                     <>
                       <span className="text-base text-muted line-through mr-2">
                         {priceText(p.price)}
                       </span>
                       <span className="text-2xl font-bold text-accent">
-                        {priceText(Math.round(p.price * (1 - discountPercent / 100) * 100) / 100)}
+                        {priceText(Math.round(p.price * (1 - shownDiscount / 100) * 100) / 100)}
                       </span>
                     </>
                   ) : (

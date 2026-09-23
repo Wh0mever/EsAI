@@ -188,7 +188,7 @@ export default function AdminBlogEditPage() {
             placeholder={"## Заголовок раздела\n\nОбычный текст…"}
           />
           <span className="mt-1 block text-xs text-muted-2">
-            Markdown: ## заголовки, **жирный**, списки „- "
+            Markdown: ## заголовки, **жирный**, списки „- &quot;
           </span>
         </label>
 

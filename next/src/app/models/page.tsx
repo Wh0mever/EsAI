@@ -266,7 +266,7 @@ export default function ModelsCatalogPage() {
                         <span className="truncate font-semibold text-foreground">{m.name}</span>
                         {m.recommended && (
                           <FiStar
-                            className="text-amber-400 shrink-0"
+                            className="text-amber-400 [[data-theme=light]_&]:text-amber-600 shrink-0"
                             size={14}
                             title={t("models_catalog.badge_recommended", { defaultValue: "Рекомендуемая" })}
                           />
@@ -278,13 +278,17 @@ export default function ModelsCatalogPage() {
 
                   {desc && <p className="text-sm text-muted leading-relaxed line-clamp-2">{desc}</p>}
 
+                  {/* Светлые -400 оттенки на белой карточке почти не читались
+                      (11px). Тема переключается атрибутом data-theme, а не
+                      системной настройкой, поэтому dark: не годится — для
+                      светлой темы берём тёмный оттенок через [data-theme=light]. */}
                   <div className="flex flex-wrap items-center gap-1.5">
                     <span className="inline-flex items-center rounded-md bg-surface-2 px-2 py-0.5 text-[11px] font-medium text-muted">
                       {groupLabels[groupOf(m)]}
                     </span>
                     {m.supports_vision && (
                       <span
-                        className="inline-flex items-center gap-1 rounded-md bg-blue-400/10 px-2 py-0.5 text-[11px] font-medium text-blue-400"
+                        className="inline-flex items-center gap-1 rounded-md bg-blue-400/10 px-2 py-0.5 text-[11px] font-medium text-blue-400 [[data-theme=light]_&]:text-blue-700"
                         title={t("models_catalog.cap_vision", { defaultValue: "Понимает изображения" })}
                       >
                         <FiEye size={11} /> {t("models_catalog.cap_vision", { defaultValue: "Понимает изображения" })}
@@ -292,7 +296,7 @@ export default function ModelsCatalogPage() {
                     )}
                     {isReasoning(m) && (
                       <span
-                        className="inline-flex items-center gap-1 rounded-md bg-purple-400/10 px-2 py-0.5 text-[11px] font-medium text-purple-400"
+                        className="inline-flex items-center gap-1 rounded-md bg-purple-400/10 px-2 py-0.5 text-[11px] font-medium text-purple-400 [[data-theme=light]_&]:text-purple-700"
                         title={t("models_catalog.cap_reasoning", { defaultValue: "Рассуждающая модель" })}
                       >
                         <FiCpu size={11} /> {t("models_catalog.cap_reasoning", { defaultValue: "Рассуждающая модель" })}
@@ -300,7 +304,7 @@ export default function ModelsCatalogPage() {
                     )}
                     {isWeb(m) && (
                       <span
-                        className="inline-flex items-center gap-1 rounded-md bg-amber-400/10 px-2 py-0.5 text-[11px] font-medium text-amber-400"
+                        className="inline-flex items-center gap-1 rounded-md bg-amber-400/10 px-2 py-0.5 text-[11px] font-medium text-amber-400 [[data-theme=light]_&]:text-amber-800"
                         title={t("models_catalog.cap_web", { defaultValue: "Поиск в интернете" })}
                       >
                         <FiGlobe size={11} /> {t("models_catalog.cap_web", { defaultValue: "Поиск в интернете" })}

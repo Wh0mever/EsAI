@@ -5,6 +5,7 @@ import Footer from "@/components/main/Footer";
 export const metadata: Metadata = {
   title: "Public Offer | EsAI",
   description: "Public offer for access to the EsAI platform.",
+  alternates: { canonical: "/public-offer" },
 };
 
 export default function RootLayout({
