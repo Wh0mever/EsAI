@@ -202,7 +202,7 @@ def start(*, user, kind: str, model: str = "", source: str = "chat", provider: s
         row = GenerationLog.objects.create(
             user=user if getattr(user, "pk", None) else None,
             kind=kind, source=source, provider=provider, model=str(model or "")[:120],
-            prompt=str(prompt or "")[:2000], params=_plain(params or {}),
+            prompt=str(prompt or "")[:20000], params=_plain(params or {}),
             credits_planned=max(0, int(credits_planned or 0)),
             session=session, scene_id=scene_id, ip=_valid_ip(ip),
             stages=[{"at": timezone.now().isoformat(timespec="seconds"),
