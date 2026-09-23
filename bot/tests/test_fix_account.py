@@ -377,6 +377,13 @@ class TestStaleConfirmation:
 # ------------------------------------------------------------- [D] блог ---
 
 class TestBlog:
+    @pytest.fixture(autouse=True)
+    def _fresh_blog_cache(self):
+        # Список статей бот держит у себя 10 минут — тестам нужен каждый раз свой.
+        account._BLOG_CACHE.clear()
+        yield
+        account._BLOG_CACHE.clear()
+
     @pytest.mark.asyncio
     async def test_button_per_article(self, monkeypatch):
         async def fake_blog(lang="ru"):
@@ -416,6 +423,22 @@ class TestBlog:
         answer = message.answers[-1]
         assert answer.text == t("ru", "blog_empty")
         assert answer.kwargs.get("reply_markup") is None
+
+    @pytest.mark.asyncio
+    async def test_list_is_reused_instead_of_asking_every_time(self, monkeypatch):
+        """Статьи сервер отдаёт только анонимно — общий лимит по IP бота не тратим."""
+        calls = []
+
+        async def fake_blog(lang="ru"):
+            calls.append(lang)
+            return [{"slug": "a", "title": "A"}]
+
+        monkeypatch.setattr(account.api, "blog", fake_blog)
+        await account.show_blog(FakeMessage(), "ru")
+        await account.show_blog(FakeMessage(), "ru")
+        await account.show_blog(FakeMessage(), "en")
+
+        assert calls == ["ru", "en"]
 
     @pytest.mark.asyncio
     async def test_server_down_is_not_a_crash(self, monkeypatch):

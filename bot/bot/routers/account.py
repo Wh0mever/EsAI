@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import re
+import time
 
 from aiogram import F, Router
 from aiogram.filters import Command, CommandObject
@@ -757,7 +758,8 @@ async def support_text(message: Message, token: str, lang: str, state: FSMContex
     # а формат «tg_<id>@…» не совпадал ни с одним реальным аккаунтом.
     fallback_email = f"telegram_{tg_user.get('id')}@social.esai.local"
     try:
-        result = await api.question(email or fallback_email, name, body[:4000])
+        result = await api.question(email or fallback_email, name, body[:4000], token=token,
+                                    lang=lang, telegram_id=message.chat.id)
     except ApiError:
         await message.answer(t(lang, "server_down"))
         return
@@ -818,9 +820,26 @@ async def cmd_faq(message: Message, lang: str = "ru") -> None:
     await show_faq(message, lang)
 
 
+# Список статей — один на всех и меняется редко, а статьи сервер отдаёт только
+# анонимно: такие запросы бота делят один лимит по IP контейнера со входом по
+# почте. Поэтому держим свежий список у себя, а не спрашиваем на каждое нажатие.
+BLOG_CACHE_TTL = 600
+_BLOG_CACHE: dict[str, tuple[float, list]] = {}
+
+
+async def _blog_posts(lang: str) -> list:
+    cached = _BLOG_CACHE.get(lang)
+    if cached and time.monotonic() - cached[0] < BLOG_CACHE_TTL:
+        return cached[1]
+    posts = await api.blog(lang)
+    if posts:
+        _BLOG_CACHE[lang] = (time.monotonic(), posts)
+    return posts
+
+
 async def show_blog(message: Message, lang: str) -> None:
     try:
-        posts = await api.blog(lang)
+        posts = await _blog_posts(lang)
     except ApiError:
         posts = []
     # api.blog() отдаёт список словарей с непустыми slug и title (заголовок уже

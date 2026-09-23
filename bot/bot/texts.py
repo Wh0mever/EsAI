@@ -35,6 +35,12 @@ TEXTS: dict[str, dict[str, str]] = {
         "busy": "⏳ Ещё отвечаю на предыдущий вопрос. Подождите пару секунд.",
         "failed": "😕 Не удалось получить ответ. Кредиты не списаны.",
         "server_down": "Сервер EsAI не отвечает. Попробуйте через минуту.",
+        # 429 — сервер жив, просто просит не частить: «не отвечает» тут врёт.
+        "rate_limited": "⏳ Слишком много запросов подряд. Подождите минуту и повторите.",
+        "action_failed": (
+            "😕 Не получилось выполнить действие. Попробуйте ещё раз чуть позже — "
+            "а если не пройдёт, напишите в поддержку: /help"
+        ),
         "blocked": "Доступ к аккаунту закрыт. Напишите в поддержку: /help",
         "not_allowed": (
             "Бот пока работает в тестовом режиме и отвечает только сотрудникам.\n"
@@ -144,6 +150,11 @@ TEXTS: dict[str, dict[str, str]] = {
         "busy": "⏳ Still answering your previous question. One moment.",
         "failed": "😕 Could not get an answer. No credits were charged.",
         "server_down": "EsAI is not responding. Please try again in a minute.",
+        "rate_limited": "⏳ Too many requests in a row. Please wait a minute and try again.",
+        "action_failed": (
+            "😕 That did not work. Please try again a bit later — "
+            "and if it still fails, contact support: /help"
+        ),
         "blocked": "Your account is closed. Please contact support: /help",
         "not_allowed": (
             "The bot is in testing and answers staff only.\n"
@@ -242,6 +253,11 @@ TEXTS: dict[str, dict[str, str]] = {
         "busy": "⏳ Мурунку сурооңузга жооп берип жатам. Бир аз күтө туруңуз.",
         "failed": "😕 Жооп алынган жок. Кредиттер алынган жок.",
         "server_down": "EsAI жооп бербей жатат. Бир мүнөттөн кийин аракет кылыңыз.",
+        "rate_limited": "⏳ Суроо-талаптар өтө көп болуп кетти. Бир мүнөт күтүп, кайра аракет кылыңыз.",
+        "action_failed": (
+            "😕 Аракет аткарылган жок. Бир аздан кийин кайра аракет кылыңыз — "
+            "болбосо колдоого жазыңыз: /help"
+        ),
         "blocked": "Аккаунтка кирүү жабык. Колдоого жазыңыз: /help",
         "not_allowed": (
             "Бот сынак режиминде иштеп жатат жана кызматкерлерге гана жооп берет.\n"

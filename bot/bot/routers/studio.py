@@ -1174,8 +1174,13 @@ async def remove_scene(call: CallbackQuery, token: str, lang: str) -> None:
     chat_id = _tid(call)
     try:
         await api.delete_scene(token, int(call.data.split(":")[2]), lang=lang, telegram_id=chat_id)
-    except ApiError:
-        pass
+    except ApiError as exc:
+        # 404 — сцены уже нет, это тот же успех. Остальное (например, сцена
+        # ещё снимается и сервер её не отдаёт) — честно говорим, а не «удалено».
+        if exc.status != 404:
+            await call.answer()
+            await call.message.answer(_fail(lang, exc))
+            return
     await call.answer(t(lang, "st_removed"))
     await show_timeline(call.message, token, lang)
 
@@ -1260,8 +1265,11 @@ async def delete_ok(call: CallbackQuery, token: str, lang: str) -> None:
     if project_id:
         try:
             await api.delete_project(token, project_id, lang=lang, telegram_id=chat_id)
-        except ApiError:
-            pass
+        except ApiError as exc:
+            if exc.status != 404:
+                # Мультфильм снимается или склеивается — сервер его не удалил.
+                await call.message.answer(_fail(lang, exc))
+                return
     await store.drop(chat_id, "st_project")
     await call.message.answer(t(lang, "st_deleted"))
 

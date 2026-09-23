@@ -322,3 +322,69 @@ class NotifyTests(TestCase):
             result = broadcast_telegram("bonus", {"ru": "bonus"}, None)
         self.assertEqual(result["queued"], 1)
         self.assertEqual(send.call_args.kwargs["countdown"], 0)
+
+
+PREFS_PATH = "/api/bot/prefs/"
+
+
+@override_settings(CACHES={"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+                                       "LOCATION": "botapi-throttle-tests"}},
+                   BOT_SERVICE_SECRET=SECRET, TELEGRAM_PRODUCT_BOT_TOKEN=BOT_TOKEN)
+class ServiceThrottleTests(TestCase):
+    """Лимит сервисных запросов бота — у каждого человека свой.
+
+    Раньше ScopedRateThrottle считал по BotService.pk=None: один счётчик на
+    всех людей бота, и всплеск у одних отказывал во входе и оплате другим.
+    Эндпоинт настроек без чата отвечает 404 — лимит проверяется раньше вью,
+    так что 404 значит «пропустили», 429 — «упёрлись в лимит».
+    """
+
+    def setUp(self):
+        cache.clear()
+
+    def _prefs(self, telegram_id):
+        return signed_post({"telegram_id": telegram_id}, path=PREFS_PATH)
+
+    def _rates(self, **rates):
+        from rest_framework.settings import api_settings
+
+        return patch.dict(api_settings.DEFAULT_THROTTLE_RATES, rates)
+
+    def test_each_person_has_own_bucket(self):
+        with self._rates(bot_service_user="2/min", bot_service="100/min"):
+            self.assertEqual(self._prefs(1001).status_code, 404)
+            self.assertEqual(self._prefs(1001).status_code, 404)
+            third = self._prefs(1001)
+            self.assertEqual(third.status_code, 429)
+            self.assertTrue(third.has_header("Retry-After"))
+            # Сосед по боту от чужого всплеска не страдает.
+            self.assertEqual(self._prefs(1002).status_code, 404)
+
+    def test_login_is_counted_by_telegram_user_id(self):
+        from types import SimpleNamespace
+
+        from .auth import BotUserThrottle, telegram_id_of
+
+        self.assertEqual(telegram_id_of(SimpleNamespace(data={"telegram_user": {"id": 77}})), "77")
+        self.assertEqual(telegram_id_of(SimpleNamespace(data={"telegram_id": "78"})), "78")
+        # Счёт без человека (статус, id сообщения со счётом) — только общий лимит.
+        request = SimpleNamespace(data={"payload": "abc"})
+        self.assertIsNone(BotUserThrottle().get_cache_key(request, None))
+        self.assertEqual(telegram_id_of(SimpleNamespace(data=["x"])), "")
+
+    def test_global_ceiling_still_holds(self):
+        with self._rates(bot_service_user="100/min", bot_service="3/min"):
+            for telegram_id in (2001, 2002, 2003):
+                self.assertEqual(self._prefs(telegram_id).status_code, 404)
+            self.assertEqual(self._prefs(2004).status_code, 429)
+
+    def test_defaults_without_settings(self):
+        """Ставки bot_service_user в настройках нет — работает дефолт, а не 500."""
+        from rest_framework.settings import api_settings
+
+        from .auth import BOT_USER_DEFAULT_RATE, BotUserThrottle
+
+        rates = dict(api_settings.DEFAULT_THROTTLE_RATES)
+        rates.pop("bot_service_user", None)
+        with patch.object(api_settings, "DEFAULT_THROTTLE_RATES", rates):
+            self.assertEqual(BotUserThrottle().rate, BOT_USER_DEFAULT_RATE)

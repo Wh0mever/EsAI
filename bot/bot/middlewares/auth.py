@@ -6,11 +6,13 @@ import re
 from typing import Any, Awaitable, Callable
 
 from aiogram import BaseMiddleware
-from aiogram.types import CallbackQuery, Message, TelegramObject, Update
+from aiogram.types import CallbackQuery, InlineKeyboardMarkup, Message, TelegramObject, Update
 
 from bot.config import settings
+from bot.keyboards.common import paywall
 from bot.services.api import ApiError, api
 from bot.services.state import store
+from bot.services.tg_format import plain
 from bot.texts import register_texts, t
 
 logger = logging.getLogger(__name__)
@@ -150,6 +152,12 @@ class AuthMiddleware(BaseMiddleware):
                     if exc.status == 403:
                         await self._reply(event, t(lang or "ru", "blocked"))
                         return None
+                    if exc.status == 429:
+                        # Сервер жив и просит не частить: «не отвечает» тут врёт.
+                        logger.warning("вход %s упёрся в лимит (Retry-After %s)",
+                                       user.id, exc.retry_after)
+                        await self._reply(event, t(lang or "ru", "rate_limited"))
+                        return None
                     logger.exception("не удалось получить токен для %s", user.id)
                     await self._reply(event, t(lang or "ru", "server_down"))
                     return None
@@ -169,8 +177,15 @@ class AuthMiddleware(BaseMiddleware):
         try:
             return await handler(event, data)
         except ApiError as exc:
-            if exc.status != 401 or payment or minted_now or not token:
+            if exc.status != 401 or payment:
                 raise
+            if minted_now or not token:
+                # Токен выдали в этом же апдейте, а API его не принял: второй
+                # такой же ничего не изменит. Раньше ошибка уходила наружу, и
+                # человек не получал вообще ничего.
+                logger.warning("токен для %s отвергнут сразу после выдачи", user.id)
+                await self._reply(event, t(lang or "ru", "auth_session_lost"))
+                return None
             return await self._retry_with_fresh_token(handler, event, data, user,
                                                       lang or "ru")
 
@@ -195,6 +210,9 @@ class AuthMiddleware(BaseMiddleware):
         except ApiError as exc:
             if exc.status == 403:
                 await self._reply(event, t(lang, "blocked"))
+            elif exc.status == 429:
+                logger.warning("обновление токена %s упёрлось в лимит", user.id)
+                await self._reply(event, t(lang, "rate_limited"))
             else:
                 logger.exception("не удалось обновить токен для %s", user.id)
                 await self._reply(event, t(lang, "server_down"))
@@ -286,21 +304,47 @@ class CommandResetMiddleware(BaseMiddleware):
         return await handler(event, data)
 
 
+def api_error_reply(lang: str, exc: ApiError) -> tuple[str, InlineKeyboardMarkup | None]:
+    """Что сказать человеку об отказе API, который обработчик не разобрал сам."""
+    if exc.is_paywall:
+        # Ленивый импорт: chat — роутер, а роутеры грузятся после middleware.
+        from bot.routers.chat import _paywall_text
+
+        return (_paywall_text(lang, exc.code, exc.payload),
+                paywall(lang, settings.site_base_url, free_model=exc.code == "premium_locked"))
+    if exc.status == 429:
+        return t(lang, "rate_limited"), None
+    if exc.is_temporary:
+        return t(lang, "server_down"), None
+    return t(lang, "action_failed"), None
+
+
 class ErrorsMiddleware(BaseMiddleware):
     """Ни одна ошибка не должна выглядеть как молчание бота."""
 
     async def __call__(self, handler, event: TelegramObject, data: dict) -> Any:
         try:
             return await handler(event, data)
-        except ApiError:
-            raise
+        except ApiError as exc:
+            if exc.status == 401:
+                # 401 разбирает AuthMiddleware: меняет токен и повторяет обработчик.
+                raise
+            # Раньше любой ApiError улетал отсюда мимо всех: AuthMiddleware знает
+            # только 401, и на неразобранный отказ (429 в студии, 5xx в меню)
+            # человек получал тишину, а кнопка — вечные «часики».
+            logger.warning("обработчик: отказ API — http %s %s %s", exc.status,
+                           exc.code or "-", (exc.message or "")[:200])
+            text, markup = api_error_reply(data.get("lang", "ru"), exc)
+            await self._notify(event, text, reply_markup=markup)
+            return None
         except Exception:
             logger.exception("обработчик упал")
             await self._notify(event, t(data.get("lang", "ru"), "failed"))
             return None
 
     @staticmethod
-    async def _notify(event: TelegramObject, text: str) -> None:
+    async def _notify(event: TelegramObject, text: str,
+                      reply_markup: InlineKeyboardMarkup | None = None) -> None:
         """Сказать об ошибке и тому, кто нажал кнопку.
 
         Раньше отвечали только на Message: упавший callback-обработчик оставлял
@@ -313,17 +357,19 @@ class ErrorsMiddleware(BaseMiddleware):
         """
         if isinstance(event, Message):
             try:
-                await event.answer(text)
+                await event.answer(text, reply_markup=reply_markup)
             except Exception:
                 logger.exception("не удалось сообщить об ошибке")
             return
         if isinstance(event, CallbackQuery):
             try:
-                await event.answer(text[:200])
+                # Во всплывашке разметки нет — теги показались бы как есть.
+                await event.answer(plain(text)[:200])
             except Exception:
-                logger.exception("не удалось погасить «крутилку» кнопки")
+                # Обычно обработчик уже ответил на кнопку сам — это не авария.
+                logger.warning("не удалось погасить «крутилку» кнопки", exc_info=True)
             if event.message is not None:
                 try:
-                    await event.message.answer(text)
+                    await event.message.answer(text, reply_markup=reply_markup)
                 except Exception:
                     logger.exception("не удалось сообщить об ошибке")
