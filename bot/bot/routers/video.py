@@ -64,6 +64,11 @@ register_texts({
         "vid_status_joining": "склеиваю",
         "vid_done": "🎬 Видео готово · −{credits} кр · баланс {balance}",
         "vid_failed": "😕 Видео не получилось. Кредиты не списаны.",
+        "vid_delayed": ("⏳ <b>Видео снимается дольше обычного</b>\nЗаказ не потерян: ролик придёт "
+                        "сюда сообщением, как только будет готов, — кредиты спишутся только "
+                        "тогда. Запускать заново не нужно."),
+        "vid_extend_not_owned": ("Продлить можно только своё видео из этого аккаунта. "
+                                 "Кредиты не списаны. Новый ролик: /video"),
         "vid_canceled": "⏹ Генерация отменена. Кредиты не списаны.",
         "vid_busy": "Одно видео уже генерируется — дождитесь его.",
         "vid_no_models": "Видео-модели сейчас недоступны.",
@@ -99,6 +104,11 @@ register_texts({
         "vid_status_joining": "joining",
         "vid_done": "🎬 Video ready · −{credits} cr · balance {balance}",
         "vid_failed": "😕 The video did not come out. No credits were charged.",
+        "vid_delayed": ("⏳ <b>The video is taking longer than usual</b>\nYour order is not lost: "
+                        "the clip will arrive here as soon as it is ready — credits will be "
+                        "charged only then. No need to start it again."),
+        "vid_extend_not_owned": ("You can only extend your own video from this account. "
+                                 "No credits were charged. New clip: /video"),
         "vid_canceled": "⏹ Generation cancelled. No credits were charged.",
         "vid_busy": "A video is already being generated — please wait for it.",
         "vid_no_models": "Video models are unavailable right now.",
@@ -133,6 +143,11 @@ register_texts({
         "vid_status_joining": "бириктирип жатам",
         "vid_done": "🎬 Видео даяр · −{credits} кр · баланс {balance}",
         "vid_failed": "😕 Видео чыккан жок. Кредиттер алынган жок.",
+        "vid_delayed": ("⏳ <b>Видео адаттагыдан узагыраак тартылып жатат</b>\nБуйрутма жоголгон "
+                        "жок: ролик даяр болору менен ушул жерге келет — кредиттер ошондо гана "
+                        "алынат. Кайра баштоонун кереги жок."),
+        "vid_extend_not_owned": ("Бул аккаунттагы өзүңүздүн видеоңузду гана узарта аласыз. "
+                                 "Кредиттер алынган жок. Жаңы ролик: /video"),
         "vid_canceled": "⏹ Жаратуу токтотулду. Кредиттер алынган жок.",
         "vid_busy": "Бир видео жаратылып жатат — күтө туруңуз.",
         "vid_no_models": "Видео моделдери азыр жеткиликсиз.",
@@ -476,9 +491,14 @@ async def _launch_failed(message: Message, lang: str, exc: ApiError) -> None:
     """Объяснить, почему ролик не встал в очередь (кредиты при отказе не списаны)."""
     if exc.is_paywall:
         await show_paywall(message, lang, exc)
-    elif exc.code == "job_in_progress":
+    elif exc.code in ("job_in_progress", "video_in_progress"):
         await message.answer(t(lang, "vid_busy"))
-    elif exc.status >= 500:
+    elif exc.code == "extend_not_owned":
+        await message.answer(t(lang, "vid_extend_not_owned"))
+    elif exc.status == 429:
+        # Лимит запросов, а не поломка: «сервер не отвечает» тут было бы неправдой.
+        await message.answer(t(lang, "rate_limited"))
+    elif exc.is_temporary:
         await message.answer(t(lang, "server_down"))
     else:
         await message.answer(t(lang, "failed"))
@@ -577,7 +597,7 @@ async def _watch(bot: Bot, chat_id: int, message_id: int, uid: str, token: str, 
                 token = fresh
             continue
         status = job.get("status")
-        if status in ("done", "failed", "canceled"):
+        if status in ("done", "failed", "canceled", "delayed"):
             break
         elapsed = int(time.monotonic() - started)
         text = t(lang, "vid_progress", status=_status_label(lang, job.get("progress") or ""),
@@ -604,11 +624,14 @@ async def _watch(bot: Bot, chat_id: int, message_id: int, uid: str, token: str, 
             pass
         return
 
+    status = job.get("status")
+    if _is_delayed(job):
+        await _report_delayed(bot, chat_id, message_id, job, lang, notify=notify)
+        return
     try:
         await bot.delete_message(chat_id, message_id)
     except Exception:
         pass
-    status = job.get("status")
     if status == "canceled":
         await bot.send_message(chat_id, t(lang, "vid_canceled"))
         return
@@ -649,6 +672,42 @@ async def _watch(bot: Bot, chat_id: int, message_id: int, uid: str, token: str, 
     await deliver(bot, chat_id, job, lang)
 
 
+def _is_delayed(job: dict) -> bool:
+    """Ролик ещё снимается и придёт позже — это не неудача.
+
+    Ядро отдаёт такую задачу фоновому довозу (core/ai/recovery.py) в статусе
+    delayed. Ядро до этого статуса закрывало её как failed с кодом
+    video_delayed — понимаем и так, иначе задачи, начатые до выкладки, снова
+    получили бы «не получилось» с кнопкой «Повторить».
+    """
+    return job.get("status") == "delayed" or job.get("error_code") == "video_delayed"
+
+
+async def _report_delayed(bot: Bot, chat_id: int, message_id: int, job: dict, lang: str,
+                          *, notify: str) -> None:
+    """Сказать, что ролик снимается дольше обычного, и перестать следить.
+
+    Ролик довезёт, спишет и пришлёт сюда само ядро. Раньше бот статуса delayed
+    не знал и до таймаута крутил «Генерирую…» с кнопкой «Отменить», которая
+    такую задачу уже не отменяет.
+    """
+    if notify == "telegram" and job.get("notified"):
+        # Ядро уже написало об этом отдельным сообщением — второе такое же лишнее.
+        try:
+            await bot.delete_message(chat_id, message_id)
+        except Exception:
+            pass
+        return
+    try:
+        # Правим сам прогресс: без reply_markup уходит и кнопка «Отменить».
+        await bot.edit_message_text(t(lang, "vid_delayed"), chat_id=chat_id,
+                                    message_id=message_id, parse_mode="HTML")
+        return
+    except Exception:
+        pass
+    await bot.send_message(chat_id, t(lang, "vid_delayed"), parse_mode="HTML")
+
+
 async def deliver(bot: Bot, chat_id: int, job: dict, lang: str) -> None:
     uid = job.get("job_id", "")
     if job.get("status") == "done":
@@ -669,6 +728,11 @@ async def deliver(bot: Bot, chat_id: int, job: dict, lang: str) -> None:
                 return
         await bot.send_message(chat_id, caption, reply_markup=result_keyboard(lang, uid))
         return
+    if _is_delayed(job):
+        # Без «не получилось» и без «Повторить»: повтор запустил бы второй
+        # платный ролик, а первый всё равно придёт и спишется.
+        await bot.send_message(chat_id, t(lang, "vid_delayed"), parse_mode="HTML")
+        return
     error = job.get("error_code") or ""
     if error in ("insufficient_balance", "insufficient_tokens"):
         await bot.send_message(chat_id, t(lang, "paywall_balance",
@@ -676,9 +740,18 @@ async def deliver(bot: Bot, chat_id: int, job: dict, lang: str) -> None:
                                           need=(job.get("result") or {}).get("required_estimate", "—")),
                                parse_mode="HTML", reply_markup=paywall(lang, settings.site_base_url))
         return
-    await bot.send_message(chat_id, t(lang, "vid_failed"), reply_markup=InlineKeyboardMarkup(
-        inline_keyboard=[[InlineKeyboardButton(text=t(lang, "btn_retry"),
-                                               callback_data=f"v:re:{uid}")]]))
+    if error == "extend_not_owned":
+        # Ролик чужой. «Повторить» сбрасывает продление (см. again) и запустил
+        # бы новый платный ролик вместо того, о чём просили, — кнопку не даём.
+        await bot.send_message(chat_id, t(lang, "vid_extend_not_owned"))
+        return
+    retry = InlineKeyboardMarkup(inline_keyboard=[[
+        InlineKeyboardButton(text=t(lang, "btn_retry"), callback_data=f"v:re:{uid}")]])
+    if error in ("video_in_progress", "job_in_progress"):
+        # Ничего не сломалось: снимается другой ролик. Повторить можно после него.
+        await bot.send_message(chat_id, t(lang, "vid_busy"), reply_markup=retry)
+        return
+    await bot.send_message(chat_id, t(lang, "vid_failed"), reply_markup=retry)
 
 
 @router.callback_query(F.data.startswith("v:cancel:"))

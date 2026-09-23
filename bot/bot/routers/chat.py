@@ -29,12 +29,49 @@ router = Router(name="chat")
 # (не из общих): register_texts общие ключи не отдаёт.
 register_texts({
     "ru": {"answer_stale": "Этот ответ устарел — бот его больше не помнит. "
-                           "Задайте вопрос заново."},
+                           "Задайте вопрос заново.",
+           # Видео-модель, выбранная для чата: отказы ядра по видео — не «не удалось».
+           "chat_video_delayed": ("⏳ Видео снимается дольше обычного. Готовый ролик "
+                                  "сохранится в истории этого чата на сайте esai.kg — "
+                                  "кредиты спишутся только тогда, запускать заново не нужно.\n"
+                                  "В боте видео удобнее заказывать через /video: готовый "
+                                  "ролик придёт прямо сюда."),
+           "chat_video_busy": ("🎬 Одно видео уже снимается — дождитесь его, потом "
+                               "запускайте следующее. Кредиты не списаны."),
+           "chat_extend_not_owned": ("Продлить можно только своё видео из этого аккаунта. "
+                                     "Кредиты не списаны.")},
     "en": {"answer_stale": "This answer is outdated — the bot no longer keeps it. "
-                           "Please ask again."},
+                           "Please ask again.",
+           "chat_video_delayed": ("⏳ The video is taking longer than usual. The finished clip "
+                                  "will be saved in this chat's history on esai.kg — credits "
+                                  "will be charged only then, no need to start it again.\n"
+                                  "In the bot, videos are easier to order with /video: the "
+                                  "finished clip comes right here."),
+           "chat_video_busy": ("🎬 A video is already being made — wait for it, then start "
+                               "the next one. No credits were charged."),
+           "chat_extend_not_owned": ("You can only extend your own video from this account. "
+                                     "No credits were charged.")},
     "kg": {"answer_stale": "Бул жооп эскирди — бот аны эстебейт. "
-                           "Суроону кайра жазыңыз."},
+                           "Суроону кайра жазыңыз.",
+           "chat_video_delayed": ("⏳ Видео адаттагыдан узагыраак тартылып жатат. Даяр ролик "
+                                  "esai.kg сайтындагы ушул чаттын тарыхында сакталат — "
+                                  "кредиттер ошондо гана алынат, кайра баштоонун кереги жок.\n"
+                                  "Ботто видеону /video аркылуу буйрутма кылуу ыңгайлуу: даяр "
+                                  "ролик түз ушул жерге келет."),
+           "chat_video_busy": ("🎬 Бир видео тартылып жатат — аны күтүп, анан кийинкисин "
+                               "баштаңыз. Кредиттер алынган жок."),
+           "chat_extend_not_owned": ("Бул аккаунттагы өзүңүздүн видеоңузду гана узарта аласыз. "
+                                     "Кредиттер алынган жок.")},
 })
+
+# Коды отказов видео-ветки чата (core/ai/generation.py) → свой честный текст.
+# Без этого все они показывались как «не удалось, кредиты не списаны» — а при
+# video_delayed ролик потом всё равно приходил и списывался.
+VIDEO_ERROR_TEXTS = {
+    "video_delayed": "chat_video_delayed",
+    "video_in_progress": "chat_video_busy",
+    "extend_not_owned": "chat_extend_not_owned",
+}
 
 
 def _session_gone(exc: ApiError) -> bool:
@@ -267,6 +304,10 @@ async def run_chat(message: Message, token: str, lang: str, text: str, *,
                 reply_markup=paywall(lang, settings.site_base_url,
                                      free_model=exc.code == "premium_locked"),
             )
+        elif exc.code in VIDEO_ERROR_TEXTS:
+            await renderer.fail(t(lang, VIDEO_ERROR_TEXTS[exc.code]))
+        elif exc.status == 429:
+            await renderer.fail(t(lang, "rate_limited"))
         elif exc.status >= 500 or exc.code == "stream_timeout":
             await renderer.fail(t(lang, "server_down"))
         else:

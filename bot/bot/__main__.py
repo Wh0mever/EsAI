@@ -28,6 +28,7 @@ from bot.middlewares.auth import (
 from bot.routers import account as account_router
 from bot.routers import billing as billing_router
 from bot.routers import chat as chat_router
+from bot.routers import fallback as fallback_router
 from bot.routers import image as image_router
 from bot.routers import media as media_router
 from bot.routers import models as models_router
@@ -42,6 +43,10 @@ logger = logging.getLogger("bot")
 
 TOKEN_RE = re.compile(r"\b\d{6,}:[A-Za-z0-9_-]{30,}\b")
 ALLOWED_UPDATES = ["message", "callback_query", "pre_checkout_query", "my_chat_member"]
+# Шаг мастера — это вопрос, который бот задал и ждёт ответа. Раньше состояние
+# лежало в Redis бессрочно: брошенное вчера «что изменить на фото?» превращало
+# сегодняшнюю фразу в платную правку. Через сутки о таком шаге никто не помнит.
+FSM_TTL = 24 * 3600
 
 
 class SecretFilter(logging.Filter):
@@ -172,6 +177,8 @@ def build_dispatcher() -> Dispatcher:
     storage = RedisStorage.from_url(
         settings.redis_url,
         key_builder=DefaultKeyBuilder(prefix="esai_fsm", with_bot_id=True),
+        state_ttl=FSM_TTL,
+        data_ttl=FSM_TTL,
     )
     dispatcher = Dispatcher(storage=storage)
 
@@ -195,6 +202,8 @@ def build_dispatcher() -> Dispatcher:
     dispatcher.include_router(profile_router.router)
     dispatcher.include_router(media_router.router)
     dispatcher.include_router(chat_router.router)
+    # Строго последним: отвечает только на то, что не разобрал никто выше.
+    dispatcher.include_router(fallback_router.router)
     return dispatcher
 
 

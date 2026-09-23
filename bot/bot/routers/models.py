@@ -12,6 +12,7 @@ from bot.config import settings
 from bot.keyboards.common import paywall
 from bot.services.api import ApiError, api
 from bot.services.state import store
+from bot.services.tg_format import esc
 from bot.texts import t
 
 logger = logging.getLogger(__name__)
@@ -167,7 +168,7 @@ async def show_models(message: Message, token: str, lang: str) -> None:
         return
     current = (await store.get(message.from_user.id, "model") or settings.default_model)
     await message.answer(
-        t(lang, "models_title", model=current.split("/")[-1]),
+        t(lang, "models_title", model=esc(current.split("/")[-1])),
         parse_mode="HTML", reply_markup=_groups_keyboard(models),
     )
 
@@ -198,7 +199,7 @@ async def back_to_groups(call: CallbackQuery, token: str, lang: str) -> None:
         return
     current = (await store.get(call.from_user.id, "model") or settings.default_model)
     await call.message.edit_text(
-        t(lang, "models_title", model=current.split("/")[-1]),
+        t(lang, "models_title", model=esc(current.split("/")[-1])),
         parse_mode="HTML", reply_markup=_groups_keyboard(models))
 
 
@@ -243,9 +244,12 @@ async def pick_model(call: CallbackQuery, token: str, lang: str) -> None:
                       .replace("</b>", ""))
     description = (model.get("description") or "").strip()
     price = _price(model)
-    lines = [t(lang, "model_set", model=model.get("name"))]
+    # Имя и описание пишут в админке: «<» или «&» в них Telegram считал
+    # разметкой и отвергал сообщение целиком — модель выбиралась, а карточка
+    # не менялась. Режем ДО экранирования, чтобы не разрубить «&amp;».
+    lines = [t(lang, "model_set", model=esc(model.get("name")))]
     if description:
-        lines.append(description[:300])
+        lines.append(esc(description[:300]))
     if price:
         lines.append(f"Цена: {price}")
     await call.message.edit_text("\n".join(lines), parse_mode="HTML")

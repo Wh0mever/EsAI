@@ -6,6 +6,7 @@
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import json
@@ -29,22 +30,39 @@ STREAM_SILENCE_LIMIT = 180.0
 # длинный поток он не рвёт, зато зависший сервер отваливается сам. С read=None
 # сторожить паузы было некому: строк нет — цикл по строкам не крутится.
 STREAM_TIMEOUT = httpx.Timeout(connect=5.0, read=STREAM_SILENCE_LIMIT, write=30.0, pool=5.0)
+# 429 с коротким Retry-After переживаем сами: подождать секунду дешевле, чем
+# отказать человеку во входе или отложить зачисление оплаты. Дольше ждать в
+# обработчике нельзя — такие повторы уходят в очередь (см. billing).
+INLINE_RETRY_MAX = 2.0
 
 
 class ApiError(Exception):
     """Ошибка нашего API с разобранной причиной."""
 
-    def __init__(self, status: int, code: str = "", payload: Any = None, message: str = ""):
+    def __init__(self, status: int, code: str = "", payload: Any = None, message: str = "",
+                 retry_after: float | None = None):
         super().__init__(message or code or f"http_{status}")
         self.status = status
         self.code = code or ""
         self.payload = payload if isinstance(payload, dict) else {}
         self.message = message or ""
+        # Сколько секунд сервер просит подождать (заголовок Retry-After у 429).
+        self.retry_after = retry_after
 
     @property
     def is_paywall(self) -> bool:
         return self.code in ("insufficient_balance", "insufficient_tokens",
                              "premium_locked", "daily_limit_reached")
+
+    @property
+    def is_temporary(self) -> bool:
+        """Сервер не смог сейчас, но сможет позже: 5xx, 429 и обрыв связи.
+
+        429 — это «приходите позже», а не отказ по существу: оплату с таким
+        ответом нужно повторить, как и при упавшем сервере, а не бросать.
+        """
+        return (self.status >= 500 or self.status == 429
+                or self.code in ("stream_timeout", "transport"))
 
 
 def _service_headers(method: str, path: str, body: bytes) -> dict:
@@ -68,6 +86,16 @@ def _transport_error(exc: httpx.HTTPError) -> ApiError:
     if isinstance(exc, httpx.TimeoutException):
         return ApiError(504, code="stream_timeout", message=str(exc) or "timeout")
     return ApiError(503, code="transport", message=str(exc) or exc.__class__.__name__)
+
+
+def _retry_after(response: httpx.Response) -> float | None:
+    """Retry-After в секундах; DRF отдаёт его целым числом."""
+    raw = (response.headers.get("Retry-After") or "").strip()
+    try:
+        value = float(raw)
+    except ValueError:
+        return None
+    return value if value >= 0 else None
 
 
 def _list(data: Any) -> list:
@@ -117,12 +145,21 @@ class Api:
             code = str(payload.get("error_code") or payload.get("detail") or "")
             message = str(payload.get("message") or payload.get("detail") or
                           payload.get("error") or "")
-        raise ApiError(response.status_code, code=code, payload=payload, message=message)
+        raise ApiError(response.status_code, code=code, payload=payload, message=message,
+                       retry_after=_retry_after(response) if response.status_code == 429 else None)
 
     async def request(self, method: str, path: str, *, token: str = "", lang: str = "ru",
                       telegram_id: int | None = None, json_body: Any = None,
                       params: dict | None = None, service: bool = False,
-                      files: Any = None, data: dict | None = None, timeout: Any = None) -> Any:
+                      files: Any = None, data: dict | None = None, timeout: Any = None,
+                      retry_throttled: bool = False) -> Any:
+        """Запрос к API.
+
+        retry_throttled — только там, где повтор безопасен (вход, проверка и
+        подтверждение оплаты по её id, настройки): на 429 с коротким
+        Retry-After ждём и повторяем один раз. Подпись собирается заново —
+        старый разовый номер сервер второй раз не примет.
+        """
         headers = self._headers(token, lang, telegram_id)
         body = b""
         kwargs: dict = {"params": params}
@@ -135,13 +172,22 @@ class Api:
             body = json.dumps(json_body).encode()
             headers["Content-Type"] = "application/json"
             kwargs["content"] = body
-        if service:
-            headers.update(_service_headers(method, path, body))
-        try:
-            response = await self._client.request(method, path, headers=headers,
-                                                  timeout=timeout or TIMEOUT, **kwargs)
-        except httpx.HTTPError as exc:
-            raise _transport_error(exc) from exc
+        attempts = 2 if retry_throttled and files is None else 1
+        for attempt in range(attempts):
+            if service:
+                headers.update(_service_headers(method, path, body))
+            try:
+                response = await self._client.request(method, path, headers=headers,
+                                                      timeout=timeout or TIMEOUT, **kwargs)
+            except httpx.HTTPError as exc:
+                raise _transport_error(exc) from exc
+            if response.status_code == 429 and attempt + 1 < attempts:
+                wait = _retry_after(response)
+                if wait is not None and wait <= INLINE_RETRY_MAX:
+                    logger.info("%s %s: 429, повтор через %.1f с", method, path, wait)
+                    await asyncio.sleep(wait)
+                    continue
+            break
         self._raise(response)
         if not response.content:
             return None
@@ -156,17 +202,17 @@ class Api:
                             promo: str = "") -> dict:
         """Обменять данные Telegram на токен человека."""
         return await self.request(
-            "POST", "/api/bot/auth/telegram/", service=True,
+            "POST", "/api/bot/auth/telegram/", service=True, retry_throttled=True,
             json_body={"telegram_user": tg_user, "chat_id": chat_id,
                        "ref": ref or "", "promo": promo or ""},
         )
 
     async def set_prefs(self, telegram_id: int, **flags) -> dict:
-        return await self.request("POST", "/api/bot/prefs/", service=True,
+        return await self.request("POST", "/api/bot/prefs/", service=True, retry_throttled=True,
                                   json_body={"telegram_id": telegram_id, **flags})
 
     async def mark_blocked(self, telegram_id: int, blocked: bool = True) -> dict:
-        return await self.request("POST", "/api/bot/blocked/", service=True,
+        return await self.request("POST", "/api/bot/blocked/", service=True, retry_throttled=True,
                                   json_body={"telegram_id": telegram_id, "blocked": blocked})
 
     async def link_confirm(self, code: str, tg_user: dict, *, chat_id: int) -> dict:
@@ -247,13 +293,17 @@ class Api:
 
     async def stars_precheck(self, telegram_id: int, payload: str, total_amount: int,
                              currency: str) -> dict:
+        # Проверка только читает счёт — повтор безопасен.
         return await self.request("POST", "/api/bot/stars/precheck/", service=True,
+                                  retry_throttled=True,
                                   json_body={"telegram_id": telegram_id, "payload": payload,
                                              "total_amount": total_amount,
                                              "currency": currency})
 
     async def stars_confirm(self, body: dict) -> dict:
+        # Сервер узнаёт оплату по её id и дважды не начисляет — повтор безопасен.
         return await self.request("POST", "/api/bot/stars/confirm/", service=True,
+                                  retry_throttled=True,
                                   json_body=body, timeout=httpx.Timeout(30.0))
 
     async def stars_refunded(self, telegram_id: int, charge_id: str, payload: str = "") -> dict:
@@ -295,9 +345,17 @@ class Api:
     async def transfers(self, token: str, **kw) -> Any:
         return await self.request("GET", "/api/users/transfers/", token=token, **kw)
 
-    async def question(self, email: str, name: str, text: str) -> Any:
-        return await self.request("POST", "/api/users/question/",
-                                  json_body={"email": email, "name": name, "question": text})
+    async def question(self, email: str, name: str, text: str, *, token: str = "",
+                       **kw) -> Any:
+        """Обращение в поддержку.
+
+        С токеном сервер узнаёт человека и считает его обращения отдельно; без
+        него запрос анонимный, и все обращения из бота делили один анонимный
+        лимит по IP контейнера — всплеск у одних отказывал в поддержке другим.
+        """
+        return await self.request("POST", "/api/users/question/", token=token,
+                                  json_body={"email": email, "name": name, "question": text},
+                                  **kw)
 
     async def feedback(self, token: str, rating: int, message: str, **kw) -> Any:
         return await self.request("POST", "/api/users/feedback/", token=token,

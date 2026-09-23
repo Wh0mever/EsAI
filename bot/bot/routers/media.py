@@ -68,6 +68,20 @@ register_texts({
             "а если ждали письмо в поддержку, перевод или код привязки, "
             "начните шаг заново."
         ),
+        "media_step_dropped_file": (
+            "Предыдущий шаг отменён: вместо ответа пришёл файл. Разбираю файл — "
+            "а если ждали письмо в поддержку, перевод или код привязки, "
+            "начните шаг заново."
+        ),
+        "media_step_dropped_voice": (
+            "Предыдущий шаг отменён: пришло голосовое. Отвечу на него как на обычный "
+            "вопрос — а если ждали письмо в поддержку, перевод или код привязки, "
+            "начните шаг заново."
+        ),
+        "media_send_as_photo": (
+            "Этот шаг ждёт фото. Пришлите картинку как фото, а не файлом — "
+            "или /cancel, чтобы выйти."
+        ),
         "voice_listening": "🎤 Слушаю…",
         "voice_said": "🎤 <b>Вы сказали:</b> {text}\n<i>−{credits} кр за распознавание</i>",
         "voice_empty": "🎤 В записи не разобрать речи. Попробуйте ещё раз или напишите текстом.",
@@ -105,6 +119,20 @@ register_texts({
             "I am handling the photo — if you were writing to support, sending "
             "credits or linking an account, start that step again."
         ),
+        "media_step_dropped_file": (
+            "The previous step is cancelled: a file came instead of an answer. "
+            "I am handling the file — if you were writing to support, sending "
+            "credits or linking an account, start that step again."
+        ),
+        "media_step_dropped_voice": (
+            "The previous step is cancelled: a voice message came. I will answer it "
+            "as a regular question — if you were writing to support, sending "
+            "credits or linking an account, start that step again."
+        ),
+        "media_send_as_photo": (
+            "This step needs a photo. Send the picture as a photo, not as a file — "
+            "or /cancel to leave."
+        ),
         "voice_listening": "🎤 Listening…",
         "voice_said": "🎤 <b>You said:</b> {text}\n<i>−{credits} cr for transcription</i>",
         "voice_empty": "🎤 No speech recognised. Try again or type your message.",
@@ -141,6 +169,20 @@ register_texts({
             "Мурунку кадам жокко чыгарылды: текст ордуна сүрөт келди. Сүрөттү "
             "карап жатам — эгер колдоого кат, которуу же байланыштыруу коду "
             "керек болсо, кадамды кайра баштаңыз."
+        ),
+        "media_step_dropped_file": (
+            "Мурунку кадам жокко чыгарылды: жооптун ордуна файл келди. Файлды "
+            "карап жатам — эгер колдоого кат, которуу же байланыштыруу коду "
+            "керек болсо, кадамды кайра баштаңыз."
+        ),
+        "media_step_dropped_voice": (
+            "Мурунку кадам жокко чыгарылды: үн билдирүү келди. Ага кадимки суроо "
+            "катары жооп берем — эгер колдоого кат, которуу же байланыштыруу коду "
+            "керек болсо, кадамды кайра баштаңыз."
+        ),
+        "media_send_as_photo": (
+            "Бул кадамга сүрөт керек. Сүрөттү файл катары эмес, сүрөт катары "
+            "жөнөтүңүз — же чыгуу үчүн /cancel."
         ),
         "voice_listening": "🎤 Угуп жатам…",
         "voice_said": "🎤 <b>Сиз айттыңыз:</b> {text}\n<i>−{credits} кр таануу үчүн</i>",
@@ -231,14 +273,52 @@ async def _upload(message: Message, token: str, lang: str, name: str,
     return attachments[0] if attachments else None
 
 
+async def _leave_wizard(message: Message, state: FSMContext | None, lang: str,
+                        notice_key: str) -> str | None:
+    """Снять ожидание мастера: пришло не то, чего он ждал. Вернуть снятое состояние.
+
+    Раньше так делало только фото. Голосовое и файл проходили мимо, а мастер
+    продолжал ждать: нажал «Отредактировать» под фото, спросил голосом, потом
+    написал фразу — и она уходила платной правкой старого снимка. Ожидание
+    вопроса по документу — наше собственное, о нём строка только шумит.
+    """
+    if state is None:
+        return None
+    current = await state.get_state()
+    if not current:
+        return None
+    await state.clear()
+    if current != DocAsk.question.state:
+        await message.answer(t(lang, notice_key))
+    return current
+
+
+def _doc_snapshot(data: dict) -> dict | None:
+    """Документ из состояния «Свой вопрос», если снимок ещё свежий."""
+    saved_at = data.get("attachment_at")
+    if isinstance(saved_at, (int, float)) and time.time() - saved_at <= ATTACHMENT_TTL:
+        return data.get("attachment")
+    return None
+
+
 @router.message(F.document)
-async def on_document(message: Message, token: str, lang: str = "ru") -> None:
+async def on_document(message: Message, token: str, lang: str = "ru",
+                      state: FSMContext | None = None) -> None:
     document = message.document
     name = document.file_name or "file"
     lowered = name.lower()
     if not lowered.endswith(DOC_EXTENSIONS + IMAGE_EXTENSIONS):
+        # Неподдерживаемый файл ничего не меняет: мастер ждёт дальше.
         await message.answer(t(lang, "file_unsupported"))
         return
+
+    current = await state.get_state() if state is not None else None
+    if current and current in _photo_wizard_states() and lowered.endswith(IMAGE_EXTENSIONS):
+        # Мастер ждёт фото, а картинку прислали файлом: принять её он не
+        # умеет, но и бросать шаг незачем — человек прислал ровно то, что просили.
+        await message.answer(t(lang, "media_send_as_photo"))
+        return
+    await _leave_wizard(message, state, lang, "media_step_dropped_file")
 
     await message.bot.send_chat_action(message.chat.id, ChatAction.UPLOAD_DOCUMENT)
     content = await download(message, document.file_id, document.file_size or 0, lang)
@@ -369,9 +449,7 @@ async def doc_question(message: Message, token: str, lang: str = "ru",
     # утащила бы с собой вчерашний договор — кредиты за его текст и ответ не о том.
     attachment = await store.get(message.from_user.id, "attachment")
     if attachment is None:
-        saved_at = data.get("attachment_at")
-        if isinstance(saved_at, (int, float)) and time.time() - saved_at <= ATTACHMENT_TTL:
-            attachment = data.get("attachment")
+        attachment = _doc_snapshot(data)
     await run_chat(message, token, lang, text,
                    attachments=[attachment] if attachment else None)
 
@@ -402,7 +480,8 @@ async def photo_action(call: CallbackQuery, token: str, lang: str = "ru", state=
 
 
 @router.message(F.voice | F.video_note | F.audio)
-async def on_voice(message: Message, token: str, lang: str = "ru") -> None:
+async def on_voice(message: Message, token: str, lang: str = "ru",
+                   state: FSMContext | None = None) -> None:
     """Голосовое → текст на сервере → обычный вопрос в чат."""
     media = message.voice or message.audio or message.video_note
     duration = int(getattr(media, "duration", 0) or 0)
@@ -421,12 +500,21 @@ async def on_voice(message: Message, token: str, lang: str = "ru") -> None:
         return
 
     text = ""
+    doc_attachment = None
     try:
         await message.bot.send_chat_action(message.chat.id, ChatAction.TYPING)
         content = await download(message, media.file_id, getattr(media, "file_size", 0) or 0, lang,
                                  limit=VOICE_MAX_BYTES, too_big_key="voice_too_big")
         if content is None:
             return
+        # Мастер снимаем ДО платного распознавания. Исключение — «Свой вопрос»
+        # по документу: голосом задали тот самый вопрос, документ едет с ним.
+        if state is not None and await state.get_state() == DocAsk.question.state:
+            data = await state.get_data()
+            await state.clear()
+            doc_attachment = (await store.get(user_id, "attachment")) or _doc_snapshot(data)
+        else:
+            await _leave_wizard(message, state, lang, "media_step_dropped_voice")
         mime = getattr(media, "mime_type", None) or "audio/ogg"
         status = await message.answer(t(lang, "voice_listening"))
         try:
@@ -466,4 +554,5 @@ async def on_voice(message: Message, token: str, lang: str = "ru") -> None:
         await store.free_busy(user_id)
 
     if text:
-        await run_chat(message, token, lang, text)
+        await run_chat(message, token, lang, text,
+                       attachments=[doc_attachment] if doc_attachment else None)

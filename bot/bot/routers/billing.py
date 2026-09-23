@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 
 from aiogram import Bot, F, Router
 from aiogram.filters import Command
@@ -394,7 +395,11 @@ async def send_invoice(message: Message, lang: str, package_id: int) -> None:
     except ApiError as exc:
         if exc.code == "stars_disabled":
             await message.answer(t(lang, "stars_disabled"))
-        elif exc.status >= 500:
+        elif exc.status == 429:
+            # Раньше 429 падал в «пакеты не настроены» — неправда, которая
+            # отправляла человека на сайт вместо простого «подождите минуту».
+            await message.answer(t(lang, "rate_limited"))
+        elif exc.is_temporary:
             await message.answer(t(lang, "server_down"))
         else:
             await message.answer(t(lang, "topup_none"))
@@ -458,7 +463,7 @@ async def pre_checkout(query: PreCheckoutQuery) -> None:
             # человека ровно к этому же отказу — честнее сказать про сайт.
             logger.warning("precheck %s: оплата Stars выключена", query.invoice_payload)
             await query.answer(ok=False, error_message=t(lang, "stars_disabled"))
-        elif exc.status >= 500 or exc.status == 429 or exc.code in ("stream_timeout", "transport"):
+        elif exc.is_temporary:
             logger.warning("precheck %s: ядро недоступно (%s)", query.invoice_payload, exc.code)
             await query.answer(ok=False, error_message=t(lang, "precheck_slow"))
         else:
@@ -483,6 +488,18 @@ def _confirm_body(message: Message) -> dict:
         "currency": payment.currency,
         "raw": {"message_id": message.message_id, "date": message.date.isoformat()},
     }
+
+
+def _pending_item(body: dict, lang: str, chat_id, exc: ApiError | None = None) -> dict:
+    """Подтверждение оплаты для очереди повторов.
+
+    На 429 сервер сам говорит, когда приходить (Retry-After): раньше стучаться
+    бесполезно — это только продлит отказ.
+    """
+    item = {**body, "lang": lang, "chat_id": chat_id}
+    if exc is not None and exc.retry_after:
+        item["retry_at"] = time.time() + float(exc.retry_after)
+    return item
 
 
 async def _after_paid(bot: Bot, chat_id: int, lang: str, result: dict) -> None:
@@ -523,8 +540,11 @@ async def on_paid(message: Message, lang: str = "ru", **_) -> None:
     try:
         result = await api.stars_confirm(body)
     except ApiError as exc:
-        if exc.status >= 500:
-            await store.push_pending(PENDING, {**body, "lang": lang, "chat_id": chat_id})
+        # 429 — тот же «сервер сейчас не может», что и 5xx. Раньше он уходил в
+        # ветку «отклонено»: в очередь повторов не попадал, и кредиты за уже
+        # списанные Stars ждали ночной сверки.
+        if exc.is_temporary:
+            await store.push_pending(PENDING, _pending_item(body, lang, chat_id, exc))
             await message.answer(t(lang, "paid_pending"))
             return
         if exc.payload.get("refunded"):
@@ -557,14 +577,25 @@ async def retry_pending(bot: Bot) -> int:
     """Довести до сервера подтверждения, которые не прошли с первого раза."""
     items = await store.pop_pending(PENDING)
     done = 0
-    for item in items:
+    for index, item in enumerate(items):
+        retry_at = item.pop("retry_at", None)
+        if isinstance(retry_at, (int, float)) and retry_at > time.time():
+            # Сервер просил подождать — ещё рано, пусть лежит до следующего круга.
+            await store.push_pending(PENDING, {**item, "retry_at": retry_at})
+            continue
         chat_id = item.pop("chat_id", None)
         lang = item.pop("lang", "ru")
         try:
             result = await api.stars_confirm(item)
         except ApiError as exc:
-            if exc.status >= 500:
-                await store.push_pending(PENDING, {**item, "chat_id": chat_id, "lang": lang})
+            if exc.is_temporary:
+                await store.push_pending(PENDING, _pending_item(item, lang, chat_id, exc))
+                if exc.status == 429:
+                    # Упёрлись в лимит — остальные из этой пачки упрутся туда же.
+                    # Возвращаем их в очередь как есть, до следующего круга.
+                    for rest in items[index + 1:]:
+                        await store.push_pending(PENDING, rest)
+                    break
             else:
                 logger.error("отложенное подтверждение отклонено: %s", exc.code)
             continue

@@ -5,11 +5,11 @@ from django.conf import settings
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
-from rest_framework.throttling import AnonRateThrottle, ScopedRateThrottle
+from rest_framework.throttling import AnonRateThrottle
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import AccessToken, RefreshToken
 
-from .auth import BotServiceAuthentication, IsBotService
+from .auth import BotServiceAuthentication, BotServiceThrottle, BotUserThrottle, IsBotService
 from .models import TelegramChat
 from .services import TelegramBlocked, authenticate_telegram_user, mark_blocked
 from .telegram import verify_webapp_init_data
@@ -39,8 +39,8 @@ class BotServiceView(APIView):
 
     authentication_classes = [BotServiceAuthentication]
     permission_classes = [IsBotService]
-    throttle_classes = [ScopedRateThrottle]
-    throttle_scope = "bot_service"
+    # Свой счётчик у каждого человека и общий потолок на всех — см. auth.py.
+    throttle_classes = [BotUserThrottle, BotServiceThrottle]
 
 
 class BotAuthView(BotServiceView):

@@ -296,17 +296,22 @@ class TestTokenRefreshOn401:
         assert replies == [t("ru", "server_down")]
 
     async def test_freshly_minted_token_is_not_reminted(self, monkeypatch, open_access, replies):
-        """Токен выдали секунду назад: второй такой же ничего не изменит."""
+        """Токен выдали секунду назад: второй такой же ничего не изменит.
+
+        Но и молчать нельзя: раньше 401 здесь улетал наружу, и человек не
+        получал ни слова.
+        """
         api = FakeApi(tokens=["FRESH", "FRESH2"])
         monkeypatch.setattr(auth_mod, "api", api)
         monkeypatch.setattr(auth_mod, "store", FakeStore(token=None))
         handler = Handler(ApiError(401))
         message = make_message("привет")
 
-        with pytest.raises(ApiError):
-            await AuthMiddleware()(handler, message, {"event_from_user": message.from_user})
+        assert await AuthMiddleware()(handler, message,
+                                      {"event_from_user": message.from_user}) is None
         assert len(api.calls) == 1
         assert len(handler.calls) == 1
+        assert replies == [t("ru", "auth_session_lost")]
 
     async def test_other_api_errors_are_not_touched(self, monkeypatch, open_access, replies):
         api = FakeApi()

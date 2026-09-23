@@ -204,8 +204,8 @@ class TestSupportRequest:
     async def _send(self, monkeypatch, tg_user, profile_email=None):
         sent = {}
 
-        async def fake_question(email, name, text):
-            sent.update(email=email, name=name, text=text)
+        async def fake_question(email, name, text, **kwargs):
+            sent.update(email=email, name=name, text=text, **kwargs)
             return {"id": 1}
 
         async def fake_profile(token, **kwargs):
@@ -227,6 +227,12 @@ class TestSupportRequest:
         assert len(sent["name"]) <= 50, f"имя длиной {len(sent['name'])} сервер не примет"
         assert sent["name"] == long_name[:50]
         assert message.answers[-1].text == t("ru", "support_sent", id=1)
+
+    async def test_question_goes_with_the_person_token(self, monkeypatch):
+        """Без токена обращение анонимное: все люди бота делили один лимит по IP."""
+        sent, _ = await self._send(monkeypatch, {"id": HUMAN, "first_name": "Аня"})
+
+        assert sent["token"] == "tok"
 
     async def test_fallback_email_matches_backend_format(self, monkeypatch):
         """Формат берётся из core/botapi/services.py::fallback_email."""
