@@ -314,8 +314,10 @@ function Row({
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
               <div className="flex flex-col gap-2 text-xs">
                 <div>
-                  <span className="text-muted-2">Запрос: </span>
-                  <span className="text-foreground">{g.prompt || "—"}</span>
+                  <span className="text-muted-2">
+                    Запрос{g.prompt ? ` (${g.prompt.length} симв., ушёл провайдеру целиком)` : ""}:{" "}
+                  </span>
+                  <span className="whitespace-pre-wrap break-words text-foreground">{g.prompt || "—"}</span>
                 </div>
                 <div className="text-muted">
                   <span className="text-muted-2">Параметры: </span>

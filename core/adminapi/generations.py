@@ -35,7 +35,10 @@ def _row(g: GenerationLog) -> dict:
         "status": g.status,
         "status_label": g.get_status_display(),
         "provider_id": g.provider_id,
-        "prompt": g.prompt[:600],
+        # Целиком: обрезка до 600 символов выглядела в админке как «человек
+        # вставил промпт не до конца», хотя провайдеру ушёл весь текст.
+        "prompt": g.prompt,
+        "prompt_length": len(g.prompt or ""),
         "params": g.params or {},
         "credits_planned": g.credits_planned,
         "credits_charged": g.credits_charged,
