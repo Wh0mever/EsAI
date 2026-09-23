@@ -1,6 +1,8 @@
 import logging
 import random
+import secrets
 import json
+import time
 from django.conf import settings
 from django.core.cache import cache
 from rest_framework.response import Response
@@ -46,6 +48,133 @@ class TelegramConfigApiView(APIView):
             "bot_username": getattr(settings, "TELEGRAM_BOT_USERNAME", ""),
             "bot_id": getattr(settings, "TELEGRAM_BOT_ID", ""),
         }, status=status.HTTP_200_OK)
+
+
+# Неверных кодов на пару «email + IP» за сутки. Суточный замок держим только
+# на том, кто ошибается: общий на email позволял любому за пару минут
+# промахов закрыть чужой (и админский) вход кодом на целые сутки.
+OTP_MAX_FAILS_PER_DAY = 15
+OTP_DAY_WINDOW = 24 * 3600
+OTP_DAY_LIMIT_MESSAGE = ("Слишком много неверных кодов для этой почты. "
+                         "Попробуйте завтра или напишите в поддержку.")
+# Перебор с многих адресов сразу держит общий счётчик на email: каждые
+# OTP_EMAIL_FAILS_PER_PAUSE промахов — короткая пауза проверки кода, дальше
+# длиннее. Хозяин при таком налёте ждёт минуты, а не сутки.
+OTP_EMAIL_FAILS_PER_PAUSE = 15
+OTP_EMAIL_PAUSES = (15 * 60, 60 * 60)
+OTP_PAUSE_MESSAGE = "Слишком много неверных кодов для этой почты. Попробуйте через {minutes} мин."
+
+
+def _otp_ip(request) -> str:
+    try:
+        from .antifraud import get_client_ip
+
+        return get_client_ip(request) or "unknown"
+    except Exception:
+        return "unknown"
+
+
+def _otp_day_key(email: str, ip: str) -> str:
+    return f"otp_fails_day:{email}:{ip}"
+
+
+def _otp_email_fails_key(email: str) -> str:
+    return f"otp_fails_email:{email}"
+
+
+def _otp_pause_key(email: str) -> str:
+    return f"otp_pause:{email}"
+
+
+def _cache_incr(key: str, timeout: int) -> int:
+    cache.add(key, 0, timeout=timeout)
+    try:
+        return int(cache.incr(key))
+    except ValueError:
+        cache.set(key, 1, timeout=timeout)
+        return 1
+
+
+def _otp_register_miss(email: str, ip: str) -> None:
+    """Промах по живому коду: +1 к счётчику этого IP и к общему по email."""
+    _cache_incr(_otp_day_key(email, ip), OTP_DAY_WINDOW)
+    total = _cache_incr(_otp_email_fails_key(email), OTP_DAY_WINDOW)
+    if total % OTP_EMAIL_FAILS_PER_PAUSE == 0:
+        step = min(total // OTP_EMAIL_FAILS_PER_PAUSE, len(OTP_EMAIL_PAUSES)) - 1
+        seconds = OTP_EMAIL_PAUSES[step]
+        cache.set(_otp_pause_key(email), int(time.time()) + seconds, timeout=seconds)
+        logger.warning("otp: пауза проверки кода email=%s на %s c после %s промахов",
+                       email, seconds, total)
+
+
+def _otp_pause_left(email: str) -> int:
+    until = cache.get(_otp_pause_key(email))
+    try:
+        return max(0, int(until) - int(time.time())) if until else 0
+    except (TypeError, ValueError):
+        return 0
+
+
+def _email_unproven(user, email: str) -> bool:
+    """Почту этого аккаунта никто не подтверждал, а войти в него можно и без неё.
+
+    Так выглядит захват через форму allauth (accounts/email/): вошедший через
+    Telegram вписывал чужой адрес с verified=False и оставался при своём входе
+    через Telegram. Аккаунты, заведённые кодом с почты, записей allauth не
+    имеют вовсе, Google отдаёт подтверждённую почту, — их это не касается.
+    Аккаунт без соцвхода сюда не попадает: вход по паролю закрыт, и кроме
+    хозяина почты в него больше никто не войдёт.
+    """
+    try:
+        from allauth.account.models import EmailAddress
+        from allauth.socialaccount.models import SocialAccount
+
+        flags = list(EmailAddress.objects.filter(user=user, email__iexact=email)
+                     .values_list("verified", flat=True))
+        if not flags or any(flags):
+            return False
+        return SocialAccount.objects.filter(user=user).exists()
+    except Exception:
+        logger.exception("otp: не удалось проверить подтверждение почты user=%s", user.pk)
+        return False
+
+
+def _detach_unproven_email(user, email: str) -> None:
+    """Снять неподтверждённую почту с чужого аккаунта.
+
+    Код с почты доказал, что адрес принадлежит тому, кто его ввёл. Аккаунт,
+    который когда-то вписал этот адрес без проверки, возвращается на
+    почту-заглушку (вход через Telegram/Google у него остаётся), а хозяин почты
+    получает свой аккаунт. Иначе он входил бы прямо в чужой — и пополнял его.
+    """
+    from allauth.account.models import EmailAddress
+    from allauth.socialaccount.models import SocialAccount
+    from django.db import transaction
+
+    with transaction.atomic():
+        social = SocialAccount.objects.filter(user=user).order_by("id").first()
+        stub = (f"{social.provider}_{social.uid}@social.esai.local" if social
+                else f"detached_{user.pk}@social.esai.local")
+        if User.objects.filter(email__iexact=stub).exclude(pk=user.pk).exists():
+            stub = f"detached_{user.pk}@social.esai.local"
+        old_email = user.email
+        user.email = stub
+        fields = ["email"]
+        if (getattr(user, "username", None) or "").lower() == (old_email or "").lower():
+            user.username = stub[:150]
+            fields.append("username")
+        user.save(update_fields=fields)
+        EmailAddress.objects.filter(user=user, email__iexact=email).delete()
+        EmailAddress.objects.filter(user=user, email__iexact=stub).update(primary=True)
+    logger.warning("otp: неподтверждённая почта %s снята с аккаунта user=%s (теперь %s)",
+                   email, user.pk, stub)
+    try:
+        from audit.services import log_event
+
+        log_event("login", message=f"unproven_email_detached: {email} -> {stub}", user=user,
+                  meta={"email": email, "stub": stub}, level="warning")
+    except Exception:
+        pass
 
 
 class SigninApiView(APIView):
@@ -106,7 +235,9 @@ class SigninApiView(APIView):
                 status=status.HTTP_429_TOO_MANY_REQUESTS,
             )
 
-        code = str(random.randint(100000, 999999))
+        # Отправку кода не запираем даже после чужих промахов: хозяин почты
+        # должен войти всегда. Перебор держат замки на проверке кода.
+        code = str(100000 + secrets.randbelow(900000))
         cache.set(f"email_code:{email}", code, timeout=600)
 
         try:
@@ -164,34 +295,64 @@ class VerifyCodeApiView(APIView):
         _test_code = str(getattr(settings, "TEST_LOGIN_CODE", "") or "")
         is_test_login = bool(_test_email) and bool(_test_code) and email == _test_email and code == _test_code
 
+        ip = _otp_ip(request)
         if not is_test_login:
+            # Потолки неверных кодов сверх пяти на один код. Раньше счётчик жил
+            # вместе с кодом и обнулялся при каждом новом письме: 5 попыток в
+            # минуту без конца — за месяц перебора код к чужому (и админскому)
+            # email угадывался примерно в каждом пятом случае. Суточный замок —
+            # на паре «email + IP», общий по email — только короткие паузы.
+            pause_left = _otp_pause_left(email)
+            if pause_left:
+                return Response(
+                    {"error": OTP_PAUSE_MESSAGE.format(minutes=max(1, (pause_left + 59) // 60))},
+                    status=429,
+                )
+            if int(cache.get(_otp_day_key(email, ip)) or 0) >= OTP_MAX_FAILS_PER_DAY:
+                return Response({"error": OTP_DAY_LIMIT_MESSAGE}, status=429)
+            # Попытку считаем ДО сравнения: параллельные запросы иначе успевали
+            # проверить больше пяти вариантов одного кода.
+            cache.add(attempts_key, 0, timeout=600)
+            try:
+                attempts = cache.incr(attempts_key)
+            except ValueError:
+                cache.set(attempts_key, 1, timeout=600)
+                attempts = 1
+            if attempts > MAX_OTP_ATTEMPTS:
+                cache.delete(f"email_code:{email}")
+                return Response(
+                    {"error": "Слишком много попыток, запросите новый код."},
+                    status=429,
+                )
             cached_code = cache.get(f"email_code:{email}")
             if isinstance(cached_code, (bytes, bytearray)):
                 cached_code = cached_code.decode()
-            if not cached_code or cached_code != code:
-                # Инкремент счётчика неудач (живёт столько же, сколько код — 10 минут).
-                try:
-                    attempts = cache.incr(attempts_key)
-                except ValueError:
-                    # Ключа ещё нет — создаём с TTL кода.
-                    cache.set(attempts_key, 1, timeout=600)
-                    attempts = 1
+            if not cached_code or not secrets.compare_digest(str(cached_code).encode(), code.encode()):
+                # Промах считаем, только когда код есть: догадки по просроченному
+                # или не запрошенному коду ничего не угадывают и не должны
+                # приближать хозяина почты к паузе.
+                if cached_code:
+                    _otp_register_miss(email, ip)
                 if attempts >= MAX_OTP_ATTEMPTS:
-                    # Слишком много неудач: убиваем код и счётчик.
+                    # Последняя попытка на этот код ушла: код больше не годится.
                     cache.delete(f"email_code:{email}")
-                    cache.delete(attempts_key)
                     return Response(
                         {"error": "Слишком много попыток, запросите новый код."},
                         status=429,
                     )
                 return Response({"error": "Неверный или просроченный код."}, status=400)
 
-        # Успех: удаляем код и счётчик попыток.
+        # Успех: удаляем код и счётчики попыток.
         cache.delete(f"email_code:{email}")
         cache.delete(attempts_key)
+        cache.delete(_otp_day_key(email, ip))
+        cache.delete(_otp_email_fails_key(email))
 
         # Авто-создание аккаунта при первом входе (отдельной регистрации нет).
         user = User.objects.filter(email=email).first()
+        # Адрес на найденном аккаунте мог появиться без проверки (форма allauth
+        # была открыта). Тогда это не аккаунт хозяина почты: он получит свой.
+        unproven = bool(user) and _email_unproven(user, email)
 
         # Чёрный список — вторая проверка, уже на самом создании аккаунта.
         # Дублирует проверку в SigninApiView намеренно: код мог быть запрошен
@@ -204,11 +365,19 @@ class VerifyCodeApiView(APIView):
                 email=email,
                 ip=get_client_ip(request) or "",
                 device=get_fingerprint(request),
-                for_login=bool(user),
+                for_login=bool(user) and not unproven,
             ):
                 return Response({"error": BLOCK_MESSAGE}, status=403)
         except Exception:
             logger.exception("blocklist: проверка при подтверждении кода упала")
+
+        if unproven:
+            try:
+                _detach_unproven_email(user, email)
+                user = None
+            except Exception:
+                logger.exception("otp: не удалось снять неподтверждённую почту user=%s", user.pk)
+                return Response({"error": "Не удалось войти. Напишите в поддержку."}, status=409)
 
         created = False
         if not user:
@@ -853,8 +1022,16 @@ class ReferralStatsView(APIView):
 
 
 class TransferView(APIView):
-    """POST — перевод кредитов другому пользователю (без комиссии)."""
+    """POST — перевод кредитов другому пользователю (без комиссии).
+    GET — сколько сейчас можно перевести (подарочные кредиты не переводятся)."""
     permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        from plans.wallet import transferable_tokens
+
+        request.user.refresh_from_db(fields=["token_balance"])
+        return Response({"transferable": transferable_tokens(request.user),
+                         "balance": int(request.user.token_balance or 0)})
 
     def post(self, request):
         from django.db import transaction as _tx
@@ -914,8 +1091,25 @@ class TransferView(APIView):
         from_label = _mask_user_label(sender)
         to_label = _mask_user_label(recipient)
 
+        from plans.wallet import transferable_tokens
+
         try:
             with _tx.atomic():
+                # Обе строки — под замок и всегда в одном порядке: встречные
+                # переводы двух людей друг другу иначе ловили взаимную блокировку.
+                list(User.objects.select_for_update()
+                     .filter(pk__in=[sender.pk, recipient.pk]).order_by("pk"))
+                allowed = transferable_tokens(sender)
+                if amount > allowed and amount <= int(
+                        User.objects.filter(pk=sender.pk).values_list("token_balance", flat=True)[0] or 0):
+                    return Response(
+                        {"status": "error",
+                         "message": ("Переводить можно только купленные кредиты — подарочные "
+                                     "(ежедневные и приветственные бонусы, промокоды) остаются у вас. "
+                                     f"Сейчас можно перевести до {allowed}."),
+                         "transferable": allowed},
+                        status=400,
+                    )
                 new_sender_balance = charge_tokens(
                     sender, amount, "transfer_out",
                     meta={"to_user_id": recipient.pk, "to_label": to_label, "comment": comment},

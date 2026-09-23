@@ -70,7 +70,17 @@
 - Telegram Login Widget → `/api/users/accounts/telegram/login/callback/`
 - `GET /api/users/telegram-config/` (public) → `{bot_username, bot_id}`
 - После соц-входа: redirect на `<SITE_BASE_URL>/auth/callback?access&refresh&user`
-- `POST /api/users/token/`, `POST /api/users/token/refresh/` — JWT (SimpleJWT)
+- `POST /api/users/signin/` `{email}` → код на почту; `POST /api/users/signin/confirm/` `{email, code}` → JWT
+- `POST /api/users/token/refresh/` — обновить JWT (SimpleJWT). Входа по паролю нет: `token/`, `signup/`
+  и формы allauth с паролем закрыты (регистрация на чужой email без проверки владения)
+- Код из письма: 5 попыток на один код (попытка считается до сравнения); на одну почту с одного IP —
+  до 15 неверных кодов в сутки, после каждых 15 неверных по почте проверка делает паузу (15 мин, затем 1 ч)
+- Страницы allauth `accounts/login|signup|password/*|email/|confirm-email/*|reauthenticate/|login/code/*`
+  редиректят на `/auth/signin` (соцвход `accounts/google/*`, `accounts/telegram/*` работает)
+- `auth/complete/` кладёт токены во фрагмент: `/auth/callback#access=…&refresh=…`; сессия Django после
+  этого живёт 5 минут. DRF — только JWT (`Authorization: Bearer`), без входа ответ `401`
+- `GET /api/users/transfer/` → `{transferable, balance}`; переводить можно только купленные,
+  реферальные и полученные переводом кредиты
 - `GET /api/users/profile/` (auth)
 
 ## Контент/SEO (`/api/content/`, public)
