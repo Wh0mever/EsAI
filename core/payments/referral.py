@@ -79,3 +79,34 @@ def pay_referral_share(buyer, order_id: str, base_credits: int, *, idem_suffix: 
     except Exception as exc:  # noqa: BLE001 — реферал не важнее покупки
         logger.exception("referral payout failed order=%s: %s", order_id, exc)
         return 0
+
+
+def clawback_referral_share(order_id: str) -> int:
+    """Возврат покупки: забрать у пригласившего долю, начисленную с этого заказа.
+
+    Раньше возврат изымал кредиты только у покупателя, а реферер оставлял свои
+    10 % — купить через свой второй аккаунт и вернуть деньги было выгодно.
+    Идемпотентно: уже изъятое по этому заказу второй раз не изымается.
+    Возвращает сколько изъято всего.
+    """
+    from plans.models import TokenTransaction
+    from plans.wallet import clawback_tokens
+
+    if not order_id:
+        return 0
+    taken = 0
+    for share in TokenTransaction.objects.filter(reason="referral", meta__order_id=order_id,
+                                                 delta__gt=0).select_related("user"):
+        idem = f"{share.pk}"
+        if TokenTransaction.objects.filter(user=share.user, reason="refund",
+                                           meta__kind="referral_clawback",
+                                           meta__share_tx=idem).exists():
+            continue
+        try:
+            taken += clawback_tokens(
+                share.user, int(share.delta), "refund",
+                meta={"kind": "referral_clawback", "order_id": order_id, "share_tx": idem},
+            )
+        except Exception:
+            logger.exception("referral clawback failed order=%s share=%s", order_id, share.pk)
+    return taken
