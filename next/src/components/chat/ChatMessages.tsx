@@ -2,7 +2,7 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { FiDownload, FiLoader, FiPlusCircle, FiShare2, FiCheck } from "react-icons/fi";
+import { FiDownload, FiLoader, FiPlusCircle, FiShare2, FiCheck, FiRefreshCw } from "react-icons/fi";
 import { useTranslation } from "react-i18next";
 import Markdown from "./Markdown";
 import MessageActions from "./MessageActions";
@@ -11,6 +11,7 @@ import NextLink from "@/components/ui/nextLink/NextLink";
 import { BACKEND, fetchData } from "@/tools/fetchData";
 import { saveMedia, prefetchMedia } from "@/tools/saveMedia";
 import type { Message, ChatSource } from "@/types/chat";
+import type { LiveMessage } from "./chatRetry";
 
 function toAbsUrl(raw?: string): string {
   if (!raw) return "";
@@ -292,7 +293,7 @@ function Attachments({ atts, onExtendVideo }: { atts?: any[]; onExtendVideo?: (u
                   iconClassName="text-[13px]"
                   className="inline-flex items-center gap-1 text-xs text-muted-2 hover:text-foreground transition-colors self-start"
                 >
-                  Скачать видео
+                  {t("chat.actions.download_video", { defaultValue: "Скачать видео" })}
                 </SaveMediaButton>
 
                 <ShareVideoButton url={a?.url || ""} prompt={a?.prompt} model={a?.model} />
@@ -545,6 +546,20 @@ function AssistantBubble({
         {/* Сгенерированные изображения (image-gen модели) — кликабельны в лайтбокс. */}
         {!isError && !isWarning && <Attachments atts={(msg as any)?.attachments} onExtendVideo={onExtendVideo} />}
       </div>
+      {/* Ошибка — последний ответ: даём «Повторить» (раньше кнопки не было
+          вовсе, и после сбоя вопрос приходилось набирать заново). Кроме
+          обрыва посреди платной генерации (noRetry): сервер её, скорее всего,
+          доделал и списал — повтор заплатил бы второй раз. */}
+      {isError && onRetry && !(msg as LiveMessage).noRetry && (
+        <button
+          type="button"
+          onClick={onRetry}
+          className="self-start inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-xs text-muted hover:text-foreground hover:bg-surface-2 transition-colors cursor-pointer"
+        >
+          <FiRefreshCw className="text-[13px]" />
+          {t("chat.actions.retry", { defaultValue: "Повторить" })}
+        </button>
+      )}
       {!isError && !isWarning && finished && content && (
         <div className="flex items-center gap-3 flex-wrap">
           <MessageActions content={content} onRetry={onRetry} onContinue={onContinue} onFeedback={onFeedback} />

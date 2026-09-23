@@ -3,9 +3,8 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
-import Cookies from "js-cookie";
 import { FiMenu, FiPlus, FiZap, FiFilm, FiX } from "react-icons/fi";
-import { fetchData } from "@/tools/fetchData";
+import { ensureAccess, fetchData, getToken } from "@/tools/fetchData";
 import { streamChat } from "@/tools/streamChat";
 import { getGuestId } from "@/lib/guest";
 import { isJwtValid } from "@/tools/jwt";
@@ -23,6 +22,7 @@ import GuestLimitModal from "./GuestLimitModal";
 import { useBonusSettings } from "@/hooks/useBonusSettings";
 import PaywallModal, { type PaywallContext, type PaywallReason } from "./PaywallModal";
 import { useBalance } from "@/hooks/useBalance";
+import { findNewVideo, planRetry, type LiveMessage } from "./chatRetry";
 
 type Props = {
   /** existing session id when opened from /dashboard/text-chat/<id> */
@@ -69,6 +69,10 @@ const PAYWALL_CODES: PaywallReason[] = [
   "insufficient_tokens",
   "daily_limit_reached",
 ];
+
+// Ожидание ролика после обрыва связи (см. watchForVideo): раз в 20 с, до 10 мин.
+const VIDEO_WATCH_INTERVAL_MS = 20_000;
+const VIDEO_WATCH_MAX_MS = 10 * 60_000;
 
 /**
  * ChatWorkspace — the full EsAI chat experience used by both `/` and the
@@ -159,13 +163,79 @@ export default function ChatWorkspace({ chatId, mode = MODE, heroSlot, belowComp
   const [chats, setChats] = useState<ChatItem[]>([]);
 
   const { balance, setBalance, refresh: refreshBalance } = useBalance();
-  const lastUserRef = useRef<string>("");
+
+  // --- Активный запрос ---
+  // Один запрос за раз: Enter во время стрима раньше отправлял второе
+  // сообщение, и два стрима писали в один «живой» пузырь.
+  const sendingRef = useRef(false);
+  // Поколение стрима: «Новый чат», смена чата, удаление открытого чата и
+  // размонтирование его увеличивают — события старого стрима после этого
+  // игнорируются (раньше недописанный ответ дописывался в новый чат).
+  const genRef = useRef(0);
+  const abortRef = useRef<AbortController | null>(null);
+  // «Эпоха» чата для фонового ожидания видео (watchForVideo): меняется только
+  // при уходе из текущего чата, а не на каждом новом сообщении.
+  const chatEpochRef = useRef(0);
+  const videoPollsRef = useRef<Set<number>>(new Set());
+  // Зеркала состояния для асинхронного ожидания видео (замыкание устаревает).
+  const sessionIdRef = useRef<string | undefined>(chatId);
+  useEffect(() => { sessionIdRef.current = sessionId; }, [sessionId]);
+  const chatsRef = useRef<ChatItem[]>([]);
+  useEffect(() => { chatsRef.current = chats; }, [chats]);
+  const messagesRef = useRef<Message[]>([]);
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
+  const inputRef = useRef("");
+  useEffect(() => { inputRef.current = input; }, [input]);
+  // Длина переписки в момент «Продолжить» (null — последним был обычный
+  // вопрос): «Повторить» после продолжения повторяет «Продолжи.», а не весь
+  // исходный вопрос (см. planRetry).
+  const continueFromRef = useRef<number | null>(null);
+
+  /** Оборвать текущий стрим (fetch abort) и пометить его события устаревшими. */
+  const abortActive = useCallback(() => {
+    genRef.current += 1;
+    try { abortRef.current?.abort(); } catch {}
+    abortRef.current = null;
+    sendingRef.current = false;
+    setLoading(false);
+  }, []);
+
+  /** Прекратить ожидание роликов прошлого чата. */
+  const stopVideoWatch = useCallback(() => {
+    chatEpochRef.current += 1;
+    videoPollsRef.current.forEach((id) => window.clearTimeout(id));
+    videoPollsRef.current.clear();
+  }, []);
+
+  useEffect(() => () => {
+    abortActive();
+    stopVideoWatch();
+  }, [abortActive, stopVideoWatch]);
 
   // Авторизован ли пользователь. Гостю вместо баланса «0» показываем кнопку
   // «Войти» (в шапке и в меню) — вход сразу на виду, ноль не пугает. Считаем
-  // после монтирования (cookie доступен только на клиенте).
+  // после монтирования (cookie доступен только на клиенте). ensureAccess:
+  // access живёт 12 ч — с истёкшим access, но живым refresh тихо обновляем
+  // токен, иначе назавтра платящий человек видел гостевой режим. Повторяем при
+  // возврате во вкладку/PWA из фона (приложение могло простоять сутки).
   const [isAuthed, setIsAuthed] = useState(false);
-  useEffect(() => { setIsAuthed(isJwtValid(Cookies.get("access"))); }, []);
+  useEffect(() => {
+    let on = true;
+    const check = () => {
+      ensureAccess().then((ok) => {
+        if (on) setIsAuthed(ok);
+      });
+    };
+    check();
+    const onVisible = () => {
+      if (document.visibilityState === "visible") check();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      on = false;
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, []);
 
   const started = messages.length > 0;
 
@@ -236,14 +306,15 @@ export default function ChatWorkspace({ chatId, mode = MODE, heroSlot, belowComp
 
   /* ---------- load sessions list (только для авторизованных) ---------- */
   useEffect(() => {
-    // У гостя истории/сессий нет — НЕ дёргаем авторизованный эндпоинт, иначе
-    // в консоли сыплется 401 (Unauthorized) на /api/ai/sessions/.
-    if (!isJwtValid(Cookies.get("access"))) {
-      setChats([]);
-      return;
-    }
     let mounted = true;
     (async () => {
+      // У гостя истории/сессий нет — НЕ дёргаем авторизованный эндпоинт, иначе
+      // в консоли сыплется 401 (Unauthorized) на /api/ai/sessions/. Истёкший
+      // access при живом refresh сначала тихо обновляем.
+      if (!(await ensureAccess())) {
+        if (mounted) setChats([]);
+        return;
+      }
       try {
         const res = await fetchData<ChatItem[]>("ai/sessions/", "GET", null, true);
         if (mounted) setChats(Array.isArray(res?.data) ? res.data : []);
@@ -277,6 +348,11 @@ export default function ChatWorkspace({ chatId, mode = MODE, heroSlot, belowComp
   /* ---------- hydrate history for an existing session ---------- */
   useEffect(() => {
     let ignore = false;
+    // Переключили/закрыли чат: обрываем стрим и ожидание видео прошлого чата,
+    // иначе их события патчили сообщения уже другого чата.
+    abortActive();
+    stopVideoWatch();
+    continueFromRef.current = null;
     if (!chatId) {
       setMessages([]);
       setHydrating(false);
@@ -290,6 +366,12 @@ export default function ChatWorkspace({ chatId, mode = MODE, heroSlot, belowComp
       try {
         const res = await fetchData<any>(`ai/sessions/${chatId}/`, "GET", null, true);
         if (ignore) return;
+        // Чат удалён (в другой вкладке/устройстве) — не держим мёртвую сессию:
+        // иначе следующее сообщение уходило бы в несуществующий чат.
+        if (res?.status === 404) {
+          router.replace("/");
+          return;
+        }
         const history = (res?.data?.messages || res?.data?.results?.messages) as Message[] | undefined;
         if (Array.isArray(history)) setMessages(history);
       } catch {
@@ -299,14 +381,17 @@ export default function ChatWorkspace({ chatId, mode = MODE, heroSlot, belowComp
       }
     })();
     return () => { ignore = true; };
-  }, [chatId]);
+    // router намеренно не в зависимостях: перезапуск этого эффекта обрывает
+    // стрим и очищает переписку — только на смене chatId.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chatId, abortActive, stopVideoWatch]);
 
   /* ---------- guest chat: persist transcript + migrate into account on login ---------- */
   // Гостевой чат в БД не пишется. Держим транскрипт в localStorage и после
   // логина импортируем его в аккаунт (эндпоинт ai/sessions/import/).
   useEffect(() => {
     try {
-      if (isJwtValid(Cookies.get("access"))) return; // только гость
+      if (isAuthed || isJwtValid(getToken("access"))) return; // только гость
       const real = messages.filter(
         (m) =>
           (m.role === "user" || m.role === "assistant") &&
@@ -321,21 +406,22 @@ export default function ChatWorkspace({ chatId, mode = MODE, heroSlot, belowComp
         );
       }
     } catch {}
-  }, [messages]);
+  }, [messages, isAuthed]);
 
   useEffect(() => {
     if (chatId) return; // открыт конкретный чат — не трогаем
-    if (!isJwtValid(Cookies.get("access"))) return;
     let pending: any[] = [];
     try { pending = JSON.parse(localStorage.getItem("esai-guest-pending") || "[]"); } catch {}
     if (!Array.isArray(pending) || pending.length < 2) return;
     let on = true;
     (async () => {
+      if (!(await ensureAccess()) || !on) return;
       const res = await fetchData<any>("ai/sessions/import/", "POST", { messages: pending }, true);
       const s = (res?.data as any)?.session;
       if (!on) return;
       if (res.ok && s?.uid) {
         try { localStorage.removeItem("esai-guest-pending"); } catch {}
+        continueFromRef.current = null;
         setMessages(pending.map((m: any) => ({ role: m.role, content: m.content, attachments: m.attachments || undefined })) as Message[]);
         setSessionId(s.uid);
         try { window.dispatchEvent(new CustomEvent("chat:session-created", { detail: { id: s.uid, uid: s.uid, title: s.title, chat_mode: mode } })); } catch {}
@@ -345,24 +431,238 @@ export default function ChatWorkspace({ chatId, mode = MODE, heroSlot, belowComp
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  /* ---------- видео после обрыва связи ---------- */
+  // Ролик снимается минуты. Если связь оборвалась (телефон уснул, сменилась
+  // сеть), сервер всё равно доснимает и спишет кредиты, а фронт писал
+  // «Сетевая ошибка» и убирал плейсхолдер — человек платил за невидимое
+  // видео. Теперь: «Видео ещё снимается…» и раз в 20 с (до 10 мин) смотрим
+  // историю чата, пока ролик не появится.
+  const watchForVideo = useCallback(
+    (w: { cid: string; sid?: string; content: string; knownSessions: string[]; knownMsgIds: string[] }) => {
+      const epoch = chatEpochRef.current;
+      const startedAt = Date.now();
+
+      async function tick() {
+        if (chatEpochRef.current !== epoch) return;
+        try {
+          // Новый чат: id сессии приходит только в done — ищем среди сессий,
+          // появившихся после отправки.
+          let candidates: string[] = w.sid ? [w.sid] : [];
+          if (!w.sid) {
+            const list = await fetchData<ChatItem[]>("ai/sessions/", "GET", null, true);
+            candidates = (Array.isArray(list?.data) ? list.data : [])
+              .map((c) => String(c.uid || c.id))
+              .filter((id) => !w.knownSessions.includes(id))
+              .slice(0, 3);
+          }
+          for (const cand of candidates) {
+            if (chatEpochRef.current !== epoch) return;
+            const res = await fetchData<{ messages?: Message[] }>(`ai/sessions/${cand}/`, "GET", null, true);
+            if (chatEpochRef.current !== epoch) return;
+            // Уже показанное берём на КАЖДОМ опросе: пока ждали, в чате могли
+            // появиться ответы на следующие вопросы — они не наш ролик.
+            const onScreen = messagesRef.current.filter((m) => m.id != null).map((m) => String(m.id));
+            const video = findNewVideo(res?.data?.messages, w.content, [...w.knownMsgIds, ...onScreen]);
+            if (!video) continue;
+            setMessages((prev) => {
+              // Страховка: этот ролик уже на экране — не дублируем (одинаковый key).
+              if (video.id != null && prev.some((m) => m.id != null && String(m.id) === String(video.id))) return prev;
+              return prev.map((m) => ((m as LiveMessage)._cid === w.cid ? { ...video, streaming: false } : m));
+            });
+            if (!sessionIdRef.current) {
+              setSessionId(cand);
+              try { window.dispatchEvent(new CustomEvent("chat:session-created", { detail: { id: cand, uid: cand, title: w.content.slice(0, 60), chat_mode: mode } })); } catch {}
+            }
+            refreshBalance();
+            return;
+          }
+        } catch {}
+        if (chatEpochRef.current !== epoch || Date.now() - startedAt >= VIDEO_WATCH_MAX_MS) return;
+        schedule();
+      }
+
+      function schedule() {
+        const id = window.setTimeout(() => {
+          videoPollsRef.current.delete(id);
+          void tick();
+        }, VIDEO_WATCH_INTERVAL_MS);
+        videoPollsRef.current.add(id);
+      }
+
+      schedule();
+    },
+    [mode, refreshBalance]
+  );
+
   /* ---------- send ---------- */
   const sendMessage = useCallback(
-    async (raw: string, opts?: { append?: boolean }) => {
+    async (raw: string, opts?: { append?: boolean; attachments?: Message["attachments"]; extend?: string | null }) => {
       const content = raw.trim();
       if (!content) return;
-      if (attachments.some((a) => a?.status === "uploading")) return;
+      // Ответ ещё идёт — второй запрос не шлём (Enter/«Повторить» во время стрима).
+      if (sendingRef.current) return;
+      // Вложения — из композера; «Повторить» передаёт вложения исходного вопроса.
+      const source = opts?.attachments ?? attachments;
+      // Файл грузится или не загрузился — не отправляем молча без него.
+      if (!opts?.attachments && source.some((a) => a?.status === "uploading" || a?.status === "error")) return;
+      sendingRef.current = true;
 
-      const readyAttachments = attachments.filter((a) => a && a.url);
-      lastUserRef.current = content;
+      const gen = ++genRef.current;
+      const stale = () => genRef.current !== gen;
+      try { abortRef.current?.abort(); } catch {}
+      const controller = new AbortController();
+      abortRef.current = controller;
+      // Метка «живого» пузыря ассистента: патчим по ней, а не по индексу.
+      const live = `live-${gen}`;
+
+      const readyAttachments = source
+        .filter((a) => a && a.url)
+        .map((a) => {
+          const c = { ...a };
+          delete c._lid;
+          return c;
+        });
+      // Продление ролика — разовое: после отправки режим выключается (раньше
+      // он залипал, и КАЖДЫЙ следующий ролик начинался с чужого кадра).
+      // «Повторить» несёт ролик исходного вопроса сам (opts.extend, он хранится
+      // на пузыре вопроса) и режим композера не расходует: иначе повтор
+      // неудачного продления молча снимал новый отдельный ролик за деньги.
+      const usedExtend = modelIsVideo ? (opts?.append ? opts.extend ?? null : extendVideoUrl) : null;
+      if (!opts?.append && extendVideoUrl) setExtendVideoUrl(null);
 
       if (!opts?.append) {
+        // Новый вопрос — «Повторить» снова про него, а не про «Продолжи.».
+        continueFromRef.current = null;
+        const userMsg: LiveMessage = {
+          role: "user",
+          content,
+          attachments: readyAttachments.length ? [...readyAttachments] : undefined,
+          ...(usedExtend ? { _extend: usedExtend } : {}),
+        };
+        setMessages((prev) => [...prev, userMsg]);
+        setInput("");
+        setAttachments([]);
+      }
+
+      // Продление не состоялось — возвращаем режим (удачное снимает его в done).
+      const restoreExtend = () => {
+        if (usedExtend) setExtendVideoUrl((cur) => cur ?? usedExtend);
+      };
+
+      // Запрос не дошёл до ответа — возвращаем текст и файлы в поле (если
+      // человек не начал набирать новый), чтобы не набирать вопрос заново и не
+      // отправить его потом без документа/фото.
+      const restoreDraft = () => {
+        restoreExtend();
+        if (opts?.append) return;
+        // Файлы — только вместе с текстом: к новому, уже набранному вопросу
+        // чужой документ не подкладываем.
+        const typed = inputRef.current.trim();
+        const composerFree = !typed || typed === content;
+        setInput((cur) => (cur.trim() ? cur : content));
+        const files = source.filter((a) => a && a.url);
+        if (composerFree && files.length) setAttachments((cur) => (cur.length ? cur : files));
+      };
+
+      // Helper: patch the live assistant message (found by its local tag).
+      const patchAssistant = (patch: Partial<LiveMessage>, appendDelta?: string, appendReasoning?: string) => {
+        setMessages((prev) => {
+          const i = prev.findIndex((m) => (m as LiveMessage)._cid === live);
+          if (i < 0) return prev;
+          const out = [...prev];
+          const cur = out[i];
+          const curReasoning = ((cur.meta as any)?.reasoning as string) || "";
+          // meta: при стриме reasoning — дописываем; при patch.meta (done) —
+          // сохраняем уже накопленный reasoning, если бэк его не прислал.
+          const meta =
+            appendReasoning != null
+              ? { ...(cur.meta || {}), reasoning: curReasoning + appendReasoning }
+              : patch.meta !== undefined
+              ? { ...(curReasoning ? { reasoning: curReasoning } : {}), ...patch.meta }
+              : cur.meta;
+          out[i] = {
+            ...cur,
+            ...patch,
+            content: appendDelta != null ? (cur.content || "") + appendDelta : (patch.content ?? cur.content),
+            meta,
+          };
+          return out;
+        });
+      };
+
+      // Закрыть живой пузырь при ошибке/обрыве: пустой — убрать, с частью
+      // ответа — оставить, но снять «печатает»/плейсхолдеры (раньше частичный
+      // ответ так и висел с мигающим курсором).
+      const finalizeLive = () => {
+        setMessages((prev) => {
+          const i = prev.findIndex((m) => (m as LiveMessage)._cid === live);
+          if (i < 0) return prev;
+          const cur = prev[i] as LiveMessage;
+          const out = [...prev];
+          const hasAtts = Array.isArray(cur.attachments) && cur.attachments.length > 0;
+          if (!(cur.content || "").trim() && !hasAtts) out.splice(i, 1);
+          else {
+            const closed: LiveMessage = { ...cur, streaming: false, imagePending: false, videoPending: false };
+            out[i] = closed;
+          }
+          return out;
+        });
+      };
+
+      const pushError = (text: string, errOpts?: { noRetry?: boolean }) =>
         setMessages((prev) => [
           ...prev,
-          { role: "user", content, attachments: readyAttachments.length ? [...readyAttachments] : undefined },
+          { role: "assistant", content: text, variant: "error", ...(errOpts?.noRetry ? { noRetry: true } : {}) } as LiveMessage,
         ]);
-      }
-      setInput("");
-      setAttachments([]);
+
+      // Связь оборвалась, пока готовилась картинка: сервер, скорее всего, её
+      // доделал и списал кредиты — «Повторить» тут заплатил бы второй раз.
+      const pushImageMaybeReady = () =>
+        pushError(
+          t("chat.error_network_image", {
+            defaultValue:
+              "Связь прервалась, пока создавалась картинка. Если она успела создаться, то появится в этом чате после обновления страницы — проверьте, прежде чем отправлять запрос снова.",
+          }),
+          { noRetry: true }
+        );
+
+      // Связь оборвалась или сервер ответил video_delayed, пока снималось
+      // видео: сервер его доснимет сам — ждём. Это не ошибка: «Повторить»
+      // здесь запустил бы второй платный ролик, пока первый ещё снимается.
+      const showVideoStillComing = (text?: string, watch = true) => {
+        const note: LiveMessage = {
+          role: "assistant",
+          content:
+            text ||
+            t("chat.video_still_generating", {
+              defaultValue: "Видео ещё снимается и появится в этом чате. Можно не ждать на этой странице — оно сохранится в истории.",
+            }),
+          variant: "warning",
+          _cid: live,
+        };
+        setMessages((prev) => {
+          const i = prev.findIndex((m) => (m as LiveMessage)._cid === live);
+          if (i < 0) return [...prev, note];
+          const out = [...prev];
+          out[i] = note;
+          return out;
+        });
+        // Гостю историю не опросить (эндпоинт только для вошедших).
+        if (!watch) return;
+        watchForVideo({
+          cid: live,
+          sid: sessionId,
+          content,
+          knownSessions: chatsRef.current.map((c) => String(c.uid || c.id)),
+          knownMsgIds: messagesRef.current.filter((m) => m.id != null).map((m) => String(m.id)),
+        });
+      };
+
+      let authed = false;
+      // Начал ли ответ приходить (текст/мысли/плейсхолдер картинки или видео).
+      let sawOutput = false;
+      let sawVideoPending = false;
+      let sawImagePending = false;
 
       try {
         setLoading(true);
@@ -375,7 +675,7 @@ export default function ChatWorkspace({ chatId, mode = MODE, heroSlot, belowComp
         if (modelIsVideo && videoSettings.resolution) payload.video_resolution = videoSettings.resolution;
         if (modelIsVideo && videoSettings.firstFrame) payload.video_first_frame = videoSettings.firstFrame;
         if (modelIsVideo && videoSettings.lastFrame) payload.video_last_frame = videoSettings.lastFrame;
-        if (modelIsVideo && extendVideoUrl) payload.extend_video_url = extendVideoUrl;
+        if (usedExtend) payload.extend_video_url = usedExtend;
         // Пропорции кадра — общее поле для видео и картинок: на сервере это
         // одна настройка. Если пользователь ничего не выбрал, сервер попробует
         // распознать её в тексте запроса («нарисуй вертикально»).
@@ -386,55 +686,17 @@ export default function ChatWorkspace({ chatId, mode = MODE, heroSlot, belowComp
 
         // Authenticated users go through the Bearer path. Guests send X-Guest-Id
         // and must NOT trigger the auth redirect, so guest errors are handled here.
-        const authed = isJwtValid(Cookies.get("access"));
+        // ensureAccess: вкладка, открытая со вчера, — access истёк, обновляем
+        // по refresh ДО решения «гость или нет» (иначе уходил гостевой запрос).
+        authed = await ensureAccess();
+        if (stale()) return;
+        setIsAuthed(authed);
         const extraHeaders = authed ? undefined : { "X-Guest-Id": getGuestId() };
 
         // Append a live (empty) assistant bubble we'll fill from the stream.
         // No typing-effect animation: real deltas drive the text now.
         setAnimateIndex(null);
-        let assistantIndex = -1;
-        setMessages((prev) => {
-          assistantIndex = prev.length;
-          return [...prev, { role: "assistant", content: "", streaming: true } as Message];
-        });
-
-        // Helper: patch the live assistant message by index.
-        const patchAssistant = (patch: Partial<Message>, appendDelta?: string, appendReasoning?: string) => {
-          setMessages((prev) => {
-            const out = [...prev];
-            const i = assistantIndex >= 0 && assistantIndex < out.length ? assistantIndex : out.length - 1;
-            const cur = out[i];
-            if (!cur || cur.role !== "assistant") return prev;
-            const curReasoning = ((cur.meta as any)?.reasoning as string) || "";
-            // meta: при стриме reasoning — дописываем; при patch.meta (done) —
-            // сохраняем уже накопленный reasoning, если бэк его не прислал.
-            const meta =
-              appendReasoning != null
-                ? { ...(cur.meta || {}), reasoning: curReasoning + appendReasoning }
-                : patch.meta !== undefined
-                ? { ...(curReasoning ? { reasoning: curReasoning } : {}), ...patch.meta }
-                : cur.meta;
-            out[i] = {
-              ...cur,
-              ...patch,
-              content: appendDelta != null ? (cur.content || "") + appendDelta : (patch.content ?? cur.content),
-              meta,
-            };
-            return out;
-          });
-        };
-
-        // Drop the empty live bubble (used on stream/JSON errors so we can append an error bubble).
-        const dropLiveBubble = () => {
-          setMessages((prev) => {
-            const out = [...prev];
-            const i = assistantIndex >= 0 && assistantIndex < out.length ? assistantIndex : out.length - 1;
-            if (out[i]?.role === "assistant" && out[i]?.streaming && !(out[i]?.content || "").trim()) {
-              out.splice(i, 1);
-            }
-            return out;
-          });
-        };
+        setMessages((prev) => [...prev, { role: "assistant", content: "", streaming: true, _cid: live } as LiveMessage]);
 
         let streamErrored = false;
         let sawDelta = false;
@@ -446,12 +708,17 @@ export default function ChatWorkspace({ chatId, mode = MODE, heroSlot, belowComp
         const result = await streamChat(payload, {
           authed,
           extraHeaders,
+          signal: controller.signal,
           onEvent: (ev) => {
+            // Стрим уже не наш (новый чат/смена чата) — ничего не трогаем.
+            if (stale()) return;
             if (ev.type === "delta") {
               sawDelta = true;
+              sawOutput = true;
               patchAssistant({ streaming: true }, ev.delta);
             } else if (ev.type === "reasoning") {
               // «Мысли» reasoning-модели (DeepSeek R1) — копим отдельно от ответа.
+              sawOutput = true;
               patchAssistant({ streaming: true }, undefined, ev.delta);
             } else if (ev.type === "sources") {
               const clean = (ev.sources || []).filter((s) => s && s.url) as ChatSource[];
@@ -459,26 +726,39 @@ export default function ChatWorkspace({ chatId, mode = MODE, heroSlot, belowComp
             } else if (ev.type === "image_pending") {
               // Готовится картинка (image-gen / авто-роутинг «нарисуй…») —
               // пузырь ассистента показывает серый плейсхолдер как в ChatGPT.
-              patchAssistant({ streaming: true, imagePending: true } as any);
+              sawOutput = true;
+              sawImagePending = true;
+              patchAssistant({ streaming: true, imagePending: true });
             } else if (ev.type === "video_pending") {
               // Готовится видео (video-gen) — пузырь ассистента показывает
               // видео-плейсхолдер («Видео создаётся… обычно 1–2 минуты»).
-              patchAssistant({ streaming: true, videoPending: true } as any);
+              sawOutput = true;
+              sawVideoPending = true;
+              patchAssistant({ streaming: true, videoPending: true });
             } else if (ev.type === "video_progress") {
               // keepalive-кадр (~каждые 5с) во время генерации видео — ничего не делаем.
             } else if (ev.type === "error") {
               streamErrored = true;
-              dropLiveBubble();
+              // Ролик снимается дольше обычного: сервер довезёт его в этот чат
+              // сам и спишет кредиты только тогда. Не ошибка и без «Повторить».
+              if (ev.error_code === "video_delayed") {
+                showVideoStillComing(ev.error, authed);
+                return;
+              }
+              finalizeLive();
               // SSE error frame: route premium/insufficient/daily/guest to a modal;
               // fall back to an inline error bubble for everything else.
               const frame = { ...(ev.payload || {}), error_code: ev.error_code, error: ev.error };
               const consumed = handleErrorCode(frame, { authed });
-              if (!consumed) {
-                setMessages((prev) => [...prev, { role: "assistant", content: ev.error, variant: "error" } as any]);
-              }
+              if (!consumed) pushError(ev.error);
+              if (!sawOutput) restoreDraft();
+              else restoreExtend();
             } else if (ev.type === "done") {
               sawDone = true;
               const p = ev.payload || {};
+              // Продление удалось — режим композера больше не нужен (его могли
+              // вернуть после прошлой неудачной попытки).
+              if (usedExtend && p?.message) setExtendVideoUrl((cur) => (cur === usedExtend ? null : cur));
               // Finalize message metadata (id from server, etc.)
               const finalContent = typeof p?.message?.content === "string" ? p.message.content : undefined;
               const finalId = p?.message?.id;
@@ -522,26 +802,34 @@ export default function ChatWorkspace({ chatId, mode = MODE, heroSlot, belowComp
           },
         });
 
+        if (stale()) return;
+
         /* ---------- non-stream fallback (402/401-before-stream or plain JSON) ---------- */
         if (!result.isStream) {
-          dropLiveBubble();
+          finalizeLive();
           const data = (result.json as any) || {};
 
           // Route any known refusal (error_code) to the matching modal.
-          if (handleErrorCode(data, { authed })) return;
+          if (handleErrorCode(data, { authed })) {
+            restoreDraft();
+            return;
+          }
 
           // Legacy / status-only fallbacks (older backend without error_code).
           if (!authed && result.status === 401) {
             setGuestLimitOpen(true);
+            restoreDraft();
             return;
           }
           if (result.status === 402) {
             setPaywall({ reason: "insufficient_tokens" });
+            restoreDraft();
             return;
           }
           if (!result.ok) {
             const msg = (data?.detail || data?.error || t("chat.error_request_failed", { defaultValue: "Запрос не выполнен." })).toString();
-            setMessages((prev) => [...prev, { role: "assistant", content: msg, variant: "error" } as any]);
+            pushError(msg);
+            restoreDraft();
             return;
           }
 
@@ -553,7 +841,7 @@ export default function ChatWorkspace({ chatId, mode = MODE, heroSlot, belowComp
           }
 
           if (!assistantContent) {
-            setMessages((prev) => [...prev, { role: "assistant", content: t("chat.error_generic", { defaultValue: "Произошла ошибка." }), variant: "error" } as any]);
+            pushError(t("chat.error_generic", { defaultValue: "Произошла ошибка." }));
           } else {
             const srcs = Array.isArray(data.sources) ? (data.sources.filter((s: any) => s && s.url) as ChatSource[]) : undefined;
             setMessages((prev) => {
@@ -574,31 +862,46 @@ export default function ChatWorkspace({ chatId, mode = MODE, heroSlot, belowComp
 
         /* ---------- post-stream cleanup ---------- */
         if (streamErrored) {
-          // Error already surfaced and the live bubble dropped; nothing to finalize.
+          // Error already surfaced and the live bubble closed; nothing to finalize.
+        } else if (!sawDone && sawVideoPending && authed) {
+          // Стрим закрылся без done посреди съёмки — ролик, скорее всего, ещё будет.
+          showVideoStillComing();
         } else if (!sawDelta && !sawDone) {
-          dropLiveBubble();
-          setMessages((prev) => [...prev, { role: "assistant", content: t("chat.error_generic", { defaultValue: "Произошла ошибка." }), variant: "error" } as any]);
+          finalizeLive();
+          if (sawImagePending && authed) pushImageMaybeReady();
+          else pushError(t("chat.error_generic", { defaultValue: "Произошла ошибка." }));
+          if (!sawOutput) restoreDraft();
+          else restoreExtend();
         } else {
           // Ensure the bubble isn't left in a streaming state if `done` never arrived.
-          patchAssistant({ streaming: false });
+          patchAssistant({ streaming: false, imagePending: false, videoPending: false });
         }
       } catch (e) {
+        // Сами оборвали (новый чат/смена чата/уход со страницы) — это не ошибка.
+        if (stale() || controller.signal.aborted) return;
         console.error("chat request failed", e);
-        // Remove any leftover empty live bubble before showing the network error.
-        setMessages((prev) => {
-          const out = [...prev];
-          const last = out[out.length - 1];
-          if (last?.role === "assistant" && last?.streaming && !(last.content || "").trim()) out.pop();
-          return [...out, { role: "assistant", content: t("chat.error_network", { defaultValue: "Сетевая ошибка." }), variant: "error" } as any];
-        });
+        if (sawVideoPending && authed) {
+          showVideoStillComing();
+          return;
+        }
+        // Частичный ответ оставляем (без «печатает»), пустой пузырь убираем.
+        finalizeLive();
+        if (sawImagePending && authed) pushImageMaybeReady();
+        else pushError(t("chat.error_network", { defaultValue: "Сетевая ошибка." }));
+        if (!sawOutput) restoreDraft();
+        else restoreExtend();
       } finally {
-        setLoading(false);
+        if (!stale()) {
+          sendingRef.current = false;
+          abortRef.current = null;
+          setLoading(false);
+        }
       }
     },
     // modelIsVideo/videoDuration ОБЯЗАТЕЛЬНЫ в зависимостях: без них колбэк
     // замыкается на начальные значения (false/null), и выбранная длительность
     // не попадала в запрос — видео всегда генерировалось дефолтными 5 секундами.
-    [attachments, sessionId, i18n.language, mode, model, webSearch, modelIsVideo, videoSettings, extendVideoUrl, refreshBalance, setBalance, t, handleErrorCode]
+    [attachments, sessionId, i18n.language, mode, model, webSearch, modelIsVideo, videoSettings, extendVideoUrl, refreshBalance, setBalance, t, handleErrorCode, watchForVideo]
   );
 
   const handleSubmit = (e: FormEvent) => {
@@ -607,19 +910,37 @@ export default function ChatWorkspace({ chatId, mode = MODE, heroSlot, belowComp
   };
 
   const handleRetry = useCallback(() => {
-    if (!lastUserRef.current) return;
-    // drop the last assistant message, then resend the previous user prompt
-    setMessages((prev) => {
-      const out = [...prev];
-      if (out.length && out[out.length - 1].role === "assistant") out.pop();
-      return out;
-    });
-    sendMessage(lastUserRef.current, { append: true });
-  }, [sendMessage]);
+    // Последний вопрос берём из самой переписки: раньше «Повторить» помнил
+    // только отправленное на этой странице — в чате, открытом из истории или
+    // после перезагрузки, кнопка молча ничего не делала. После «Продолжить»
+    // повторяем само продолжение (см. planRetry).
+    if (sendingRef.current) return;
+    const plan = planRetry(
+      messages,
+      continueFromRef.current,
+      t("chat.actions.continue_prompt", { defaultValue: "Продолжи." })
+    );
+    if (!plan) return;
+    if (!plan.isContinue) {
+      continueFromRef.current = null;
+      // Текст и файлы, возвращённые в поле после ошибки, больше не нужны.
+      const urls = new Set(plan.attachments.map((a) => a?.url).filter(Boolean));
+      setInput((cur) => (cur.trim() === plan.content ? "" : cur));
+      setAttachments((cur) => (cur.length && cur.every((a) => a?.url && urls.has(a.url)) ? [] : cur));
+    }
+    // Убираем всё после вопроса (прошлый ответ или пузырь ошибки) и шлём заново
+    // с теми же вложениями и тем же продлеваемым роликом.
+    setMessages((prev) => prev.slice(0, plan.keep));
+    sendMessage(plan.content, { append: true, attachments: plan.attachments, extend: plan.extend });
+  }, [messages, sendMessage, t]);
 
   const handleContinue = useCallback(() => {
-    sendMessage(t("chat.actions.continue_prompt", { defaultValue: "Продолжи." }), { append: true });
-  }, [sendMessage, t]);
+    if (sendingRef.current) return;
+    // «Продолжить» не добавляет пузыря вопроса — запоминаем, откуда пошло
+    // продолжение, чтобы «Повторить» не стёр продолжаемый ответ.
+    continueFromRef.current = messages.length;
+    sendMessage(t("chat.actions.continue_prompt", { defaultValue: "Продолжи." }), { append: true, attachments: [] });
+  }, [messages.length, sendMessage, t]);
 
   const handleFeedback = useCallback((index: number, value: "up" | "down") => {
     const msg = messages[index] as any;
@@ -629,6 +950,12 @@ export default function ChatWorkspace({ chatId, mode = MODE, heroSlot, belowComp
   }, [messages]);
 
   const newChat = () => {
+    // Обрываем недописанный ответ и ожидание видео: иначе стрим прошлого
+    // диалога дописывался в новый, пустой чат.
+    abortActive();
+    stopVideoWatch();
+    setExtendVideoUrl(null);
+    continueFromRef.current = null;
     if (chatId) {
       router.push("/");
     } else {
@@ -641,6 +968,22 @@ export default function ChatWorkspace({ chatId, mode = MODE, heroSlot, belowComp
     }
   };
 
+  // Чат удалили в меню. Открытый сейчас — сбрасываем сессию: раньше на «/»
+  // sessionId оставался, и следующее сообщение уходило в удалённый чат.
+  const handleChatDeleted = useCallback(
+    (id: string, wasActive: boolean) => {
+      setChats((prev) => prev.filter((c) => String(c.uid || c.id) !== id));
+      if (!wasActive) return;
+      abortActive();
+      stopVideoWatch();
+      continueFromRef.current = null;
+      setSessionId(undefined);
+      setMessages([]);
+      setExtendVideoUrl(null);
+    },
+    [abortActive, stopVideoWatch]
+  );
+
   // Композер чата (поле ввода) — единый узел: на старте он рендерится в герое
   // сразу под слоганом (виден без прокрутки), в диалоге — снизу. Под полем —
   // счётчик бесплатных сообщений гостя.
@@ -648,7 +991,7 @@ export default function ChatWorkspace({ chatId, mode = MODE, heroSlot, belowComp
     <>
       {/* Режим продления: без явной плашки непонятно, почему следующий ролик
           начнётся с чужого кадра, и как из этого режима выйти. */}
-      {extendVideoUrl && (
+      {extendVideoUrl && modelIsVideo && (
         <div className="mb-2 flex items-center gap-2 rounded-xl border border-accent/40 bg-accent-soft px-3 py-2">
           <FiFilm className="shrink-0 text-accent-strong" />
           <p className="min-w-0 flex-1 text-xs text-foreground leading-snug">
@@ -685,6 +1028,7 @@ export default function ChatWorkspace({ chatId, mode = MODE, heroSlot, belowComp
         modelIsImageEdit={modelIsImageEdit}
         videoSettings={videoSettings}
         onVideoSettingsChange={patchVideoSettings}
+        canAttach={isAuthed}
       />
       {guestFree && guestFree.limit > 0 && (
         <p className="text-center text-xs text-muted-2 mt-2">
@@ -855,10 +1199,14 @@ export default function ChatWorkspace({ chatId, mode = MODE, heroSlot, belowComp
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
         chats={chats}
-        activeChatId={chatId}
+        // sessionId, а не chatId: на «/» чат создаётся первым сообщением и
+        // chatId там всегда пуст — удаление такого чата не сбрасывало сессию.
+        activeChatId={sessionId}
         balance={balance}
         onTopUp={() => setTopUpOpen(true)}
         onNewChat={newChat}
+        onChatDeleted={handleChatDeleted}
+        authed={isAuthed}
       />
       <TopUpModal open={topUpOpen} onClose={() => setTopUpOpen(false)} />
       <PaywallModal

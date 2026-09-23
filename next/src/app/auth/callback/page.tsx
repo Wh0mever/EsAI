@@ -34,11 +34,22 @@ export default function AuthCallback() {
     try {
       const qs = new URLSearchParams(window.location.search || "");
       const hs = new URLSearchParams((window.location.hash || "").replace(/^#/, ""));
-      const get = (k: string) => qs.get(k) || hs.get(k);
+      // Бэкенд теперь кладёт токены во фрагмент (#): его браузер никуда не
+      // отправляет, а query с JWT оседал в логах nginx/Cloudflare. Query —
+      // запасной путь для старых ссылок (и ?error=… от соц-входа).
+      const get = (k: string) => hs.get(k) || qs.get(k);
 
       const access = get("access");
       const refresh = get("refresh");
       const user = get("user");
+
+      // Сразу убираем токены из адресной строки и истории браузера.
+      try {
+        const rest = new URLSearchParams(qs);
+        ["access", "refresh", "user", "welcome"].forEach((k) => rest.delete(k));
+        const search = rest.toString();
+        window.history.replaceState(window.history.state, "", window.location.pathname + (search ? `?${search}` : ""));
+      } catch {}
 
       let nextUrl = "/dashboard/text-chat";
 

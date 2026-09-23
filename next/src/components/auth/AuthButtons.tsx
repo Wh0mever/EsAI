@@ -2,8 +2,7 @@
 
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
-import Cookies from "js-cookie";
-import { isJwtValid } from "@/tools/jwt";
+import { ensureAccess } from "@/tools/fetchData";
 import { useEffect, useState } from "react";
 import { FiLogIn, FiGrid, FiUser } from "react-icons/fi";
 
@@ -12,14 +11,21 @@ export default function AuthButtons() {
 	const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   useEffect(() => {
+    let alive = true;
+    // access живёт 12 ч: истёк, но есть refresh — тихо обновляем, иначе
+    // назавтра вошедший человек видел в шапке «Войти».
     const check = () => {
-      const token = Cookies.get("access");
-      setIsAuthenticated(isJwtValid(token));
+      ensureAccess().then((ok) => {
+        if (alive) setIsAuthenticated(ok);
+      });
     };
     check();
     const onFocus = () => check();
     window.addEventListener('focus', onFocus);
-    return () => window.removeEventListener('focus', onFocus);
+    return () => {
+      alive = false;
+      window.removeEventListener('focus', onFocus);
+    };
   }, []);
 
   if (isAuthenticated) {

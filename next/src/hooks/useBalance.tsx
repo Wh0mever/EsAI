@@ -1,12 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import Cookies from "js-cookie";
-import { fetchData } from "@/tools/fetchData";
+import { ensureAccess, fetchData } from "@/tools/fetchData";
 
 /**
  * useBalance — token balance from GET /api/plans/balance/.
- * Only fetched when an access token is present (chat works anonymously).
+ * Only fetched for a signed-in user (chat works anonymously). ensureAccess:
+ * access живёт 12 ч — без тихого обновления по refresh назавтра баланс не
+ * грузился, и платящий человек видел гостевой режим.
  * Refreshes on the "balance:refresh" event and exposes setBalance so the chat
  * can update it directly from a chat response ("balance_tokens").
  */
@@ -14,7 +15,7 @@ export function useBalance() {
   const [balance, setBalance] = useState<number | null>(null);
 
   const refresh = useCallback(async () => {
-    if (!Cookies.get("access")) {
+    if (!(await ensureAccess())) {
       setBalance(null);
       return;
     }

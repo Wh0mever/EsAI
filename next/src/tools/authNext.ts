@@ -1,6 +1,7 @@
 "use client";
 
 import Cookies from "js-cookie";
+import { safeReturnPath } from "./returnPath";
 
 /**
  * Куда вернуть человека после входа.
@@ -17,24 +18,20 @@ import Cookies from "js-cookie";
 
 const COOKIE = "esai_next";
 
-/** Только свой относительный путь: «//evil.com» браузер считает чужим адресом. */
+/**
+ * Только свой относительный путь. Проверка общая с middleware
+ * (tools/returnPath): одних строковых правил мало — «/\t/evil.com» браузер
+ * превращает в «//evil.com», то есть в чужой адрес.
+ */
 export function isSafeReturnPath(value: unknown): value is string {
-  if (typeof value !== "string") return false;
-  const path = value.trim();
-  return (
-    path.startsWith("/") &&
-    !path.startsWith("//") &&
-    !path.includes("\\") &&
-    path.length <= 300 &&
-    // Возврат на сам вход — петля.
-    !path.startsWith("/auth/")
-  );
+  return safeReturnPath(value) !== null;
 }
 
 export function rememberReturnPath(path: string): void {
-  if (!isSafeReturnPath(path)) return;
+  const safe = safeReturnPath(path);
+  if (!safe) return;
   try {
-    Cookies.set(COOKIE, path, {
+    Cookies.set(COOKIE, safe, {
       // Полчаса: хватает на вход по коду из почты, но не всплывёт через неделю.
       expires: 1 / 48,
       sameSite: "lax",
@@ -49,12 +46,9 @@ export function rememberReturnPath(path: string): void {
  * fromQuery ожидается уже раскодированным (URLSearchParams.get так и отдаёт).
  */
 export function takeReturnPath(fallback: string, fromQuery?: string | null): string {
-  let chosen = "";
-  if (isSafeReturnPath(fromQuery)) chosen = fromQuery.trim();
-  if (!chosen) {
-    const saved = Cookies.get(COOKIE);
-    if (isSafeReturnPath(saved)) chosen = saved.trim();
-  }
+  // Отдаём нормализованный путь — ровно тот, что проверен.
+  let chosen = safeReturnPath(fromQuery) || "";
+  if (!chosen) chosen = safeReturnPath(Cookies.get(COOKIE)) || "";
   try {
     Cookies.remove(COOKIE);
   } catch {}

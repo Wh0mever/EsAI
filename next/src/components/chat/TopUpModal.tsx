@@ -168,7 +168,7 @@ export default function TopUpModal({ open, onClose }: Props) {
     <Modal title={t("topup.title", { defaultValue: "Выберите пакет кредитов" })} open={open} onClose={onClose} size="lg">
       <div className="p-1 sm:p-2">
         <div className="text-center mb-3">
-          <PayAsYouGoBanner compact />
+          <PayAsYouGoBanner compact format={format} />
         </div>
 
         <div className="flex justify-center mb-3">
