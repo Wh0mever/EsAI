@@ -27,7 +27,6 @@ type SiteContacts = {
 type Settings = {
   openrouter_key_masked: string | null;
   welcome_bonus: number;
-  referral_bonus: number;
   referral_percent: number;
   daily_retention_target: number;
   web_search_surcharge: number;
@@ -101,7 +100,6 @@ const INPUT =
 
 type NumKey =
   | "welcome_bonus"
-  | "referral_bonus"
   | "referral_percent"
   | "daily_retention_target"
   | "web_search_surcharge"
@@ -114,11 +112,8 @@ const NUM_FIELDS: { key: NumKey; label: string; sub: string; max?: number }[] = 
     label: "Приветственный бонус (кр)",
     sub: "начисляется новому пользователю при регистрации",
   },
-  {
-    key: "referral_bonus",
-    label: "Реферальный бонус (кр)",
-    sub: "за приглашённого друга по реферальной ссылке",
-  },
+  // «Реферальный бонус (кр)» убран: REFERRAL_BONUS_TOKENS нигде в логике не
+  // используется (программа платит только % с пополнений), поле ничего не меняло.
   {
     key: "referral_percent",
     label: "Реферальный % с пополнений",
@@ -195,7 +190,6 @@ export default function AdminSettingsPage() {
   // --- Секции 2–3: числа и авто-рисование (черновики) ---
   const [numDraft, setNumDraft] = useState<Record<NumKey, string>>({
     welcome_bonus: "",
-    referral_bonus: "",
     referral_percent: "",
     daily_retention_target: "",
     web_search_surcharge: "",
@@ -255,11 +249,12 @@ export default function AdminSettingsPage() {
   const [siteError, setSiteError] = useState<string | null>(null);
   const [siteFlash, setSiteFlash] = useState(false);
 
-  const applySnapshot = (s: Settings) => {
-    setSettings(s);
+  // Черновики каждой секции синхронизируются со снимком ОТДЕЛЬНО. Раньше
+  // после сохранения любой секции перезаписывались все поля страницы —
+  // несохранённые правки в соседних секциях молча пропадали.
+  const syncBonusDraft = (s: Settings) => {
     setNumDraft({
       welcome_bonus: String(s.welcome_bonus ?? 0),
-      referral_bonus: String(s.referral_bonus ?? 0),
       referral_percent: String(s.referral_percent ?? 0),
       daily_retention_target: String(s.daily_retention_target ?? 0),
       web_search_surcharge: String(s.web_search_surcharge ?? 0),
@@ -267,13 +262,22 @@ export default function AdminSettingsPage() {
       paid_daily_requests: String(s.paid_daily_requests ?? 0),
     });
     setImageAutoRoute(Boolean(s.image_auto_route));
+  };
+
+  const syncAudioDraft = (s: Settings) => {
     setAudioDraft({
       studio_voice_credits_per_1k: String(s.studio_voice_credits_per_1k ?? 20),
       studio_voice_min_credits: String(s.studio_voice_min_credits ?? 5),
       studio_music_credits_per_min: String(s.studio_music_credits_per_min ?? 30),
       studio_sfx_credits: String(s.studio_sfx_credits ?? 10),
     });
+  };
+
+  const syncRateDraft = (s: Settings) => {
     setRateDraft(String(s.currency_kgs_to_rub_rate ?? ""));
+  };
+
+  const syncCryptoDraft = (s: Settings) => {
     setCryptoMode(s.crypto_payments_mode ?? "off");
     setFeeByUser(Boolean(s.crypto_fee_paid_by_user));
     setCryptoCoins(
@@ -285,6 +289,9 @@ export default function AdminSettingsPage() {
     // Пустое поле означает «брать живой курс» — так и показываем.
     setUsdRateDraft(s.currency_kgs_to_usd_manual ? String(s.currency_kgs_to_usd_manual) : "");
     setSettleDraft(String(s.crypto_settlement_currency || ""));
+  };
+
+  const syncSiteDraft = (s: Settings) => {
     setSiteDraft({
       email: s.site?.email ?? "",
       phone: s.site?.phone ?? "",
@@ -294,6 +301,16 @@ export default function AdminSettingsPage() {
       facebook: s.site?.facebook ?? "",
       twitter: s.site?.twitter ?? "",
     });
+  };
+
+  /** Первая загрузка: заполняем все секции. */
+  const applySnapshot = (s: Settings) => {
+    setSettings(s);
+    syncBonusDraft(s);
+    syncAudioDraft(s);
+    syncRateDraft(s);
+    syncCryptoDraft(s);
+    syncSiteDraft(s);
   };
 
   useEffect(() => {
@@ -351,7 +368,7 @@ export default function AdminSettingsPage() {
     );
     setKeySaving(false);
     if (res.ok && res.data) {
-      applySnapshot(res.data);
+      setSettings(res.data);
       setNewKey("");
       setShowKey(false);
       setKeyFlash(true);
@@ -400,7 +417,8 @@ export default function AdminSettingsPage() {
     const res = await fetchData<Settings>("manage/settings/", "PATCH", patch, true);
     setBonusSaving(false);
     if (res.ok && res.data) {
-      applySnapshot(res.data);
+      setSettings(res.data);
+      syncBonusDraft(res.data);
       setBonusFlash(true);
       setTimeout(() => setBonusFlash(false), 2000);
     } else {
@@ -434,7 +452,8 @@ export default function AdminSettingsPage() {
     );
     setRateSaving(false);
     if (res.ok && res.data) {
-      applySnapshot(res.data);
+      setSettings(res.data);
+      syncRateDraft(res.data);
       setRateFlash(true);
       setTimeout(() => setRateFlash(false), 2000);
     } else {
@@ -500,7 +519,8 @@ export default function AdminSettingsPage() {
     const res = await fetchData<Settings>("manage/settings/", "PATCH", patch, true);
     setCryptoSaving(false);
     if (res.ok && res.data) {
-      applySnapshot(res.data);
+      setSettings(res.data);
+      syncCryptoDraft(res.data);
       setNpKey("");
       setNpSecret("");
       setCryptoFlash(true);
@@ -551,7 +571,8 @@ export default function AdminSettingsPage() {
     const res = await fetchData<Settings>("manage/settings/", "PATCH", patch, true);
     setAudioSaving(false);
     if (res.ok && res.data) {
-      applySnapshot(res.data);
+      setSettings(res.data);
+      syncAudioDraft(res.data);
       setElKey("");
       setAudioFlash(true);
       setTimeout(() => setAudioFlash(false), 2000);
@@ -593,7 +614,8 @@ export default function AdminSettingsPage() {
     const res = await fetchData<Settings>("manage/settings/", "PATCH", { site: patch }, true);
     setSiteSaving(false);
     if (res.ok && res.data) {
-      applySnapshot(res.data);
+      setSettings(res.data);
+      syncSiteDraft(res.data);
       setSiteFlash(true);
       setTimeout(() => setSiteFlash(false), 2000);
     } else {

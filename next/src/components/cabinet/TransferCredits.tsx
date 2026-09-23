@@ -22,6 +22,7 @@ function formatDate(raw?: string): string {
 
 /**
  * TransferCredits — перевод кредитов другому пользователю + история переводов.
+ * GET  users/transfer/ → { transferable, balance } — сколько можно перевести
  * POST users/transfer/ { recipient, amount, comment } → { ok, balance }
  * GET  users/transfers/ → [{ date, direction, amount, counterparty, comment }]
  */
@@ -33,6 +34,13 @@ export default function TransferCredits({ onBalance }: { onBalance?: (balance: n
 	const [comment, setComment] = useState("");
 	const [busy, setBusy] = useState(false);
 	const [msg, setMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
+	// Перевод необратим: сначала показываем, кому и сколько уйдёт, и ждём
+	// явного «Да». Раньше кредиты уходили по первому нажатию.
+	const [confirm, setConfirm] = useState<{ to: string; amt: number } | null>(null);
+	// Переводить можно только купленные кредиты — подарочные (ежедневные,
+	// приветственные, промокоды) остаются у владельца. null — сервер не ответил,
+	// тогда не ограничиваем на клиенте: последнее слово всё равно за бэкендом.
+	const [transferable, setTransferable] = useState<number | null>(null);
 
 	const [history, setHistory] = useState<TransferRow[]>([]);
 	const [loadingHistory, setLoadingHistory] = useState(false);
@@ -47,8 +55,19 @@ export default function TransferCredits({ onBalance }: { onBalance?: (balance: n
 		}
 	};
 
+	const loadTransferable = async () => {
+		const res = await fetchData<{ transferable?: number }>("users/transfer/", "GET", null, true);
+		if (res.ok && typeof res.data?.transferable === "number") setTransferable(res.data.transferable);
+	};
+
 	useEffect(() => {
 		let mounted = true;
+		(async () => {
+			const res = await fetchData<{ transferable?: number }>("users/transfer/", "GET", null, true);
+			if (mounted && res.ok && typeof res.data?.transferable === "number") {
+				setTransferable(res.data.transferable);
+			}
+		})();
 		(async () => {
 			setLoadingHistory(true);
 			try {
@@ -63,15 +82,48 @@ export default function TransferCredits({ onBalance }: { onBalance?: (balance: n
 		};
 	}, []);
 
-	const submit = async (e: React.FormEvent) => {
+	// Шаг 1: проверяем поля и показываем подтверждение.
+	const submit = (e: React.FormEvent) => {
 		e.preventDefault();
 		if (busy) return;
 		const to = recipient.trim();
-		const amt = Number(amount);
-		if (!to || !Number.isFinite(amt) || amt <= 0) {
+		const raw = amount.trim();
+		if (!to || !raw) {
 			setMsg({ type: "error", text: t("transfer.invalid", { defaultValue: "Укажите получателя и сумму больше нуля." }) });
 			return;
 		}
+		// Только целые: бэкенд делает int(), и «1.5» молча превращалось в 1.
+		if (!/^\d+$/.test(raw) || Number(raw) < 1) {
+			setMsg({
+				type: "error",
+				text: t("transfer.invalid_integer", { defaultValue: "Сумма — целое число кредитов больше нуля, например 100." }),
+			});
+			return;
+		}
+		const amt = Number(raw);
+		if (transferable !== null && amt > transferable) {
+			setMsg({
+				type: "error",
+				text:
+					transferable > 0
+						? t("transfer.over_limit", {
+								defaultValue: "Сейчас можно перевести не больше {{amount}} кр.",
+								amount: transferable.toLocaleString(),
+							})
+						: t("transfer.nothing_to_transfer", {
+								defaultValue: "Сейчас переводить нечего: на балансе только бонусные кредиты.",
+							}),
+			});
+			return;
+		}
+		setMsg(null);
+		setConfirm({ to, amt });
+	};
+
+	// Шаг 2: человек подтвердил — переводим.
+	const doTransfer = async () => {
+		if (busy || !confirm) return;
+		const { to, amt } = confirm;
 		setBusy(true);
 		setMsg(null);
 		try {
@@ -96,7 +148,10 @@ export default function TransferCredits({ onBalance }: { onBalance?: (balance: n
 				setComment("");
 				if (typeof data.balance === "number") onBalance?.(newBalance);
 				loadHistory();
+				loadTransferable();
 			} else {
+				// 400 с лимитом приносит актуальное «можно перевести» — обновляем подсказку.
+				if (typeof data?.transferable === "number") setTransferable(data.transferable);
 				setMsg({
 					type: "error",
 					text: data?.detail || res.error || t("transfer.error", { defaultValue: "Не удалось выполнить перевод." }),
@@ -106,6 +161,7 @@ export default function TransferCredits({ onBalance }: { onBalance?: (balance: n
 			setMsg({ type: "error", text: t("transfer.error", { defaultValue: "Не удалось выполнить перевод." }) });
 		} finally {
 			setBusy(false);
+			setConfirm(null);
 		}
 	};
 
@@ -135,7 +191,10 @@ export default function TransferCredits({ onBalance }: { onBalance?: (balance: n
 							id="transfer-recipient"
 							type="text"
 							value={recipient}
-							onChange={(e) => setRecipient(e.target.value)}
+							onChange={(e) => {
+								setRecipient(e.target.value);
+								setConfirm(null);
+							}}
 							placeholder={t("transfer.recipient_ph", { defaultValue: "user@example.com" })}
 							className={inputClass}
 						/>
@@ -150,12 +209,30 @@ export default function TransferCredits({ onBalance }: { onBalance?: (balance: n
 							type="number"
 							min={1}
 							step={1}
+							max={transferable ?? undefined}
 							inputMode="numeric"
 							value={amount}
-							onChange={(e) => setAmount(e.target.value)}
+							onChange={(e) => {
+								setAmount(e.target.value);
+								setConfirm(null);
+							}}
 							placeholder="100"
 							className={inputClass}
 						/>
+						{transferable !== null && (
+							<p className="text-xs text-muted">
+								<span className="font-semibold text-foreground">
+									{t("transfer.transferable", {
+										defaultValue: "Можно перевести: {{amount}} кр",
+										amount: transferable.toLocaleString(),
+									})}
+								</span>
+								{" · "}
+								{t("transfer.transferable_hint", {
+									defaultValue: "бонусные кредиты (ежедневные, приветственные, по промокодам) переводить нельзя.",
+								})}
+							</p>
+						)}
 					</div>
 
 					<div className="flex flex-col gap-1.5">
@@ -172,16 +249,47 @@ export default function TransferCredits({ onBalance }: { onBalance?: (balance: n
 						/>
 					</div>
 
-					<button
-						type="submit"
-						disabled={busy || !recipient.trim() || !amount.trim()}
-						className="mt-1 inline-flex w-fit items-center justify-center gap-2 rounded-xl bg-accent text-on-accent font-semibold text-sm px-6 py-2.5 hover:bg-accent-strong transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-default"
-					>
-						<FiSend />
-						{busy
-							? t("common.processing", { defaultValue: "Обработка..." })
-							: t("transfer.submit", { defaultValue: "Перевести" })}
-					</button>
+					{confirm ? (
+						<div className="mt-1 flex flex-col gap-3 rounded-xl border border-accent/50 bg-accent/5 p-4">
+							<p className="text-sm text-foreground">
+								{t("transfer.confirm_text", {
+									defaultValue: "Перевести {{amount}} кр пользователю «{{recipient}}»? Отменить перевод будет нельзя.",
+									amount: confirm.amt.toLocaleString(),
+									recipient: confirm.to,
+								})}
+							</p>
+							<div className="flex flex-wrap gap-2">
+								<button
+									type="button"
+									onClick={doTransfer}
+									disabled={busy}
+									className="inline-flex items-center justify-center gap-2 rounded-xl bg-accent text-on-accent font-semibold text-sm px-5 py-2.5 hover:bg-accent-strong transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-default"
+								>
+									<FiSend />
+									{busy
+										? t("common.processing", { defaultValue: "Обработка..." })
+										: t("transfer.confirm_yes", { defaultValue: "Да, перевести" })}
+								</button>
+								<button
+									type="button"
+									onClick={() => setConfirm(null)}
+									disabled={busy}
+									className="inline-flex items-center justify-center rounded-xl border border-border px-5 py-2.5 text-sm text-foreground hover:bg-surface-2 transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-default"
+								>
+									{t("common.cancel", { defaultValue: "Отмена" })}
+								</button>
+							</div>
+						</div>
+					) : (
+						<button
+							type="submit"
+							disabled={busy || !recipient.trim() || !amount.trim() || transferable === 0}
+							className="mt-1 inline-flex w-fit items-center justify-center gap-2 rounded-xl bg-accent text-on-accent font-semibold text-sm px-6 py-2.5 hover:bg-accent-strong transition-colors cursor-pointer disabled:opacity-60 disabled:cursor-default"
+						>
+							<FiSend />
+							{t("transfer.submit", { defaultValue: "Перевести" })}
+						</button>
+					)}
 
 					{msg && (
 						<p className={`text-sm ${msg.type === "success" ? "text-green-500" : "text-rose-400"}`}>

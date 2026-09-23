@@ -2,6 +2,7 @@
 
 import Script from "next/script";
 import { useEffect, useState, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 import Cookies from "js-cookie";
 import { setSessionTokens } from "@/tools/fetchData";
 
@@ -31,6 +32,7 @@ declare global {
 }
 
 export default function TgShell({ children }: { children: ReactNode }) {
+  const { t } = useTranslation("common");
   const [status, setStatus] = useState<Status>("loading");
   const [scriptReady, setScriptReady] = useState(false);
 
@@ -45,19 +47,33 @@ export default function TgShell({ children }: { children: ReactNode }) {
     try {
       app.ready();
       app.expand();
-      app.setHeaderColor?.("#ffffff");
-      app.setBackgroundColor?.("#ffffff");
     } catch {}
+
+    // Шапка и фон Telegram — в цвет текущей темы сайта. Раньше они всегда
+    // были белыми, а страница в тёмной теме — тёмной: белая полоса сверху.
+    // Цвет берём из токена --background, чтобы не дублировать палитру.
+    const syncColors = () => {
+      try {
+        const bg = getComputedStyle(document.documentElement).getPropertyValue("--background").trim();
+        if (!/^#[0-9a-f]{6}$/i.test(bg)) return;
+        app.setHeaderColor?.(bg);
+        app.setBackgroundColor?.(bg);
+      } catch {}
+    };
+    syncColors();
+    const themeObserver = new MutationObserver(syncColors);
+    themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    const stop = () => themeObserver.disconnect();
 
     const initData = app.initData || "";
     if (!initData) {
       setStatus(Cookies.get("access") ? "ready" : "guest");
-      return;
+      return stop;
     }
     // Уже входили в этой сессии — initData одноразовый, повторно не шлём.
     if (Cookies.get("access") || sessionStorage.getItem("tg_access")) {
       setStatus("ready");
-      return;
+      return stop;
     }
     (async () => {
       try {
@@ -77,6 +93,7 @@ export default function TgShell({ children }: { children: ReactNode }) {
         setStatus("error");
       }
     })();
+    return stop;
   }, [scriptReady]);
 
   return (
@@ -89,16 +106,22 @@ export default function TgShell({ children }: { children: ReactNode }) {
       />
       {status === "ready" && children}
       {status === "loading" && (
-        <div style={{ padding: 32, textAlign: "center", color: "#666" }}>Входим в EsAI…</div>
+        <div className="min-h-[100dvh] bg-background p-8 text-center text-muted">
+          {t("auth.tg_loading", { defaultValue: "Входим в EsAI…" })}
+        </div>
       )}
       {status === "guest" && (
-        <div style={{ padding: 32, textAlign: "center" }}>
-          Откройте эту страницу из бота EsAI в Telegram — вход произойдёт сам.
+        <div className="min-h-[100dvh] bg-background p-8 text-center text-foreground">
+          {t("auth.tg_guest", {
+            defaultValue: "Откройте эту страницу из бота EsAI в Telegram — вход произойдёт сам.",
+          })}
         </div>
       )}
       {status === "error" && (
-        <div style={{ padding: 32, textAlign: "center" }}>
-          Не удалось войти. Закройте окно и откройте студию из бота ещё раз.
+        <div className="min-h-[100dvh] bg-background p-8 text-center text-foreground">
+          {t("auth.tg_error", {
+            defaultValue: "Не удалось войти. Закройте окно и откройте студию из бота ещё раз.",
+          })}
         </div>
       )}
     </>

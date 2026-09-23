@@ -62,9 +62,9 @@ export const metadata: Metadata = {
 		shortcut: "/esai-mark.svg",
 		apple: "/apple-touch-icon.png",
 	},
-	alternates: {
-		canonical: "/",
-	},
+	// canonical здесь НЕ задаём: корневой layout наследуют все страницы, и
+	// canonical "/" на /privacy, /public-offer и прочих без своего canonical
+	// говорил поисковику «это копия главной». Canonical главной — в (home)/page.tsx.
 	openGraph: {
 		title: "EsAI — Все нейросети в одном месте",
 		description:

@@ -3,7 +3,7 @@
 import React, { useEffect, useState, useRef } from "react";
 import { Card } from "@/components/ui/cards/Cards";
 import { Button } from "@/components/ui/buttons/Buttons";
-import { Field, Checkbox } from "@/components/ui/inputs/Inputs";
+import { Field } from "@/components/ui/inputs/Inputs";
 import { PiUserLight } from "react-icons/pi";
 import { fetchData } from "@/tools/fetchData";
 import { ConfirmationModal, Modal } from "@/components/dialog/Dialog";
@@ -34,7 +34,6 @@ export default function UserProfile({ t, data }: { t: any; data: any }) {
 		show: false,
 		text: "",
 		type: "",
-		_2fa: data?.user?._2fa,
 	});
 
 	const [isLogoutConfirmModalOpen, setLogoutConfirmModalOpen] = useState(false);
@@ -185,7 +184,7 @@ export default function UserProfile({ t, data }: { t: any; data: any }) {
 							// светлый янтарь на ней давал ~1.7:1 и текст пропадал.
 							className={`${userChange.type === "warning" && "text-amber-600"} ${
 								userChange.type === "success" && "text-green-600"
-							}`}
+							} ${userChange.type === "error" && "text-status-fail"}`}
 						>
 							{userChange.text}
 						</div>
@@ -292,34 +291,31 @@ export default function UserProfile({ t, data }: { t: any; data: any }) {
 						}}
 					/>
 				</div>
-				<div className="flex flex-col gap-1">
-					<p className="text-muted">{t("profile._2fa")}:</p>
-					<Checkbox
-						name="_2fa"
-						className="border-b rounded-none border-border-strong flex-grow"
-						checked={data?.user?._2fa}
-						onChange={(e) => {
-							setUserData((prev: any) => {
-								return {
-									...prev,
-									_2fa: e.target.checked,
-								};
-							});
-						}}
-					/>
-				</div>
+				{/* Переключатель «Двухфакторная аутентификация» убран: флаг _2fa
+				    только сохранялся в профиле, вход его никак не проверял — галочка
+				    обещала защиту, которой нет. */}
 
 				<div className="flex gap-3 items-center mt-5">
 					<Button
 						className="px-6 py-2 rounded-xl bg-accent text-on-accent hover:bg-accent-strong w-fit"
 						onClick={() => {
 							if (Object.keys(userData).length) {
-								const responseStatus = changeUserInfo(userData).then((status) => {
+								changeUserInfo(userData).then((status) => {
 									if (status === 200) {
 										setUserChange({
 											show: true,
 											text: t("profile.user_info.user_changed"),
 											type: "success",
+										});
+									} else {
+										// Раньше при ошибке не показывалось ничего — человек
+										// думал, что сохранил.
+										setUserChange({
+											show: true,
+											text: t("profile.save_error", {
+												defaultValue: "Не удалось сохранить изменения. Проверьте интернет и попробуйте ещё раз.",
+											}),
+											type: "error",
 										});
 									}
 								});

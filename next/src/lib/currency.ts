@@ -123,6 +123,9 @@ export function convertFromKgs(
   rateKgsToRub: number,
   rateKgsToUsd?: number
 ): number {
+  // API отдаёт цену пакета строкой-десятичной («490.00»): без приведения сомы
+  // уходили на витрину как есть — «490.00 сом», «1990.00 сом».
+  priceKgs = Number(priceKgs) || 0;
   if (currency === "RUB") {
     const rate = Number.isFinite(rateKgsToRub) && rateKgsToRub > 0 ? rateKgsToRub : FALLBACK_KGS_TO_RUB_RATE;
     return Math.round(priceKgs * rate * 100) / 100;
@@ -143,6 +146,7 @@ export function convertFromKgs(
  * местах по-разному.
  */
 export function formatPrice(value: number, currency: Currency, somLabel = "сом"): string {
+  value = Number(value) || 0;
   if (currency === "USD") {
     // Доллары показываем как в кассе: два знака и знак впереди.
     return `$${value.toFixed(2)}`;

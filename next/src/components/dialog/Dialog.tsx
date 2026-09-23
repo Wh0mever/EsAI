@@ -117,8 +117,6 @@ export function ConfirmationModal({
 }
 
 export function Modal({ title, children, size = "md", onClose, open, mobileFull = false }: ModalProps) {
-  if (typeof window === "undefined") return null;
-
   useEffect(() => {
     if (!open) return;
     const prev = document.body.style.overflow;
@@ -136,7 +134,8 @@ export function Modal({ title, children, size = "md", onClose, open, mobileFull 
     return () => document.removeEventListener("keydown", onKey);
   }, [open, onKey]);
 
-  if (!open) return null;
+  // Проверка на сервер — после хуков: хуки обязаны вызываться в одном порядке.
+  if (!open || typeof window === "undefined") return null;
 
   const containerClasses = size === "full"
     ? "w-full h-full"

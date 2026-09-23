@@ -12,12 +12,13 @@ import { Alert } from "@/components/ui/alert/Alert";
 export default function ContactUsForm() {
 	const { t } = useTranslation("common");
 	const [ok, setOk] = useState(false);
+	const [failed, setFailed] = useState(false);
 
 	return (
 		<>
 			<SmartForm
 				className="flex flex-col gap-5 w-full"
-				onSubmit={async (data: any) => {
+				onSubmit={async (data: any, form) => {
 					// map frontend->backend fields
 					const payload = {
 						name: data.name || "",
@@ -25,11 +26,16 @@ export default function ContactUsForm() {
 						tel: data.phone || "",
 						question: data.message || "",
 					};
-					try {
-						await fetchData("users/question/", "POST", payload, false);
+					setOk(false);
+					setFailed(false);
+					// fetchData не бросает исключений на 4xx/5xx — раньше «Сообщение
+					// отправлено» показывалось и тогда, когда вопрос не дошёл.
+					const res = await fetchData("users/question/", "POST", payload, false);
+					if (res.ok) {
 						setOk(true);
-					} catch {
-						setOk(false);
+						form.reset();
+					} else {
+						setFailed(true);
 					}
 				}}
 				submitLabel={t("contact_us.submit_button")}
@@ -81,6 +87,20 @@ export default function ContactUsForm() {
 				offset={20}
 				autoClose
 				autoCloseDuration={3000}
+				closeButton
+			/>
+
+			<Alert
+				show={failed}
+				onClose={() => setFailed(false)}
+				type="error"
+				title={t("contact_us.error_title", { defaultValue: "Не удалось отправить" })}
+				message={t("contact_us.error_text", {
+					defaultValue: "Сообщение не отправлено. Проверьте интернет и попробуйте ещё раз или напишите нам на support@esai.kg.",
+				})}
+				position="bottom"
+				offset={20}
+				autoCloseDuration={6000}
 				closeButton
 			/>
 		</>

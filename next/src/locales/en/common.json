@@ -193,7 +193,7 @@
 		"referral_title": "EsAI Referral Program",
 		"referral_subtitle": "Expand your limits with our referral program.",
 		"referral_line": "A friend of my friend is my friend 🙂",
-		"referral_desc": "Earn bonus credits for every new user registered with your referral code.",
+		"referral_desc": "Invite friends with your link and get a percentage of credits from every top-up they make — for life.",
 		"referral_more": "Learn more"
 	},
 	"date": {
@@ -268,6 +268,9 @@
 		"go_now": "Go now"
 	},
 	"auth": {
+		"tg_error": "Couldn't sign in. Close this window and open the studio from the bot again.",
+		"tg_guest": "Open this page from the EsAI bot in Telegram — you'll be signed in automatically.",
+		"tg_loading": "Signing in to EsAI…",
 		"title": "EsAI — all neural networks in one place.",
 		"subtitle": "No extra costs or subscriptions.",
 		"google": "Sign in with Google",
@@ -342,6 +345,8 @@
 		"referral": "Referral Program"
 	},
 	"contact_us": {
+		"error_text": "Your message was not sent. Check your connection and try again, or write to us at support@esai.kg.",
+		"error_title": "Couldn't send",
 		"write_title": "Write to us",
 		"write_description": "Write to us and you'll receive a reply shortly.",
 		"write_button": "Write to us",
@@ -362,6 +367,7 @@
 		"submit_button": "Contact us"
 	},
 	"faq": {
+		"send_error": "Couldn't send your message. Check your connection and try again.",
 		"title": "🟡 Any questions?",
 		"text": "Have a question that isn't answered here? You can contact us at",
 		"button": "Have a question? Contact us",
@@ -378,7 +384,7 @@
 				"q": "How do I get started?",
 				"a": [
 					"Pick the AI model you need, ask your question and get an answer in seconds.",
-					"After signing up you receive welcome bonus credits and can start using EsAI right away."
+					"Right after signing up you get free credits on your balance, and until you buy a package your balance is topped up for free to the daily amount every day."
 				]
 			},
 			"2": {
@@ -441,8 +447,8 @@
 			"8": {
 				"q": "How does the referral program work?",
 				"a": [
-					"Invite friends with your referral link and earn bonus credits for every new user.",
-					"The bonus amount may change as part of promotions and special offers."
+					"Invite friends with your referral link and get a percentage of credits from every top-up they make — for life.",
+					"Credits are added to your balance automatically after each payment by someone you invited; you can see the history on the Partnership page."
 				]
 			},
 			"9": {
@@ -531,6 +537,23 @@
 		"no_code": "Your referral code is not available yet. It will appear after you complete registration."
 	},
 	"chat": {
+		"error_network_image": "The connection dropped while the image was being created. If it was finished, it will appear in this chat after you refresh the page — please check before sending the request again.",
+		"video_still_generating": "The video is still being generated and will appear in this chat. No need to wait on this page — it will be saved in your history.",
+		"attach_wait": "The file is uploading — you can send once it's done",
+		"attach_failed": "The file didn't upload. Remove it (×) and attach it again.",
+		"attach_login": "Sign in to attach files",
+		"video_frame": "Frame",
+		"video_remove_frame": "Remove frame",
+		"aspect_9_21": "Very tall and narrow",
+		"aspect_21_9": "Cinematic, ultra-wide",
+		"aspect_4_5": "Portrait for the feed",
+		"aspect_2_3": "Like a photo, portrait",
+		"aspect_3_2": "Like a photo",
+		"aspect_3_4": "Classic portrait",
+		"aspect_4_3": "Classic landscape",
+		"aspect_1_1": "Square — feed, avatar",
+		"aspect_9_16": "Vertical — Stories, Reels, TikTok",
+		"aspect_16_9": "Landscape — YouTube, presentations",
 		"clear_history_confirm_title": "Confirm history deletion",
 		"clear_history_confirm_desc": "Do you want to delete the entire chat history? This action cannot be undone.",
 		"collapse_sidebar": "Collapse sidebar",
@@ -1079,6 +1102,7 @@
 		}
 	},
 	"profile": {
+		"save_error": "Couldn't save your changes. Check your connection and try again.",
 		"profile": "Profile",
 		"balance_title": "Balance",
 		"balance_hint": "Pay as you go. Top up your balance with credit packages — no subscriptions, no extra costs.",
@@ -1417,6 +1441,8 @@
 		"topup": "Top up"
 	},
 	"topup": {
+		"err_payment_unavailable": "We couldn't open the payment page. Try again in a minute or choose another payment method.",
+		"err_package_unavailable": "This package is not available right now. Refresh the page and choose a package again.",
 		"title": "Choose a credit package",
 		"tokens": "tokens",
 		"bonus": "bonus",
@@ -1431,10 +1457,16 @@
 	},
 	"welcome": {
 		"title": "🎉 Welcome to EsAI!",
-		"body": "Your welcome bonus credits have already been added to your balance. Start using EsAI right now!",
+		"body": "Free credits have already been added to your balance. Start using EsAI right now!",
 		"cta": "Get started"
 	},
 	"packages": {
+		"credits_table_rate_video": "Credits per second",
+		"credits_table_rate_image": "Credits per image",
+		"credits_table_video": "Video",
+		"credits_table_image": "Images",
+		"credits_table_image_tokens": "Images (billed by tokens)",
+		"credits_table_text": "Text models",
 		"title": "Choose a credit package",
 		"subtitle": "EsAI | Pay as you go",
 		"payg_badge": "PAY-AS-YOU-GO",
@@ -1442,7 +1474,7 @@
 		"payg_subtitle": "Top up your balance and spend it only on real AI usage. Not using it? We don't charge you anything.",
 		"payg_check_no_subscription": "No subscriptions",
 		"payg_check_no_hidden_fees": "No hidden fees",
-		"payg_check_starts_from": "From 190 KGS / RUB",
+		"payg_check_starts_from": "From {{price}}",
 		"rub_payment_soon": "RUB payment coming soon",
 		"rub_payment_soon_hint": "Switch to KGS to pay for this package",
 		"rub_payment_soon_note": "Card payment in rubles is coming soon. Switch the currency to KGS to buy right now.",
@@ -1484,7 +1516,7 @@
 		"currency_rub_title": "Russian ruble",
 		"currency_crypto": "CRYPTO",
 		"currency_crypto_title": "USDT, BTC, ETH, TON — prices in US dollars",
-		"payg_check_crypto": "From ≈ 2.2 USDT in crypto"
+		"payg_check_crypto": "From ≈ {{amount}} USDT in crypto"
 	},
 	"paywall": {
 		"title_generic": "Top up your balance",
@@ -1501,6 +1533,13 @@
 		"cta_upgrade": "Upgrade to a paid package"
 	},
 	"transfer": {
+		"confirm_yes": "Yes, transfer",
+		"confirm_text": "Transfer {{amount}} credits to “{{recipient}}”? This transfer can't be undone.",
+		"transferable_hint": "bonus credits (daily, welcome, promo codes) can't be transferred.",
+		"transferable": "Available to transfer: {{amount}} credits",
+		"nothing_to_transfer": "There is nothing to transfer right now: your balance only has bonus credits.",
+		"over_limit": "Right now you can transfer at most {{amount}} credits.",
+		"invalid_integer": "The amount must be a whole number of credits greater than zero, e.g. 100.",
 		"seo_title": "Transfer credits",
 		"seo_description": "Transfer credits to other EsAI users and view your transfer history.",
 		"title": "Transfer credits",
@@ -1528,6 +1567,7 @@
 		"sent": "Sent"
 	},
 	"exitDiscount": {
+		"banner_kgs_only": "The {{percent}}% discount applies only when paying in som · {{time}} left",
 		"title": "Don't leave without a bonus! 🎁",
 		"text": "A special {{percent}}% discount on any package is waiting for you — claim it within {{minutes}} minutes.",
 		"claim": "Claim discount",
@@ -1741,6 +1781,39 @@
 		"value_characters_other": "🦸 Plus your own characters — {{count}} credits each"
 	},
 	"studio_ui": {
+		"voice_w_young": "young",
+		"voice_w_wise": "wise",
+		"voice_w_warm": "warm",
+		"voice_w_upbeat": "upbeat",
+		"voice_w_transatlantic": "transatlantic",
+		"voice_w_swedish": "Swedish",
+		"voice_w_soft": "soft",
+		"voice_w_sassy": "sassy",
+		"voice_w_professional": "professional",
+		"voice_w_old": "old",
+		"voice_w_news": "news",
+		"voice_w_neutral": "neutral",
+		"voice_w_mature": "mature",
+		"voice_w_male": "male",
+		"voice_w_hyped": "hyped",
+		"voice_w_husky": "husky",
+		"voice_w_gentle": "gentle",
+		"voice_w_friendly": "friendly",
+		"voice_w_female": "female",
+		"voice_w_deep": "deep",
+		"voice_w_conversational": "conversational",
+		"voice_w_confident": "confident",
+		"voice_w_classy": "classy",
+		"voice_w_casual": "casual",
+		"voice_w_calm": "calm",
+		"voice_w_british": "British",
+		"voice_w_australian": "Australian",
+		"voice_w_american": "American",
+		"remove_working": "The scene is being filmed — you can delete it once filming is done",
+		"assembling_note": "Assembling your cartoon — it takes a couple of minutes. You don't have to stay on this page.",
+		"assemble_failed": "Assembly failed: {{error}}",
+		"assemble_skip_confirm": "Scenes that aren't filmed yet won't be in the cartoon: {{n}}. Assemble from the ready ones?",
+		"reshoot_confirm": "Reshoot this scene? {{credits}} credits will be charged and the current clip will be replaced.",
 		"title": "Cartoon Studio",
 		"subtitle": "Pick a hero, pick the scenes — and the studio puts them together into a finished clip. No prompts to write.",
 		"hero_delete": "Delete hero",

@@ -47,7 +47,8 @@ export default function HomePricingPreview() {
 
   return (
     <section className="w-full px-4 sm:px-8 lg:px-16 xl:px-24 2xl:px-40 py-6">
-      <PayAsYouGoBanner headingLevel="h2" />
+      {/* format — от переключателя ниже, иначе «Старт от» отстаёт от карточек */}
+      <PayAsYouGoBanner headingLevel="h2" format={format} />
 
       <div className="flex justify-center mb-4">
         <CurrencySwitch value={currency} onChange={setCurrency} cryptoEnabled={cryptoEnabled} />

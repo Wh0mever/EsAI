@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { fetchData } from "@/tools/fetchData";
 import {
   FiAlertTriangle,
@@ -68,18 +68,19 @@ export default function AdminOpenRouterPage() {
   const [key, setKey] = useState("");
   const [addError, setAddError] = useState("");
 
-  const apply = (d?: Payload | null) => {
+  // useCallback — чтобы load можно было честно указать в зависимостях эффекта.
+  const apply = useCallback((d?: Payload | null) => {
     if (!d) return false;
     setAccounts(d.accounts || []);
     if (typeof d.auto_switch_below === "number") setBelow(d.auto_switch_below);
     return true;
-  };
+  }, []);
 
-  const load = async () => {
+  const load = useCallback(async () => {
     const res = await fetchData<Payload>("manage/openrouter/", "GET", null, true);
     if (!(res.ok && apply(res.data))) setError(res.error || "Не удалось загрузить аккаунты");
     setLoading(false);
-  };
+  }, [apply]);
 
   const saveBelow = async (value: number) => {
     setBusy("below");
@@ -104,7 +105,7 @@ export default function AdminOpenRouterPage() {
 
   useEffect(() => {
     void load();
-  }, []);
+  }, [load]);
 
   const add = async () => {
     if (!key.trim()) return;

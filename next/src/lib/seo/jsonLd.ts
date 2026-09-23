@@ -48,13 +48,16 @@ export function homeJsonLd() {
  * GET /api/plans/packages/ → держать в синхроне при изменении тарифов, чтобы
  * structured data совпадал с видимой страницей (требование Google).
  */
-export function tokenPackagesJsonLd() {
-  const packages = [
-    { name: "Старт", price: "190", credits: "150" },
-    { name: "Про", price: "490", credits: "500" },
-    { name: "Премиум", price: "990", credits: "1300" },
-    { name: "Максимум", price: "1990", credits: "2800" },
-  ];
+/** Пакет для разметки цен: имя, цена в сомах, кредиты. */
+export type JsonLdPackage = { name: string; price: number; tokens: number; bonus_tokens?: number };
+
+/**
+ * Product/AggregateOffer по реальным пакетам витрины. Цены берутся из API:
+ * вписанные руками, они продолжали обещать поисковикам снятый пакет за 190 сом.
+ */
+export function tokenPackagesJsonLd(packages: JsonLdPackage[]) {
+  const prices = packages.map((p) => p.price);
+  const money = (n: number) => String(Math.round(n * 100) / 100);
   return {
     "@context": "https://schema.org",
     "@type": "Product",
@@ -67,13 +70,13 @@ export function tokenPackagesJsonLd() {
     offers: {
       "@type": "AggregateOffer",
       priceCurrency: "KGS",
-      lowPrice: "190",
-      highPrice: "1990",
+      lowPrice: money(Math.min(...prices)),
+      highPrice: money(Math.max(...prices)),
       offerCount: packages.length,
       offers: packages.map((p) => ({
         "@type": "Offer",
-        name: `${p.name} — ${p.credits} кредитов`,
-        price: p.price,
+        name: `${p.name} — ${p.tokens + (p.bonus_tokens || 0)} кредитов`,
+        price: money(p.price),
         priceCurrency: "KGS",
         availability: "https://schema.org/InStock",
         url: `${SITE_URL}/pricing`,

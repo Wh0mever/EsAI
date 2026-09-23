@@ -198,3 +198,23 @@ export function extractToc(markdown: string): TocItem[] {
   }
   return items;
 }
+
+/** Пакет кредитов с витрины (`/api/plans/packages/`). */
+export type PublicPackage = { name: string; price: number; tokens: number; bonus_tokens?: number };
+
+/**
+ * Активные пакеты — для SEO-описания и разметки цен на /pricing. Раньше цены там
+ * были вписаны руками и продолжали обещать поисковикам пакет за 190 сом,
+ * когда его уже сняли с продажи.
+ */
+export async function getPackages(): Promise<PublicPackage[]> {
+  const data = await getJson<any>(apiUrl("plans/packages/"));
+  return toList<any>(data)
+    .map((p) => ({
+      name: String(p?.name || "").trim(),
+      price: Number(p?.price),
+      tokens: Number(p?.tokens) || 0,
+      bonus_tokens: Number(p?.bonus_tokens) || 0,
+    }))
+    .filter((p) => p.name && Number.isFinite(p.price) && p.price > 0);
+}

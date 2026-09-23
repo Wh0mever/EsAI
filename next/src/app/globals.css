@@ -1,5 +1,11 @@
 @import "tailwindcss";
 
+/* Вариант dark: у Tailwind v4 по умолчанию смотрит на системную тему, а сайт
+   переключается атрибутом data-theme — в светлой теме dark:-классы включались
+   у всех, у кого телефон в тёмном режиме. Привязываем вариант к атрибуту
+   (включая тёмные «острова» data-theme="dark" внутри светлой страницы). */
+@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
+
 /* ===========================================================
    EsAI brand + theme tokens
    Palette: ink #141414, accent (gold) #F5C518
