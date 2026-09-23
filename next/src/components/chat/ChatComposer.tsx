@@ -509,7 +509,7 @@ export default function ChatComposer({
               ref={fileInputRef}
               type="file"
               multiple
-              accept=".jpg,.jpeg,.png,.gif,.webp,.bmp,.heic,.heif,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,image/jpeg,image/png,image/gif,image/webp,image/heic,image/heif"
+              accept=".jpg,.jpeg,.jfif,.jpe,.png,.gif,.webp,.bmp,.heic,.heif,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,image/jpeg,image/png,image/gif,image/webp,image/heic,image/heif"
               className="hidden"
               onChange={onFilesPicked}
             />

@@ -833,6 +833,11 @@ class ChatAttachmentUploadAPIView(APIView):
     def _validated_ext(self, f) -> str | None:
         """Расширение файла, если мы такой тип принимаем, иначе None."""
         ext = os.path.splitext((f.name or "").lower())[1]
+        # .jfif/.jpe — тот же JPEG (так его часто сохраняет Windows): на проде
+        # такие фото уже прикладывали. Храним как .jpg, чтобы nginx отдавал
+        # image/jpeg и модель со зрением картинку приняла.
+        if ext in (".jfif", ".jpe"):
+            return ".jpg"
         if ext in self._IMAGE_EXTENSIONS or ext in _DOCUMENT_EXTENSIONS:
             return ext
         if not ext:

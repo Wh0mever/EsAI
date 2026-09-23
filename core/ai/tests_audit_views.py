@@ -68,6 +68,16 @@ class AttachmentUploadTests(_Base):
         self.assertTrue(item["url"].endswith(".png"))
         self.assertNotIn("фото", item["url"])
 
+    def test_jfif_photo_is_accepted_as_jpeg(self):
+        # На проде такие фото уже прикладывали: Windows сохраняет JPEG как .jfif.
+        for name in ("фото.jfif", "IMG.JPE"):
+            with self.subTest(name=name):
+                response = self._upload(name, bytes([0xFF, 0xD8, 0xFF]) + b"....", "image/jpeg")
+                self.assertEqual(response.status_code, 200, response.data)
+                item = response.data["attachments"][0]
+                self.assertEqual(item["type"], "image")
+                self.assertTrue(item["url"].endswith(".jpg"))
+
     def test_document_text_is_still_extracted(self):
         response = self._upload("notes.txt", "Привет, документ".encode("utf-8"), "text/plain")
         item = response.data["attachments"][0]
