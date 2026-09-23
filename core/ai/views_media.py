@@ -234,13 +234,13 @@ class GenerationJobCreateView(APIView):
         except Exception:
             pass
         balance = int(getattr(user, "token_balance", 0) or 0)
-        if balance < need:
-            return Response({
-                "error": "Недостаточно кредитов для генерации видео.",
-                "error_code": "insufficient_balance",
-                "balance_tokens": balance,
-                "required_estimate": need,
-            }, status=status.HTTP_402_PAYMENT_REQUIRED)
+        # Ролики «снимается дольше» (задача delayed) ещё не списаны, но спишутся
+        # при довозе — их цену вычитаем, как и в самой генерации.
+        from .generation import reserved_video_credits, video_balance_error
+
+        refusal = video_balance_error(balance, reserved_video_credits(user), need)
+        if refusal:
+            return Response(refusal, status=status.HTTP_402_PAYMENT_REQUIRED)
 
         allowed, _used, limit = _reserve_daily_request(user)
         if not allowed:
@@ -298,21 +298,30 @@ class GenerationJobCreateView(APIView):
 
         from .tasks import run_generation_job
 
-        try:
-            queue = getattr(settings, "CELERY_MEDIA_QUEUE", "") or None
-            async_result = run_generation_job.apply_async(
-                args=[job.pk], **({"queue": queue} if queue else {}))
-            GenerationJob.objects.filter(pk=job.pk).update(celery_task_id=str(async_result.id or ""))
-        except Exception:
-            logger.exception("job enqueue failed")
-            _release_daily_request(user)
-            GenerationJob.objects.filter(pk=job.pk).update(
-                status=GenerationJob.STATUS_FAILED, error="queue_unavailable",
-                error_code="queue_unavailable", finished_at=timezone.now())
-            return Response({"error": "queue_unavailable"},
-                            status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        job_pk = job.pk
 
-        job.refresh_from_db()
+        def _enqueue() -> None:
+            # Ставим в очередь только ПОСЛЕ коммита: запрос целиком живёт в
+            # транзакции (ATOMIC_REQUESTS), и воркер, взявший задачу раньше
+            # коммита, не находил её в базе («no_job») — ролик не снимался,
+            # а слот дневного лимита оставался занятым.
+            try:
+                queue = getattr(settings, "CELERY_MEDIA_QUEUE", "") or None
+                async_result = run_generation_job.apply_async(
+                    args=[job_pk], **({"queue": queue} if queue else {}))
+                GenerationJob.objects.filter(pk=job_pk).update(
+                    celery_task_id=str(async_result.id or ""))
+            except Exception:
+                logger.exception("job enqueue failed")
+                # Задача уже в базе: закрываем её, бот увидит failed при опросе.
+                if GenerationJob.objects.filter(
+                        pk=job_pk, status=GenerationJob.STATUS_QUEUED).update(
+                        status=GenerationJob.STATUS_FAILED, error="queue_unavailable",
+                        error_code="queue_unavailable", finished_at=timezone.now()):
+                    _release_daily_request(user)
+
+        transaction.on_commit(_enqueue)
+
         return Response({**job.public(), "duration": duration, "eta_seconds": 150},
                         status=status.HTTP_202_ACCEPTED)
 

@@ -28,6 +28,12 @@ class _Null:
     def is_open(self) -> bool:
         return True
 
+    def claim_delivery(self, *args, **kwargs) -> bool:
+        return True
+
+    def attach_message(self, *args, **kwargs):
+        return None
+
     def submitted(self, *args, **kwargs):
         return self
 
@@ -66,6 +72,47 @@ class Entry:
             return self.row.status in type(self.row).OPEN_STATES
         except Exception:
             return True
+
+    def claim_delivery(self, *, recovered: bool = False) -> bool:
+        """Атомарно забрать выдачу ролика себе: открытая запись → выдана.
+
+        Живой поток и фоновый довоз (recovery) могли выдать один и тот же ролик
+        оба: каждый проверял «ещё не выдан?» отдельным чтением, а потом сохранял
+        сообщение и списывал кредиты — человек получал два сообщения и два
+        списания. Теперь выдачу забирает условный UPDATE по статусу: вторая
+        сторона ждёт на блокировке строки и получает 0 строк. Вызывать ВНУТРИ
+        той же транзакции, что создаёт сообщение и списывает: если она
+        откатится, запись снова станет открытой и её довезут.
+        """
+        from django.db import transaction
+
+        from .models import GenerationLog
+
+        status = GenerationLog.STATUS_RECOVERED if recovered else GenerationLog.STATUS_DELIVERED
+        try:
+            with transaction.atomic():
+                taken = GenerationLog.objects.filter(
+                    pk=self.row.pk, status__in=GenerationLog.OPEN_STATES,
+                ).update(status=status, updated_at=timezone.now())
+        except Exception:
+            # Журнал не отвечает — не лишаем человека оплаченного ролика.
+            logger.exception("журнал генераций: выдачу %s забрать не удалось", self.row.pk)
+            return True
+        if taken:
+            self.row.status = status
+        return bool(taken)
+
+    def attach_message(self, message, *, credits: int = 0, result_url: str = "") -> None:
+        """Записать сообщение с результатом сразу, в транзакции выдачи.
+
+        Проигравшая сторона (см. claim_delivery) по нему находит уже выданный
+        ролик и показывает его человеку, а не «обновите страницу».
+        """
+        from .models import GenerationLog
+
+        GenerationLog.objects.filter(pk=self.row.pk).update(
+            message=message, credits_charged=max(0, int(credits or 0)),
+            result_url=str(result_url or "")[:512])
 
     def _save(self, fields: list) -> None:
         try:
@@ -157,7 +204,7 @@ def start(*, user, kind: str, model: str = "", source: str = "chat", provider: s
             kind=kind, source=source, provider=provider, model=str(model or "")[:120],
             prompt=str(prompt or "")[:2000], params=_plain(params or {}),
             credits_planned=max(0, int(credits_planned or 0)),
-            session=session, scene_id=scene_id, ip=ip or None,
+            session=session, scene_id=scene_id, ip=_valid_ip(ip),
             stages=[{"at": timezone.now().isoformat(timespec="seconds"),
                      "stage": "started", "note": ""}],
         )
@@ -165,6 +212,24 @@ def start(*, user, kind: str, model: str = "", source: str = "chat", provider: s
     except Exception:
         logger.exception("журнал генераций: запись не создалась")
         return _Null()
+
+
+def _valid_ip(value):
+    """IP из заголовка — только если это правда IP.
+
+    X-Forwarded-For задаёт клиент: мусор вроде «unknown» или «1.2.3.4:5678» в
+    GenericIPAddressField ронял на Postgres всю вставку, и генерация шла без
+    строки в журнале (её потом не находил довоз).
+    """
+    import ipaddress
+
+    raw = str(value or "").strip()
+    if not raw:
+        return None
+    try:
+        return str(ipaddress.ip_address(raw))
+    except ValueError:
+        return None
 
 
 def _plain(params: dict) -> dict:

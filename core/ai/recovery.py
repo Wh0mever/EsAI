@@ -36,7 +36,11 @@ GIVE_UP_AFTER = timedelta(hours=6)
 
 
 def _claim(row: GenerationLog) -> bool:
-    """Забрать запись себе: вторая копия задачи или живой поток её не тронут."""
+    """Забрать запись себе: вторая копия задачи её не тронет.
+
+    От двойной выдачи вместе с живым потоком защищает не это, а
+    genlog.Entry.claim_delivery в транзакции выдачи (см. deliver).
+    """
     return bool(GenerationLog.objects.filter(
         pk=row.pk, status=GenerationLog.STATUS_SUBMITTED, updated_at=row.updated_at,
     ).update(updated_at=timezone.now()))
@@ -106,6 +110,80 @@ def _send_to_telegram(user, url: str, charged: int) -> None:
         logger.exception("довоз ролика: в Telegram не ушло")
 
 
+def _delayed_job(row: GenerationLog):
+    """Задача бота, которая ждёт этот ролик (статус delayed), или None."""
+    from .models import GenerationJob
+
+    uid = str((row.params or {}).get("job") or "")
+    if not uid:
+        return None
+    return GenerationJob.objects.filter(uid=uid, status=GenerationJob.STATUS_DELAYED).first()
+
+
+def _finish_bot_job(row: GenerationLog, message, charged: int) -> bool:
+    """Закрыть задачу бота «готово» и прислать ролик тем же сообщением, что и
+    обычная выдача (с кнопками «Продлить/Ещё/Поделиться»).
+
+    Задача ждала в статусе delayed: воркер своё отждал, а ролик ещё снимался.
+    Возвращает True, если ролик отправит _notify_job_result; False — задачи
+    нет (или человек не просил Telegram), шлём по-старому.
+    """
+    from django.utils import timezone as _tz
+
+    from .models import GenerationJob
+    from .serializers import AiChatMessageSerializer
+    from .tasks import _notify_job_result
+
+    job = _delayed_job(row)
+    if job is None:
+        return False
+    try:
+        row.user.refresh_from_db(fields=["token_balance"])
+        balance = int(row.user.token_balance or 0)
+    except Exception:
+        balance = None
+    session = message.session
+    result = {
+        "message": AiChatMessageSerializer(message).data,
+        "tokens_charged": charged,
+        "balance_tokens": balance,
+        "session": ({"id": session.id, "uid": session.uid, "title": session.title}
+                    if session else None),
+    }
+    # Условие по статусу: задачу могли отменить/закрыть, пока мы довозили.
+    if not GenerationJob.objects.filter(pk=job.pk, status=GenerationJob.STATUS_DELAYED).update(
+            status=GenerationJob.STATUS_DONE, progress="done", tokens_charged=charged,
+            result=result, result_message=message, error="", error_code="",
+            finished_at=_tz.now(), notified_at=None):
+        return False
+    job.refresh_from_db()
+    if job.notify != "telegram":
+        return False
+    _notify_job_result(job)
+    return True
+
+
+def _fail_bot_job(row: GenerationLog) -> None:
+    """Довоз не удался — задача бота из delayed становится failed.
+
+    Кредиты не списывались (ролик не выдан), поэтому «не получилось, кредиты
+    не списаны» здесь правда; человеку об этом пишет _notify_job_result.
+    """
+    from django.utils import timezone as _tz
+
+    from .models import GenerationJob
+    from .tasks import _notify_job_result
+
+    job = _delayed_job(row)
+    if job is None:
+        return
+    if GenerationJob.objects.filter(pk=job.pk, status=GenerationJob.STATUS_DELAYED).update(
+            status=GenerationJob.STATUS_FAILED, error="Видео не получилось сгенерировать.",
+            error_code="provider_failed", finished_at=_tz.now(), notified_at=None):
+        job.refresh_from_db()
+        _notify_job_result(job)
+
+
 def deliver(row: GenerationLog) -> str:
     """Довезти один ролик. Возвращает итог: delivered|pending|failed|lost|skipped."""
     from .handlers import _openrouter_config
@@ -158,24 +236,39 @@ def deliver(row: GenerationLog) -> str:
 
     path = default_storage.save(f"ai_videos/{uuid.uuid4().hex}.mp4", ContentFile(raw))
     url = default_storage.url(path)
-    entry.stage("saved", url)
     session = _session_for(row)
+    message = None
+    charged = 0
     with transaction.atomic():
-        message = AiChatMessage.objects.create(
-            session=session, role="assistant",
-            content="Готово — видео сгенерировано 🎬 (снималось дольше обычного)",
-            attachments=[{"type": "video", "url": url, "name": "esai-video.mp4",
-                          "prompt": (row.prompt or "")[:2000], "model": row.model}],
-            meta={"model": row.model, "endpoint": "video", "video": True, "recovered": True,
-                  "provider_cost_usd": cost})
-        charged = _charge(row.user, int(row.credits_planned or 0), {
-            "session_id": session.pk if session else None, "message_id": message.pk,
-            "model": row.model, "video": True, "recovered": True, "generation_log": row.pk,
-            "provider_cost_usd": cost})
+        # Выдачу забираем условным UPDATE в этой же транзакции: живой поток мог
+        # за это время дописать ролик сам — тогда второй раз не выдаём и не
+        # списываем (раньше защитой было лишь сравнение updated_at в _claim).
+        if entry.claim_delivery(recovered=True):
+            message = AiChatMessage.objects.create(
+                session=session, role="assistant",
+                content="Готово — видео сгенерировано 🎬 (снималось дольше обычного)",
+                attachments=[{"type": "video", "url": url, "name": "esai-video.mp4",
+                              "prompt": (row.prompt or "")[:2000], "model": row.model}],
+                meta={"model": row.model, "endpoint": "video", "video": True, "recovered": True,
+                      "provider_cost_usd": cost})
+            charged = _charge(row.user, int(row.credits_planned or 0), {
+                "session_id": session.pk if session else None, "message_id": message.pk,
+                "model": row.model, "video": True, "recovered": True, "generation_log": row.pk,
+                "provider_cost_usd": cost})
+            entry.attach_message(message, credits=charged, result_url=url)
+    if message is None:
+        logger.info("довоз ролика %s: его уже выдал живой поток", row.pk)
+        try:
+            default_storage.delete(path)
+        except Exception:
+            logger.debug("довоз ролика: лишняя копия не удалилась", exc_info=True)
+        return "skipped"
+    entry.stage("saved", url)
     entry.delivered(credits=charged, cost=cost, result_url=url, message=message, recovered=True)
     _notify(row.user, session)
     if row.source == GenerationLog.SOURCE_BOT:
-        _send_to_telegram(row.user, url, charged)
+        if not _finish_bot_job(row, message, charged):
+            _send_to_telegram(row.user, url, charged)
     return "delivered"
 
 
@@ -201,6 +294,11 @@ def recover_open_videos(limit: int = 20) -> dict:
             if timezone.now() - row.created_at > GIVE_UP_AFTER:
                 genlog.Entry(row).lost(f"довоз не удаётся: {exc}")
                 result = "lost"
+        if result in ("failed", "lost") and row.source == GenerationLog.SOURCE_BOT:
+            try:
+                _fail_bot_job(row)
+            except Exception:
+                logger.exception("довоз ролика %s: задача бота не закрылась", row.pk)
         outcome[result] = outcome.get(result, 0) + 1
     # Отправки, на которые так и не пришёл ответ: исход неизвестен — в разбор.
     stuck = GenerationLog.objects.filter(

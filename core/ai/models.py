@@ -236,6 +236,15 @@ class AiChatMessage(models.Model):
     def __str__(self):
         return f"[{self.role}] {self.content[:30]}"
 
+    def save(self, *args, **kwargs):
+        is_new = self._state.adding
+        super().save(*args, **kwargs)
+        # Новое сообщение = чат «ожил»: сдвигаем его updated_at, иначе список
+        # чатов (сортировка по активности) и бот видели чат таким, каким он был
+        # при создании. Один UPDATE по первичному ключу — дёшево.
+        if is_new and self.session_id:
+            AiChatSession.objects.filter(pk=self.session_id).update(updated_at=timezone.now())
+
     class Meta:
         ordering = ["created_at"]
         verbose_name = "AI сообщение чата"
@@ -344,12 +353,19 @@ class GenerationJob(models.Model):
     STATUS_DONE = "done"
     STATUS_FAILED = "failed"
     STATUS_CANCELED = "canceled"
+    # Провайдер ещё снимает (или ролик не успел скачаться), а воркер своё
+    # отждал. Это НЕ неудача: ролик довезёт фоновая задача (ai/recovery.py) и
+    # сама переведёт задачу в done. Раньше такая задача становилась failed —
+    # человек читал «не получилось, кредиты не списаны», жал «Повторить», а
+    # через пару минут получал первый ролик и списание за него.
+    STATUS_DELAYED = "delayed"
     STATUS_CHOICES = [
         (STATUS_QUEUED, "В очереди"),
         (STATUS_RUNNING, "Выполняется"),
         (STATUS_DONE, "Готово"),
         (STATUS_FAILED, "Не удалось"),
         (STATUS_CANCELED, "Отменено"),
+        (STATUS_DELAYED, "Снимается дольше обычного"),
     ]
     ACTIVE_STATES = (STATUS_QUEUED, STATUS_RUNNING)
 

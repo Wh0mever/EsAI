@@ -316,6 +316,32 @@ def _notify_job_result(job) -> None:
                            text=f"{caption}\n{url}", reply_markup=markup)
             else:
                 tg_api("sendMessage", chat_id=chat.chat_id, text=caption, reply_markup=markup)
+        elif job.status == job.STATUS_DELAYED:
+            # Ролик ещё снимается — это не неудача: без «не получилось» и без
+            # «Повторить» (повтор = второй платный ролик). Сам ролик пришлёт
+            # фоновый довоз (recovery), он же закроет задачу.
+            text = {
+                "en": "⏳ The video is taking longer than usual. We'll send it here as soon as "
+                      "it's ready — credits will be charged only then.",
+                "kg": "⏳ Видео адаттагыдан узагыраак тартылып жатат. Даяр болору менен "
+                      "ушул жерге жөнөтөбүз — кредиттер ошондо гана алынат.",
+            }.get(lang, "⏳ Видео снимается дольше обычного. Пришлём его сюда, как только "
+                        "будет готово, — кредиты спишутся только тогда.")
+            tg_api("sendMessage", chat_id=chat.chat_id, text=text)
+        elif (job.error_code or "") in ("extend_not_owned", "video_in_progress"):
+            # Это не сбой, повтор тут не поможет: «Повторить» в боте запустил бы
+            # новый платный ролик — уже без продления, то есть не тот, что просили.
+            if job.error_code == "extend_not_owned":
+                text = {
+                    "en": "🔒 Only your own videos made in EsAI can be extended. No credits were charged.",
+                    "kg": "🔒 EsAI'да өзүңүз тарткан видеону гана узартууга болот. Кредиттер алынган жок.",
+                }.get(lang, "🔒 Продлить можно только своё видео, снятое в EsAI. Кредиты не списаны.")
+            else:
+                text = {
+                    "en": "⏳ You already have a video in progress — wait for it to finish.",
+                    "kg": "⏳ Сизде видео тартылып жатат — бүткөнүн күтүңүз.",
+                }.get(lang, "⏳ У вас уже снимается видео — дождитесь его.")
+            tg_api("sendMessage", chat_id=chat.chat_id, text=text)
         else:
             text = {
                 "en": "😕 The video did not come out. No credits were charged.",
@@ -396,6 +422,8 @@ def run_generation_job(self, job_id: int) -> dict:
             extend_video=params.get("extend_video_url"),
             cancel_check=canceled,
             source="bot",
+            # По uid задачи довоз найдёт её и закроет, если ролик задержится.
+            log_params={"job": job.uid},
         )
         for frame in frames:
             if frame.get("error"):
@@ -415,7 +443,11 @@ def run_generation_job(self, job_id: int) -> dict:
         error = {"error": "internal_error", "error_code": "internal_error", "detail": str(exc)[:200]}
 
     job.finished_at = timezone.now()
-    if final:
+    # Ролик уже довёз и отправил в Telegram фоновый довоз (он выиграл выдачу,
+    # см. genlog.claim_delivery) — второй раз не шлём.
+    delivered_elsewhere = bool(final.get("already_delivered")) or (
+        str(error.get("error_code") or "") == "video_delivered")
+    if final or delivered_elsewhere:
         job.status = GenerationJob.STATUS_DONE
         job.progress = "done"
         job.tokens_charged = int(final.get("tokens_charged") or 0)
@@ -428,8 +460,23 @@ def run_generation_job(self, job_id: int) -> dict:
         message_id = (final.get("message") or {}).get("id")
         if message_id:
             job.result_message_id = message_id
-        job.save(update_fields=["status", "progress", "tokens_charged", "result",
-                                "result_message", "finished_at"])
+        fields = ["status", "progress", "tokens_charged", "result", "result_message",
+                  "finished_at"]
+        if delivered_elsewhere:
+            job.notified_at = timezone.now()
+            fields.append("notified_at")
+        job.save(update_fields=fields)
+        if delivered_elsewhere:
+            return {"status": job.status}
+    elif str(error.get("error_code") or "") == "video_delayed":
+        # Не неудача: провайдер ещё снимает (или ролик не скачался). Слот лимита
+        # generation.py уже вернул, кредиты не тронуты; ролик довезёт и
+        # спишет recovery — он же переведёт задачу в done.
+        job.status = GenerationJob.STATUS_DELAYED
+        job.progress = "delayed"
+        job.error = str(error.get("error") or "")[:500]
+        job.error_code = "video_delayed"
+        job.save(update_fields=["status", "progress", "error", "error_code", "finished_at"])
     else:
         code = str(error.get("error_code") or "failed")
         job.status = (GenerationJob.STATUS_CANCELED if code == "canceled"
