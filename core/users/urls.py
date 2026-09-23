@@ -1,5 +1,5 @@
 from django.urls import path, include
-from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+from rest_framework_simplejwt.views import TokenRefreshView
 from django.http import HttpResponseRedirect
 from django.conf import settings
 import json
@@ -57,13 +57,23 @@ def auth_complete(request):
 
     Expects allauth to have authenticated the session user. We create
     access/refresh tokens and redirect the browser to the frontend
-    callback page with tokens in the query string.
+    callback page with tokens in the URL fragment.
     """
     site_base = _frontend_base_from_request(request)
 
     # If user is not authenticated for some reason, just send back to signin
     if not getattr(request, "user", None) or not request.user.is_authenticated:
         return HttpResponseRedirect(f"{site_base}/auth/signin")
+
+    # Сессия Django нужна только на этот переход: дальше сайт живёт на JWT, а
+    # HttpOnly-куку sessionid фронт стереть не может. Раньше она жила две
+    # недели, и на общем телефоне следующий человек мог войти в чужой аккаунт.
+    # Пять минут хватает, чтобы повторный заход на callback (двойная загрузка
+    # в webview) ещё дослал токены.
+    try:
+        request.session.set_expiry(300)
+    except Exception:
+        pass
 
     # Issue JWT tokens
     refresh = RefreshToken.for_user(request.user)
@@ -95,17 +105,40 @@ def auth_complete(request):
 
     query = urlencode(params)
 
-    return HttpResponseRedirect(f"{site_base}/auth/callback?{query}")
+    # Токены — во фрагменте (#), а не в строке запроса: фрагмент браузер никуда
+    # не отправляет, а query с access/refresh оседал в логах nginx и Cloudflare.
+    return HttpResponseRedirect(f"{site_base}/auth/callback#{query}")
+
+
+def _to_signin(request, *args, **kwargs):
+    """Вход на сайте — только кодом на почту, через Google или Telegram."""
+    return HttpResponseRedirect(f"{_frontend_base_from_request(request)}/auth/signin")
+
+
+def _social_signup_closed(request, *args, **kwargs):
+    """Форма allauth «доделайте регистрацию» после соцвхода.
+
+    В ней можно вписать любую почту, и она ложится в аккаунт без проверки —
+    тот же захват чужого email, что и через accounts/email/. Соцвход у нас
+    создаёт аккаунт сам (is_auto_signup_allowed), так что сюда попадают только
+    сбойные случаи: возвращаем на вход с ошибкой.
+    """
+    try:
+        request.session.pop("socialaccount_sociallogin", None)
+    except Exception:
+        pass
+    return HttpResponseRedirect(
+        f"{_frontend_base_from_request(request)}/auth/signin?error=social_login_failed")
 
 
 urlpatterns = [
+    # Вход по паролю закрыт целиком. Регистрация с паролем (signup/, token/ и
+    # формы allauth) не проверяла владение почтой: можно было заранее завести
+    # аккаунт на чужой email, дождаться, пока хозяин войдёт кодом и пополнит
+    # баланс, а потом зайти туда же по своему паролю. Сайт и бот пользуются
+    # только кодом на почту и соцвходом, поэтому пароли людям не нужны.
     path('signin/', SigninApiView.as_view(), name='signin'),
-    path('signup/', SignUpApiView.as_view(), name='signup'),
     path('signin/confirm/', VerifyCodeApiView.as_view(), name='confirm'),
-    path("reset-password/request/", PasswordResetRequestView.as_view()),
-    path("reset-password/verify/", PasswordResetVerifyView.as_view()),
-    path("reset-password/complete/", PasswordResetCompleteView.as_view()),
-    path('token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('profile/', UserProfileView.as_view(), name='profile'),
     # Card management
@@ -134,6 +167,20 @@ urlpatterns = [
     path("transfer/", TransferView.as_view(), name="credit-transfer"),
     path("transfers/", TransferHistoryView.as_view(), name="credit-transfers"),
     path("promo/activate/", PromoActivateView.as_view(), name="promo-activate"),
+    # Формы allauth с паролем подменены переходом на страницу входа сайта;
+    # соцвход (accounts/google/, accounts/telegram/) работает как раньше.
+    path("accounts/login/", _to_signin, name="account_login"),
+    path("accounts/login/<path:rest>", _to_signin),
+    path("accounts/signup/", _to_signin, name="account_signup"),
+    path("accounts/password/", include([path("<path:rest>", _to_signin)])),
+    # Управление почтой allauth тоже закрыто: через accounts/email/ вошедший
+    # через Telegram добавлял чужой адрес без подтверждения и делал его
+    # основным, а хозяин почты потом входил кодом прямо в его аккаунт.
+    path("accounts/email/", _to_signin),
+    path("accounts/confirm-email/", _to_signin),
+    path("accounts/confirm-email/<path:rest>", _to_signin),
+    path("accounts/reauthenticate/", _to_signin),
+    path("accounts/3rdparty/signup/", _social_signup_closed),
     path("accounts/", include("allauth.urls")),
     path("auth/complete/", auth_complete, name="auth-complete"),
 ]

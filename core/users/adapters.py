@@ -1,5 +1,7 @@
 ﻿import logging
+import time
 from allauth.socialaccount.adapter import DefaultSocialAccountAdapter
+from allauth.socialaccount.providers.base.constants import AuthError
 from allauth.core.exceptions import ImmediateHttpResponse
 from django.contrib.auth import get_user_model
 from django.conf import settings
@@ -49,6 +51,29 @@ def _frontend_base_from_request(request) -> str:
     if host and host.split(":")[0].lower() in _allowed_frontend_hosts():
         return f"{proto}://{host}"
     return configured or "http://127.0.0.1:3000"
+
+
+# Сколько секунд после соцвхода повторный callback считается двойной загрузкой.
+DOUBLE_CALLBACK_WINDOW = 60
+
+
+def _just_logged_in_via(request, provider_id) -> bool:
+    """Сессия только что вошла через этого провайдера (allauth пишет журнал входов)."""
+    user = getattr(request, "user", None)
+    if user is None or not user.is_authenticated:
+        return False
+    try:
+        from allauth.account.authentication import get_authentication_records
+
+        records = get_authentication_records(request) or []
+        last = records[-1] if records else {}
+        return (
+            last.get("method") == "socialaccount"
+            and str(last.get("provider") or "") == str(provider_id or "")
+            and time.time() - float(last.get("at") or 0) < DOUBLE_CALLBACK_WINDOW
+        )
+    except Exception:
+        return False
 
 
 class SocialAccountAdapter(DefaultSocialAccountAdapter):
@@ -222,6 +247,18 @@ class SocialAccountAdapter(DefaultSocialAccountAdapter):
             error,
             exception,
         )
+
+        # Повторный заход на тот же callback (двойной клик, webview Instagram/
+        # Telegram грузит страницу дважды): первый уже впустил человека, второй
+        # падает на использованном state. В логах это «unknown | exc=None» —
+        # и человек видел ошибку входа, хотя вход прошёл. Досылаем токены.
+        # Но только если ЭТА сессия секунды назад вошла через этого же
+        # провайдера и это не отмена: иначе на общем телефоне чужая недобитая
+        # сессия впускала отменившего вход прямо в чужой аккаунт.
+        if error != AuthError.CANCELLED and _just_logged_in_via(request, provider_id):
+            from django.urls import reverse
+
+            raise ImmediateHttpResponse(HttpResponseRedirect(reverse("auth-complete")))
 
         site_base = _frontend_base_from_request(request)
         response = HttpResponseRedirect(f"{site_base}/auth/signin?error=social_login_failed")

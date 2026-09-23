@@ -20,7 +20,9 @@ class BlogPostListAPIView(APIView):
     permission_classes = []
 
     def get(self, request):
-        posts = BlogPost.objects.all().order_by('-created_at')
+        # Только опубликованные: черновики из админки уходили в открытый API
+        # раньше, чем их выпустят на сайт.
+        posts = BlogPost.objects.filter(is_published=True).order_by('-created_at')
         serializer = BlogPostSerializer(posts, many=True)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
