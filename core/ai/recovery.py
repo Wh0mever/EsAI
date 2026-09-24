@@ -88,8 +88,11 @@ def _notify(user, session) -> None:
     try:
         from users.webpush import notify_user
 
+        # Чат на сайте живёт по /dashboard/text-chat/<uid> (любой режим открывает
+        # тот же ChatWorkspace); страницы /chat/<uid> нет — пуш вёл на 404.
         notify_user(user, "Ваше видео готово", "Оно уже в чате EsAI",
-                    url=f"/chat/{getattr(session, 'uid', '')}" if session else "/")
+                    url=f"/dashboard/text-chat/{session.uid}"
+                    if getattr(session, "uid", "") else "/")
     except Exception:
         logger.debug("довоз ролика: пуш не ушёл", exc_info=True)
 
