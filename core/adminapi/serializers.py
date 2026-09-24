@@ -59,9 +59,24 @@ class GPTModelAdminSerializer(serializers.ModelSerializer):
             "id", "name", "openrouter_id", "description", "markup_coefficient",
             "category", "recommended", "free_tier", "supports_vision",
             "is_active", "sort_order", "cartoon_stage",
+            # Видеостудия: показывать модель и правки поверх реестра caps.
+            "vstudio_enabled", "vstudio_overrides",
         ]
         # openrouter_id — системный идентификатор, из панели не меняется
         read_only_fields = ["id", "openrouter_id"]
+
+    def validate_vstudio_overrides(self, value):
+        """Те же проверки, что в Django-админке: белый список ключей и лимиты вендора."""
+        from django.core.exceptions import ValidationError as DjangoValidationError
+
+        from ai.models import validate_vstudio_overrides
+
+        model_ref = (getattr(self.instance, "openrouter_id", "") or
+                     str((getattr(self, "initial_data", None) or {}).get("openrouter_id") or ""))
+        try:
+            return validate_vstudio_overrides(value, model_ref)
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError(exc.messages) from None
 
 
 class TokenPackageAdminSerializer(serializers.ModelSerializer):

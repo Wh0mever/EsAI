@@ -14,6 +14,7 @@ urlpatterns = [
     path('api/manage/', include('adminapi.urls')),
     path('api/bot/', include('botapi.urls')),
     path('api/cartoon/', include('cartoon.urls')),
+    path('api/vstudio/', include('vstudio.urls')),
 ]
 
 if settings.DEBUG:

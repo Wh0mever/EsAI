@@ -143,6 +143,7 @@ INSTALLED_APPS = [
     "adminapi.apps.AdminapiConfig",
     "botapi.apps.BotapiConfig",
     "cartoon.apps.CartoonConfig",
+    "vstudio.apps.VstudioConfig",
 ]
 
 SITE_ID = 1
@@ -273,6 +274,18 @@ REST_FRAMEWORK = {
         # запроса); общий bot_service выше — потолок на всех вместе.
         "bot_service_user": env.str("DRF_THROTTLE_BOT_SERVICE_USER", default="30/min"),
         "stt": env.str("DRF_THROTTLE_STT", default="20/min"),
+        # Видеостудия: у каждого вида запросов свой счётчик (views ставят
+        # throttle_classes=[ScopedRateThrottle]). Опрос дублей и пересчёт цены
+        # на каждую правку промпта иначе съели бы общий лимит 120 в минуту, и
+        # человек ловил бы 429 в чате и на оплате.
+        "vstudio_read": env.str("DRF_THROTTLE_VSTUDIO_READ", default="120/min"),
+        "vstudio_write": env.str("DRF_THROTTLE_VSTUDIO_WRITE", default="30/min"),
+        "vstudio_quote": env.str("DRF_THROTTLE_VSTUDIO_QUOTE", default="90/min"),
+        "vstudio_run": env.str("DRF_THROTTLE_VSTUDIO_RUN", default="20/min"),
+        "vstudio_poll": env.str("DRF_THROTTLE_VSTUDIO_POLL", default="60/min"),
+        "vstudio_upload": env.str("DRF_THROTTLE_VSTUDIO_UPLOAD", default="40/min"),
+        # «Сжать с ИИ» для человека бесплатно, а вызов модели оплачиваем мы.
+        "vstudio_assist": env.str("DRF_THROTTLE_VSTUDIO_ASSIST", default="20/hour"),
     },
 }
 
@@ -579,6 +592,22 @@ CELERY_BEAT_SCHEDULE = {
         "task": "cartoon.tasks.fail_stale_work",
         "schedule": timedelta(minutes=5),
     },
+    # Видеостудия: страховка конвейера — потерянная цепочка опроса после
+    # рестарта, зависшая отправка, истёкшая аренда выдачи (§6.5). Сообщение,
+    # пролежавшее в очереди дольше 50 с, выбрасываем: через 10 с придёт
+    # свежее, а пачка старых после простоя воркера только грузила бы базу.
+    # expire_seconds, а не expires: так поле понимает DatabaseScheduler.
+    "vstudio:sweep_takes": {
+        "task": "vstudio.tasks.sweep_takes",
+        "schedule": timedelta(seconds=60),
+        "options": {"expire_seconds": 50},
+    },
+    # Удалённые материалы студии старше VSTUDIO_PURGE_DAYS и без ссылок —
+    # файлы и строки. Ночью по Бишкеку, когда нагрузки почти нет.
+    "vstudio:purge_assets": {
+        "task": "vstudio.tasks.purge_assets",
+        "schedule": crontab(hour=4, minute=30),
+    },
 }
 
 # Оплата в Telegram-боте: off / staff / on (переопределяется в /admin-new →
@@ -626,14 +655,69 @@ STT_MAX_BYTES = env.int("STT_MAX_BYTES", default=5 * 1024 * 1024)
 # чтобы десятиминутный ролик не задерживал письма и бонусы. Пустое значение —
 # всё в общей очереди (локальный стенд без второго воркера).
 CELERY_MEDIA_QUEUE = env.str("CELERY_MEDIA_QUEUE", default="media")
+# Задачи видеостудии — в свою очередь и свой воркер (compose: celery_vstudio).
+# В media три слота, и их держат сцены мультстудии до получаса, а отправка
+# дубля ждёт провайдера до 150 с. Пусто — студия идёт в media, а если пуста
+# и она — в общую очередь (локальный стенд с одним воркером).
+CELERY_VSTUDIO_QUEUE = env.str("CELERY_VSTUDIO_QUEUE", default="vstudio").strip()
+# Общая очередь — стандартное имя Celery. Названа явно, чтобы на неё можно
+# было сослаться в маршрутах: её слушает воркер celery без -Q.
+CELERY_TASK_DEFAULT_QUEUE = "celery"
+
+# Словарь маршрутов есть всегда: раньше он жил только внутри «if media»,
+# и без media-очереди пропали бы и маршруты студии.
+CELERY_TASK_ROUTES = {}
 if CELERY_MEDIA_QUEUE:
-    CELERY_TASK_ROUTES = {
+    CELERY_TASK_ROUTES.update({
         "ai.tasks.run_generation_job": {"queue": CELERY_MEDIA_QUEUE},
         "cartoon.tasks.render_scene": {"queue": CELERY_MEDIA_QUEUE},
         "cartoon.tasks.assemble_movie": {"queue": CELERY_MEDIA_QUEUE},
         "cartoon.tasks.voice_movie": {"queue": CELERY_MEDIA_QUEUE},
         "cartoon.tasks.make_audio": {"queue": CELERY_MEDIA_QUEUE},
-    }
+    })
+CELERY_TASK_ROUTES.update({
+    # Страховка и чистка — в общую очередь: sweep обязан находить потерянные
+    # дубли и тогда, когда воркер студии лежит. Точное имя задачи в Celery
+    # важнее шаблона, поэтому шаблон ниже эти две задачи не перехватит.
+    "vstudio.tasks.sweep_takes": {"queue": CELERY_TASK_DEFAULT_QUEUE},
+    "vstudio.tasks.purge_assets": {"queue": CELERY_TASK_DEFAULT_QUEUE},
+    "vstudio.tasks.*": {
+        "queue": CELERY_VSTUDIO_QUEUE or CELERY_MEDIA_QUEUE or CELERY_TASK_DEFAULT_QUEUE,
+    },
+})
+
+# === Видеостудия (/video-studio, приложение vstudio) ===
+# Выкатка за флагом: off — студии нет (API отвечает 403 vstudio_disabled,
+# кроме списка моделей); staff — генерируют только сотрудники (обкатка);
+# on — все. Опечатка в .env не должна открыть студию всем, поэтому
+# незнакомое значение читается как staff.
+VSTUDIO_MODES = ("off", "staff", "on")
+VSTUDIO_MODE = env.str("VSTUDIO_MODE", default="staff").strip().lower()
+if VSTUDIO_MODE not in VSTUDIO_MODES:
+    VSTUDIO_MODE = "staff"
+# Сколько генераций одного человека идут одновременно: каждая держит резерв
+# кредитов и слот воркера студии, а слотов всего четыре на всех.
+VSTUDIO_MAX_OPEN_VIDEO = max(0, env.int("VSTUDIO_MAX_OPEN_VIDEO", default=2))
+VSTUDIO_MAX_OPEN_IMAGE = max(0, env.int("VSTUDIO_MAX_OPEN_IMAGE", default=4))
+# Сколько часов опрашивать ролик, который провайдер принял. Дальше — lost с
+# needs_review, человек не платит. Меньше часа не бывает: ноль отправил бы в
+# lost все ролики в работе, за которые провайдер уже взял деньги.
+VSTUDIO_GIVE_UP_HOURS = max(1, env.int("VSTUDIO_GIVE_UP_HOURS", default=6))
+# Только для локального стенда: референсы провайдер скачивает сам, а
+# localhost ему недоступен. С флагом картинки уходят data-URL прямо в теле
+# запроса (в базу не пишутся). На проде не включать: тело раздувается до
+# мегабайт, а публичный SITE_BASE_URL там есть.
+VSTUDIO_INLINE_REFS = env.bool("VSTUDIO_INLINE_REFS", default=False)
+# Предохранитель: если на активном счёте OpenRouter меньше этой суммы (USD),
+# новый запуск получает 503 provider_unavailable ещё до резерва кредитов —
+# иначе провайдер отказал бы уже после того, как человек нажал «Создать».
+VSTUDIO_MIN_PROVIDER_USD = max(0.0, env.float("VSTUDIO_MIN_PROVIDER_USD", default=2.0))
+# Модель для «Сжать с ИИ»: дешёвая (около $0.001 за вызов), человеку бесплатно.
+VSTUDIO_ASSIST_MODEL = env.str("VSTUDIO_ASSIST_MODEL", default="google/gemini-2.5-flash")
+# Через сколько дней удалённые материалы стираются с диска, если на них
+# нет ссылок из кадров и дублей (purge_assets, ежедневно в 04:30). Меньше
+# суток не бывает: удаление по ошибке ещё можно разобрать.
+VSTUDIO_PURGE_DAYS = max(1, env.int("VSTUDIO_PURGE_DAYS", default=30))
 
 # --- Guest (anonymous) chat free quota ---
 # Number of free chat requests an unauthenticated visitor gets before being

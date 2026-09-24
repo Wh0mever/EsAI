@@ -17,6 +17,7 @@ from .models import (
     AiMessageFeedback,
     SharedVideo,
     OpenRouterAccount,
+    validate_vstudio_overrides,
 )
 
 class JSONTextarea(forms.Textarea):
@@ -31,14 +32,39 @@ class JSONTextarea(forms.Textarea):
             return value
 
 
+class GPTModelsAdminForm(forms.ModelForm):
+    """Проверка правок видеостудии — в форме, а не в GPTModels.clean().
+
+    Ошибка из Model.clean() по полю, которого нет в форме (список моделей с
+    list_editable), роняет страницу ValueError. Здесь проверка идёт только
+    там, где поле действительно редактируют.
+    """
+
+    class Meta:
+        model = GPTModels
+        fields = '__all__'
+
+    def clean_vstudio_overrides(self):
+        # openrouter_id стоит в форме раньше, поэтому уже очищен; на случай
+        # формы без него берём сохранённый.
+        model_ref = self.cleaned_data.get('openrouter_id') or self.instance.openrouter_id or ''
+        return validate_vstudio_overrides(self.cleaned_data.get('vstudio_overrides'), model_ref)
+
+
 @admin.register(GPTModels)
 class GPTModelsAdmin(admin.ModelAdmin):
+    form = GPTModelsAdminForm
     list_display = ('name', 'openrouter_id', 'markup_coefficient', 'free_tier', 'supports_vision', 'is_active', 'sort_order', 'max_tokens', 'updated_at')
     list_editable = ('markup_coefficient', 'free_tier', 'is_active', 'sort_order')
     search_fields = ('name', 'openrouter_id')
-    list_filter = ('is_active', 'free_tier', 'supports_vision')
+    list_filter = ('is_active', 'free_tier', 'supports_vision', 'vstudio_enabled')
     ordering = ('sort_order', 'id')
     readonly_fields = ('created_at', 'updated_at')
+    # Правки видеостудии — JSON; показываем его с отступами, а проверяет
+    # GPTModelsAdminForm → validate_vstudio_overrides (белый список + vstudio.caps).
+    formfield_overrides = {
+        models.JSONField: {'widget': JSONTextarea(attrs={'rows': 6, 'cols': 60})},
+    }
     fieldsets = (
         (None, {
             'fields': ('name', 'openrouter_id', 'description', 'short_label', 'is_active', 'sort_order'),
@@ -56,6 +82,14 @@ class GPTModelsAdmin(admin.ModelAdmin):
         }),
         ('Категоризация и студия', {
             'fields': ('category', 'recommended', 'cartoon_stage'),
+        }),
+        ('Видеостудия', {
+            'fields': ('vstudio_enabled', 'vstudio_overrides'),
+            'description': 'Модель видна в /video-studio, только если она активна, включена здесь '
+                           'и её семейство известно коду. Правки — только ключи badge, sort, '
+                           'refs ("off" — аварийно выключить референсы), refs_verified '
+                           '("ГГГГ-ММ-ДД" живой пробы), max_image_refs (не больше лимита вендора), '
+                           'eta_s. Что модель умеет в принципе, задаёт только код.',
         }),
         ('Служебное', {
             'fields': ('created_at', 'updated_at'),

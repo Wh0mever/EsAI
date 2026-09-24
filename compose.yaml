@@ -157,6 +157,54 @@ services:
       retries: 10
     networks: [web]
 
+  # Воркер видеостудии: отправка, опрос и выдача дублей, картинки для @.
+  # Задачи короткие, но отправка ждёт провайдера до 150 с, а в media три слота
+  # держат сцены мультстудии до получаса — поэтому своя очередь. Страховка
+  # sweep_takes идёт в общую очередь (воркер celery) и работает без этого.
+  celery_vstudio:
+    logging: *default-logging
+    build:
+      context: ./core
+      dockerfile: Dockerfile
+    env_file: .env
+    environment:
+      CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
+      CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
+      C_FORCE_ROOT: "1"
+      # Миграции и статику делает только core: четыре одновременных migrate
+      # при старте могли дважды применить одну миграцию данных.
+      RUN_MIGRATIONS: "0"
+      RUN_COLLECTSTATIC: "0"
+    command: >
+      sh -lc "celery -A core worker
+      -Q ${CELERY_VSTUDIO_QUEUE:-vstudio}
+      --pool=prefork
+      --loglevel=${CELERY_LOG_LEVEL:-INFO}
+      --logfile=/app/logs/celery_vstudio.log
+      --concurrency=${CELERY_VSTUDIO_CONCURRENCY:-4}
+      --pidfile=/tmp/celery_vstudio.pid"
+    depends_on:
+      core:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./static:/app/static
+      - ./media:/app/media
+      - ./logs:/app/logs
+      - ./core:/app
+    restart: always
+    # Самая долгая задача — выдача ролика (до 300 с): на SIGTERM Celery
+    # доделывает начатое, и выкладка не обрывает скачивание оплаченного видео.
+    # Что не успело — подберёт sweep_takes по истёкшей аренде.
+    stop_grace_period: 5m
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /tmp/celery_vstudio.pid && kill -0 $(cat /tmp/celery_vstudio.pid)"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    networks: [web]
+
   celery_beat:
     logging: *default-logging
     build:
@@ -209,6 +257,9 @@ services:
         FREEDOM_PAY_MERCHANT_ID: ${FREEDOM_PAY_MERCHANT_ID:-}
         NEXT_PUBLIC_FREEDOM_PAY_TEST: ${NEXT_PUBLIC_FREEDOM_PAY_TEST:-}
         FREEDOM_PAY_TEST: ${FREEDOM_PAY_TEST:-}
+        # Пункт «Видеостудия» в меню, sitemap и индексация /video-studio.
+        # Ставить 1 только вместе с VSTUDIO_MODE=on на бэкенде.
+        NEXT_PUBLIC_VSTUDIO_NAV: ${NEXT_PUBLIC_VSTUDIO_NAV:-}
     env_file: .env
     environment:
       NODE_ENV: production

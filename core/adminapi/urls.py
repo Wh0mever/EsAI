@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import blocks, generations, openrouter, studio_works, views
+from . import blocks, generations, openrouter, studio_works, views, vstudio
 
 app_name = "adminapi"
 
@@ -44,6 +44,7 @@ urlpatterns = [
     path("generations/", generations.GenerationsView.as_view(), name="generations"),
     path("generations/<int:pk>/reviewed/", generations.GenerationReviewedView.as_view(),
          name="generation-reviewed"),
+    path("vstudio/report/", vstudio.VStudioReportView.as_view(), name="vstudio-report"),
     # Работы пользователей студии: отбор для рекламы и превью сцен.
     path("studio/works/", studio_works.StudioWorksView.as_view(), name="studio-works"),
     path("studio/works/<str:kind>/<int:pk>/feature/", studio_works.StudioWorkFeatureView.as_view(),

@@ -77,8 +77,11 @@ services:
       CELERY_BROKER_URL: ${CELERY_BROKER_URL:-redis://redis:6379/0}
       CELERY_RESULT_BACKEND: ${CELERY_RESULT_BACKEND:-redis://redis:6379/1}
       C_FORCE_ROOT: "1"
+    # В dev один воркер на все очереди: отдельных celery_media и celery_vstudio
+    # здесь нет, и без -Q видео бота и дубли видеостудии ждали бы вечно.
     command: >
       sh -lc "celery -A core worker
+      -Q celery,${CELERY_MEDIA_QUEUE:-media},${CELERY_VSTUDIO_QUEUE:-vstudio}
       --loglevel=${CELERY_LOG_LEVEL:-INFO}
       --logfile=/app/logs/celery.log
       --concurrency=${CELERY_CONCURRENCY:-2}"

@@ -19,7 +19,8 @@ from rest_framework_simplejwt.authentication import JWTAuthentication
 from ai.models import GPTModels
 from content.models import BlogPost, SiteSettings
 from payments.models import Payment
-from plans.models import ExitDiscountOffer, PromoCode, TokenPackage, TokenTransaction
+from plans.models import (ExitDiscountOffer, PromoCode, TokenPackage, TokenTransaction,
+                          VSTUDIO_SPEND_REASONS)
 from plans.wallet import clawback_tokens, credit_tokens
 
 from .permissions import IsStaff
@@ -119,11 +120,18 @@ class SummaryView(StaffAPIView):
             .aggregate(s=Sum("amount"))["s"] or 0
         )
 
-        # Списания за чат идут с delta < 0 — знак разворачиваем в положительный расход
-        chat_qs = TokenTransaction.objects.filter(reason="chat")
-        chat_today_qs = chat_qs.filter(created_at__date=today)
-        spent_total = -(chat_qs.aggregate(s=Sum("delta"))["s"] or 0)
-        spent_today = -(chat_today_qs.aggregate(s=Sum("delta"))["s"] or 0)
+        # Списания за чат идут с delta < 0 — знак разворачиваем в положительный расход.
+        # Видеостудия списывает под своими причинами (vstudio_*): без них её
+        # выручка на дашборде не видна вовсе, поэтому считаем их вместе с чатом
+        # и отдельной строкой.
+        spend_qs = TokenTransaction.objects.filter(reason__in=("chat", *VSTUDIO_SPEND_REASONS))
+        spend_today_qs = spend_qs.filter(created_at__date=today)
+        spent_total = -(spend_qs.aggregate(s=Sum("delta"))["s"] or 0)
+        spent_today = -(spend_today_qs.aggregate(s=Sum("delta"))["s"] or 0)
+        vstudio_qs = TokenTransaction.objects.filter(reason__in=VSTUDIO_SPEND_REASONS)
+        vstudio_total = -(vstudio_qs.aggregate(s=Sum("delta"))["s"] or 0)
+        vstudio_today = -(vstudio_qs.filter(created_at__date=today)
+                          .aggregate(s=Sum("delta"))["s"] or 0)
 
         recent = Payment.objects.select_related("user").order_by("-created_at", "-id")[:10]
 
@@ -133,8 +141,10 @@ class SummaryView(StaffAPIView):
             "revenue_kgs": float(revenue),
             "credits_spent_total": int(spent_total),
             "credits_spent_today": int(spent_today),
-            "requests_today": chat_today_qs.count(),
-            "requests_total": chat_qs.count(),
+            "credits_spent_vstudio_total": int(vstudio_total),
+            "credits_spent_vstudio_today": int(vstudio_today),
+            "requests_today": spend_today_qs.count(),
+            "requests_total": spend_qs.count(),
             "openrouter": _openrouter_summary(),
             "recent_payments": PaymentShortSerializer(recent, many=True).data,
         })
@@ -461,6 +471,17 @@ def _settings_snapshot() -> dict:
 
     snapshot["crypto_payments_mode"] = _crypto_registry.mode()
     snapshot["crypto_configured"] = _crypto_registry.is_configured()
+    # --- видеостудия: режим off/staff/on ---
+    # Действующий режим (правка из админки поверх VSTUDIO_MODE из окружения)
+    # и значение окружения — видно, переопределён ли он здесь.
+    snapshot["vstudio_mode_env"] = str(getattr(settings, "VSTUDIO_MODE", "staff") or "staff")
+    snapshot["vstudio_mode_override"] = str(get_runtime("vstudio_mode", "") or "")
+    try:
+        from vstudio.views import studio_mode as _vstudio_mode
+
+        snapshot["vstudio_mode"] = _vstudio_mode()
+    except Exception:  # noqa: BLE001 — приложение не подключено: показываем окружение
+        snapshot["vstudio_mode"] = snapshot["vstudio_mode_env"]
     from cartoon import audio as _studio_audio
 
     snapshot["elevenlabs_configured"] = _studio_audio.is_configured()
@@ -654,6 +675,19 @@ class SettingsView(StaffAPIView):
                         status=status.HTTP_400_BAD_REQUEST,
                     )
                 set_runtime("credit_calc_text_tokens_per_reply", tokens_per_reply)
+
+        # --- видеостудия: режим off/staff/on; пустое значение — вернуть окружение ---
+        if "vstudio_mode" in data:
+            mode = str(data["vstudio_mode"] or "").strip().lower()
+            if mode == "":
+                delete_runtime("vstudio_mode")
+            elif mode in ("off", "staff", "on"):
+                set_runtime("vstudio_mode", mode)
+            else:
+                return Response(
+                    {"detail": "vstudio_mode: допустимо off, staff, on или пусто (как в окружении)"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
 
         # --- криптооплата: режим, ключи, курс, монеты ---
         if "crypto_payments_mode" in data:
