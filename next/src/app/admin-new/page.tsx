@@ -27,6 +27,9 @@ type Summary = {
   revenue_kgs: number;
   credits_spent_total: number;
   credits_spent_today: number;
+  /** Из них видеостудия (уже входит в credits_spent_*). */
+  credits_spent_vstudio_total?: number;
+  credits_spent_vstudio_today?: number;
   requests_today: number;
   requests_total: number;
   openrouter: {
@@ -146,7 +149,12 @@ export default function AdminDashboardPage() {
       icon: FiZap,
       label: "Потрачено кредитов",
       value: nf(data.credits_spent_total),
-      sub: `сегодня: ${nf(data.credits_spent_today)}`,
+      sub:
+        `сегодня: ${nf(data.credits_spent_today)}` +
+        (data.credits_spent_vstudio_total
+          ? ` · из них видеостудия: ${nf(data.credits_spent_vstudio_total)}` +
+            (data.credits_spent_vstudio_today ? ` (сегодня ${nf(data.credits_spent_vstudio_today)})` : "")
+          : ""),
     },
     {
       icon: FiMessageSquare,
