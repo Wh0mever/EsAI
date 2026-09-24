@@ -30,7 +30,19 @@ export type FunnelStep =
   // и без этих шагов видно только начало и конец пути.
   | "crypto_currency_pick"
   | "crypto_invoice_created"
-  | "crypto_paid";
+  | "crypto_paid"
+  // Видеостудия (/video-studio): имена — в белом списке FunnelEvent.NAMES,
+  // meta по шагам — VsFunnelMeta в lib/vstudio/types.ts (отправлять через trackVs).
+  | "vstudio_view"
+  | "vstudio_upload"
+  | "vstudio_mention"
+  | "vstudio_imagegen"
+  | "vstudio_blocked"
+  | "vstudio_run_click"
+  | "vstudio_paywall"
+  | "vstudio_auth_prompt"
+  | "vstudio_condense"
+  | "vstudio_share";
 
 export function trackFunnel(name: FunnelStep, meta?: Record<string, unknown>): void {
   try {

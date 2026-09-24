@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { fetchData } from "@/tools/fetchData";
 
 /**
@@ -21,6 +22,7 @@ type Generation = {
   user_email: string;
   kind: string;
   kind_label: string;
+  source?: string;
   source_label: string;
   provider: string;
   model: string;
@@ -37,12 +39,19 @@ type Generation = {
   stages: Stage[];
   ip: string | null;
   needs_review: boolean;
+  /** Видеостудия: uid дубля (params.take) и ссылка на него в Django-админке. */
+  take_uid?: string;
+  take_admin_url?: string;
 };
+
+type SourceOption = { key: string; label: string };
 
 type ListResponse = {
   count: number;
   results: Generation[];
   totals: { review: number; lost: number; open: number; lost_usd: string };
+  /** Варианты фильтра «Откуда» (?source=) — список отдаёт бэкенд. */
+  sources?: SourceOption[];
 };
 
 const KINDS = [
@@ -97,12 +106,25 @@ const fmt = (s: string) => {
       });
 };
 
+// useSearchParams требует границы Suspense (иначе сборка не сможет пререндерить страницу).
 export default function AdminGenerationsPage() {
+  return (
+    <Suspense fallback={<div className="text-sm text-muted-2">Загрузка…</div>}>
+      <GenerationsJournal />
+    </Suspense>
+  );
+}
+
+function GenerationsJournal() {
+  // ?q=<uid дубля> — ссылка из админки видеостудии: журнал открывается уже отфильтрованным.
+  const initialQ = (useSearchParams().get("q") ?? "").trim();
   const [kind, setKind] = useState("");
+  const [source, setSource] = useState("");
+  const [sources, setSources] = useState<SourceOption[]>([]);
   const [state, setState] = useState("");
   const [review, setReview] = useState(false);
-  const [query, setQuery] = useState("");
-  const [search, setSearch] = useState("");
+  const [query, setQuery] = useState(initialQ);
+  const [search, setSearch] = useState(initialQ);
   const [items, setItems] = useState<Generation[]>([]);
   const [totals, setTotals] = useState<ListResponse["totals"] | null>(null);
   const [count, setCount] = useState(0);
@@ -117,6 +139,7 @@ export default function AdminGenerationsPage() {
       setError(null);
       const params = new URLSearchParams({ page: String(pageNum) });
       if (kind) params.set("kind", kind);
+      if (source) params.set("source", source);
       if (state) params.set("status", state);
       if (review) params.set("review", "1");
       if (search) params.set("q", search);
@@ -127,13 +150,14 @@ export default function AdminGenerationsPage() {
       if (res.ok && res.data) {
         setCount(res.data.count);
         setTotals(res.data.totals);
+        if (Array.isArray(res.data.sources)) setSources(res.data.sources);
         setItems((prev) => (append ? [...prev, ...res.data!.results] : res.data!.results));
         setPage(pageNum);
       } else {
         setError(res.error || "Не удалось загрузить журнал");
       }
     },
-    [kind, state, review, search]
+    [kind, source, state, review, search]
   );
 
   useEffect(() => {
@@ -196,6 +220,19 @@ export default function AdminGenerationsPage() {
           </button>
         ))}
         <span className="mx-1 h-5 w-px bg-border" />
+        {sources.length > 0 && (
+          <select
+            value={source}
+            onChange={(e) => setSource(e.target.value)}
+            aria-label="Откуда"
+            className="rounded-lg border border-border bg-surface-2 px-3 py-1.5 text-xs text-foreground outline-none focus:border-accent"
+          >
+            <option value="">Откуда: отовсюду</option>
+            {sources.map((s) => (
+              <option key={s.key} value={s.key}>{s.label}</option>
+            ))}
+          </select>
+        )}
         <select
           value={state}
           onChange={(e) => setState(e.target.value)}
@@ -218,7 +255,7 @@ export default function AdminGenerationsPage() {
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="почта, модель или ID провайдера"
+            placeholder="почта, модель, ID провайдера или uid дубля"
             className="w-64 rounded-lg border border-border bg-surface-2 px-3 py-1.5 text-sm text-foreground outline-none focus:border-accent"
           />
         </form>
@@ -338,6 +375,22 @@ function Row({
                     Открыть результат
                   </a>
                 )}
+                {g.take_admin_url ? (
+                  <a
+                    href={g.take_admin_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                    className="text-accent underline"
+                  >
+                    Дубль видеостудии
+                  </a>
+                ) : g.take_uid ? (
+                  <div className="text-muted">
+                    <span className="text-muted-2">Дубль видеостудии: </span>
+                    <span className="font-mono text-[11px]">{g.take_uid}</span>
+                  </div>
+                ) : null}
                 {g.needs_review && (
                   <button
                     onClick={(e) => {

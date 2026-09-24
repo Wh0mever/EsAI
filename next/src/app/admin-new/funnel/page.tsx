@@ -23,6 +23,8 @@ type StudioStep = { key: string; label: string; count: number; share: number | n
 
 type Report = {
   studio?: StudioStep[];
+  /** Видеостудия (/video-studio): та же форма, доля — от открывших видеостудию. */
+  vstudio?: StudioStep[];
   days: number;
   steps: Step[];
   reasons: Reason[];
@@ -92,37 +94,18 @@ export default function AdminFunnelPage() {
 
       {/* Студия: гость проходит путь до входа и оплаты. Доля — от открывших
           студию, а не от прошлого шага: примерку и оплату можно пропустить. */}
-      {(data?.studio || []).length > 0 && (
-        <div className="rounded-2xl border border-border bg-surface p-5">
-          <h2 className="text-lg font-semibold">Студия мультфильмов</h2>
-          <p className="mt-1 text-xs text-muted-2">
-            Доля — от открывших студию. «Вошли после студии» — устройство открывало студию
-            гостем, а потом появилось уже с аккаунтом.
-          </p>
-          <div className="mt-4 flex flex-col gap-2">
-            {(data?.studio || []).map((s) => {
-              const first = data?.studio?.[0]?.count || 1;
-              return (
-                <div key={s.key} className="grid grid-cols-[minmax(0,14rem)_1fr_auto] items-center gap-3 text-sm">
-                  <span className="truncate text-muted">{s.label}</span>
-                  <div className="h-2 overflow-hidden rounded-full bg-surface-2">
-                    <div
-                      className="h-full rounded-full bg-accent"
-                      style={{ width: `${Math.max(2, Math.round((s.count * 100) / Math.max(first, 1)))}%` }}
-                    />
-                  </div>
-                  <span className="tabular-nums">
-                    {s.count}
-                    {s.share !== null && s.key !== "studio_view" && (
-                      <span className="ml-1 text-xs text-muted-2">{s.share}%</span>
-                    )}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
+      <ProductFunnel
+        title="Студия мультфильмов"
+        hint="Доля — от открывших студию. «Вошли после студии» — устройство открывало студию гостем, а потом появилось уже с аккаунтом."
+        steps={data?.studio || []}
+        firstKey="studio_view"
+      />
+      <ProductFunnel
+        title="Видеостудия"
+        hint="Доля — от открывших видеостудию. Исходы генераций (выдано, ошибка, потеряно) — в отчёте видеостудии и журнале генераций."
+        steps={data?.vstudio || []}
+        firstKey="vstudio_view"
+      />
 
       {data?.conversion !== null && data?.conversion !== undefined && (
         <div className="rounded-2xl border border-border bg-surface p-5">
@@ -240,6 +223,45 @@ export default function AdminFunnelPage() {
             </tbody>
           </table>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/** Воронка продукта (мультстудия, видеостудия): полоса — доля от первого шага. */
+function ProductFunnel({
+  title,
+  hint,
+  steps,
+  firstKey,
+}: {
+  title: string;
+  hint: string;
+  steps: StudioStep[];
+  firstKey: string;
+}) {
+  if (!steps.length) return null;
+  const first = steps[0]?.count || 1;
+  return (
+    <div className="rounded-2xl border border-border bg-surface p-5">
+      <h2 className="text-lg font-semibold">{title}</h2>
+      <p className="mt-1 text-xs text-muted-2">{hint}</p>
+      <div className="mt-4 flex flex-col gap-2">
+        {steps.map((s) => (
+          <div key={s.key} className="grid grid-cols-[minmax(0,14rem)_1fr_auto] items-center gap-3 text-sm">
+            <span className="truncate text-muted">{s.label}</span>
+            <div className="h-2 overflow-hidden rounded-full bg-surface-2">
+              <div
+                className="h-full rounded-full bg-accent"
+                style={{ width: `${Math.max(2, Math.round((s.count * 100) / Math.max(first, 1)))}%` }}
+              />
+            </div>
+            <span className="tabular-nums">
+              {s.count}
+              {s.share !== null && s.key !== firstKey && <span className="ml-1 text-xs text-muted-2">{s.share}%</span>}
+            </span>
+          </div>
+        ))}
       </div>
     </div>
   );

@@ -6,9 +6,21 @@
     "dev": "next dev --webpack",
     "build": "next build --webpack",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test:vstudio": "node --experimental-strip-types --test \"src/lib/vstudio/*.test.mjs\" \"src/components/vstudio/**/*.test.mjs\" \"scripts/i18n-parity.test.mjs\"",
+    "check:i18n": "node scripts/i18n-parity.mjs vstudio home"
   },
   "dependencies": {
+    "@floating-ui/dom": "1.8.0",
+    "@tiptap/core": "3.31.3",
+    "@tiptap/extension-document": "3.31.3",
+    "@tiptap/extension-hard-break": "3.31.3",
+    "@tiptap/extension-paragraph": "3.31.3",
+    "@tiptap/extension-text": "3.31.3",
+    "@tiptap/extensions": "3.31.3",
+    "@tiptap/pm": "3.31.3",
+    "@tiptap/react": "3.31.3",
+    "@tiptap/suggestion": "3.31.3",
     "clsx": "^2.1.1",
     "framer-motion": "^12.19.2",
     "highlight.js": "^11.10.0",

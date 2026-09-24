@@ -1,0 +1,298 @@
+"use client";
+
+/**
+ * Видеостудия, композер: «✨ Создать картинку» прямо из запроса (§6.4, §9.3).
+ *
+ * Нет своего фото героя — его можно нарисовать здесь же: короткое описание,
+ * модель картинок, пропорции, цена «Создать картинку · 6 кр». Запуск —
+ * POST shots/ с kind=image и origin=tray: сервер сразу отдаёт ассет в
+ * pending, и в лотке тут же появляется чип «Создаётся…» (а если окно открыли
+ * из выбора «@», чип встаёт и в текст). Когда картинка будет готова, чип сам
+ * станет обычным @Image N (редьюсер takes/upsert), а на кнопке «Создать» до
+ * этого — «Ждём @Image N…».
+ *
+ * Спишется только за готовую картинку — как и видео. На компьютере — окошко
+ * над композером, на телефоне — нижняя шторка.
+ */
+import { useMemo, useRef, useState, type RefObject } from "react";
+import { useTranslation } from "react-i18next";
+import { FiAlertCircle, FiLoader, FiLock, FiX } from "react-icons/fi";
+import { IoSparklesOutline } from "react-icons/io5";
+import { aspectHint } from "@/components/ui/AspectIcon";
+import { isUid, newClientRequestId, runShot, trackVs } from "@/lib/vstudio/api";
+import { errorText, issueText, reactionFor } from "@/lib/vstudio/errors";
+import type { AssetJSON, QuoteBody, VsError } from "@/lib/vstudio/types";
+import BottomSheet from "../BottomSheet";
+import { useVStudio } from "../context";
+import { useLocalQuote } from "../hooks/useQuote";
+import { openLockedModel } from "../settings/RunSettingsPanel";
+import { useIsMobile } from "../settings/SettingsSheet";
+import { defaultModel } from "../store";
+import { OPEN_LIMIT, countOpen, fmtNum, nextRefNumber } from "./composerLogic";
+import { ct } from "./composerText";
+import AnchoredPopover from "./Popover";
+
+const PROMPT_MAX = 4000;
+
+/** «9:16 · Вертикальное» — коротко, чтобы влезло в узкий выбор. */
+function aspectLabel(t: ReturnType<typeof useTranslation>["t"], ratio: string): string {
+  const hint = aspectHint(t, ratio);
+  const short = hint && hint !== ratio ? hint.split(/\s[—-]\s/)[0] : "";
+  return short ? `${ratio} · ${short}` : ratio;
+}
+
+export type ImageGenMiniProps = {
+  open: boolean;
+  onClose: () => void;
+  /** Куда прицепить окошко на компьютере (коробка композера). */
+  anchor: RefObject<HTMLElement | null>;
+  /** Ассет в pending создан — родитель кладёт чип в лоток (и тег в текст). */
+  onCreated: (asset: AssetJSON) => void;
+};
+
+type Problem = { text: string; tone: "error" | "info" } | null;
+
+export default function ImageGenMini({ open, onClose, anchor, onCreated }: ImageGenMiniProps) {
+  const mobile = useIsMobile();
+  const { t } = useTranslation("vstudio", { useSuspense: false });
+  const title = ct(t, "imagegen.title");
+  const body = open ? <ImageGenForm onClose={onClose} onCreated={onCreated} /> : null;
+  if (mobile) {
+    return (
+      <BottomSheet open={open} onClose={onClose} title={title} size="auto" zIndex={1045}>
+        {body}
+      </BottomSheet>
+    );
+  }
+  return (
+    <AnchoredPopover anchor={anchor} open={open} onClose={onClose} role="dialog" ariaLabel={title} autoFocus>
+      <div className="flex w-[min(24rem,calc(100vw-2rem))] flex-col">
+        <div className="flex items-center gap-2 border-b border-border px-3 py-2">
+          <IoSparklesOutline className="text-accent-strong" aria-hidden />
+          <h2 className="flex-1 text-sm font-semibold">{title}</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="grid size-8 place-items-center rounded-lg text-muted hover:bg-surface-2 hover:text-foreground cursor-pointer"
+            aria-label={ct(t, "imagegen.close")}
+          >
+            <FiX aria-hidden />
+          </button>
+        </div>
+        <div className="p-3">{body}</div>
+      </div>
+    </AnchoredPopover>
+  );
+}
+
+function ImageGenForm({ onClose, onCreated }: { onClose: () => void; onCreated: (asset: AssetJSON) => void }) {
+  const { t } = useTranslation("vstudio", { useSuspense: false });
+  const { state, dispatch, actions, authed } = useVStudio();
+  const models = useMemo(() => state.models?.image ?? [], [state.models]);
+  const composer = state.composer;
+
+  const [text, setText] = useState("");
+  const [modelId, setModelId] = useState<string | null>(() => {
+    if (composer.kind === "image" && composer.model && models.some((m) => m.id === composer.model)) return composer.model;
+    return defaultModel(models)?.id ?? null;
+  });
+  const model = models.find((m) => m.id === modelId) ?? null;
+  const aspects = model?.caps.aspect_ratios ?? [];
+  const [aspectRaw, setAspect] = useState<string>(() => model?.defaults.aspect_ratio || "auto");
+  const aspect = aspectRaw === "auto" || aspects.includes(aspectRaw) ? aspectRaw : "auto";
+  const [sending, setSending] = useState(false);
+  const [problem, setProblem] = useState<Problem>(null);
+  const crid = useRef<string | null>(null);
+
+  const prompt = text.trim();
+  const chosen = model?.id ?? null;
+  const projectUid = isUid(state.project?.uid) ? (state.project?.uid as string) : null;
+  const body = useMemo<QuoteBody | null>(
+    () =>
+      chosen && prompt
+        ? { project: projectUid, kind: "image", model: chosen, prompt_text: text, inputs: [], params: { aspect_ratio: aspect } }
+        : null,
+    [chosen, prompt, text, aspect, projectUid],
+  );
+  const q = useLocalQuote(body, Boolean(body));
+  const quote = q.data;
+  const credits = quote?.credits ?? null;
+  const errors = quote?.errors ?? [];
+  const openImages = countOpen(state.takes.values(), "image");
+  const limited = openImages >= OPEN_LIMIT.image;
+  const available = quote?.balance?.available;
+  const missing = typeof available === "number" && credits != null && available < credits ? Math.ceil(credits - available) : 0;
+  const mainSending = state.run.status === "sending";
+  const n = nextRefNumber(composer.tray);
+
+  const submit = async () => {
+    if (sending || mainSending || !model || !body) return;
+    if (!actions.requireAuth()) return;
+    if (model.locked) {
+      openLockedModel(dispatch, { requireAuth: actions.requireAuth });
+      return;
+    }
+    if (limited) return;
+    if (!quote || credits == null || errors.length) {
+      if (!quote && !q.loading) q.refresh();
+      return;
+    }
+    if (missing > 0) {
+      actions.openTopUp();
+      return;
+    }
+    setSending(true);
+    setProblem(null);
+    const id = crid.current ?? newClientRequestId();
+    crid.current = id;
+    trackVs("vstudio_imagegen");
+    const res = await runShot({ ...body, quoted_credits: credits, client_request_id: id, origin: "tray" });
+    setSending(false);
+    if (res.ok) {
+      crid.current = null;
+      dispatch({ type: "run/done", response: res.data });
+      const asset = res.data.asset ?? res.data.take.result;
+      if (asset) onCreated(asset);
+      actions.refreshBalance();
+      setText("");
+      onClose();
+      return;
+    }
+    const err: VsError = res.error;
+    // Нет ответа — запрос мог дойти: следующий клик уйдёт с тем же id и не создаст второй картинки.
+    if (err.status !== 0) crid.current = null;
+    const r = reactionFor(err);
+    switch (r.kind) {
+      case "paywall":
+        actions.handleError(err);
+        trackVs("vstudio_paywall");
+        break;
+      case "requote":
+        q.refresh();
+        setProblem({ text: errorText(t, err), tone: "info" });
+        break;
+      case "blocked":
+        q.refresh();
+        break;
+      case "limit":
+        setProblem({ text: ct(t, "imagegen.limit", { n: r.limit ?? OPEN_LIMIT.image }), tone: "error" });
+        break;
+      default:
+        actions.handleError(err, { silent: true });
+        if (r.kind !== "auth" && r.kind !== "disabled" && r.kind !== "ignore") setProblem({ text: errorText(t, err), tone: "error" });
+    }
+  };
+
+  if (!models.length) {
+    return <p className="py-2 text-sm text-muted">{ct(t, "imagegen.noModels")}</p>;
+  }
+
+  const runLabel =
+    missing > 0
+      ? ct(t, "composer.topup", { n: fmtNum(missing) })
+      : credits != null
+        ? ct(t, "imagegen.run", { credits: fmtNum(credits) })
+        : ct(t, "imagegen.runNoPrice");
+  const disabled = sending || mainSending || !prompt || limited || (quote != null && errors.length > 0);
+
+  return (
+    <form
+      className="flex flex-col gap-3"
+      onSubmit={(e) => {
+        e.preventDefault();
+        void submit();
+      }}
+    >
+      <textarea
+        value={text}
+        onChange={(e) => setText(e.target.value.slice(0, PROMPT_MAX))}
+        onKeyDown={(e) => {
+          if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+          if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+            e.preventDefault();
+            void submit();
+          }
+        }}
+        rows={3}
+        maxLength={PROMPT_MAX}
+        placeholder={ct(t, "imagegen.placeholder")}
+        aria-label={ct(t, "imagegen.title")}
+        className="min-h-[5.5rem] w-full resize-y rounded-xl border border-border bg-surface-2 px-3 py-2 text-base leading-relaxed text-foreground outline-none placeholder:text-muted-2 focus:border-accent md:text-sm"
+      />
+      <div className="grid grid-cols-2 gap-2">
+        <label className="flex min-w-0 flex-col gap-1">
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-muted">{ct(t, "imagegen.model")}</span>
+          <select
+            value={modelId ?? ""}
+            onChange={(e) => setModelId(e.target.value)}
+            className="min-h-11 w-full min-w-0 rounded-xl border border-border bg-surface-2 px-2 text-sm text-foreground outline-none focus:border-accent md:min-h-9"
+          >
+            {models.map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.name}
+                {typeof m.per_image === "number"
+                  ? ` · ${String(t("settings.credits", { n: fmtNum(m.per_image), defaultValue: "{{n}} кр" }))}`
+                  : ""}
+                {m.locked ? ` · ${ct(t, "imagegen.locked")}` : ""}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex min-w-0 flex-col gap-1">
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-muted">{ct(t, "imagegen.aspect")}</span>
+          <select
+            value={aspect}
+            onChange={(e) => setAspect(e.target.value)}
+            className="min-h-11 w-full min-w-0 rounded-xl border border-border bg-surface-2 px-2 text-sm text-foreground outline-none focus:border-accent md:min-h-9"
+          >
+            <option value="auto">{ct(t, "imagegen.aspectAuto")}</option>
+            {aspects.map((a) => (
+              <option key={a} value={a}>
+                {aspectLabel(t, a)}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      <p className="text-xs text-muted">{ct(t, "imagegen.note", { n })}</p>
+      {(errors.length > 0 || problem || limited) && (
+        <ul className="flex flex-col gap-1" aria-live="polite">
+          {limited && (
+            <li className="flex gap-1.5 text-xs text-status-fail">
+              <FiAlertCircle className="mt-0.5 shrink-0" aria-hidden />
+              {ct(t, "imagegen.limit", { n: openImages })}
+            </li>
+          )}
+          {errors.map((e, i) => (
+            <li key={`${e.code}:${i}`} className="flex gap-1.5 text-xs text-status-fail">
+              <FiAlertCircle className="mt-0.5 shrink-0" aria-hidden />
+              {issueText(t, e, "errors")}
+            </li>
+          ))}
+          {problem && (
+            <li className={`flex gap-1.5 text-xs ${problem.tone === "error" ? "text-status-fail" : "text-muted"}`}>
+              <FiAlertCircle className="mt-0.5 shrink-0" aria-hidden />
+              {problem.text}
+            </li>
+          )}
+        </ul>
+      )}
+      <button
+        type="submit"
+        disabled={disabled}
+        aria-busy={sending || q.loading || undefined}
+        className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-accent px-4 text-sm font-semibold text-on-accent transition-colors hover:bg-accent-strong disabled:cursor-not-allowed disabled:bg-surface-3 disabled:text-muted cursor-pointer"
+      >
+        {sending ? (
+          <FiLoader className="animate-spin" aria-hidden />
+        ) : model?.locked ? (
+          <FiLock aria-hidden />
+        ) : (
+          <IoSparklesOutline aria-hidden />
+        )}
+        <span className={q.loading && prompt ? "opacity-70" : ""}>{runLabel}</span>
+      </button>
+      {authed !== false && <p className="-mt-1 text-center text-[11px] text-muted-2">{ct(t, "price.note")}</p>}
+    </form>
+  );
+}

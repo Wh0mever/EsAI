@@ -23,6 +23,11 @@ const LANGUAGES: Lang[] = [
 
 const CATEGORIES_ROUTES = ["/about", "/contact-us", "/faq", "/terms-conditions"];
 
+// «Видеостудия» в меню — только когда студия открыта всем (VSTUDIO_MODE=on на
+// бэкенде). Пока она в режиме staff, обычный посетитель увидел бы там лишь
+// «скоро откроется». Флаг вшивается при сборке.
+const VSTUDIO_NAV = process.env.NEXT_PUBLIC_VSTUDIO_NAV === "1";
+
 function useLocale() {
   const { i18n } = useTranslation();
   // Derive from the live i18n language so the UI updates instantly on switch.
@@ -105,6 +110,18 @@ function MobileNav({ className, onNavigate }: any) {
             {t("nav.studio", { defaultValue: "Мультфильмы" })}
           </Link>
         </li>
+        {VSTUDIO_NAV && (
+          <li>
+            <Link
+              href="/video-studio"
+              onClick={onNavigate}
+              className={linkCls("/video-studio")}
+              aria-current={isActive("/video-studio") ? "page" : undefined}
+            >
+              {t("nav.vstudio", { defaultValue: "Видеостудия" })}
+            </Link>
+          </li>
+        )}
         <li>
           <Link href="/blog" onClick={onNavigate} className={linkCls("/blog")} aria-current={isActive("/blog") ? "page" : undefined}>
             {t("nav.blog")}
@@ -184,6 +201,18 @@ function PCNav({ className, onNavigate, t, changeLanguage, currentLang }: any) {
             {t("nav.studio", { defaultValue: "Мультфильмы" })}
           </Link>
         </li>
+        {VSTUDIO_NAV && (
+          <li className={linkCls("/video-studio")}>
+            <Link
+              href="/video-studio"
+              onClick={onNavigate}
+              className={linkInner(isActive("/video-studio"))}
+              aria-current={isActive("/video-studio") ? "page" : undefined}
+            >
+              {t("nav.vstudio", { defaultValue: "Видеостудия" })}
+            </Link>
+          </li>
+        )}
         <li className={linkCls("/blog")}>
           <Link href="/blog" onClick={onNavigate} className={linkInner(isActive("/blog"))} aria-current={isActive("/blog") ? "page" : undefined}>
             {t("nav.blog")}

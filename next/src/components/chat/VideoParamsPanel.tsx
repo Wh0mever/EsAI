@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import type { TFunction } from "i18next";
+import { aspectHint, IconAspect } from "@/components/ui/AspectIcon";
 import { fetchData, BACKEND } from "@/tools/fetchData";
 
 type VideoParams = {
@@ -80,37 +80,9 @@ function IconRatio({ className = "" }: { className?: string }) {
   );
 }
 
-/** Подписи к пропорциям — чтобы не гадать, где вертикаль, а где широкий кадр.
- *  Русский текст — defaultValue; перевод по ключу chat.aspect_<w>_<h>. */
-export const ASPECT_HINT: Record<string, string> = {
-  "16:9": "Горизонтальное — YouTube, презентации",
-  "9:16": "Вертикальное — сторис, Reels, TikTok",
-  "1:1": "Квадрат — лента, аватар",
-  "4:3": "Классическое горизонтальное",
-  "3:4": "Классическое вертикальное",
-  "3:2": "Как фотография",
-  "2:3": "Как фотография, вертикально",
-  "4:5": "Вертикальное для ленты",
-  "21:9": "Кинематографичное, очень широкое",
-  "9:21": "Очень узкое вертикальное",
-};
-
-/** Переведённая подпись к пропорции (или сама пропорция, если подписи нет). */
-export function aspectHint(t: TFunction, ratio: string): string {
-  const ru = ASPECT_HINT[ratio];
-  if (!ru) return ratio;
-  return t(`chat.aspect_${ratio.replace(":", "_")}`, { defaultValue: ru });
-}
-
-export function IconAspect({ className = "" }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}
-      strokeLinecap="round" strokeLinejoin="round" className={className} aria-hidden>
-      <rect x="3" y="5" width="18" height="14" rx="2" />
-      <path d="M8 5v14" />
-    </svg>
-  );
-}
+/* IconAspect, ASPECT_HINT и aspectHint переехали в components/ui/AspectIcon.tsx
+   (их использует и видеостудия); реэкспорт — для старых импортов. */
+export { ASPECT_HINT, aspectHint, IconAspect } from "@/components/ui/AspectIcon";
 
 function IconSpark({ className = "" }: { className?: string }) {
   return (

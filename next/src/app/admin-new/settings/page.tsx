@@ -12,6 +12,7 @@ import {
   FiCheck,
   FiDollarSign,
   FiMic,
+  FiFilm,
 } from "react-icons/fi";
 
 type SiteContacts = {
@@ -56,6 +57,13 @@ type Settings = {
   currency_kgs_to_usd_manual: number;
   /** живой рыночный курс — для сравнения */
   currency_kgs_to_usd_market: number | null;
+  // --- видеостудия ---
+  /** действующий режим (правка админки поверх окружения) */
+  vstudio_mode?: "off" | "staff" | "on";
+  /** VSTUDIO_MODE из окружения */
+  vstudio_mode_env?: string;
+  /** правка из админки; "" — не задана, действует окружение */
+  vstudio_mode_override?: string;
   site: SiteContacts;
 };
 
@@ -1094,6 +1102,9 @@ export default function AdminSettingsPage() {
         {audioError && <div className="mt-3 text-sm text-red-400">{audioError}</div>}
       </section>
 
+      {/* 3.8 Видеостудия: режим */}
+      <VStudioModeSection settings={settings} onSaved={setSettings} />
+
       {/* 4. Контакты сайта */}
       <section className="rounded-2xl border border-border bg-surface p-5">
         <div className="flex items-center justify-between gap-3">
@@ -1136,5 +1147,91 @@ export default function AdminSettingsPage() {
         {siteError && <div className="mt-3 text-sm text-red-400">{siteError}</div>}
       </section>
     </div>
+  );
+}
+
+type VsModeValue = "" | "off" | "staff" | "on";
+
+const VSTUDIO_MODES: { value: VsModeValue; label: string; hint: string }[] = [
+  { value: "", label: "Как в окружении", hint: "Убрать правку из админки — действует VSTUDIO_MODE сервера" },
+  { value: "off", label: "Выключена", hint: "Студия закрыта для всех: «Видеостудия скоро откроется»" },
+  { value: "staff", label: "Только сотрудники", hint: "Генерировать могут только is_staff, остальные видят «скоро откроется»" },
+  { value: "on", label: "Для всех", hint: "Студия открыта всем; гости видят цены и входят, чтобы запустить" },
+];
+
+/**
+ * Видеостудия (/video-studio): режим off/staff/on без выкладки. Пункт меню и
+ * sitemap включаются отдельно — сборкой с NEXT_PUBLIC_VSTUDIO_NAV=1.
+ */
+function VStudioModeSection({ settings, onSaved }: { settings: Settings; onSaved: (s: Settings) => void }) {
+  const current = (settings.vstudio_mode_override || "") as VsModeValue;
+  const [draft, setDraft] = useState<VsModeValue>(current);
+  const [saving, setSaving] = useState(false);
+  const [flash, setFlash] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  // Сохранили (или перечитали настройки) — черновик снова равен сохранённому.
+  const [prevCurrent, setPrevCurrent] = useState<VsModeValue>(current);
+  if (current !== prevCurrent) {
+    setPrevCurrent(current);
+    setDraft(current);
+  }
+
+  const save = async () => {
+    setSaving(true);
+    setErr(null);
+    const res = await fetchData<Settings>("manage/settings/", "PATCH", { vstudio_mode: draft }, true);
+    setSaving(false);
+    if (res.ok && res.data) {
+      onSaved(res.data);
+      setFlash(true);
+      setTimeout(() => setFlash(false), 2000);
+    } else {
+      setErr(res.error || "Не удалось сохранить");
+    }
+  };
+
+  const label = (m?: string) => VSTUDIO_MODES.find((x) => x.value === m)?.label || m || "—";
+
+  return (
+    <section className="rounded-2xl border border-border bg-surface p-5">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <FiFilm className="h-4 w-4 text-accent" />
+          <h2 className="text-base font-semibold">Видеостудия</h2>
+        </div>
+        <div className="flex items-center gap-3">
+          {flash && <SavedFlash />}
+          {draft !== current && (
+            <button
+              onClick={save}
+              disabled={saving}
+              className="rounded-lg bg-accent px-4 py-2 text-xs font-semibold text-on-accent transition-opacity hover:opacity-90 disabled:opacity-50"
+            >
+              {saving ? "Сохранение…" : "Сохранить"}
+            </button>
+          )}
+        </div>
+      </div>
+      <p className="mt-1 text-xs text-muted-2">
+        Сейчас: <span className="text-foreground">{label(settings.vstudio_mode)}</span> · в окружении:{" "}
+        {label(settings.vstudio_mode_env)}. Пункт «Видеостудия» в меню сайта появляется только в сборке с
+        NEXT_PUBLIC_VSTUDIO_NAV=1.
+      </p>
+      <div className="mt-4 flex flex-wrap gap-2">
+        {VSTUDIO_MODES.map((m) => (
+          <button
+            key={m.value || "env"}
+            onClick={() => setDraft(m.value)}
+            title={m.hint}
+            className={`rounded-lg border px-3 py-1.5 text-xs transition-colors ${
+              draft === m.value ? "border-accent bg-accent/10 text-accent" : "border-border text-muted hover:text-foreground"
+            }`}
+          >
+            {m.label}
+          </button>
+        ))}
+      </div>
+      {err && <div className="mt-3 text-sm text-red-400">{err}</div>}
+    </section>
   );
 }
