@@ -81,7 +81,11 @@ def _need_config():
 
 
 def _balance(user) -> int:
-    return int(getattr(user, "token_balance", 0) or 0)
+    """Свободный остаток: резервы идущих генераций (сцены, видео чата, дубли
+    видеостудии) на звук не тратятся."""
+    from plans.wallet import available_tokens
+
+    return available_tokens(user, int(getattr(user, "token_balance", 0) or 0))
 
 
 def _data(request) -> dict:
@@ -195,7 +199,8 @@ def _generate(request, scene, *, kind, price, reason, make, text="", voice_id=""
             return Response({"detail": "Не получилось сделать звук — попробуйте ещё раз"},
                             status=status.HTTP_502_BAD_GATEWAY)
         try:
-            charge(request.user, price, reason, meta={"scene": scene.pk, "kind": kind, **(meta or {})})
+            charge(request.user, price, reason, meta={"scene": scene.pk, "kind": kind, **(meta or {})},
+                   respect_reserves=True)
         except InsufficientTokens:
             default_storage.delete(path)
             # Звук провайдер сделал и деньги за него взял, а человек не получил.

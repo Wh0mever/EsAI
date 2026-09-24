@@ -214,7 +214,9 @@ def _run_video_generation(*, user, model_obj, selected_model_name: str, message:
     except Exception:
         pass
     bal = int(getattr(user, "token_balance", 0) or 0)
-    refusal = video_balance_error(bal, reserved_video_credits(user), need)
+    from vstudio.reserve import vstudio_reserved  # дубли видеостудии в работе тоже держат баланс
+
+    refusal = video_balance_error(bal, reserved_video_credits(user) + vstudio_reserved(user), need)
     if refusal:
         _release_daily_request(user)
         yield ({**refusal, "done": True})

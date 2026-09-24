@@ -21,7 +21,7 @@ from .models import (
 )
 from plans.models import UserSubscription
 from plans.services import get_chat_access_state
-from plans.wallet import charge_tokens, InsufficientTokens, estimated_min_charge
+from plans.wallet import available_tokens, charge_tokens, InsufficientTokens, estimated_min_charge
 from plans.tiers import is_paid_tier, can_use_model, daily_request_limit
 from django.utils import timezone
 from .serializers import AiChatMessageSerializer
@@ -124,7 +124,7 @@ def _balance_token_cap(user, model_obj, est_in: int = 0, surcharge: int = 0) -> 
     такой запрос).
     """
     try:
-        bal = int(getattr(user, "token_balance", 0) or 0)
+        bal = available_tokens(user, int(getattr(user, "token_balance", 0) or 0))
     except Exception:
         return None
     if bal <= 0:
@@ -549,6 +549,19 @@ def _compute_charge(usage_meta: dict, messages: List[dict], answer: str,
     return charged, total_int, coeff_dec, usage_missing
 
 
+def _charge_instant(user, amount: int, reason: str, meta=None) -> int:
+    """Списание мгновенной траты чата (текст, картинки) — только из свободного остатка.
+
+    Свободный остаток — баланс минус резервы генераций, которые ещё идут (видео
+    чата и бота, сцены мультстудии, дубли видеостудии). Без этого кредиты,
+    обещанные снимающемуся ролику, уходили на чат, и выдача ролика списывала
+    «сколько осталось» — часто ноль. Не хватает — InsufficientTokens с
+    balance = свободный остаток (его и списывает привычный путь «сколько есть»)
+    и total = весь баланс (его показываем человеку).
+    """
+    return charge_tokens(user, amount, reason, meta=meta, respect_reserves=True)
+
+
 def _charge_up_to_balance(user, amount: int, meta: dict) -> int:
     """Списать amount; не хватает — списать сколько есть (в минус не уходим).
 
@@ -556,15 +569,15 @@ def _charge_up_to_balance(user, amount: int, meta: dict) -> int:
     Возвращает новый баланс.
     """
     try:
-        return charge_tokens(user, amount, "chat", meta=meta)
+        return _charge_instant(user, amount, "chat", meta=meta)
     except InsufficientTokens as exc:
-        new_balance = exc.balance
+        new_balance = exc.total
         if exc.balance > 0:
             try:
-                new_balance = charge_tokens(user, exc.balance, "chat", meta={
+                new_balance = _charge_instant(user, exc.balance, "chat", meta={
                     **meta, "partial": True, "required": amount})
             except InsufficientTokens as exc2:
-                new_balance = exc2.balance
+                new_balance = exc2.total
         return new_balance
 
 
@@ -771,7 +784,7 @@ def _precise_balance_gate(user, model_obj, messages: List[dict], *, limited: boo
     need = max(1, math.ceil((est_in + est_out) * coeff_f) + surch)
 
     try:
-        bal = int(getattr(user, "token_balance", 0) or 0)
+        bal = available_tokens(user, int(getattr(user, "token_balance", 0) or 0))
     except Exception:
         bal = 0
     if bal < need:
@@ -2535,7 +2548,7 @@ def _authed_chat_stream(request):
             request.user.refresh_from_db(fields=["token_balance"])
         except Exception:
             pass
-        bal = int(getattr(request.user, "token_balance", 0) or 0)
+        bal = available_tokens(request.user, int(getattr(request.user, "token_balance", 0) or 0))
         if bal < est:
             return ("error", {
                 "error": "Недостаточно кредитов для запроса. Пополните баланс.",
@@ -2793,7 +2806,7 @@ def _authed_chat_stream(request):
                     user.refresh_from_db(fields=["token_balance"])
                 except Exception:
                     pass
-                _flux_bal = int(getattr(user, "token_balance", 0) or 0)
+                _flux_bal = available_tokens(user, int(getattr(user, "token_balance", 0) or 0))
                 if _flux_bal < flux_need:
                     _release_daily_request(user)
                     yield _sse({
@@ -2861,7 +2874,7 @@ def _authed_chat_stream(request):
                         meta=usage_meta,
                     )
                     try:
-                        new_balance = charge_tokens(
+                        new_balance = _charge_instant(
                             user,
                             flux_charge,
                             "chat",
@@ -2874,17 +2887,17 @@ def _authed_chat_stream(request):
                             },
                         )
                     except InsufficientTokens as exc:
-                        new_balance = exc.balance
+                        new_balance = exc.total
                         if exc.balance > 0:
                             try:
-                                new_balance = charge_tokens(user, exc.balance, "chat", meta={
+                                new_balance = _charge_instant(user, exc.balance, "chat", meta={
                                     "session_id": session.id,
                                     "message_id": assistant_msg.id,
                                     "partial": True,
                                     "required": flux_charge,
                                 })
                             except InsufficientTokens as exc2:
-                                new_balance = exc2.balance
+                                new_balance = exc2.total
 
                 _entry.delivered(
                     credits=flux_charge, cost=provider_cost, message=assistant_msg,
@@ -3017,7 +3030,7 @@ def _authed_chat_stream(request):
                     meta=usage_meta,
                 )
                 try:
-                    new_balance = charge_tokens(
+                    new_balance = _charge_instant(
                         user,
                         charged,
                         "chat",
@@ -3031,17 +3044,17 @@ def _authed_chat_stream(request):
                         },
                     )
                 except InsufficientTokens as exc:
-                    new_balance = exc.balance
+                    new_balance = exc.total
                     if exc.balance > 0:
                         try:
-                            new_balance = charge_tokens(user, exc.balance, "chat", meta={
+                            new_balance = _charge_instant(user, exc.balance, "chat", meta={
                                 "session_id": session.id,
                                 "message_id": assistant_msg.id,
                                 "partial": True,
                                 "required": charged,
                             })
                         except InsufficientTokens as exc2:
-                            new_balance = exc2.balance
+                            new_balance = exc2.total
 
                 # Легаси-счётчики подписки больше не трогаем — биллинг токеновый.
 
@@ -3192,7 +3205,7 @@ def OpenAIHandler(request):
             request.user.refresh_from_db(fields=["token_balance"])
         except Exception:
             pass
-        bal = int(getattr(request.user, "token_balance", 0) or 0)
+        bal = available_tokens(request.user, int(getattr(request.user, "token_balance", 0) or 0))
         if bal < est:
             return {
                 "error": "Недостаточно кредитов для запроса. Пополните баланс.",
@@ -3396,7 +3409,7 @@ def OpenAIHandler(request):
                 request.user.refresh_from_db(fields=["token_balance"])
             except Exception:
                 pass
-            _flux_bal = int(getattr(request.user, "token_balance", 0) or 0)
+            _flux_bal = available_tokens(request.user, int(getattr(request.user, "token_balance", 0) or 0))
             if _flux_bal < flux_need:
                 _release_daily_request(request.user)
                 return {
@@ -3457,7 +3470,7 @@ def OpenAIHandler(request):
                 meta=usage_meta,
             )
             try:
-                new_balance = charge_tokens(
+                new_balance = _charge_instant(
                     request.user,
                     flux_charge,
                     "chat",
@@ -3470,17 +3483,17 @@ def OpenAIHandler(request):
                     },
                 )
             except InsufficientTokens as exc:
-                new_balance = exc.balance
+                new_balance = exc.total
                 if exc.balance > 0:
                     try:
-                        new_balance = charge_tokens(request.user, exc.balance, "chat", meta={
+                        new_balance = _charge_instant(request.user, exc.balance, "chat", meta={
                             "session_id": session.id,
                             "message_id": assistant_msg.id,
                             "partial": True,
                             "required": flux_charge,
                         })
                     except InsufficientTokens as exc2:
-                        new_balance = exc2.balance
+                        new_balance = exc2.total
 
             _entry.delivered(
                 credits=flux_charge, cost=provider_cost, message=assistant_msg,
@@ -3613,7 +3626,7 @@ def OpenAIHandler(request):
                 pass
 
         try:
-            new_balance = charge_tokens(
+            new_balance = _charge_instant(
                 request.user,
                 charged,
                 "chat",
@@ -3630,17 +3643,17 @@ def OpenAIHandler(request):
             # Очень редкая гонка: баланс ушёл в 0 между pre-check и списанием.
             # Ответ уже сгенерирован и сохранён — спишем сколько есть (до нуля),
             # чтобы не терять деньги и не падать.
-            new_balance = exc.balance
+            new_balance = exc.total
             if exc.balance > 0:
                 try:
-                    new_balance = charge_tokens(request.user, exc.balance, "chat", meta={
+                    new_balance = _charge_instant(request.user, exc.balance, "chat", meta={
                         "session_id": session.id,
                         "message_id": assistant_msg.id,
                         "partial": True,
                         "required": charged,
                     })
                 except InsufficientTokens as exc2:
-                    new_balance = exc2.balance
+                    new_balance = exc2.total
 
         # Легаси-счётчики подписки больше не трогаем — биллинг токеновый.
 

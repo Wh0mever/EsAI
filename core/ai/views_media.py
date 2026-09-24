@@ -21,7 +21,7 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
 from plans.tiers import can_use_model
-from plans.wallet import InsufficientTokens, charge_tokens
+from plans.wallet import InsufficientTokens, available_tokens, charge_tokens
 
 from . import stt
 from .models import AiChatMessage, AiChatSession, GenerationJob
@@ -72,11 +72,14 @@ class TranscribeAPIView(APIView):
         except Exception:
             pass
         balance = int(getattr(request.user, "token_balance", 0) or 0)
-        if balance < price:
+        # Свободный остаток: кредиты, обещанные идущим генерациям (видео чата,
+        # сцены мультстудии, дубли видеостудии), на распознавание не тратятся.
+        free = available_tokens(request.user, balance)
+        if free < price:
             return Response({
                 "error": "Недостаточно кредитов для распознавания.",
                 "error_code": "insufficient_balance",
-                "balance_tokens": balance,
+                "balance_tokens": free,
                 "required_estimate": price,
             }, status=status.HTTP_402_PAYMENT_REQUIRED)
 
@@ -91,15 +94,18 @@ class TranscribeAPIView(APIView):
             try:
                 balance = charge_tokens(request.user, price, "stt",
                                         meta={"seconds": round(seconds, 1),
-                                              "model": stt.model_id()})
+                                              "model": stt.model_id()},
+                                        respect_reserves=True)
                 charged = price
             except InsufficientTokens as exc:
-                # Баланс изменился, пока модель слушала: берём что осталось.
-                balance = exc.balance
+                # Баланс изменился, пока модель слушала: берём что осталось
+                # (свободного — резервы идущих генераций не трогаем).
+                balance = exc.total
                 if exc.balance > 0:
                     balance = charge_tokens(request.user, exc.balance, "stt",
                                             meta={"seconds": round(seconds, 1),
-                                                  "partial": True})
+                                                  "partial": True},
+                                            respect_reserves=True)
                     charged = exc.balance
         return Response({
             "text": text,
@@ -254,9 +260,11 @@ class GenerationJobCreateView(APIView):
         balance = int(getattr(user, "token_balance", 0) or 0)
         # Ролики «снимается дольше» (задача delayed) ещё не списаны, но спишутся
         # при довозе — их цену вычитаем, как и в самой генерации.
+        from vstudio.reserve import vstudio_reserved  # и дубли видеостудии в работе
+
         from .generation import reserved_video_credits, video_balance_error
 
-        refusal = video_balance_error(balance, reserved_video_credits(user), need)
+        refusal = video_balance_error(balance, reserved_video_credits(user) + vstudio_reserved(user), need)
         if refusal:
             return Response(refusal, status=status.HTTP_402_PAYMENT_REQUIRED)
 
