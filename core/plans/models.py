@@ -451,6 +451,16 @@ class TokenTransactionReason(models.TextChoices):
     CARTOON_MUSIC = "cartoon_music", "Студия: музыка"
     CARTOON_SFX = "cartoon_sfx", "Студия: звуковой эффект"
     STT = "stt", "Распознавание голоса"
+    # Видеостудия списывает только за готовый результат, поэтому причин
+    # «возврат» у неё нет: несостоявшийся дубль просто снимает резерв.
+    VSTUDIO_VIDEO = "vstudio_video", "Видеостудия: видео"
+    VSTUDIO_IMAGE = "vstudio_image", "Видеостудия: картинка"
+
+
+# Списания видеостудии. Метрики трат считают их вместе с чатом — иначе
+# выручка студии в админке не видна вовсе.
+VSTUDIO_SPEND_REASONS = (TokenTransactionReason.VSTUDIO_VIDEO.value,
+                         TokenTransactionReason.VSTUDIO_IMAGE.value)
 
 
 class TokenTransaction(models.Model):

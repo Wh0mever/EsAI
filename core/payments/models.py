@@ -75,7 +75,12 @@ class FunnelEvent(models.Model):
              # кошелёк, и без этих шагов видно только начало и конец пути.
              "crypto_currency_pick", "crypto_invoice_created", "crypto_paid",
              # Бот: от первого /start до оплаты Stars.
-             "bot_start", "bot_pricing_view", "bot_stars_invoice", "bot_stars_paid")
+             "bot_start", "bot_pricing_view", "bot_stars_invoice", "bot_stars_paid",
+             # Видеостудия (/video-studio): только клиентские шаги. Исходы
+             # генераций сюда не пишутся — их источник правды таблица дублей.
+             "vstudio_view", "vstudio_upload", "vstudio_mention", "vstudio_imagegen",
+             "vstudio_blocked", "vstudio_run_click", "vstudio_paywall",
+             "vstudio_auth_prompt", "vstudio_condense", "vstudio_share")
 
     name = models.CharField(max_length=32, db_index=True, verbose_name="Шаг")
     user = models.ForeignKey(

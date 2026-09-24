@@ -5,12 +5,15 @@
 находится запись со всей цепочкой: кто → когда → чем → что → сколько стоило →
 сколько списали → на каком шаге всё остановилось.
 
-  GET  generations/?kind=&status=&review=1&q=<почта|ID провайдера>&page=
+  GET  generations/?kind=&status=&source=&review=1&q=<почта|ID провайдера>&page=
   POST generations/<id>/reviewed/   — снять отметку «нужен разбор»
 """
 from __future__ import annotations
 
+import re
+
 from django.db.models import Count, Q, Sum
+from django.urls import NoReverseMatch, reverse
 from rest_framework import status
 from rest_framework.response import Response
 
@@ -18,8 +21,33 @@ from ai.models import GenerationLog
 
 from .views import StaffAPIView, _paginate
 
+_TAKE_UID = re.compile(r"^[0-9a-f]{32}$")
+
+
+def _take_link(g: GenerationLog) -> tuple[str, str]:
+    """Дубль видеостудии, к которому относится запись: uid и ссылка в админке.
+
+    Журнал хранит uid дубля в params.take (пишет конвейер vstudio). Ссылка
+    ведёт на список дублей с фильтром по uid — так не нужен числовой id и
+    лишний запрос на каждую строку. Пока приложение vstudio не подключено,
+    маршрута нет, и ссылка пустая, а uid всё равно виден.
+    """
+    if g.source != GenerationLog.SOURCE_VSTUDIO:
+        return "", ""
+    params = g.params if isinstance(g.params, dict) else {}
+    uid = str(params.get("take") or "")
+    # uid идёт в строку запроса ссылки — берём только то, что похоже на uid.
+    if not _TAKE_UID.match(uid):
+        return "", ""
+    try:
+        url = f"{reverse('admin:vstudio_take_changelist')}?uid={uid}"
+    except NoReverseMatch:
+        url = ""
+    return uid, url
+
 
 def _row(g: GenerationLog) -> dict:
+    take_uid, take_admin_url = _take_link(g)
     return {
         "id": g.pk,
         "created_at": g.created_at.isoformat(),
@@ -50,6 +78,8 @@ def _row(g: GenerationLog) -> dict:
         "needs_review": g.needs_review,
         "scene_id": g.scene_id,
         "session_id": g.session_id,
+        "take_uid": take_uid,
+        "take_admin_url": take_admin_url,
     }
 
 
@@ -59,9 +89,12 @@ class GenerationsView(StaffAPIView):
         params = request.query_params
         kind = (params.get("kind") or "").strip()
         state = (params.get("status") or "").strip()
+        source = (params.get("source") or "").strip()
         query = (params.get("q") or "").strip()
         if kind:
             qs = qs.filter(kind=kind)
+        if source:
+            qs = qs.filter(source=source)
         if state:
             qs = qs.filter(status=state)
         if params.get("review") in ("1", "true"):
@@ -69,8 +102,12 @@ class GenerationsView(StaffAPIView):
         if query:
             # Из кабинета провайдера копируют начало ID («gen-vid-1789973061…»),
             # поэтому ищем по вхождению, а не по точному совпадению.
-            qs = qs.filter(Q(provider_id__icontains=query.rstrip("….")) |
-                           Q(user__email__icontains=query) | Q(model__icontains=query))
+            cond = (Q(provider_id__icontains=query.rstrip("….")) |
+                    Q(user__email__icontains=query) | Q(model__icontains=query))
+            # uid дубля видеостудии из её админки — точное совпадение по params.take.
+            if _TAKE_UID.match(query):
+                cond |= Q(params__take=query)
+            qs = qs.filter(cond)
         totals = GenerationLog.objects.aggregate(
             review=Count("id", filter=Q(needs_review=True)),
             lost=Count("id", filter=Q(status=GenerationLog.STATUS_LOST)),
@@ -84,6 +121,9 @@ class GenerationsView(StaffAPIView):
             "totals": {"review": totals["review"] or 0, "lost": totals["lost"] or 0,
                        "open": totals["open"] or 0,
                        "lost_usd": str(totals["lost_usd"] or 0)},
+            # Список «Откуда» для фильтра (?source=): фронт берёт его отсюда,
+            # и следующий новый источник не потребует правки страницы.
+            "sources": [{"key": k, "label": str(label)} for k, label in GenerationLog.SOURCE_CHOICES],
         })
 
 

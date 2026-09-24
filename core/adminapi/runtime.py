@@ -63,6 +63,9 @@ KEYS = (
     "crypto_allowed_currencies",
     "crypto_fee_paid_by_user",
     "crypto_settlement_currency",
+    # Видеостудия: режим off/staff/on поверх VSTUDIO_MODE из окружения
+    # (выключить или открыть студию без выкладки; читает vstudio.views.studio_mode).
+    "vstudio_mode",
     # Студия: сколько бесплатных примерок героя гости получают за сутки.
     "studio_guest_tryon_daily_cap",
     # Звук студии: ключ ElevenLabs и цены.

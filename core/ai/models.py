@@ -1,12 +1,109 @@
+from django.core.exceptions import ValidationError
 from django.db import models
 from users.models import User
 from django.utils import timezone
+import datetime
+import inspect
+import re
 import uuid
 
 # Create your models here.
 
 def _gen_chat_session_uid() -> str:
     return uuid.uuid4().hex
+
+
+# Что админка может поменять у модели видеостудии (спецификация §3.3). Что
+# модель умеет в принципе (семейство, шаблон тега, режимы), задаёт только код:
+# иначе одна опечатка в админке отправит провайдеру тело, которое он не примет.
+VSTUDIO_OVERRIDE_KEYS = ("badge", "sort", "refs", "refs_verified", "max_image_refs", "eta_s")
+_ISO_DATE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def _is_int(value) -> bool:
+    # bool — подкласс int, но «sort: true» в JSON — это опечатка, а не число.
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _basic_vstudio_overrides_errors(value: dict) -> list[str]:
+    """Белый список ключей и типы значений — без знания лимитов вендора.
+
+    Лимиты (не больше, чем заявил вендор; refs_verified только у семейств с
+    референсами) знает только vstudio.caps — эту часть проверяет он.
+    """
+    errors = []
+    unknown = sorted(str(k) for k in value if k not in VSTUDIO_OVERRIDE_KEYS)
+    if unknown:
+        errors.append(f"Неизвестные ключи: {', '.join(unknown)}. "
+                      f"Разрешены только: {', '.join(VSTUDIO_OVERRIDE_KEYS)}.")
+    if "badge" in value and not (isinstance(value["badge"], str) and len(value["badge"]) <= 40):
+        errors.append("badge — строка не длиннее 40 символов.")
+    if "sort" in value and not _is_int(value["sort"]):
+        errors.append("sort — целое число.")
+    if "refs" in value and value["refs"] != "off":
+        errors.append('refs принимает только значение "off" (аварийно выключить референсы).')
+    if "refs_verified" in value:
+        raw = value["refs_verified"]
+        ok = isinstance(raw, str) and bool(_ISO_DATE.match(raw))
+        if ok:
+            try:
+                datetime.date.fromisoformat(raw)
+            except ValueError:
+                ok = False
+        if not ok:
+            errors.append('refs_verified — дата живой пробы в формате "ГГГГ-ММ-ДД".')
+    if "max_image_refs" in value and not (_is_int(value["max_image_refs"])
+                                          and value["max_image_refs"] >= 0):
+        errors.append("max_image_refs — целое число от 0.")
+    if "eta_s" in value and not (_is_int(value["eta_s"]) and value["eta_s"] > 0):
+        errors.append("eta_s — целое число секунд больше нуля.")
+    return errors
+
+
+def validate_vstudio_overrides(value, model_ref: str = "") -> dict:
+    """Проверить GPTModels.vstudio_overrides; вернуть очищенный словарь.
+
+    Бросает ValidationError с русским текстом. Сначала белый список здесь,
+    потом — vstudio.caps.validate_overrides(overrides, model_ref), который
+    знает лимиты семейства. Импорт ленивый: приложение vstudio может быть ещё
+    не подключено, и тогда работает только белый список.
+    """
+    if value is None or value == "":
+        # Пустое поле формы приходит как None, а колонка NOT NULL.
+        return {}
+    if not isinstance(value, dict):
+        raise ValidationError('Нужен JSON-объект, например {"badge": "Новинка"}.')
+    errors = _basic_vstudio_overrides_errors(value)
+    if errors:
+        raise ValidationError(errors)
+    try:
+        from vstudio.caps import validate_overrides
+    except ImportError as exc:
+        # Нет приложения или функции — работает только белый список. Но сбой
+        # импорта внутри самого caps (его зависимость) — это баг, не прячем.
+        if getattr(exc, "name", None) not in ("vstudio", "vstudio.caps"):
+            raise
+        return value
+    try:
+        # Контракт BE-3: validate_overrides(overrides, model_ref) -> dict и
+        # ValueError/ValidationError при ошибке. Вариант с одним аргументом
+        # тоже понимаем — лимиты без модели он просто не проверит.
+        try:
+            takes_model = len(inspect.signature(validate_overrides).parameters) >= 2
+        except (TypeError, ValueError):
+            takes_model = True
+        cleaned = (validate_overrides(value, model_ref) if takes_model
+                   else validate_overrides(value))
+    except ValidationError:
+        raise
+    except ValueError as exc:
+        raise ValidationError(str(exc))
+    if isinstance(cleaned, (list, tuple)):
+        # Вариант «вернуть список ошибок» вместо исключения.
+        if cleaned:
+            raise ValidationError([str(e) for e in cleaned])
+        return value
+    return value if cleaned is None else cleaned
 
 
 class GPTModels(models.Model):
@@ -78,6 +175,17 @@ class GPTModels(models.Model):
     cartoon_stage = models.CharField(
         max_length=10, blank=True, default="", choices=CARTOON_STAGE_CHOICES,
         help_text="Этап в студии мультфильмов. Пусто — модель не участвует в студии.")
+    # Видеостудия (/video-studio). Показ включается вручную: что модель умеет
+    # (кадры, референсы, шаблон тега) знает только код vstudio/caps.py, а из
+    # админки можно лишь скрыть модель или сузить её возможности.
+    vstudio_enabled = models.BooleanField(
+        default=False, verbose_name="Показывать в видеостудии",
+        help_text="Модель появится в видеостудии, только если она активна и код "
+                  "знает её семейство (vstudio/caps.py).")
+    vstudio_overrides = models.JSONField(
+        default=dict, blank=True, verbose_name="Правки видеостудии",
+        help_text='Только ключи: badge, sort, refs ("off"), refs_verified ("ГГГГ-ММ-ДД"), '
+                  'max_image_refs, eta_s. Остальное отклоняется.')
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -464,7 +572,12 @@ class GenerationLog(models.Model):
     SOURCE_CHAT = "chat"
     SOURCE_STUDIO = "studio"
     SOURCE_BOT = "bot"
-    SOURCE_CHOICES = [(SOURCE_CHAT, "Чат"), (SOURCE_STUDIO, "Студия"), (SOURCE_BOT, "Бот")]
+    # «studio» уже занято мультстудией, а поле — 8 символов, поэтому «vstudio».
+    # Общий довоз чата (recovery.recover_open_videos) берёт только chat и bot:
+    # у видеостудии свой sweep.
+    SOURCE_VSTUDIO = "vstudio"
+    SOURCE_CHOICES = [(SOURCE_CHAT, "Чат"), (SOURCE_STUDIO, "Студия"), (SOURCE_BOT, "Бот"),
+                      (SOURCE_VSTUDIO, "Видеостудия")]
 
     # Путь запроса. submitting — отправляем провайдеру; submitted — провайдер
     # принял и выдал ID (с этого момента он берёт деньги); delivered — человек
