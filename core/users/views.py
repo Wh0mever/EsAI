@@ -1102,12 +1102,19 @@ class TransferView(APIView):
                 allowed = transferable_tokens(sender)
                 if amount > allowed and amount <= int(
                         User.objects.filter(pk=sender.pk).values_list("token_balance", flat=True)[0] or 0):
+                    message = ("Переводить можно только купленные кредиты — подарочные "
+                               "(ежедневные и приветственные бонусы, промокоды) остаются у вас. "
+                               f"Сейчас можно перевести до {allowed}.")
+                    # Резервы идущих генераций тоже уменьшают «можно перевести» —
+                    # иначе текст винил бы одни подарочные кредиты.
+                    from vstudio.reserve import total_reserved
+
+                    if total_reserved(sender) > 0:
+                        message = ("Часть кредитов ждёт оплаты за генерации, которые ещё идут, "
+                                   "а подарочные переводить нельзя. "
+                                   f"Сейчас можно перевести до {allowed}.")
                     return Response(
-                        {"status": "error",
-                         "message": ("Переводить можно только купленные кредиты — подарочные "
-                                     "(ежедневные и приветственные бонусы, промокоды) остаются у вас. "
-                                     f"Сейчас можно перевести до {allowed}."),
-                         "transferable": allowed},
+                        {"status": "error", "message": message, "transferable": allowed},
                         status=400,
                     )
                 new_sender_balance = charge_tokens(

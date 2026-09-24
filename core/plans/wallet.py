@@ -13,12 +13,19 @@ from .models import TokenTransaction
 
 
 class InsufficientTokens(Exception):
-    """Недостаточно токенов на балансе для списания."""
+    """Недостаточно токенов на балансе для списания.
 
-    def __init__(self, message: str = "insufficient_tokens", *, balance: int = 0, required: int = 0):
+    balance — сколько можно списать прямо сейчас (при respect_reserves — баланс
+    минус резервы; этим числом привычный путь «спишем сколько есть» и
+    списывает). total — весь баланс: его и показывать человеку.
+    """
+
+    def __init__(self, message: str = "insufficient_tokens", *, balance: int = 0, required: int = 0,
+                 total: int | None = None):
         super().__init__(message)
         self.balance = balance
         self.required = required
+        self.total = balance if total is None else total
 
 
 def _user_model():
@@ -26,11 +33,46 @@ def _user_model():
     return get_user_model()
 
 
-def charge_tokens(user, amount: int, reason: str, meta=None) -> int:
+def reserved_tokens(user) -> int:
+    """Кредиты, обещанные генерациям, которые ещё идут: видео чата и бота,
+    сцены мультстудии, дубли видеостудии (vstudio.reserve.total_reserved).
+
+    Мягко: сбой подсчёта — 0 и warning там же, платящего не блокируем.
+    """
+    if not user or not getattr(user, "pk", None):
+        return 0
+    from vstudio.reserve import total_reserved
+
+    return max(0, int(total_reserved(user) or 0))
+
+
+def available_tokens(user, balance: int | None = None) -> int:
+    """Свободный остаток: баланс минус все резервы.
+
+    Им проверяют «хватит ли» мгновенные траты (текст и картинки чата, кадры и
+    персонажи мультстудии, распознавание голоса). Иначе кредиты, обещанные
+    ролику, который ещё снимается, уходили на чат, и за готовый ролик
+    списывать было бы нечего. balance — уже прочитанный баланс (иначе свежий из БД).
+    """
+    if not user or not getattr(user, "pk", None):
+        return 0
+    if balance is None:
+        balance = int(_user_model().objects.filter(pk=user.pk).values_list(
+            "token_balance", flat=True).first() or 0)
+    return max(0, int(balance or 0) - reserved_tokens(user))
+
+
+def charge_tokens(user, amount: int, reason: str, meta=None, *, respect_reserves: bool = False) -> int:
     """Атомарно списать `amount` токенов с баланса пользователя.
 
     Не уходит ниже 0. Если баланса не хватает — raise InsufficientTokens
     (ничего не списывается). Возвращает новый баланс.
+
+    respect_reserves=True — для мгновенных трат: списать можно только
+    свободный остаток (баланс минус резервы идущих генераций, считается под
+    замком строки пользователя). Выдача самих резервных генераций (видео,
+    сцена, дубль студии) зовёт без флага: её собственный резерв и есть то,
+    из чего она платит.
     """
     amount = int(amount or 0)
     if amount < 0:
@@ -40,8 +82,11 @@ def charge_tokens(user, amount: int, reason: str, meta=None) -> int:
     with transaction.atomic():
         locked = User.objects.select_for_update().get(pk=user.pk)
         current = int(locked.token_balance or 0)
-        if amount > current:
-            raise InsufficientTokens(balance=current, required=amount)
+        spendable = current
+        if respect_reserves and amount > 0:
+            spendable = max(0, current - reserved_tokens(locked))
+        if amount > spendable:
+            raise InsufficientTokens(balance=spendable, required=amount, total=current)
 
         new_balance = current - amount
         locked.token_balance = new_balance
@@ -278,4 +323,10 @@ def transferable_tokens(user) -> int:
                            delta__lt=0).aggregate(s=Sum("delta"))["s"] or 0
     balance = int(_user_model().objects.filter(pk=user.pk).values_list(
         "token_balance", flat=True).first() or 0)
+    # Обещанное за видео и сцены, которые ещё снимаются (чат, бот, мультстудия,
+    # видеостудия), не переводится: «запустил и сразу перевёл другу» — и платить
+    # за готовый ролик было бы нечем.
+    from vstudio.reserve import total_reserved
+
+    balance = max(0, balance - total_reserved(user))
     return max(0, min(balance, int(came_in) + int(went_out)))

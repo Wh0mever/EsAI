@@ -41,6 +41,16 @@ from .tasks import assemble_movie, render_scene
 logger = logging.getLogger(__name__)
 
 
+def _free_balance(user) -> int:
+    """Свободный остаток для мгновенных трат (персонаж, примерка, кадр своей сцены):
+    баланс минус резервы идущих генераций — сцен, видео чата, дублей видеостудии.
+    Иначе кредиты, обещанные снимающемуся ролику, уходили на кадры, и за готовый
+    ролик списывать было бы нечего."""
+    from plans.wallet import available_tokens
+
+    return available_tokens(user, int(getattr(user, "token_balance", 0) or 0))
+
+
 class StudioAPIView(APIView):
     """База для действий, которые тратят кредиты — только для вошедших."""
     authentication_classes = [JWTAuthentication]
@@ -472,7 +482,7 @@ class CharacterGenerateView(StudioAPIView):
                             status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
         price = max(1, int(float(model.markup_coefficient or 1)))
-        balance = int(getattr(request.user, "token_balance", 0) or 0)
+        balance = _free_balance(request.user)
         if balance < price:
             return Response({"detail": "Недостаточно кредитов", "required": price,
                              "balance": balance}, status=status.HTTP_402_PAYMENT_REQUIRED)
@@ -513,7 +523,8 @@ class CharacterGenerateView(StudioAPIView):
 
         from .services import charge
 
-        charge(request.user, price, "cartoon_character", meta={"character": char.pk})
+        charge(request.user, price, "cartoon_character", meta={"character": char.pk},
+               respect_reserves=True)
         return Response(character_json(char, _lang(request)), status=status.HTTP_201_CREATED)
 
 
@@ -886,7 +897,7 @@ class PresetTryOnView(StudioPublicAPIView):
             return _guest_try_on(request, preset, character, aspect)
 
         price = _tryon_price(preset)
-        balance = int(getattr(request.user, "token_balance", 0) or 0)
+        balance = _free_balance(request.user)
         if balance < price:
             return Response({"detail": "Недостаточно кредитов", "required": price,
                              "balance": balance}, status=status.HTTP_402_PAYMENT_REQUIRED)
@@ -1005,8 +1016,8 @@ def _no_credits(need: int, balance: int, reserved: int = 0) -> Response:
     if reserved:
         # Часть баланса уже обещана сценам, которые снимаются прямо сейчас.
         body["reserved"] = reserved
-        body["detail"] = ("Недостаточно кредитов: часть баланса уже занята сценами, "
-                          "которые сейчас снимаются")
+        body["detail"] = ("Недостаточно кредитов: часть баланса уже занята генерациями, "
+                          "которые сейчас идут (сцены и видео)")
     return Response(body, status=status.HTTP_402_PAYMENT_REQUIRED)
 
 
@@ -1044,6 +1055,8 @@ def _queue_render(request, scene, *, new_keyframe: bool = False) -> Response:
     from django.db import transaction
     from django.utils import timezone
 
+    from vstudio.reserve import vstudio_reserved  # дубли видеостудии в работе тоже держат баланс
+
     from .models import CartoonKeyframe
     from .pricing import reserved_credits
 
@@ -1059,7 +1072,7 @@ def _queue_render(request, scene, *, new_keyframe: bool = False) -> Response:
         # один и тот же свободный остаток.
         locked = get_user_model().objects.select_for_update().get(pk=request.user.pk)
         balance = int(getattr(locked, "token_balance", 0) or 0)
-        reserved = reserved_credits(request.user, exclude_scene_id=scene.pk)
+        reserved = reserved_credits(request.user, exclude_scene_id=scene.pk) + vstudio_reserved(request.user)
         free = max(0, balance - reserved)
         if free < need:
             return _no_credits(need, free, reserved)
@@ -1107,7 +1120,7 @@ class SceneFrameView(StudioAPIView):
             return Response({"detail": "Сначала выберите героя"}, status=status.HTTP_400_BAD_REQUEST)
 
         need = _tryon_price(scene.preset)
-        balance = int(getattr(request.user, "token_balance", 0) or 0)
+        balance = _free_balance(request.user)
         if balance < need:
             return _no_credits(need, balance)
         try:

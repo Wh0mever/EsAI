@@ -535,10 +535,17 @@ def assemble_project(project) -> str:
     return _save_bytes(append_outro(joined), "cartoon/movies", "mp4")
 
 
-def charge(user, amount: int, reason: str, meta: dict | None = None) -> None:
-    """Списать кредиты. Ноль и меньше — молча ничего не делаем."""
+def charge(user, amount: int, reason: str, meta: dict | None = None, *,
+           respect_reserves: bool = False) -> None:
+    """Списать кредиты. Ноль и меньше — молча ничего не делаем.
+
+    respect_reserves=True — мгновенные траты (персонаж, примерка, кадр своей
+    сцены, звук): только из свободного остатка, резервы идущих генераций
+    (сцены, видео чата, дубли видеостудии) не трогаем. Съёмка сцены платит из
+    своего резерва и зовёт без флага.
+    """
     if amount and amount > 0:
-        charge_tokens(user, int(amount), reason, meta=meta or {})
+        charge_tokens(user, int(amount), reason, meta=meta or {}, respect_reserves=respect_reserves)
 
 
 # --- своя сцена --------------------------------------------------------------
@@ -678,7 +685,8 @@ def draw_custom_keyframe(scene, character, user, aspect: str = "") -> tuple[str,
     price = max(1, int(float(preset.image_model.markup_coefficient or 1)))
     if user is not None:
         charge(user, price, "cartoon_keyframe",
-               meta={"scene": scene.pk, "custom": True, "character": character.pk})
+               meta={"scene": scene.pk, "custom": True, "character": character.pk},
+               respect_reserves=True)
     return path, price
 
 
@@ -758,7 +766,8 @@ def draw_linked_keyframe(scene, character, user, anchor: str,
     price = max(1, int(float(preset.image_model.markup_coefficient or 1)))
     if user is not None:
         charge(user, price, "cartoon_keyframe",
-               meta={"scene": scene.pk, "linked": True, "character": character.pk})
+               meta={"scene": scene.pk, "linked": True, "character": character.pk},
+               respect_reserves=True)
     return path, price
 
 
@@ -790,7 +799,8 @@ def get_or_create_keyframe(preset, character, user=None, aspect: str = "16:9"):
     price = max(1, int(float(preset.image_model.markup_coefficient or 1)))
     if user is not None:
         charge(user, price, "cartoon_keyframe",
-               meta={"preset": preset.pk, "character": character.pk})
+               meta={"preset": preset.pk, "character": character.pk},
+               respect_reserves=True)
     # get_or_create, а не create: два запроса на одну пару могли прийти разом.
     CartoonKeyframe.objects.get_or_create(
         preset=preset, character=character, aspect_ratio=aspect,
