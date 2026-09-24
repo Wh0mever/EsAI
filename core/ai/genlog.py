@@ -197,17 +197,25 @@ def start(*, user, kind: str, model: str = "", source: str = "chat", provider: s
           session=None, scene_id: int | None = None, ip: str | None = None):
     """Начать запись о генерации. Возвращает Entry или пустышку."""
     try:
+        from django.db import transaction
+
         from .models import GenerationLog
 
-        row = GenerationLog.objects.create(
-            user=user if getattr(user, "pk", None) else None,
-            kind=kind, source=source, provider=provider, model=str(model or "")[:120],
-            prompt=str(prompt or "")[:20000], params=_plain(params or {}),
-            credits_planned=max(0, int(credits_planned or 0)),
-            session=session, scene_id=scene_id, ip=_valid_ip(ip),
-            stages=[{"at": timezone.now().isoformat(timespec="seconds"),
-                     "stage": "started", "note": ""}],
-        )
+        # Savepoint обязателен: start зовут внутри транзакции запроса
+        # (ATOMIC_REQUESTS) и внутри atomic вызывающего. Без него упавшая
+        # вставка помечает всю внешнюю транзакцию «к откату» (на Postgres —
+        # «current transaction is aborted»), и следующий же запрос генерации
+        # падает — журнал, который не должен ронять генерацию, ронял её.
+        with transaction.atomic():
+            row = GenerationLog.objects.create(
+                user=user if getattr(user, "pk", None) else None,
+                kind=kind, source=source, provider=provider, model=str(model or "")[:120],
+                prompt=str(prompt or "")[:20000], params=_plain(params or {}),
+                credits_planned=max(0, int(credits_planned or 0)),
+                session=session, scene_id=scene_id, ip=_valid_ip(ip),
+                stages=[{"at": timezone.now().isoformat(timespec="seconds"),
+                         "stage": "started", "note": ""}],
+            )
         return Entry(row)
     except Exception:
         logger.exception("журнал генераций: запись не создалась")

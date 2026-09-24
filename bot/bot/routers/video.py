@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+import weakref
 
 from aiogram import Bot, F, Router
 from aiogram.enums import ChatAction
@@ -41,6 +42,22 @@ POLL_MAX_SECONDS = 15 * 60
 NOTIFY_GRACE = 20
 NOTIFY_ATTEMPTS = 9
 NOTIFY_CONFIRM = 4
+
+# Telegram режет текст длиннее 4096 символов на несколько сообщений, и части
+# приходят отдельными апдейтами почти одновременно. Раньше первая часть
+# становилась промптом и закрывала шаг, а остальные уходили в текстовый чат
+# (платный ответ модели) — ролик снимался по обрывку сценария. Теперь части
+# копятся в данных FSM (Redis) и склеиваются, когда PROMPT_MERGE_WINDOW секунд
+# не приходит новых.
+PROMPT_MERGE_WINDOW = 1.5
+# Буфер, к которому давно не приходило частей, осиротел: бот перезапустился
+# посреди окна. К новому промпту его не приклеиваем — вышел бы дубль текста.
+# Запас над окном — на ожидание замка и Redis у склейки, которая вот-вот сработает.
+PROMPT_BUFFER_STALE = 10
+PROMPT_BUFFER_KEY = "vid_prompt_parts"
+# Длинную подпись к фото клиент Telegram обрезает молча: 1024 символа, у
+# Premium — 2048. Подпись ровно такой длины почти наверняка обрывок.
+CAPTION_LIMITS = (1024, 2048)
 
 register_texts({
     "ru": {
@@ -82,6 +99,8 @@ register_texts({
         "vid_timeout": "Генерация затянулась. Как только ролик будет готов, он придёт сюда.",
         "vid_watch_offline": "🎬 Ролик придёт сюда сообщением, как только будет готов.",
         "vid_uploading": "⬆️ Загружаю кадр…",
+        "vid_caption_cut": ("Подпись к фото ограничена {limit} символами — пришлите текст "
+                            "отдельным сообщением. Фото уже стоит первым кадром."),
     },
     "en": {
         "vid_pick_model": "🎬 <b>Video</b>\nPick a model:",
@@ -122,6 +141,9 @@ register_texts({
         "vid_timeout": "Generation is taking long. The clip will arrive here once ready.",
         "vid_watch_offline": "🎬 The clip will arrive here as soon as it is ready.",
         "vid_uploading": "⬆️ Uploading the frame…",
+        "vid_caption_cut": ("Photo captions are limited to {limit} characters — please send "
+                            "the text as a separate message. The photo is already set as the "
+                            "first frame."),
     },
     "kg": {
         "vid_pick_model": "🎬 <b>Видео</b>\nМоделди тандаңыз:",
@@ -161,6 +183,8 @@ register_texts({
         "vid_timeout": "Жаратуу узакка созулду. Даяр болгондо ролик ушул жерге келет.",
         "vid_watch_offline": "🎬 Ролик даяр болгондо ушул жерге билдирүү менен келет.",
         "vid_uploading": "⬆️ Кадрды жүктөп жатам…",
+        "vid_caption_cut": ("Сүрөттүн жазуусу {limit} белги менен чектелген — текстти өзүнчө "
+                            "билдирүү менен жөнөтүңүз. Сүрөт биринчи кадр болуп калды."),
     },
 })
 
@@ -306,6 +330,66 @@ async def pick_model(call: CallbackQuery, token: str, lang: str, state: FSMConte
                                 price=_price_label(chosen)), parse_mode="HTML")
 
 
+# Замки склейки промпта по (чат, человек). Апдейты aiogram обрабатывает
+# параллельными задачами в одном процессе (опрос держит ровно один экземпляр,
+# см. hold_lock), а данные FSM читаются и пишутся за два похода в Redis — без
+# замка две части, пришедшие вместе, перетёрли бы друг друга. Слабые ссылки:
+# замок живёт, пока его кто-то держит или ждёт.
+_prompt_locks: "weakref.WeakValueDictionary[tuple[int, int], asyncio.Lock]" = (
+    weakref.WeakValueDictionary())
+
+
+def _prompt_lock(key: tuple[int, int]) -> asyncio.Lock:
+    lock = _prompt_locks.get(key)
+    if lock is None:
+        lock = asyncio.Lock()
+        _prompt_locks[key] = lock
+    return lock
+
+
+def _author_key(message: Message) -> tuple[int, int]:
+    user = getattr(message, "from_user", None)
+    return message.chat.id, int(getattr(user, "id", 0) or 0)
+
+
+_SENTENCE_END = (".", "!", "?", "…", ":", ";", "»", '"', ")")
+
+
+def _join_parts(parts: list) -> str:
+    """Склеить части по порядку сообщений.
+
+    Telegram режет по пробелу или переносу и срезает его по краям частей.
+    После конца фразы ставим перенос (скорее всего там был абзац), иначе —
+    пробел, чтобы слова на стыке не слиплись.
+    """
+    by_id: dict[int, str] = {}
+    for item in parts or []:
+        try:
+            by_id[int(item[0])] = str(item[1] or "")
+        except (TypeError, ValueError, IndexError):
+            continue
+    out = ""
+    for _, text in sorted(by_id.items()):
+        text = text.strip()
+        if not text:
+            continue
+        if out:
+            out += ("\n" if out.endswith(_SENTENCE_END) else " ")
+        out += text
+    return out
+
+
+def _caption_cut(caption: str | None) -> int:
+    """Предел, по которому Telegram обрезал подпись, или 0.
+
+    Длину считаем и в символах, и в единицах UTF-16 (так Telegram меряет
+    тексты): иначе подпись с эмодзи проскочила бы проверку.
+    """
+    raw = caption or ""
+    lengths = {len(raw), len(raw.encode("utf-16-le")) // 2}
+    return next((limit for limit in CAPTION_LIMITS if limit in lengths), 0)
+
+
 @router.message(VideoWizard.prompt, F.text & ~F.text.startswith("/"))
 async def got_prompt(message: Message, token: str, lang: str, state: FSMContext) -> None:
     from bot.keyboards.common import MENU_ACTIONS
@@ -313,11 +397,47 @@ async def got_prompt(message: Message, token: str, lang: str, state: FSMContext)
     if message.text in MENU_ACTIONS:
         await state.clear()
         return
-    await state.clear()
+    key = _author_key(message)
+    now = time.time()
+    async with _prompt_lock(key):
+        if await state.get_state() != VideoWizard.prompt.state:
+            # Соседняя часть уже закрыла окно, или человек ушёл командой, пока
+            # это сообщение ждало замка.
+            logger.info("видео %s: часть промпта опоздала к склейке", key[0])
+            return
+        buffer = (await state.get_data()).get(PROMPT_BUFFER_KEY) or {}
+        parts = list(buffer.get("parts") or [])
+        if parts and now - float(buffer.get("at") or 0) > PROMPT_BUFFER_STALE:
+            logger.warning("видео %s: брошенный буфер промпта (%s частей) пропущен",
+                           key[0], len(parts))
+            parts = []
+        # Повтор того же апдейта (AuthMiddleware после 401) не дублирует текст.
+        parts = [p for p in parts if p and p[0] != message.message_id]
+        parts.append([message.message_id, message.text])
+        seq = int(buffer.get("seq") or 0) + 1
+        await state.update_data(**{PROMPT_BUFFER_KEY: {"parts": parts, "seq": seq, "at": now}})
+
+    # Ждём прямо в обработчике: aiogram ведёт каждый апдейт своей задачей, так
+    # что соседние части в это время обрабатываются, а ошибки показа карточки
+    # остаются под ErrorsMiddleware.
+    await asyncio.sleep(PROMPT_MERGE_WINDOW)
+
     chat_id = message.chat.id
-    draft = await _draft(chat_id)
-    draft["prompt"] = message.text.strip()
-    await _save(chat_id, draft)
+    # Черновик правим под тем же замком, что и got_photo: иначе кадр, который
+    # догружался вместе с текстом, мог затереться склейкой (и наоборот).
+    async with _prompt_lock(key):
+        if await state.get_state() != VideoWizard.prompt.state:
+            return  # человек ушёл командой или меню — промпт больше не нужен
+        buffer = (await state.get_data()).get(PROMPT_BUFFER_KEY) or {}
+        if int(buffer.get("seq") or 0) != seq:
+            return  # после нас пришла ещё часть — склеит её обработчик
+        prompt = _join_parts(buffer.get("parts") or [])
+        if not prompt:
+            return
+        await state.clear()
+        draft = await _draft(chat_id)
+        draft["prompt"] = prompt
+        await _save(chat_id, draft)
     await _show_card(message, token, lang, chat_id, draft)
 
 
@@ -334,16 +454,31 @@ async def got_photo(message: Message, token: str, lang: str, state: FSMContext) 
     attachment = await _upload(message, token, lang, "frame.jpg", content, "image/jpeg")
     if attachment is None:
         return
-    draft = await _draft(chat_id)
-    draft["first_frame"] = attachment
-    caption = (message.caption or "").strip()
-    if caption:
-        draft["prompt"] = caption
-        await state.clear()
+    # Подпись ровно по пределу Telegram — обрывок: ролик по нему был бы
+    # оплачен за не то. Кадр принимаем, шаг промпта оставляем открытым —
+    # следующий текст станет промптом.
+    cut = _caption_cut(message.caption)
+    caption = "" if cut else (message.caption or "").strip()
+    async with _prompt_lock(_author_key(message)):
+        draft = await _draft(chat_id)
+        draft["first_frame"] = attachment
+        if caption:
+            draft["prompt"] = caption
+            await state.clear()
         await _save(chat_id, draft)
+        text_pending = bool((await state.get_data()).get(PROMPT_BUFFER_KEY))
+        # Текст, отправленный вместе с фото, склеился, пока фото загружалось:
+        # его карточка ушла без кадра.
+        merged_meanwhile = (not caption and bool(draft.get("prompt"))
+                            and await state.get_state() != VideoWizard.prompt.state)
+    if cut:
+        await message.answer(t(lang, "vid_caption_cut", limit=cut))
+        return
+    if caption or merged_meanwhile:
         await _show_card(message, token, lang, chat_id, draft)
         return
-    await _save(chat_id, draft)
+    if text_pending:
+        return  # текст ещё копится — карточку с кадром покажет склейка
     await message.answer(t(lang, "vid_ask_prompt", model=esc(draft.get("model_name", "")),
                            price=""), parse_mode="HTML")
 
