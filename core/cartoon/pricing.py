@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import logging
 
+from django.conf import settings
+
 logger = logging.getLogger(__name__)
 
 
@@ -30,16 +32,46 @@ def effective_duration(video_model, want_duration: int) -> int:
         return want
 
 
-def video_credits(video_model, want_duration: int, resolution: str = "720p") -> int:
+# Цена сцены в админке задаётся для обычной пятисекундной сцены: так её видит
+# человек на карточке («200 кр · 5 с»). Сцены другой длины — пропорционально.
+STUDIO_SCENE_SECONDS = 5
+
+
+class _Rate:
+    """Видео-модель с тарифом студии вместо тарифа из каталога моделей."""
+
+    def __init__(self, model, per_second: float):
+        self.openrouter_id = getattr(model, "openrouter_id", "") or ""
+        self.markup_coefficient = per_second
+
+
+def studio_scene_price() -> int:
+    """Цена сцены мультфильма (5 с) из админки; 0 — считать по тарифу модели.
+
+    Просьба владельца продукта: сцена 164 → 200 кредитов. Тариф Seedance в каталоге
+    трогать нельзя — он же цена видео в чате, — поэтому у студии своя цена.
+    """
+    default = int(getattr(settings, "STUDIO_SCENE_CREDITS", 0) or 0)
+    try:
+        from adminapi.runtime import get_runtime
+
+        return max(0, int(get_runtime("studio_scene_credits", default)))
+    except Exception:
+        return max(0, default)
+
+
+def video_credits(video_model, want_duration: int, resolution: str = "720p",
+                  per_second: float | None = None) -> int:
     """Во сколько обойдётся видео-часть сцены.
 
-    Тариф модели, но не ниже себестоимости у провайдера плюс маржа — та же
-    граница, что у видео в чате (ai/video_cost.py). Сейчас студия снимает в
-    720p, где тариф её и так покрывает; граница — страховка на случай, если в
-    админке поставят другую модель, разрешение или слишком низкую цену.
+    Тариф модели (или тариф студии per_second), но не ниже себестоимости у
+    провайдера плюс маржа — та же граница, что у видео в чате (ai/video_cost.py).
+    Граница — страховка на случай, если в админке поставят другую модель,
+    разрешение или слишком низкую цену.
     """
     seconds = effective_duration(video_model, want_duration)
-    base = max(1, round(seconds * float(getattr(video_model, "markup_coefficient", 1) or 1)))
+    rate = float(per_second) if per_second is not None else         float(getattr(video_model, "markup_coefficient", 1) or 1)
+    base = max(1, round(seconds * rate))
     model_id = getattr(video_model, "openrouter_id", "") or ""
     if not model_id:
         return base
@@ -52,7 +84,8 @@ def video_credits(video_model, want_duration: int, resolution: str = "720p") -> 
         # у модели, умеющей только 720p, стоил бы как 1080p.
         snapped = _video_model_params(model_id, _openrouter_config(), seconds,
                                       resolution or "720p").get("resolution") or resolution or "720p"
-        return max(base, cost_floor(video_model, _openrouter_video_catalog(model_id),
+        priced = video_model if per_second is None else _Rate(video_model, rate)
+        return max(base, cost_floor(priced, _openrouter_video_catalog(model_id),
                                     str(snapped), seconds))
     except Exception:
         logger.exception("цена сцены: себестоимость модели %s не посчиталась", model_id)
@@ -73,8 +106,13 @@ def scene_video_credits(preset) -> int:
     override = getattr(preset, "credits_override", None)
     if override:
         return max(1, int(override) - frame_credits(preset.image_model))
-    return video_credits(preset.video_model, preset.duration,
-                         getattr(preset, "resolution", "") or "720p")
+    resolution = getattr(preset, "resolution", "") or "720p"
+    scene_price = studio_scene_price()
+    if scene_price:
+        # Цена сцены из админки: видео = цена − кадр, за пять секунд.
+        per_second = max(0.0, scene_price - frame_credits(preset.image_model)) / STUDIO_SCENE_SECONDS
+        return video_credits(preset.video_model, preset.duration, resolution, per_second=per_second)
+    return video_credits(preset.video_model, preset.duration, resolution)
 
 
 def scene_credits(preset, *, keyframe_ready: bool = False) -> int:

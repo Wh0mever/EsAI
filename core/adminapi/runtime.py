@@ -68,6 +68,8 @@ KEYS = (
     "vstudio_mode",
     # Студия: сколько бесплатных примерок героя гости получают за сутки.
     "studio_guest_tryon_daily_cap",
+    # Студия: цена сцены мультфильма (5 с) в кредитах; 0 — по тарифу модели.
+    "studio_scene_credits",
     # Звук студии: ключ ElevenLabs и цены.
     "ELEVENLABS_API_KEY",
     "studio_voice_credits_per_1k",
