@@ -274,7 +274,11 @@ def render_scene(self, scene_id: int) -> dict:
             scene.mixed_video = ""
             scene.save(update_fields=["video", "last_frame", "mixed_video", "credits_spent",
                                       "status", "error", "updated_at"])
-        entry.delivered(credits=video_price, result_url=scene.video)
+        # Адрес, а не путь к файлу: из админки «результат» открывался как
+        # /admin-new/cartoon/scenes/<файл>.mp4 и давал 404.
+        from django.core.files.storage import default_storage as _storage
+
+        entry.delivered(credits=video_price, result_url=_storage.url(scene.video))
         _video_entry_closed = True
         # Звук, набранный до съёмки, накладывается сам (клиент: «в итоге всё
         # автоматически объединяется»). Сбой сведения не портит снятую сцену.
