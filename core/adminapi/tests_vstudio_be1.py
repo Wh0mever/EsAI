@@ -117,3 +117,16 @@ class SummarySpendTests(_StaffCall, TestCase):
         self.assertEqual(data["credits_spent_vstudio_today"], 42)
         self.assertEqual(data["requests_total"], 3)
         self.assertEqual(data["requests_today"], 3)
+
+
+class ResultUrlTests(TestCase):
+    """«Результат» из журнала открывается: путь файла превращается в адрес /media/."""
+
+    def test_storage_path_becomes_media_url(self):
+        from adminapi.generations import _media_url
+
+        self.assertTrue(_media_url("cartoon/scenes/abc.mp4").endswith("/media/cartoon/scenes/abc.mp4"))
+        self.assertTrue(_media_url("cartoon/scenes/abc.mp4").startswith("/"))
+        self.assertEqual(_media_url("/media/ai_videos/x.mp4"), "/media/ai_videos/x.mp4")
+        self.assertEqual(_media_url("https://esai.kg/media/x.mp4"), "https://esai.kg/media/x.mp4")
+        self.assertEqual(_media_url(""), "")

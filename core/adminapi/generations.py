@@ -21,6 +21,23 @@ from ai.models import GenerationLog
 
 from .views import StaffAPIView, _paginate
 
+
+def _media_url(value: str) -> str:
+    """Ссылка на результат, которую можно открыть из админки.
+
+    Мультстудия до 25.09 писала в журнал путь к файлу («cartoon/scenes/x.mp4»),
+    и браузер открывал его относительно страницы админки — 404.
+    """
+    value = str(value or "")
+    if not value or value.startswith(("http://", "https://", "/")):
+        return value
+    from django.core.files.storage import default_storage
+
+    try:
+        return default_storage.url(value)
+    except Exception:
+        return value
+
 _TAKE_UID = re.compile(r"^[0-9a-f]{32}$")
 
 
@@ -71,7 +88,7 @@ def _row(g: GenerationLog) -> dict:
         "credits_planned": g.credits_planned,
         "credits_charged": g.credits_charged,
         "provider_cost_usd": str(g.provider_cost_usd) if g.provider_cost_usd is not None else None,
-        "result_url": g.result_url,
+        "result_url": _media_url(g.result_url),
         "error": g.error,
         "stages": g.stages or [],
         "ip": g.ip,
