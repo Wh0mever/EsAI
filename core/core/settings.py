@@ -60,6 +60,10 @@ STUDIO_VOICE_CREDITS_PER_1K = env.int("STUDIO_VOICE_CREDITS_PER_1K", default=20)
 STUDIO_VOICE_MIN_CREDITS = env.int("STUDIO_VOICE_MIN_CREDITS", default=5)
 STUDIO_MUSIC_CREDITS_PER_MIN = env.int("STUDIO_MUSIC_CREDITS_PER_MIN", default=30)
 STUDIO_SFX_CREDITS = env.int("STUDIO_SFX_CREDITS", default=10)
+# Цена сцены мультфильма (5 с), кредитов; 0 — кадр + видео по тарифу модели.
+# Правится в админке (studio_scene_credits); тариф модели — это ещё и цена видео
+# в чате, поэтому у студии своя цена.
+STUDIO_SCENE_CREDITS = env.int("STUDIO_SCENE_CREDITS", default=0)
 
 # --- Telegram-бот -------------------------------------------------------
 # Токен ТОВАРНОГО бота (не того, через который вход на сайте): у него свой

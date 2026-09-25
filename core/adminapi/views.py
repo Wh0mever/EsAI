@@ -491,6 +491,9 @@ def _settings_snapshot() -> dict:
     snapshot["studio_voice_min_credits"] = _audio_prices["voice_min"]
     snapshot["studio_music_credits_per_min"] = _audio_prices["music_per_min"]
     snapshot["studio_sfx_credits"] = _audio_prices["sfx"]
+    from cartoon.pricing import studio_scene_price as _studio_scene_price
+
+    snapshot["studio_scene_credits"] = _studio_scene_price()
     snapshot["nowpayments_key_masked"] = _mask_key(_crypto_registry.api_key())
     snapshot["nowpayments_ipn_secret_masked"] = _mask_key(_crypto_registry.ipn_secret())
     snapshot["nowpayments_sandbox"] = bool(getattr(settings, "NOWPAYMENTS_SANDBOX", False))
@@ -701,9 +704,10 @@ class SettingsView(StaffAPIView):
                 )
             set_runtime("crypto_payments_mode", mode)
 
-        # Звук студии: цены — целые неотрицательные.
+        # Звук и сцены студии: цены — целые неотрицательные (0 у сцены — по тарифу модели).
         for field in ("studio_voice_credits_per_1k", "studio_voice_min_credits",
-                      "studio_music_credits_per_min", "studio_sfx_credits"):
+                      "studio_music_credits_per_min", "studio_sfx_credits",
+                      "studio_scene_credits"):
             if field not in data:
                 continue
             try:

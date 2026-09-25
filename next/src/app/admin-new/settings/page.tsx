@@ -51,6 +51,7 @@ type Settings = {
   studio_voice_min_credits?: number;
   studio_music_credits_per_min?: number;
   studio_sfx_credits?: number;
+  studio_scene_credits?: number;
   /** курс, по которому реально выставляется криптосчёт */
   currency_kgs_to_usd_rate: number;
   /** зафиксированный админом вручную (0 — не задан, берётся живой) */
@@ -164,13 +165,17 @@ type AudioPriceKey =
   | "studio_voice_credits_per_1k"
   | "studio_voice_min_credits"
   | "studio_music_credits_per_min"
-  | "studio_sfx_credits";
+  | "studio_sfx_credits"
+  | "studio_scene_credits";
 
 const AUDIO_PRICES: { key: AudioPriceKey; label: string }[] = [
   { key: "studio_voice_credits_per_1k", label: "Озвучка: кредитов за 1000 символов" },
   { key: "studio_voice_min_credits", label: "Озвучка: минимум за генерацию" },
   { key: "studio_music_credits_per_min", label: "Музыка: кредитов за минуту" },
   { key: "studio_sfx_credits", label: "Звуковой эффект: кредитов" },
+  // Цена сцены (5 с) целиком — кадр + видео; 0 — по тарифу видеомодели
+  // (он же цена видео в чате, поэтому у мультфильмов своя цена).
+  { key: "studio_scene_credits", label: "Мультфильм: цена сцены 5 с (0 — по тарифу модели)" },
 ];
 
 function SavedFlash() {
@@ -236,6 +241,7 @@ export default function AdminSettingsPage() {
     studio_voice_min_credits: "",
     studio_music_credits_per_min: "",
     studio_sfx_credits: "",
+    studio_scene_credits: "",
   });
   const [audioSaving, setAudioSaving] = useState(false);
   const [audioError, setAudioError] = useState<string | null>(null);
@@ -278,6 +284,7 @@ export default function AdminSettingsPage() {
       studio_voice_min_credits: String(s.studio_voice_min_credits ?? 5),
       studio_music_credits_per_min: String(s.studio_music_credits_per_min ?? 30),
       studio_sfx_credits: String(s.studio_sfx_credits ?? 10),
+      studio_scene_credits: String(s.studio_scene_credits ?? 0),
     });
   };
 
