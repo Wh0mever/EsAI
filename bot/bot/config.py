@@ -37,6 +37,9 @@ class Settings(BaseSettings):
 
     # --- Поведение ---
     default_model: str = Field("google/gemini-2.5-flash", alias="BOT_DEFAULT_MODEL")
+    # Живой человек для случаев, когда бот молчит или аккаунт закрыт: кнопка
+    # «Написать» появляется только если адрес задан (SUPPORT_URL=https://t.me/...).
+    support_url: str = Field("", alias="SUPPORT_URL")
     log_level: str = Field("INFO", alias="BOT_LOG_LEVEL")
     log_file: str = Field("/app/logs/bot.log", alias="BOT_LOG_FILE")
     alive_file: str = Field("/tmp/bot.alive", alias="BOT_ALIVE_FILE")

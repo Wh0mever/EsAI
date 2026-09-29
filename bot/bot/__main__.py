@@ -36,6 +36,7 @@ from bot.routers import profile as profile_router
 from bot.routers import start as start_router
 from bot.routers import studio as studio_router
 from bot.routers import video as video_router
+from bot.profile_texts import set_profile_texts
 from bot.services.api import ApiError, api
 from bot.services.state import store
 
@@ -297,6 +298,7 @@ async def main() -> int:
     logger.info("бот @%s запущен, режим доступа: %s, режим: %s",
                 me.username, settings.access, settings.mode)
     await set_commands(bot)
+    await set_profile_texts(bot)
 
     try:
         if (settings.mode or "polling").lower() == "webhook":
