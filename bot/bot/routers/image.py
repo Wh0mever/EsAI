@@ -36,6 +36,8 @@ logger = logging.getLogger(__name__)
 router = Router(name="image")
 
 ASPECT_RATIOS = ["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "4:5"]
+# Свой чат для картинок: рисунки не должны попадать в текстовую переписку.
+IMAGE_SESSION = "img_session"
 DEFAULT_EDIT_MODEL = "google/gemini-2.5-flash-image"
 
 # Оригинал качаем сами (см. download_original). Больше 50 МБ Telegram документом
@@ -343,7 +345,10 @@ def wizard_prompt(lang: str, prompt: str, *, editing: bool) -> str:
 
 async def _generate(message: Message, token: str, lang: str, draft: dict) -> None:
     telegram_id = message.chat.id
-    extra = {}
+    # stateless: сервер шлёт модели только этот запрос — без переписки и памяти.
+    # Иначе Nano Banana брал за «Самарканд» 12 кредитов вместо ≈6 с карточки:
+    # входные токены с историей входят в списание.
+    extra = {"stateless": True}
     if draft.get("ar"):
         extra["aspect_ratio"] = draft["ar"]
     attachments = [draft["attachment"]] if draft.get("attachment") else None
@@ -351,7 +356,8 @@ async def _generate(message: Message, token: str, lang: str, draft: dict) -> Non
     done = await run_chat(message, token, lang, text,
                           attachments=attachments, model=draft.get("model") or DEFAULT_EDIT_MODEL,
                           extra=extra, placeholder=t(lang, "drawing"),
-                          result_markup=result_keyboard(lang), remember_prompt=False)
+                          result_markup=result_keyboard(lang), remember_prompt=False,
+                          session_key=IMAGE_SESSION)
     if not done:
         # Отказ (пейвол, сбой) — черновик оставляем: с ним человек повторит попытку.
         return
