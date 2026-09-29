@@ -1,4 +1,4 @@
-﻿import json
+import json
 import logging
 import math
 import os
@@ -262,8 +262,51 @@ def _flux_generate_image(
     return atts, provider_cost
 
 
-def _save_generated_images(images) -> List[dict]:
+def _conform_ratio(raw: bytes, ratio: str | None, tolerance: float = 0.06):
+    """Привести кадр к запрошенной пропорции. Возвращает (байты, обрезали_ли).
+
+    Модели картинок пропорцию не гарантируют: попросили 16:9 — пришёл квадрат.
+    Человеку важен результат, а не оправдания модели, поэтому кадр, который
+    заметно отличается от запрошенного, обрезаем по центру. Кадр, попавший в
+    допуск, не трогаем вовсе — перекодирование ухудшило бы картинку зря.
+    """
+    if not ratio or ":" not in str(ratio):
+        return raw, False
+    try:
+        a, b = (float(x) for x in str(ratio).split(":", 1))
+        target = a / b
+        from io import BytesIO
+
+        from PIL import Image
+
+        with Image.open(BytesIO(raw)) as img:
+            width, height = img.size
+            if width < 8 or height < 8:
+                return raw, False
+            current = width / height
+            if abs(current - target) / target <= tolerance:
+                return raw, False
+            if current > target:  # шире нужного — режем бока
+                new_w, new_h = max(1, round(height * target)), height
+            else:  # выше нужного — режем верх и низ
+                new_w, new_h = width, max(1, round(width / target))
+            left, top = (width - new_w) // 2, (height - new_h) // 2
+            fmt = (img.format or "PNG").upper()
+            out = BytesIO()
+            img.crop((left, top, left + new_w, top + new_h)).save(
+                out, format=fmt if fmt in ("PNG", "JPEG", "WEBP") else "PNG")
+            return out.getvalue(), True
+    except Exception:
+        logger.exception("ratio conform failed (ratio=%s)", ratio)
+        return raw, False
+
+
+def _save_generated_images(images, aspect_ratio: str | None = None) -> List[dict]:
     """Сохранить сгенерированные картинки из ответа OpenRouter в MEDIA.
+
+    aspect_ratio — пропорция, которую просил человек: если модель её не
+    соблюла, кадр подрезается (см. _conform_ratio) и в лог пишется предупреждение,
+    чтобы было видно, что параметр модели не сработал.
 
     OpenRouter отдаёт message.images = [{type:'image_url', image_url:{url:
     'data:image/png;base64,...'}}]. Декодируем base64 → default_storage (тот же
@@ -295,6 +338,9 @@ def _save_generated_images(images) -> List[dict]:
                 elif "image/webp" in header:
                     ext = "webp"
                 raw = base64.b64decode(b64)
+                raw, cropped = _conform_ratio(raw, aspect_ratio)
+                if cropped:
+                    logger.warning("image ratio ignored by model, cropped to %s", aspect_ratio)
                 path = default_storage.save(
                     f"ai_images/{_uuid.uuid4().hex}.{ext}", ContentFile(raw)
                 )
@@ -946,7 +992,7 @@ def _select_recent_window(rows: list, budget: int) -> list:
     return kept
 
 
-def _build_openai_messages(session: AiChatSession, new_user_text: str, system_prompt: str, origin_base: str | None = None, supports_vision: bool = True, max_history_images: int | None = None) -> List[dict]:
+def _build_openai_messages(session: AiChatSession, new_user_text: str, system_prompt: str, origin_base: str | None = None, supports_vision: bool = True, max_history_images: int | None = None, only_last: bool = False) -> List[dict]:
     """Build messages for Chat Completions, supporting image attachments.
 
     If a message has attachments with type "image" and a URL, we include them via
@@ -969,6 +1015,10 @@ def _build_openai_messages(session: AiChatSession, new_user_text: str, system_pr
     дописка с пропорциями кадра («Aspect ratio: 9:16») до Nano Banana не доходила.
     Если последний ряд окна — это сообщение пользователя, а new_user_text его
     продолжает, в модель уходит new_user_text.
+
+    only_last — отправить модели ТОЛЬКО последнее сообщение, без истории и
+    резюме. Нужен запросам «нарисуй»: картинке не нужна переписка, а с ней
+    цена запроса росла вдвое (входные токены считаются в списание).
 
     Тексты документов подмешиваются в каждое сообщение окна, но в СУММЕ не
     больше DOCUMENT_CONTEXT_REQUEST_MAX_CHARS: бюджет раздаётся от свежих
@@ -995,13 +1045,15 @@ def _build_openai_messages(session: AiChatSession, new_user_text: str, system_pr
         tail_qs = tail_qs.filter(id__gt=upto_id)
     recent_rows = list(tail_qs[:max_rows])[::-1]
     kept = _select_recent_window(recent_rows, budget)
+    if only_last:
+        kept = kept[-1:]
 
     out: List[dict] = [{"role": "system", "content": system_prompt}]
 
     # Резюме старой части — отдельным system-блоком ПОСЛЕ основного промпта.
     # Компактное (≤ CONTEXT_SUMMARY_MAX_CHARS), учитывается в биллинге как часть
     # промпта, но заменяет потенциально огромную историю → на длинных чатах дешевле.
-    summary = (getattr(session, "context_summary", "") or "").strip()
+    summary = "" if only_last else (getattr(session, "context_summary", "") or "").strip()
     if summary:
         out.append({"role": "system", "content": CONTEXT_SUMMARY_PREFIX + summary})
 
@@ -1460,6 +1512,7 @@ def _call_chat_completions_with_fallback(
     allow_temperature: bool,
     requested_temperature: Optional[float],
     top_p: Optional[float] = None,
+    image_config: Optional[dict] = None,
 ) -> Tuple[Any, str]:
     """
     Try Chat Completions:
@@ -1476,6 +1529,9 @@ def _call_chat_completions_with_fallback(
     # ограничиваем вывод — изображение ~1300 output-токенов, cap 1000 его обрежет.
     if _is_image_gen_model(model_name):
         base["extra_body"] = {"modalities": ["image", "text"]}
+        if image_config:
+            # Пропорция — параметром модели: дописка в тексте ею игнорировалась.
+            base["extra_body"]["image_config"] = image_config
         max_tokens_limit = None
 
     # Temperature: add only if allowed/requested
@@ -2165,7 +2221,8 @@ def _stream_chat_completion(client: OpenAI, model_name: str, messages: List[dict
                             max_tokens_limit: Optional[int], allow_temperature: bool,
                             requested_temperature: Optional[float],
                             top_p: Optional[float] = None,
-                            char_limit: Optional[int] = None):
+                            char_limit: Optional[int] = None,
+                            image_config: Optional[dict] = None):
     """Генератор: стримит Chat Completions OpenRouter и выдаёт промежуточные кадры.
 
     Yields tuples:
@@ -2204,6 +2261,8 @@ def _stream_chat_completion(client: OpenAI, model_name: str, messages: List[dict
     # изображение ~1300 output-токенов, обычный cap 1000 его обрежет.
     if _is_image_gen_model(model_name):
         params["extra_body"] = {"modalities": ["image", "text"]}
+        if image_config:
+            params["extra_body"]["image_config"] = image_config
         params.pop("max_tokens", None)
 
     full_text_parts: List[str] = []
@@ -2648,14 +2707,20 @@ def _authed_chat_stream(request):
         req_first_frame = (request.data.get("video_first_frame") or "").strip() or None
         req_last_frame = (request.data.get("video_last_frame") or "").strip() or None
 
+        # «Без контекста» (мастер картинок в боте): запрос рисует одну картинку и
+        # не должен тащить ни переписку, ни память человека. Действует только на
+        # image-моделях: для текстовых история — это и есть смысл диалога.
+        _stateless = _truthy(request.data.get("stateless")) and _is_image_gen_model(selected_model_name)
+
         # Память пользователя: сначала обработать явные команды «запомни/забудь»
         # (мутируют память ДО инъекции), затем подмешать блок фактов в системный
         # промпт. Всё безопасно: get_memory_block вернёт "" при выключенной памяти.
         try:
-            parse_explicit_commands(request.user, message)
-            mem = get_memory_block(request.user)
-            if mem:
-                system_prompt = f"{system_prompt}\n\n{mem}"
+            if not _stateless:
+                parse_explicit_commands(request.user, message)
+                mem = get_memory_block(request.user)
+                if mem:
+                    system_prompt = f"{system_prompt}\n\n{mem}"
         except Exception:
             pass
 
@@ -2719,8 +2784,12 @@ def _authed_chat_stream(request):
             # Для image-моделей ограничиваем число картинок из истории: с
             # десятком прошлых изображений Nano Banana сбивается на пересказ.
             max_history_images=2 if _is_image_gen_model(selected_model_name) else None,
+            only_last=_stateless,
         )
         client = _make_openai_client(provider)
+        # Пропорция для image-моделей — отдельным параметром запроса.
+        _image_config = ({"aspect_ratio": _aspect_for_images}
+                         if (_aspect_for_images and _is_image_gen_model(selected_model_name)) else None)
         # Лимит длины ответа (ТЗ 4.2): free → ограничен, paid → нет.
         limited = not is_paid_tier(request.user)
 
@@ -2927,6 +2996,7 @@ def _authed_chat_stream(request):
                     requested_temperature=req_temperature,
                     top_p=model_top_p if allow_temperature else None,
                     char_limit=char_limit,
+                    image_config=_image_config,
                 )
                 try:
                     for kind, payload in inner:
@@ -2961,7 +3031,7 @@ def _authed_chat_stream(request):
             gen_atts = None
             _gen_imgs = (final or {}).get("images") or []
             if _gen_imgs:
-                gen_atts = _save_generated_images(_gen_imgs) or None
+                gen_atts = _save_generated_images(_gen_imgs, _aspect_for_images) or None
             if not (answer or "").strip() and gen_atts:
                 # Картинка без текста — это успех, а не пустой ответ.
                 answer = "Готово — изображение сгенерировано ✨"
@@ -3527,6 +3597,9 @@ def OpenAIHandler(request):
                     allow_temperature=allow_temperature,
                     requested_temperature=req_temperature,
                     top_p=model_top_p if allow_temperature else None,
+                    image_config=({"aspect_ratio": _aspect_for_images}
+                                  if (_aspect_for_images and _is_image_gen_model(selected_model_name))
+                                  else None),
                 )
                 break
             except Exception as chat_err:
@@ -3561,7 +3634,7 @@ def OpenAIHandler(request):
                 if _imgs is None and hasattr(_msg0, "model_dump"):
                     _imgs = (_msg0.model_dump() or {}).get("images")
                 if _imgs:
-                    gen_atts = _save_generated_images(_imgs) or None
+                    gen_atts = _save_generated_images(_imgs, _aspect_for_images) or None
             except Exception:
                 gen_atts = None
         if not (answer or "").strip() and gen_atts:

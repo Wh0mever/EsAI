@@ -219,11 +219,16 @@ async def run_chat(message: Message, token: str, lang: str, text: str, *,
                    attachments: list | None = None, model: str | None = None,
                    extra: dict | None = None, placeholder: str = "",
                    result_markup: InlineKeyboardMarkup | None = None,
-                   remember_prompt: bool = True) -> dict | None:
+                   remember_prompt: bool = True,
+                   session_key: str = "session") -> dict | None:
     """Отправить вопрос и показать ответ по мере его появления.
 
     Возвращает кадр done (или None), чтобы мастера картинок могли дорисовать
     свои кнопки, не дублируя логику стрима.
+
+    session_key — под каким ключом в памяти бота лежит чат этого режима. У
+    картинок и видео он свой: иначе рисунки попадали в текстовую переписку и
+    раздували её, а каждый следующий вопрос дорожал.
     """
     telegram_id = message.chat.id if message.chat else message.from_user.id
     user_id = message.from_user.id if not message.from_user.is_bot else telegram_id
@@ -238,7 +243,7 @@ async def run_chat(message: Message, token: str, lang: str, text: str, *,
     renderer = StreamRenderer(message, placeholder=placeholder or t(lang, "thinking"))
 
     model = model or await store.get(user_id, "model") or settings.default_model
-    session_id = await store.get(user_id, "session")
+    session_id = await store.get(user_id, session_key)
     body = {
         "message": text,
         "model": model,
@@ -288,7 +293,7 @@ async def run_chat(message: Message, token: str, lang: str, text: str, *,
             # генерации, поэтому повтор не может списать дважды.
             logger.info("чат: сессия %s пропала, начинаю новую для %s",
                         body.get("session_id"), user_id)
-            await store.drop(user_id, "session")
+            await store.drop(user_id, session_key)
             body.pop("session_id", None)
             sources, reasoning, done = [], "", {}
             await pump()
@@ -324,7 +329,7 @@ async def run_chat(message: Message, token: str, lang: str, text: str, *,
 
     session = done.get("session") or {}
     if session.get("id"):
-        await store.set(user_id, "session", session["id"])
+        await store.set(user_id, session_key, session["id"])
 
     # Всё, что понадобится кнопкам, кладём дважды: под ключом ЭТОГО ответа (по
     # нему работают новые кнопки) и под старым общим — чтобы кнопки, которые
