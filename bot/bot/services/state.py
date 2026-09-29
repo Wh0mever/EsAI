@@ -102,6 +102,40 @@ class Store:
                 continue
         return out
 
+    async def claim_pending(self, name: str, limit: int = 50) -> list[dict]:
+        """Взять элементы очереди В РАБОТУ, не теряя их при падении процесса.
+
+        pop_pending выбрасывал пачку сразу: убьют процесс на полпути — оплаты
+        пропали. Здесь элемент переезжает в рабочий список и живёт там, пока
+        его не подтвердят (ack_pending); забытые возвращает restore_pending.
+        """
+        out: list[dict] = []
+        for _ in range(limit):
+            raw = await self._redis.rpoplpush(f"bot:pending:{name}", f"bot:pending:{name}:work")
+            if raw is None:
+                break
+            try:
+                item = json.loads(raw)
+            except ValueError:
+                await self._redis.lrem(f"bot:pending:{name}:work", 1, raw)
+                continue
+            item["_raw"] = raw
+            out.append(item)
+        return out
+
+    async def ack_pending(self, name: str, item: dict) -> None:
+        """Элемент обработан (или окончательно отклонён) — убрать из работы."""
+        raw = item.get("_raw")
+        if raw is not None:
+            await self._redis.lrem(f"bot:pending:{name}:work", 1, raw)
+
+    async def restore_pending(self, name: str) -> int:
+        """Вернуть в очередь то, что взяли и не подтвердили (после падения)."""
+        moved = 0
+        while await self._redis.rpoplpush(f"bot:pending:{name}:work", f"bot:pending:{name}"):
+            moved += 1
+        return moved
+
     async def pending_size(self, name: str) -> int:
         return int(await self._redis.llen(f"bot:pending:{name}") or 0)
 

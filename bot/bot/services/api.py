@@ -36,6 +36,9 @@ STREAM_TIMEOUT = httpx.Timeout(connect=5.0, read=STREAM_SILENCE_LIMIT, write=30.
 INLINE_RETRY_MAX = 2.0
 
 
+_BONUS_CACHE: dict = {}
+
+
 class ApiError(Exception):
     """Ошибка нашего API с разобранной причиной."""
 
@@ -240,6 +243,25 @@ class Api:
         data = await self.request("GET", "/api/plans/packages/value/", token=token, lang=lang,
                                   params={"lang": lang}, **kw)
         return (data or {}).get("packages") or [] if isinstance(data, dict) else []
+
+    async def bonus_settings(self) -> dict:
+        """Размеры бонусов из админки: приветственный и ежедневный.
+
+        Публичный эндпоинт, поэтому идёт без токена; ответ держим в памяти
+        десять минут — числа меняются раз в месяц, а анонимные запросы бота
+        делят один общий лимит по IP.
+        """
+        now = time.monotonic()
+        cached = _BONUS_CACHE.get("value")
+        if cached is not None and now - _BONUS_CACHE.get("at", 0.0) < 600:
+            return cached
+        try:
+            data = await self.request("GET", "/api/plans/bonus-settings/")
+        except Exception:  # noqa: BLE001 — витрина не должна падать из-за бонусов
+            return cached or {}
+        data = data if isinstance(data, dict) else {}
+        _BONUS_CACHE.update(value=data, at=now)
+        return data
 
     async def transactions(self, token: str, **kw) -> list:
         return _list(await self.request("GET", "/api/plans/transactions/", token=token, **kw))
