@@ -7,10 +7,12 @@ import {
   CurrencyRateResponse,
   FALLBACK_KGS_TO_RUB_RATE,
   FALLBACK_KGS_TO_USD_RATE,
+  KgsMethod,
   convertFromKgs,
   formatPrice,
   getInitialCurrency,
   isManualCurrency,
+  parseKgsMethods,
   persistCurrency,
 } from "@/lib/currency";
 
@@ -43,8 +45,8 @@ async function fetchRateOnce(): Promise<CurrencyRateResponse> {
 
   inflightRatePromise = (async () => {
     try {
-      // auth=true: доступность крипты зависит от человека (режим «только
-      // сотрудникам» на время проверки боевых ключей).
+      // auth=true: доступность крипты и выбора способа оплаты в сомах зависит
+      // от человека (режим «только сотрудникам» на время проверки).
       const res = await fetchData<CurrencyRateResponse>("plans/currency-rate/", "GET", null, true);
       if (res.ok && res.data && Number.isFinite(Number(res.data.rate_kgs_to_rub))) {
         cachedRate = {
@@ -53,6 +55,7 @@ async function fetchRateOnce(): Promise<CurrencyRateResponse> {
           rate_kgs_to_usd: Number(res.data.rate_kgs_to_usd) || FALLBACK_KGS_TO_USD_RATE,
           crypto_enabled: Boolean(res.data.crypto_enabled),
           suggested_currency: res.data.suggested_currency === "RUB" ? "RUB" : "KGS",
+          kgs_methods: parseKgsMethods(res.data.kgs_methods),
         };
         return cachedRate;
       }
@@ -68,10 +71,41 @@ async function fetchRateOnce(): Promise<CurrencyRateResponse> {
       rate_kgs_to_usd: FALLBACK_KGS_TO_USD_RATE,
       crypto_enabled: false,
       suggested_currency: "KGS",
+      // Без ответа сервера выбора нет: «Пополнить» ведёт на страницу банка, как раньше.
+      kgs_methods: [],
     };
   })();
 
   return inflightRatePromise;
+}
+
+// Список способов оплаты в сомах живёт в кэше вкладки, а вкладка с чатом —
+// часами. Когда сервер отвечает «способ недоступен», список перечитывают
+// (refreshKgsMethods), и все открытые окна выбора должны узнать новый.
+const kgsMethodsListeners = new Set<(methods: KgsMethod[]) => void>();
+
+function subscribeKgsMethods(listener: (methods: KgsMethod[]) => void): () => void {
+  kgsMethodsListeners.add(listener);
+  return () => {
+    kgsMethodsListeners.delete(listener);
+  };
+}
+
+/**
+ * Перечитать способы оплаты в сомах с сервера, минуя кэш вкладки.
+ *
+ * Зачем: выбор способа могут выключить в админке (или оставить только
+ * сотрудникам), пока у человека открыта вкладка. Без этого окно выбора из
+ * старого кэша предлагало бы кнопки, каждая из которых отвечает отказом, —
+ * и заплатить сомами нельзя было бы до перезагрузки страницы.
+ */
+export async function refreshKgsMethods(): Promise<KgsMethod[]> {
+  cachedRate = null;
+  inflightRatePromise = null;
+  const data = await fetchRateOnce();
+  const methods = data.kgs_methods ?? [];
+  kgsMethodsListeners.forEach((listener) => listener(methods));
+  return methods;
 }
 
 export function useCurrency() {
@@ -83,6 +117,7 @@ export function useCurrency() {
   const [cryptoEnabled, setCryptoEnabled] = useState<boolean>(
     cachedRate?.crypto_enabled ?? false
   );
+  const [kgsMethods, setKgsMethods] = useState<KgsMethod[]>(cachedRate?.kgs_methods ?? []);
   const [rateReady, setRateReady] = useState(cachedRate !== null);
 
   useEffect(() => {
@@ -93,6 +128,7 @@ export function useCurrency() {
       setRate(data.rate_kgs_to_rub);
       setUsdRate(data.rate_kgs_to_usd);
       setCryptoEnabled(data.crypto_enabled);
+      setKgsMethods(data.kgs_methods ?? []);
       setRateReady(true);
 
       // Доллар выбирается только ради крипты. Если способ выключили (или
@@ -110,8 +146,10 @@ export function useCurrency() {
         persistCurrency(data.suggested_currency, false);
       }
     })();
+    const unsubscribe = subscribeKgsMethods(setKgsMethods);
     return () => {
       cancelled = true;
+      unsubscribe();
     };
     // Намеренно один раз при монтировании — currency в зависимостях не нужен
     // (иначе пересчёт суггеста зациклится сам на себя).
@@ -135,5 +173,29 @@ export function useCurrency() {
     [currency, rate, usdRate]
   );
 
-  return { currency, setCurrency, rate, usdRate, cryptoEnabled, rateReady, convert, format };
+  return { currency, setCurrency, rate, usdRate, cryptoEnabled, kgsMethods, rateReady, convert, format };
+}
+
+/**
+ * Только список способов оплаты в сомах — тем, кому валюта приходит сверху
+ * пропсом (TokenPackages). Второй useCurrency() там завёл бы своё состояние
+ * валюты рядом с родительским; запрос при этом общий, из того же кэша вкладки.
+ */
+export function useKgsMethods(): KgsMethod[] {
+  const [kgsMethods, setKgsMethods] = useState<KgsMethod[]>(cachedRate?.kgs_methods ?? []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const data = await fetchRateOnce();
+      if (!cancelled) setKgsMethods(data.kgs_methods ?? []);
+    })();
+    const unsubscribe = subscribeKgsMethods(setKgsMethods);
+    return () => {
+      cancelled = true;
+      unsubscribe();
+    };
+  }, []);
+
+  return kgsMethods;
 }

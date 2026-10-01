@@ -153,13 +153,26 @@ class PaymentAdminSerializer(PaymentShortSerializer):
     """
 
     provider = serializers.CharField(read_only=True)
+    method = serializers.SerializerMethodField()
     pending = serializers.SerializerMethodField()
     crypto = serializers.SerializerMethodField()
     stars = serializers.SerializerMethodField()
 
     class Meta(PaymentShortSerializer.Meta):
         fields = PaymentShortSerializer.Meta.fields + [
-            "description", "error", "provider", "pending", "crypto", "stars"]
+            "description", "error", "provider", "method", "pending", "crypto", "stars"]
+
+    def get_method(self, obj) -> str:
+        """Способ оплаты в сомах, выбранный до ухода на FreedomPay (пусто — не выбирали).
+
+        У крипты и Stars в том же поле запроса лежит «crypto»/«stars» — это уже
+        видно по provider, поэтому отдаём только способы сомовой оплаты.
+        """
+        from payments import kgs_methods
+
+        request = obj.request if isinstance(obj.request, dict) else {}
+        value = str(request.get("pay_method") or "")
+        return value if value in kgs_methods.METHODS else ""
 
     def get_stars(self, obj):
         invoice = getattr(obj, "star_invoice", None)

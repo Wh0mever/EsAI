@@ -508,6 +508,16 @@ def _settings_snapshot() -> dict:
     market = _crypto_rates.market_rate()
     snapshot["currency_kgs_to_usd_market"] = float(market) if market else None
 
+    # --- оплата в сомах: выбор способа до ухода на FreedomPay ---
+    # Отдаём действующие значения: включённые способы уже с единым QR, если
+    # его код задан, — так в админке видно ровно то, что увидит покупатель.
+    from payments import kgs_methods as _kgs_methods
+
+    snapshot["kgs_methods_mode"] = _kgs_methods.mode()
+    snapshot["kgs_methods_enabled"] = ",".join(_kgs_methods.enabled_keys())
+    snapshot["kgs_elqr_ps_code"] = _kgs_methods.elqr_code()
+    snapshot["kgs_methods_known"] = list(_kgs_methods.ORDER)
+
     # Калькулятор ценности кредитов: эталонные модели по категориям (openrouter_id)
     # + размер "страницы" документа в токенах.
     for field, (rt_key, settings_attr, _category) in _CREDIT_CALC_MODEL_FIELDS.items():
@@ -703,6 +713,68 @@ class SettingsView(StaffAPIView):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
             set_runtime("crypto_payments_mode", mode)
+
+        # --- оплата в сомах: режим выбора способа, список способов, код единого QR ---
+        # Блок в админке сохраняется одной кнопкой, поэтому сначала проверяем
+        # все три поля и только потом пишем: иначе ошибка в коде QR оставила бы
+        # уже переключённый режим, а человек видел бы «не сохранено».
+        if any(k in data for k in ("kgs_methods_mode", "kgs_methods_enabled", "kgs_elqr_ps_code")):
+            from payments import kgs_methods
+
+            kgs_mode = kgs_enabled = kgs_code = None
+            if "kgs_methods_mode" in data:
+                # Только строки: str(True) дал бы «True» — а для кода QR это
+                # уже годное по виду значение, которое ушло бы в FreedomPay.
+                raw_mode = data["kgs_methods_mode"]
+                kgs_mode = raw_mode.strip().lower() if isinstance(raw_mode, str) else ""
+                if kgs_mode not in kgs_methods.MODES:
+                    return Response(
+                        {"detail": "kgs_methods_mode: допустимо off, staff или on"},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+            if "kgs_methods_enabled" in data:
+                raw_enabled = data["kgs_methods_enabled"]
+                # null и прочие не-списки молча выключили бы все способы разом.
+                if not (isinstance(raw_enabled, str) or (
+                        isinstance(raw_enabled, (list, tuple))
+                        and all(isinstance(item, str) for item in raw_enabled))):
+                    return Response(
+                        {"detail": "kgs_methods_enabled: список способов — строкой через "
+                                   "запятую или массивом строк"},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                kgs_enabled, unknown = kgs_methods.normalize_enabled(raw_enabled)
+                if unknown:
+                    return Response(
+                        {"detail": "kgs_methods_enabled: неизвестный способ оплаты — "
+                                   + ", ".join(unknown)},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+            if "kgs_elqr_ps_code" in data:
+                raw_code = data["kgs_elqr_ps_code"]
+                if raw_code is not None and not isinstance(raw_code, str):
+                    return Response(
+                        {"detail": "kgs_elqr_ps_code: код платёжной системы — строка"},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                kgs_code = (raw_code or "").strip()
+                if kgs_code and not kgs_methods.ELQR_CODE_RE.fullmatch(kgs_code):
+                    return Response(
+                        {"detail": "kgs_elqr_ps_code: код платёжной системы от Freedom Pay — "
+                                   "латинские буквы, цифры и «_», от 3 до 32 символов"},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+            if kgs_mode is not None:
+                set_runtime("kgs_methods_mode", kgs_mode)
+            if kgs_enabled is not None:
+                # Храним в порядке показа и без единого QR: он включается своим кодом.
+                set_runtime("kgs_methods_enabled", ",".join(kgs_enabled))
+            if kgs_code:
+                set_runtime("kgs_elqr_ps_code", kgs_code)
+            elif kgs_code is not None:
+                # Пусто — кода нет: кнопка единого QR пропадает с витрины.
+                delete_runtime("kgs_elqr_ps_code")
 
         # Звук и сцены студии: цены — целые неотрицательные (0 у сцены — по тарифу модели).
         for field in ("studio_voice_credits_per_1k", "studio_voice_min_credits",

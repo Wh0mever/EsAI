@@ -25,6 +25,8 @@ type Payment = {
   /** крипта: счёт ещё живой, «неуспешно» тут означало бы неправду */
   pending?: boolean;
   provider?: string;
+  /** способ оплаты в сомах, выбранный до ухода на Freedom Pay; "" — не выбирали */
+  method?: string;
   order_id: string;
   description: string;
   error: string;
@@ -39,6 +41,16 @@ const PROVIDERS: Record<string, string> = {
   freedompay: "FreedomPay",
   yookassa: "ЮKassa",
   crypto_nowpayments: "Крипта",
+};
+
+/** Способ оплаты в сомах, выбранный человеком в нашем окне (Payment.request.pay_method). */
+const KGS_METHODS: Record<string, string> = {
+  elqr: "Единый QR",
+  mbank: "MBANK",
+  odengi: "О!Деньги",
+  balance: "Balance.kg",
+  megapay: "MegaPay",
+  card: "Карта",
 };
 
 const FILTERS: { key: string; label: string; query: string }[] = [
@@ -237,7 +249,12 @@ export default function AdminPaymentsPage() {
                     {nf(p.amount)} {p.currency}
                   </td>
                   <td className="whitespace-nowrap px-4 py-3 text-xs">
-                    <div>{PROVIDERS[p.provider || ""] || p.provider || "—"}</div>
+                    <div>
+                      {PROVIDERS[p.provider || ""] || p.provider || "—"}
+                      {p.method ? (
+                        <span className="text-muted-2"> · {KGS_METHODS[p.method] || p.method}</span>
+                      ) : null}
+                    </div>
                     {p.crypto && (
                       <div
                         className="text-muted-2"

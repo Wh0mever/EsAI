@@ -74,6 +74,9 @@ class FunnelEvent(models.Model):
              # Крипта: между «выбрал монету» и «оплатил» человек уходит в свой
              # кошелёк, и без этих шагов видно только начало и конец пути.
              "crypto_currency_pick", "crypto_invoice_created", "crypto_paid",
+             # Оплата в сомах: какой способ (банк-приложение или карта) человек
+             # выбрал у нас перед уходом на страницу FreedomPay.
+             "kgs_method_pick",
              # Бот: от первого /start до оплаты Stars.
              "bot_start", "bot_pricing_view", "bot_stars_invoice", "bot_stars_paid",
              # Видеостудия (/video-studio): только клиентские шаги. Исходы
