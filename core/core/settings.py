@@ -925,6 +925,11 @@ FREEDOM_PAY_INIT_PAYMENT_URL = env.str(
 )
 FP_API_BASE = env.str("FP_API_BASE", default=FREEDOM_PAY_API_BASE)
 FP_MERCHANT_ID = env.str("FP_MERCHANT_ID", default=FREEDOM_PAY_MERCHANT_ID)
+# Выбор способа оплаты в сомах на нашей стороне (банк-приложение / карта) до
+# ухода на FreedomPay: off / staff / on, как у крипты. По умолчанию staff —
+# коды банков сначала проверяют сотрудники, остальные платят как платили.
+# Из админки режим меняется без выкладки (adminapi.runtime, kgs_methods_mode).
+KGS_METHODS_MODE = env.str("KGS_METHODS_MODE", default="staff")
 
 # --- ЮKassa (оплата в рублях) -------------------------------------------------
 # FreedomPay принимает сомы (KGS) — для рублёвых платежей клиент подключил

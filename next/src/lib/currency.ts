@@ -13,6 +13,38 @@ export type Currency = "USD" | "RUB" | "KGS";
  */
 export type CurrencySource = "manual" | "auto";
 
+/**
+ * Способ оплаты в сомах, который человек выбирает у нас до ухода на страницу
+ * Freedom Pay (core/payments/kgs_methods.py). kind решает, в какой из двух
+ * групп окна выбора окажется кнопка: «через приложение банка» или «картой».
+ */
+export type KgsMethodKey = "elqr" | "mbank" | "odengi" | "balance" | "megapay" | "card";
+export type KgsMethodKind = "qr" | "app" | "card";
+export type KgsMethod = { key: KgsMethodKey; kind: KgsMethodKind };
+
+/** Ключи, которые знает клиент, в порядке показа. Незнакомый ключ с сервера отбрасываем. */
+export const KGS_METHOD_KEYS: KgsMethodKey[] = ["elqr", "mbank", "odengi", "balance", "megapay", "card"];
+
+/**
+ * Разбор kgs_methods из ответа сервера. Порядок — серверный (он и есть порядок
+ * показа); всё, чего клиент не знает, выкидываем: кнопку без подписи рисовать
+ * нечем, а старый сервер без этого поля даёт пустой список — и витрина ведёт
+ * себя как раньше.
+ */
+export function parseKgsMethods(raw: unknown): KgsMethod[] {
+  if (!Array.isArray(raw)) return [];
+  const out: KgsMethod[] = [];
+  for (const item of raw) {
+    const key = (item as { key?: unknown } | null)?.key;
+    const kind = (item as { kind?: unknown } | null)?.kind;
+    if (!KGS_METHOD_KEYS.includes(key as KgsMethodKey)) continue;
+    if (kind !== "qr" && kind !== "app" && kind !== "card") continue;
+    if (out.some((m) => m.key === key)) continue;
+    out.push({ key: key as KgsMethodKey, kind });
+  }
+  return out;
+}
+
 /** Ответ бэкенда GET /api/plans/currency-rate/ (core/plans/views.py CurrencyRateView). */
 export type CurrencyRateResponse = {
   base_currency: "KGS";
@@ -26,6 +58,12 @@ export type CurrencyRateResponse = {
   /** доступна ли оплата криптой этому человеку (режим off/staff/on) */
   crypto_enabled: boolean;
   suggested_currency: "KGS" | "RUB";
+  /**
+   * Способы оплаты в сомах для окна выбора, в порядке показа. Пустой список —
+   * выбора нет (режим выключен или не для этого человека): «Пополнить» сразу
+   * уводит на страницу Freedom Pay, как раньше.
+   */
+  kgs_methods?: KgsMethod[];
 };
 
 // Фолбэк-курс, если запрос к бэкенду не удался (сеть/CORS/сервер лежит) —

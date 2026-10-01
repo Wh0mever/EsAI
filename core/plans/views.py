@@ -395,11 +395,24 @@ class CurrencyRateView(APIView):
         except Exception:  # noqa: BLE001 — витрина не должна падать из-за крипты
             crypto_enabled = False
 
+        # Оплата в сомах: какие способы (банк-приложение, карта) предложить
+        # этому человеку до ухода на FreedomPay. Пустой список — выбора нет,
+        # витрина ведёт себя как раньше.
+        kgs_methods_list = []
+        try:
+            from payments import kgs_methods
+
+            kgs_methods_list = kgs_methods.available_for(
+                request.user if request.user.is_authenticated else None)
+        except Exception:  # noqa: BLE001 — витрина не должна падать из-за выбора способа
+            kgs_methods_list = []
+
         return Response({
             "base_currency": "KGS",
             "rate_kgs_to_rub": rate,
             "rate_kgs_to_usd": rate_kgs_to_usd,
             "crypto_enabled": crypto_enabled,
+            "kgs_methods": kgs_methods_list,
             "suggested_currency": suggested_currency,
         })
 
@@ -463,6 +476,11 @@ RESUME_WINDOW_MINUTES = 30
 # возвращать (pg_lifetime). После этого по ней уже не заплатить, и скидку
 # можно отдать новому платежу.
 DISCOUNT_LINK_LIFETIME_SECONDS = RESUME_WINDOW_MINUTES * 60
+# Ссылка в приложение банка (без скидки) живёт дольше, чем мы к ней возвращаем:
+# при равных сроках человеку, вернувшемуся на 28-й минуте, досталась бы ссылка,
+# которая умрёт, пока он открывает банк. Так у возвращённой ссылки в запасе
+# минимум четверть часа.
+KGS_APP_LINK_LIFETIME_SECONDS = (RESUME_WINDOW_MINUTES + 15) * 60
 # Запрос к FreedomPay обрывается через 30 с; платёж без ссылки и без ошибки
 # старше этого — оборванный старт, ссылку по нему человек не получил.
 DISCOUNT_INIT_GRACE = timedelta(minutes=2)
@@ -533,7 +551,55 @@ def _discount_waiting(request, existing) -> bool:
         return False
 
 
-def pending_token_payment(user, package_id=None, currency=None):
+def _discount_holder(request, package_id, currency):
+    """Живой скидочный платёж этого же пакета, за которым сейчас закреплена скидка.
+
+    Нужен выбору способа оплаты: скидка одноразовая и привязана к первой
+    выданной ссылке, поэтому нажатие на другой способ получило бы полную цену,
+    хотя в окне выбора показана цена со скидкой. Вызывающий код в этом случае
+    не заводит платёж молча, а отдаёт человеку выбор.
+    """
+    from .exit_discount import _resolve_identity
+
+    try:
+        identity = _resolve_identity(request)
+        offer = None
+        if identity["user"] is not None:
+            offer = ExitDiscountOffer.objects.filter(user=identity["user"]).first()
+        if offer is None and identity["device_key"]:
+            offer = ExitDiscountOffer.objects.filter(device_key=identity["device_key"]).first()
+        now = timezone.now()
+        if (offer is None or offer.claimed_at is None or offer.redeemed_at is not None
+                or not offer.percent or offer.expires_at is None or now > offer.expires_at):
+            # Скидки на витрине уже нет — и обещания, которое можно нарушить, тоже.
+            return None
+        holder = offer.applied_to_payment
+        if holder is None or holder.success or holder.user_id != request.user.id:
+            return None
+        if _offer_free_for_new_payment(offer, now):
+            return None
+        req = holder.request or {}
+        purchase = req.get("token_purchase") or {}
+        if not req.get("exit_discount") or str(purchase.get("package_id")) != str(package_id):
+            return None
+        if str(holder.currency).upper() != str(currency).upper():
+            return None
+        response = holder.response or {}
+        if response.get("callbacks") or not _redirect_url_of(response):
+            return None
+        # Ссылка, по которой FreedomPay уже не примет оплату, — не предложение.
+        try:
+            lifetime = int((purchase.get("payload") or {}).get("pg_lifetime") or 0)
+        except (TypeError, ValueError):
+            lifetime = 0
+        if lifetime and now >= holder.created_at + timedelta(seconds=lifetime):
+            return None
+        return holder
+    except Exception:  # noqa: BLE001 — проверка не должна ронять оплату
+        return None
+
+
+def pending_token_payment(user, package_id=None, currency=None, method=None):
     """Незавершённая оплата пакета, к которой можно вернуться.
 
     Разбор воронки показал, зачем это нужно: 73 брошенные попытки — это всего
@@ -544,6 +610,12 @@ def pending_token_payment(user, package_id=None, currency=None):
     Незавершённой считаем ту, по которой платёжная система не прислала ни
     одного ответа: пришёл ответ — значит человек до формы дошёл, и продолжать
     там уже нечего.
+
+    method — способ оплаты в сомах (payments/kgs_methods.py). Ссылка, созданная
+    под один способ, открывает именно его: нажавшему «картой» нельзя отдать
+    ссылку на приложение банка. Поэтому со способом возвращаем только платёж
+    того же способа, с пустой строкой — только платёж без способа (как было до
+    выбора). None — способ не важен: баннеру «вернуться к оплате» годится любая.
     """
     from datetime import timedelta
 
@@ -565,6 +637,10 @@ def pending_token_payment(user, package_id=None, currency=None):
     for payment in qs[:20]:
         response = payment.response or {}
         if response.get("callbacks"):
+            continue
+        # Сравниваем здесь, а не в запросе: у прежних платежей ключа pay_method
+        # нет вовсе, и exclude() по JSON-ключу такие строки теряет.
+        if method is not None and str((payment.request or {}).get("pay_method") or "") != method:
             continue
         url = _redirect_url_of(response)
         if url:
@@ -696,6 +772,10 @@ class TokenPurchaseView(APIView):
     Переиспользует FreedomPay init_payment flow (как payments.StartOneTimePaymentAPIView).
     Связь пакет↔платёж хранится в Payment.request["token_purchase"] и в order_id (tokpkg-...).
     Callback (payments.FreedomPayTokenPurchase*View) начислит токены по успешной оплате.
+
+    Необязательное поле "method" — способ оплаты в сомах, выбранный на нашей
+    стороне (payments/kgs_methods.py): FreedomPay сразу открывает нужный банк
+    или форму карты. Без него запрос к FreedomPay остаётся прежним.
     """
     authentication_classes = [JWTAuthentication]
     permission_classes = [permissions.IsAuthenticated]
@@ -703,6 +783,7 @@ class TokenPurchaseView(APIView):
     def post(self, request):
         from payments.views import _parse_fp_response
         from payments.models import Payment
+        from payments import kgs_methods
         from django.urls import reverse
         from .exit_discount import _resolve_identity
 
@@ -734,10 +815,53 @@ class TokenPurchaseView(APIView):
         if pay_currency == "USD":
             return self._purchase_via_crypto(request, package, base_amount, return_to)
 
+        # Способ оплаты в сомах, выбранный на нашей стороне (банк-приложение
+        # или карта). Для рублей смысла не имеет: там платит ЮKassa. Без способа
+        # всё идёт как раньше, параметр в параметр.
+        method = ""
+        method_params = {}
+        if pay_currency != "RUB":
+            method = str((request.data or {}).get("method") or "").strip().lower()
+            if method:
+                method_params = kgs_methods.fp_params(method, request.user)
+                if method_params is None:
+                    # Проверяем до поиска прежней ссылки и до скидки: выключенный
+                    # способ не должен ни завести платёж, ни вернуть старую ссылку.
+                    return Response({"detail": "method_unavailable"},
+                                    status=drf_status.HTTP_400_BAD_REQUEST)
+
         # Тот же пакет, начатый минуту назад, — это не второй платёж, а тот же
         # самый: человек вернулся и жмёт снова. Отдаём прежнюю ссылку.
         want_currency = "RUB" if pay_currency == "RUB" else currency
-        existing, existing_url = pending_token_payment(request.user, package.id, currency=want_currency)
+        existing, existing_url = pending_token_payment(
+            request.user, package.id, currency=want_currency,
+            # Ссылка под другой способ — другая страница оплаты, её не отдаём.
+            method=None if pay_currency == "RUB" else method)
+        if existing_url and method:
+            # Ссылка того же способа, но созданная с другим кодом платёжной
+            # системы (код единого QR поправили в админке): по ней откроется
+            # прежняя, неверная страница — заводим новую.
+            stored = ((existing.request or {}).get("token_purchase") or {}).get("payload") or {}
+            if any(stored.get(key) != value for key, value in method_params.items()):
+                existing, existing_url = None, None
+        if method and (request.data or {}).get("full_price") is not True:
+            # Скидка закреплена за ссылкой другого способа: этот клик получил бы
+            # полную цену, а в окне выбора показана цена со скидкой. Молча так
+            # не делаем — отдаём выбор: продолжить ту оплату или платить без
+            # скидки (повторный запрос с full_price).
+            holder = _discount_holder(request, package.id, currency)
+            if holder is not None and not (existing_url and existing.pk == holder.pk):
+                return Response({
+                    "detail": "discount_held",
+                    "amount": str(base_amount),
+                    "currency": currency,
+                    "held": {
+                        "method": str((holder.request or {}).get("pay_method") or ""),
+                        "order_id": holder.order_id,
+                        "redirect_url": _redirect_url_of(holder.response or {}),
+                        "amount": str(holder.amount),
+                    },
+                }, status=drf_status.HTTP_409_CONFLICT)
         # Прежняя ссылка — полная цена, а человек с тех пор забрал скидку: не
         # подсовываем её, иначе на витрине 392, а платёжка просит 490.
         if existing_url and want_currency != "RUB" and _discount_waiting(request, existing):
@@ -830,6 +954,18 @@ class TokenPurchaseView(APIView):
                 # Скидочная ссылка не должна жить сутки (срок FreedomPay по
                 # умолчанию): пока она жива, скидку нельзя отдать другому платежу.
                 payload["pg_lifetime"] = str(DISCOUNT_LINK_LIFETIME_SECONDS)
+            if method:
+                # Выбранный способ: FreedomPay сразу откроет нужный банк или
+                # форму карты. Добавляем до подписи — она считается по всем
+                # параметрам.
+                payload.update(method_params)
+                if kgs_methods.METHODS[method][0] in ("app", "qr"):
+                    # Брошенная оплата через приложение банка не должна жить
+                    # сутки: человек вернётся к ней завтра и заплатит по
+                    # вчерашней ссылке, о которой уже забыл. Срок скидочной
+                    # ссылки (выше) не трогаем: от него зависит, когда скидку
+                    # можно отдать другому платежу.
+                    payload.setdefault("pg_lifetime", str(KGS_APP_LINK_LIFETIME_SECONDS))
             payload["pg_sig"] = make_api_signature("init_payment", payload, secret)
 
             request_payload = {
@@ -841,6 +977,10 @@ class TokenPurchaseView(APIView):
                 },
                 "return_to": return_to,
             }
+            if method:
+                # Только при выбранном способе: у прежних платежей ключа нет,
+                # и по его отсутствию их отличают при возврате к оплате.
+                request_payload["pay_method"] = method
             if discount_offer is not None:
                 request_payload["exit_discount"] = {
                     "offer_id": discount_offer.id,

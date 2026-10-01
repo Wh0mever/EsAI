@@ -1,17 +1,21 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import dynamic from "next/dynamic";
 import { fetchData } from "@/tools/fetchData";
 import { FiZap, FiGift } from "react-icons/fi";
 import Cookies from "js-cookie";
-import type { Currency } from "@/lib/currency";
+import { formatPrice } from "@/lib/currency";
+import type { Currency, KgsMethodKey } from "@/lib/currency";
+import { refreshKgsMethods, useKgsMethods } from "@/hooks/useCurrency";
 import { apiLang } from "@/lib/apiLang";
 import { trackFunnel } from "@/tools/funnel";
 import { useCryptoCurrencies } from "@/hooks/useCryptoCurrencies";
 import { readCryptoSession } from "@/lib/cryptoSession";
 import CryptoPendingBanner from "@/components/payments/crypto/CryptoPendingBanner";
+import KgsMethodModal from "@/components/payments/KgsMethodModal";
+import type { KgsHeldDiscount } from "@/components/payments/KgsMethodModal";
 import type { PendingPayment } from "@/types/crypto";
 
 // Экран криптооплаты тянет за собой QR и значки монет — грузим его только
@@ -142,9 +146,31 @@ export default function TokenPackages({
   const [checkout, setCheckout] = useState<
     { pkg: Pkg | null; resumeOrderId?: string } | null
   >(null);
+  // Оплата в сомах: окно «банк или карта» перед уходом на страницу Freedom Pay.
+  // Пустой список способов — выбора нет, «Пополнить» работает как раньше.
+  const kgsMethods = useKgsMethods();
+  const [kgsPick, setKgsPick] = useState<Pkg | null>(null);
+  const [kgsBusy, setKgsBusy] = useState<KgsMethodKey | null>(null);
+  const [kgsError, setKgsError] = useState("");
+  // Скидка «при уходе» закреплена за оплатой, начатой другим способом.
+  const [kgsHeld, setKgsHeld] = useState<KgsHeldDiscount | null>(null);
+  // Номер «сеанса» окна выбора: закрыли окно — ответ на запрос, начатый в
+  // нём, уже никуда не ведёт (ни на страницу банка, ни в текст ошибки).
+  const kgsSession = useRef(0);
 
   useEffect(() => {
     setAuthed(Boolean(Cookies.get("access")));
+  }, []);
+
+  // Вернулись со страницы банка кнопкой «назад»: браузер может поднять
+  // страницу из памяти как была — с крутящейся кнопкой способа. Снимаем её,
+  // иначе выбрать другой способ можно было бы, только закрыв окно.
+  useEffect(() => {
+    const onShow = (e: PageTransitionEvent) => {
+      if (e.persisted) setKgsBusy(null);
+    };
+    window.addEventListener("pageshow", onShow);
+    return () => window.removeEventListener("pageshow", onShow);
   }, []);
 
   useEffect(() => {
@@ -252,8 +278,52 @@ export default function TokenPackages({
       setCheckout({ pkg });
       return;
     }
+    // Сомы: сначала спрашиваем, чем удобнее платить — банком или картой.
+    if (currency !== "RUB" && kgsMethods.length > 0) {
+      openKgsChooser(pkg);
+      return;
+    }
     await startCardPurchase(pkg, currency === "RUB" ? "RUB" : "KGS");
   };
+
+  const openKgsChooser = (pkg: Pkg) => {
+    // Пока окно открыто, попап скидки «при уходе» поверх него не нужен.
+    onPurchaseStart?.();
+    setError("");
+    setKgsError("");
+    setKgsHeld(null);
+    setKgsBusy(null);
+    setKgsPick(pkg);
+  };
+
+  const closeKgsChooser = () => {
+    kgsSession.current += 1;
+    setKgsPick(null);
+    setKgsBusy(null);
+    setKgsError("");
+    setKgsHeld(null);
+    onPurchaseEnd?.();
+  };
+
+  const onKgsPick = (method: KgsMethodKey) => {
+    if (!kgsPick) return;
+    trackFunnel("kgs_method_pick", { package_id: kgsPick.id, method });
+    void startCardPurchase(kgsPick, "KGS", method);
+  };
+
+  // Способ выбирают для оплаты в сомах — и сумма в окне всегда в сомах, даже
+  // если на витрине сейчас доллары (сюда приходят и из окна крипты, кнопкой
+  // «Карта · сом»). Скидка «при уходе» на сомовую оплату действует всегда.
+  const kgsPriceLabel = (pkg: Pkg): string => {
+    const price = Number(pkg.price) || 0;
+    const toPay = discountPercent
+      ? Math.round(price * (1 - discountPercent / 100) * 100) / 100
+      : price;
+    return formatPrice(toPay, "KGS", t("topup.som", { defaultValue: "сом" }));
+  };
+
+  const somLabel = (amount: unknown): string =>
+    formatPrice(Number(amount) || 0, "KGS", t("topup.som", { defaultValue: "сом" }));
 
   /**
    * Текст ошибки оплаты картой. Бэкенд отвечает кодами (yookassa_config_missing,
@@ -267,6 +337,12 @@ export default function TokenPackages({
         defaultValue: "Сессия истекла. Войдите снова, чтобы продолжить.",
       });
     }
+    if (code === "method_unavailable") {
+      // Способ выключили, пока окно выбора было открыто.
+      return t("kgspay.err_method_unavailable", {
+        defaultValue: "Этот способ сейчас недоступен. Выберите другой.",
+      });
+    }
     if (code === "package_not_found" || code === "package_not_payable") {
       return t("topup.err_package_unavailable", {
         defaultValue: "Этот пакет сейчас недоступен. Обновите страницу и выберите пакет снова.",
@@ -278,28 +354,90 @@ export default function TokenPackages({
     });
   };
 
-  /** Оплата картой: уходим на страницу банка. Валюта решает, какого. */
-  const startCardPurchase = async (pkg: Pkg, payCurrency: "KGS" | "RUB") => {
+  /**
+   * Оплата картой: уходим на страницу банка. Валюта решает, какого.
+   * method — способ, выбранный в окне оплаты сомами (только KGS): с ним
+   * страница Freedom Pay открывается сразу на нужном банке или на карте.
+   */
+  const startCardPurchase = async (
+    pkg: Pkg,
+    payCurrency: "KGS" | "RUB",
+    method?: KgsMethodKey,
+    // Человек согласился платить этим способом без скидки (блок «скидка
+    // закреплена за другой оплатой» в окне выбора).
+    fullPrice = false
+  ) => {
     if (buyingId != null) return;
+    // Ошибку показываем там, куда человек сейчас смотрит: в окне выбора
+    // способа или на самой странице.
+    const fail = (text: string) => (method ? setKgsError(text) : setError(text));
+    // Окно выбора закрыли, пока шёл запрос: человек передумал, и уводить его
+    // на страницу банка или показывать ошибку уже некуда. Сам платёж остаётся
+    // на сервере — к нему вернёт повторный клик или баннер «продолжить оплату».
+    const session = kgsSession.current;
+    const dismissed = () => Boolean(method) && session !== kgsSession.current;
+    // Выбор способа выключили, пока вкладка была открыта: платим как раньше,
+    // без способа, — уже после того, как этот запрос отпустит кнопки.
+    let retryPlain = false;
+    // Уходим на страницу банка — кнопка способа крутится до самого перехода,
+    // чтобы за эти полсекунды нельзя было создать второй платёж другим способом.
+    let leaving = false;
     setBuyingId(pkg.id);
     setError("");
+    if (method) {
+      setKgsBusy(method);
+      setKgsError("");
+      setKgsHeld(null);
+    }
     onPurchaseStart?.();
     try {
       const res = await fetchData<any>(
         "plans/purchase/",
         "POST",
         // Валюта решает платёжный путь: RUB -> ЮKassa, KGS -> FreedomPay.
-        { package_id: pkg.id, pay_currency: payCurrency, ...(returnTo ? { return_to: returnTo } : {}) },
+        {
+          package_id: pkg.id,
+          pay_currency: payCurrency,
+          ...(method ? { method } : {}),
+          ...(method && fullPrice ? { full_price: true } : {}),
+          ...(returnTo ? { return_to: returnTo } : {}),
+        },
         true,
         deviceKey ? { "X-Device-Key": deviceKey } : undefined
       );
+      if (dismissed()) return;
       if (!res?.ok) {
-        setError(cardPurchaseError(res?.status, res?.error));
+        if (method && res?.error === "method_unavailable") {
+          // Список способов во вкладке устарел (его меняют в админке без
+          // выкладки). Берём свежий: если выбора больше нет — платим как
+          // раньше; если есть — окно перерисуется с тем, что доступно.
+          const fresh = await refreshKgsMethods();
+          if (dismissed()) return;
+          if (fresh.length === 0) {
+            retryPlain = true;
+            return;
+          }
+        }
+        const heldUrl = res?.data?.held?.redirect_url;
+        if (method && res?.error === "discount_held" && typeof heldUrl === "string" && heldUrl) {
+          // Скидка занята оплатой, начатой другим способом: сумму молча не
+          // меняем, а даём выбрать — продолжить ту оплату или платить без скидки.
+          setKgsHeld({
+            method,
+            heldMethod: String(res.data.held.method || ""),
+            heldPriceLabel: somLabel(res.data.held.amount),
+            fullPriceLabel: somLabel(res.data.amount),
+            redirectUrl: heldUrl,
+          });
+          return;
+        }
+        fail(cardPurchaseError(res?.status, res?.error));
         return;
       }
       const d = res.data || {};
       const url = d.redirect_url || d.payment_url || d.url || d.checkout_url;
       if (url && typeof url === "string") {
+        leaving = true;
         window.location.href = url;
         return;
       }
@@ -307,11 +445,31 @@ export default function TokenPackages({
       try {
         window.dispatchEvent(new CustomEvent("balance:refresh"));
       } catch {}
+      if (method) closeKgsChooser();
     } catch {
-      setError(t("topup.purchase_error", { defaultValue: "Не удалось начать оплату" }));
+      if (!dismissed()) {
+        fail(t("topup.purchase_error", { defaultValue: "Не удалось начать оплату" }));
+      }
     } finally {
       setBuyingId(null);
-      onPurchaseEnd?.();
+      if (method) {
+        // Окно выбора ещё открыто: «конец оплаты» сообщит его закрытие
+        // (closeKgsChooser), иначе попап скидки вылез бы поверх окна.
+        // Закрытое окно своё состояние уже сбросило — чужое не трогаем.
+        if (!leaving && !dismissed()) setKgsBusy(null);
+      } else {
+        onPurchaseEnd?.();
+      }
+      if (retryPlain) {
+        // Последним в finally: кнопки уже отпущены, новая оплата займёт их
+        // заново. Окно выбора убираем без «конца оплаты» — его сообщит она.
+        kgsSession.current += 1;
+        setKgsPick(null);
+        setKgsBusy(null);
+        setKgsError("");
+        setKgsHeld(null);
+        void startCardPurchase(pkg, "KGS");
+      }
     }
   };
 
@@ -431,6 +589,12 @@ export default function TokenPackages({
               ? (payCurrency) => {
                   const pkg = checkout.pkg as Pkg;
                   setCheckout(null);
+                  // «Карта · сом» из окна крипты — та же оплата в сомах:
+                  // ведём через тот же выбор способа.
+                  if (payCurrency === "KGS" && kgsMethods.length > 0) {
+                    openKgsChooser(pkg);
+                    return;
+                  }
                   void startCardPurchase(pkg, payCurrency);
                 }
               : undefined
@@ -439,6 +603,25 @@ export default function TokenPackages({
             setCheckout(null);
             onPurchaseEnd?.();
           }}
+        />
+      )}
+
+      {/* Одновременно с окном крипты не открывается: оба живут по одному
+          (две модалки ломают друг другу Escape и блокировку прокрутки). */}
+      {kgsPick && !checkout && (
+        <KgsMethodModal
+          open
+          methods={kgsMethods}
+          packageName={kgsPick.name}
+          priceLabel={kgsPriceLabel(kgsPick)}
+          busyKey={kgsBusy}
+          error={kgsError}
+          held={kgsHeld}
+          onPick={onKgsPick}
+          onPayFull={() => {
+            if (kgsHeld) void startCardPurchase(kgsPick, "KGS", kgsHeld.method, true);
+          }}
+          onClose={closeKgsChooser}
         />
       )}
 

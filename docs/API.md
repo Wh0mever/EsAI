@@ -34,7 +34,58 @@
 - `GET /api/plans/balance/` (auth) → `{"balance_tokens": N}`
 - `GET /api/plans/packages/` (public) → `[{id,name,tokens,bonus_tokens,price,currency}]`
 - `GET /api/plans/transactions/` (auth) → последние транзакции токенов
-- `POST /api/plans/purchase/` (auth) `{"package_id":1}` → `{redirect_url, order_id, amount, currency}` (FreedomPay)
+- `POST /api/plans/purchase/` (auth) `{"package_id":1}` → `{redirect_url, order_id, amount, currency, package_id}` (FreedomPay);
+  повторный клик по тому же пакету возвращает прежнюю ссылку с `resumed:true`.
+  Необязательные поля: `pay_currency` (`RUB` — ЮKassa, `USD` — крипта, иначе сомы),
+  `return_to` (свой относительный путь), `method` — см. ниже.
+- `GET /api/plans/currency-rate/` (public) →
+  `{base_currency, rate_kgs_to_rub, rate_kgs_to_usd, crypto_enabled, kgs_methods, suggested_currency}`
+
+### Выбор способа оплаты в сомах
+Человек выбирает способ у нас, до ухода на страницу FreedomPay: дальше открывается
+уже нужный банк или форма карты. Провайдер, заказ, уведомления и сверка прежние —
+меняются только параметры `init_payment`.
+
+- `kgs_methods` в `GET /api/plans/currency-rate/` — список кнопок в порядке показа:
+  `[{"key":"elqr","kind":"qr"},{"key":"mbank","kind":"app"},{"key":"odengi","kind":"app"},
+  {"key":"balance","kind":"app"},{"key":"megapay","kind":"app"},{"key":"card","kind":"card"}]`.
+  Пустой список `[]` — выбора для этого человека нет, витрина ведёт себя как раньше
+  (режим `off`; режим `staff` и человек не сотрудник; включена только карта).
+  `elqr` есть только когда в админке задан код единого QR от FreedomPay.
+- `method` в `POST /api/plans/purchase/` — один из ключей `kgs_methods`. Действует
+  только при оплате в сомах (при `pay_currency` `RUB`/`USD` игнорируется). Без поля
+  или с пустым значением запрос к FreedomPay остаётся прежним. Неизвестный или
+  недоступный этому человеку способ → **400** `{"detail":"method_unavailable"}`,
+  платёж не создаётся. Форма ответа не меняется.
+  - `mbank`/`odengi`/`balance`/`megapay` → `pg_payment_system` =
+    `MBANKKGS`/`ODENGIKGSV2`/`BEELINEKGS`/`MEGAPAYKGS`; `elqr` → код из админки;
+    `card` → `pg_payment_method=bankcard`.
+  - Ссылка для банка-приложения и QR живёт 45 минут (`pg_lifetime=2700`) — дольше
+    получаса, в течение которого к ней возвращают, чтобы возвращённая ссылка не
+    истекала в руках. Скидочная ссылка при любом способе живёт 30 минут (`1800`).
+  - Выбранный способ хранится в `Payment.request.pay_method`. Повторный клик
+    возвращает прежнюю ссылку только того же способа и с теми же параметрами
+    FreedomPay: ссылка «картой» не достанется нажавшему «MBANK», а ссылка со
+    старым кодом единого QR — нажавшему после смены кода.
+  - Скидка «при уходе» одноразовая и закрепляется за первой выданной ссылкой.
+    Если она занята живой ссылкой того же пакета, а запрос с `method` получил бы
+    полную цену, платёж не создаётся: **409**
+    `{"detail":"discount_held","amount":"490.00","currency":"KGS","held":{"method","order_id","redirect_url","amount"}}`
+    (`amount` — полная цена, `held` — начатая оплата со скидкой). Клиент предлагает
+    продолжить её (`held.redirect_url`) или повторяет запрос с `"full_price": true`
+    — тогда платёж создаётся (или возвращается прежний) по полной цене. Запросы
+    без `method` этого ответа не получают.
+- Настройки (`GET/PATCH /api/manage/settings/`, staff): `kgs_methods_mode`
+  (`off`/`staff`/`on`; по умолчанию из окружения `KGS_METHODS_MODE`, там `staff`),
+  `kgs_methods_enabled` (способы через запятую или массивом; сохраняется в порядке
+  показа, `elqr` в списке не хранится — он включается своим кодом),
+  `kgs_elqr_ps_code` (`[A-Za-z0-9_]{3,32}`; пустое значение убирает код),
+  `kgs_methods_known` (только чтение — все известные ключи). Ответ отдаёт
+  действующие значения: `kgs_methods_enabled` уже с `elqr`, если код задан.
+- `GET /api/manage/payments/` (staff): у платежа поле `method` — выбранный способ
+  или пустая строка.
+- Шаг воронки `kgs_method_pick` (`POST /api/payments/funnel/event/`,
+  `meta: {package_id, method}`).
 
 ## Криптооплата (`/api/plans/`, `/api/payments/crypto/`)
 Оплата USDT/BTC/ETH/TON через процессор (NOWPayments). Кредиты начисляются

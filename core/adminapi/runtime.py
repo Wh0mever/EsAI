@@ -63,6 +63,12 @@ KEYS = (
     "crypto_allowed_currencies",
     "crypto_fee_paid_by_user",
     "crypto_settlement_currency",
+    # Оплата в сомах: выбор способа до ухода на FreedomPay (payments/kgs_methods.py).
+    # Режим off/staff/on, список включённых способов через запятую и код единого
+    # QR — его FreedomPay выдаёт магазину отдельно, пока не выдал — пусто.
+    "kgs_methods_mode",
+    "kgs_methods_enabled",
+    "kgs_elqr_ps_code",
     # Видеостудия: режим off/staff/on поверх VSTUDIO_MODE из окружения
     # (выключить или открыть студию без выкладки; читает vstudio.views.studio_mode).
     "vstudio_mode",

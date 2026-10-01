@@ -10,6 +10,7 @@ import {
   FiEye,
   FiEyeOff,
   FiCheck,
+  FiCreditCard,
   FiDollarSign,
   FiMic,
   FiFilm,
@@ -65,6 +66,14 @@ type Settings = {
   vstudio_mode_env?: string;
   /** правка из админки; "" — не задана, действует окружение */
   vstudio_mode_override?: string;
+  // --- оплата в сомах: выбор способа до ухода на Freedom Pay ---
+  kgs_methods_mode?: "off" | "staff" | "on";
+  /** включённые способы через запятую (единый QR сервер добавляет сам, когда задан его код) */
+  kgs_methods_enabled?: string;
+  /** код единого QR от Freedom Pay; "" — не выдан */
+  kgs_elqr_ps_code?: string;
+  /** все способы, которые знает сервер, в порядке показа */
+  kgs_methods_known?: string[];
   site: SiteContacts;
 };
 
@@ -1109,6 +1118,9 @@ export default function AdminSettingsPage() {
         {audioError && <div className="mt-3 text-sm text-red-400">{audioError}</div>}
       </section>
 
+      {/* 3.7 Оплата в сомах: выбор способа */}
+      <KgsMethodsSection settings={settings} onSaved={setSettings} />
+
       {/* 3.8 Видеостудия: режим */}
       <VStudioModeSection settings={settings} onSaved={setSettings} />
 
@@ -1238,6 +1250,189 @@ function VStudioModeSection({ settings, onSaved }: { settings: Settings; onSaved
           </button>
         ))}
       </div>
+      {err && <div className="mt-3 text-sm text-red-400">{err}</div>}
+    </section>
+  );
+}
+
+type KgsMode = "off" | "staff" | "on";
+
+const KGS_MODES: { value: KgsMode; label: string; hint: string }[] = [
+  { value: "off", label: "Выключено", hint: "выбора нет: «Пополнить» сразу ведёт на страницу Freedom Pay, как раньше" },
+  { value: "staff", label: "Только сотрудникам", hint: "для проверки способов перед запуском; остальные платят как раньше" },
+  { value: "on", label: "Включено", hint: "выбор способа видят все" },
+];
+
+/** Подписи способов в админке. Единый QR здесь не галочка: он включается своим кодом. */
+const KGS_METHOD_LABELS: Record<string, string> = {
+  elqr: "Единый QR",
+  mbank: "MBANK",
+  odengi: "О!Деньги",
+  balance: "Balance.kg",
+  megapay: "MegaPay",
+  card: "Карта",
+};
+
+const KGS_METHODS_FALLBACK = ["elqr", "mbank", "odengi", "balance", "megapay", "card"];
+// То же правило, что на сервере: код уходит в Freedom Pay как есть.
+const KGS_ELQR_CODE_RE = /^[A-Za-z0-9_]{3,32}$/;
+
+/** «a, b,elqr» → ["a", "b"]: единый QR в списке галочек не участвует. */
+const kgsEnabledList = (raw?: string): string[] =>
+  String(raw || "")
+    .split(",")
+    .map((k) => k.trim())
+    .filter((k) => k && k !== "elqr");
+
+/**
+ * Оплата в сомах: окно «банк или карта» перед уходом на страницу Freedom Pay.
+ * Режим off/staff/on, какие способы показывать и код единого QR — его
+ * Freedom Pay выдаёт магазину отдельно, до тех пор поле пустое.
+ */
+function KgsMethodsSection({ settings, onSaved }: { settings: Settings; onSaved: (s: Settings) => void }) {
+  const known = (settings.kgs_methods_known?.length ? settings.kgs_methods_known : KGS_METHODS_FALLBACK).filter(
+    (k) => k !== "elqr"
+  );
+  const savedMode: KgsMode = settings.kgs_methods_mode ?? "off";
+  const savedEnabled = known.filter((k) => kgsEnabledList(settings.kgs_methods_enabled).includes(k));
+  const savedCode = String(settings.kgs_elqr_ps_code || "");
+
+  const [mode, setMode] = useState<KgsMode>(savedMode);
+  const [enabled, setEnabled] = useState<string[]>(savedEnabled);
+  const [code, setCode] = useState(savedCode);
+  const [saving, setSaving] = useState(false);
+  const [flash, setFlash] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  // Сохранили (или перечитали настройки) — черновик снова равен сохранённому.
+  const savedKey = `${savedMode}|${savedEnabled.join(",")}|${savedCode}`;
+  const [prevSavedKey, setPrevSavedKey] = useState(savedKey);
+  if (savedKey !== prevSavedKey) {
+    setPrevSavedKey(savedKey);
+    setMode(savedMode);
+    setEnabled(savedEnabled);
+    setCode(savedCode);
+  }
+
+  // Порядок галочек не важен — сравниваем и отправляем в порядке показа.
+  const enabledOrdered = known.filter((k) => enabled.includes(k));
+  const codeTrimmed = code.trim();
+  const dirty =
+    mode !== savedMode || enabledOrdered.join(",") !== savedEnabled.join(",") || codeTrimmed !== savedCode;
+  const onlyCard = !codeTrimmed && enabledOrdered.every((k) => k === "card");
+
+  const save = async () => {
+    const patch: Record<string, string> = {};
+    if (mode !== savedMode) patch.kgs_methods_mode = mode;
+    if (enabledOrdered.join(",") !== savedEnabled.join(",")) patch.kgs_methods_enabled = enabledOrdered.join(",");
+    if (codeTrimmed !== savedCode) {
+      if (codeTrimmed && !KGS_ELQR_CODE_RE.test(codeTrimmed)) {
+        setErr("Код единого QR: латинские буквы, цифры и «_», от 3 до 32 символов. Чтобы убрать код, оставьте поле пустым.");
+        return;
+      }
+      patch.kgs_elqr_ps_code = codeTrimmed;
+    }
+    if (Object.keys(patch).length === 0) return;
+    setSaving(true);
+    setErr(null);
+    const res = await fetchData<Settings>("manage/settings/", "PATCH", patch, true);
+    setSaving(false);
+    if (res.ok && res.data) {
+      onSaved(res.data);
+      setFlash(true);
+      setTimeout(() => setFlash(false), 2000);
+    } else {
+      setErr(res.error || "Не удалось сохранить");
+    }
+  };
+
+  return (
+    <section className="rounded-2xl border border-border bg-surface p-5">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <FiCreditCard className="h-4 w-4 text-accent" />
+          <h2 className="text-base font-semibold">Оплата в сомах: выбор способа</h2>
+        </div>
+        <div className="flex items-center gap-3">
+          {flash && <SavedFlash />}
+          {dirty && (
+            <button
+              onClick={save}
+              disabled={saving}
+              className="rounded-lg bg-accent px-4 py-2 text-xs font-semibold text-on-accent transition-opacity hover:opacity-90 disabled:opacity-50"
+            >
+              {saving ? "Сохранение…" : "Сохранить"}
+            </button>
+          )}
+        </div>
+      </div>
+      <p className="mt-1 text-xs text-muted-2">
+        Перед уходом на страницу Freedom Pay человек выбирает у нас, чем платить: через приложение банка или
+        картой — и попадает сразу на нужный способ, а не на общий список. Деньги, зачисление и сверка идут как
+        раньше.
+      </p>
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        {KGS_MODES.map((m) => (
+          <button
+            key={m.value}
+            onClick={() => setMode(m.value)}
+            title={m.hint}
+            className={`rounded-lg border px-3 py-1.5 text-xs transition-colors ${
+              mode === m.value
+                ? "border-accent bg-accent/10 text-accent"
+                : "border-border text-muted hover:text-foreground"
+            }`}
+          >
+            {m.label}
+          </button>
+        ))}
+      </div>
+      <p className="mt-2 text-[11px] text-muted-2">{KGS_MODES.find((m) => m.value === mode)?.hint}</p>
+
+      <div className="mt-4">
+        <div className="text-xs text-muted">Способы в окне выбора</div>
+        <div className="mt-2 flex flex-wrap gap-x-5 gap-y-2">
+          {known.map((k) => (
+            <label key={k} className="inline-flex cursor-pointer items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={enabled.includes(k)}
+                onChange={(e) =>
+                  setEnabled((prev) => (e.target.checked ? [...prev, k] : prev.filter((x) => x !== k)))
+                }
+                className="h-4 w-4 accent-accent"
+              />
+              {KGS_METHOD_LABELS[k] || k}
+            </label>
+          ))}
+        </div>
+        {onlyCard && (
+          <p className="mt-2 text-[11px] text-status-wait">
+            Без единого QR и без банков окно выбора не показывается: с одной кнопкой «картой» выбирать не из
+            чего, и человек сразу попадает на страницу Freedom Pay.
+          </p>
+        )}
+      </div>
+
+      <div className="mt-4 flex max-w-sm flex-col gap-1">
+        <label className="text-xs text-muted">Код единого QR (от Freedom Pay)</label>
+        <input
+          type="text"
+          value={code}
+          onChange={(e) => setCode(e.target.value)}
+          placeholder="пусто — кода пока нет"
+          autoComplete="off"
+          spellCheck={false}
+          className={`${INPUT} font-mono`}
+        />
+        <span className="text-[11px] text-muted-2">
+          Поле пустое, пока Freedom Pay не выдаст код платёжной системы для единого QR. Как только код задан,
+          кнопка «{KGS_METHOD_LABELS.elqr} — любой банк Кыргызстана» появляется в окне первой; очистите поле —
+          кнопка пропадёт.{" "}
+          {savedCode ? "Сейчас единый QR показывается." : "Сейчас единого QR в окне нет."}
+        </span>
+      </div>
+
       {err && <div className="mt-3 text-sm text-red-400">{err}</div>}
     </section>
   );

@@ -2114,5 +2114,25 @@
 		"loading_invoice": "Loading the invoice…",
 		"invoice_not_found": "Invoice not found — it may already be closed. Create a new one.",
 		"err_min_amount_unknown": "This amount is too small for {{coin}} at the processor. Pick another network or a bigger package."
+	},
+	"kgspay": {
+		"title": "How would you like to pay?",
+		"section_app": "With your bank app",
+		"section_app_hint": "On the payment page enter your phone number and confirm the payment in the app. No card details needed.",
+		"section_card": "By bank card",
+		"section_card_hint": "Card details are entered on Freedom Pay's secure page.",
+		"method_elqr": "Unified QR — any bank in Kyrgyzstan",
+		"method_mbank": "MBANK",
+		"method_odengi": "O!Dengi",
+		"method_balance": "Balance.kg",
+		"method_megapay": "MegaPay",
+		"method_card": "Visa, Mastercard or Elcart card",
+		"opening": "Opening the payment page…",
+		"footer": "Credits are added automatically after payment.",
+		"err_method_unavailable": "This method is unavailable right now. Please choose another one.",
+		"held_text": "Your discount is already attached to the payment you started ({{method}}, {{amount}}). Continue it, or pay with the selected method without the discount.",
+		"held_text_plain": "Your discount is already attached to the payment you started ({{amount}}). Continue it, or pay with the selected method without the discount.",
+		"held_continue": "Continue with the discount — {{amount}}",
+		"held_full": "{{method}} without the discount — {{amount}}"
 	}
 }

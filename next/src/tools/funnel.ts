@@ -31,6 +31,9 @@ export type FunnelStep =
   | "crypto_currency_pick"
   | "crypto_invoice_created"
   | "crypto_paid"
+  // Оплата в сомах: какой способ человек выбрал в нашем окне до ухода на
+  // страницу банка. meta: { package_id, method }.
+  | "kgs_method_pick"
   // Видеостудия (/video-studio): имена — в белом списке FunnelEvent.NAMES,
   // meta по шагам — VsFunnelMeta в lib/vstudio/types.ts (отправлять через trackVs).
   | "vstudio_view"
