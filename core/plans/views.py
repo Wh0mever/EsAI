@@ -28,7 +28,7 @@ import requests
 from datetime import timedelta
 from users.models import User, UserCardBind
 from django.db import transaction
-from payments.freedompay import FreedomPay, FreedomPayError, make_api_signature
+from payments.freedompay import FreedomPay, FreedomPayError, make_api_signature, normalize_kg_phone
 from decimal import Decimal
 from core.langutils import request_lang, tr
 
@@ -947,9 +947,22 @@ class TokenPurchaseView(APIView):
                 "pg_salt": uuid.uuid4().hex,
                 "pg_success_url": request.build_absolute_uri(reverse("payments:freedompay-tokens-success")),
                 "pg_failure_url": request.build_absolute_uri(reverse("payments:freedompay-tokens-failure")),
-                "pg_post_link": request.build_absolute_uri(reverse("payments:freedompay-tokens-postback")),
+                # Адрес, куда FreedomPay сообщает об оплате. Раньше он уходил в
+                # pg_post_link — такого параметра у init_payment нет, и работал
+                # только адрес из настроек магазина в кабинете. Передаём явно,
+                # чтобы не зависеть от кабинета; метод тоже — по умолчанию GET.
+                "pg_result_url": request.build_absolute_uri(reverse("payments:freedompay-tokens-postback")),
+                "pg_request_method": "POST",
                 "pg_testing_mode": int(settings.DEBUG),
             }
+            # С телефоном FreedomPay заранее заполняет поле на форме оплаты
+            # картой. Для кошельков (MBANK, О!Деньги…) не передаём: там номер
+            # может решать, кому уйдёт счёт, а в профиле он ничем не проверен.
+            phone = ""
+            if method in ("", "card"):
+                phone = normalize_kg_phone(getattr(request.user, "tel", ""))
+            if phone:
+                payload["pg_user_phone"] = phone
             if discount_offer is not None:
                 # Скидочная ссылка не должна жить сутки (срок FreedomPay по
                 # умолчанию): пока она жива, скидку нельзя отдать другому платежу.
@@ -1003,7 +1016,7 @@ class TokenPurchaseView(APIView):
                 discount_offer.applied_to_payment = payment
                 discount_offer.save(update_fields=["applied_to_payment"])
 
-        try:
+        def _init_payment():
             response = requests.post(init_url, data=payload, timeout=30)
             try:
                 body = response.json()
@@ -1011,6 +1024,21 @@ class TokenPurchaseView(APIView):
                 body = _parse_fp_response(response.text)
             except Exception:
                 body = {"raw": response.text}
+            return response, body
+
+        try:
+            response, body = _init_payment()
+            if "pg_user_phone" in payload and (
+                    response.status_code >= 400
+                    or not (body.get("pg_redirect_url") or body.get("redirect_url") or body.get("payment_url"))):
+                # Номер из профиля не должен стоить человеку оплаты: если с ним
+                # FreedomPay запрос не принял, пробуем один раз без номера.
+                # payload лежит и в payment.request — сохраняем то, что ушло.
+                payload.pop("pg_user_phone")
+                payload.pop("pg_sig")
+                payload["pg_sig"] = make_api_signature("init_payment", payload, secret)
+                payment.save(update_fields=["request"])
+                response, body = _init_payment()
         except requests.RequestException as exc:
             payment.error = str(exc)
             payment.save(update_fields=["error"])

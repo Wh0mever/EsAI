@@ -89,7 +89,8 @@ class PurchasePayloadTests(KgsMethodsTestCase):
         self.assertEqual(set(sent), {
             "pg_merchant_id", "pg_amount", "pg_currency", "pg_order_id", "pg_user_id",
             "pg_description", "pg_language", "pg_user_contact_email", "pg_salt",
-            "pg_success_url", "pg_failure_url", "pg_post_link", "pg_testing_mode", "pg_sig"})
+            "pg_success_url", "pg_failure_url", "pg_result_url", "pg_request_method",
+            "pg_testing_mode", "pg_sig"})
         self._assert_signed(sent)
 
         payment = Payment.objects.get(order_id=r.data["order_id"])
