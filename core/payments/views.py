@@ -11,10 +11,12 @@ from django.urls import reverse
 from django.utils import timezone
 from django.db import transaction
 from rest_framework import permissions, status
+from rest_framework.negotiation import DefaultContentNegotiation
 from rest_framework.response import Response
+from rest_framework.throttling import AnonRateThrottle
 from rest_framework.views import APIView
 from django.conf import settings
-from django.http import HttpResponseRedirect
+from django.http import HttpResponse, HttpResponseRedirect
 
 from users.models import User, UserCardBind
 from plans.models import (
@@ -34,6 +36,8 @@ from .freedompay import (
     FreedomPay,
     make_api_signature,
     verify_freedompay_signature,
+    match_freedompay_script_name,
+    build_result_response_xml,
 )
 from .models import Payment
 
@@ -971,7 +975,8 @@ def _notify_balance_topup(user: User, credited: int, *, notify_telegram: bool = 
 
 def _apply_purchase_credit(payment: "Payment", order_id: str, total: int,
                            *, meta_extra: dict | None = None,
-                           notify_telegram: bool = True) -> None:
+                           notify_telegram: bool = True,
+                           defer_notify: bool = False) -> None:
     """Начислить кредиты за оплаченный заказ и сделать всё, что идёт следом.
 
     Вынесено из _credit_token_package_for_payment, чтобы крипта начисляла тем
@@ -1008,8 +1013,18 @@ def _apply_purchase_credit(payment: "Payment", order_id: str, total: int,
     # Уведомление пользователю об успешном пополнении (in-app + email).
     # Оплата в боте подтверждается самим ботом: второе сообщение о том же
     # пополнении выглядело бы как двойное начисление.
-    _notify_balance_topup(payment.user, total,
-                          notify_telegram=notify_telegram and payment.provider != "telegram_stars")
+    notify_telegram = notify_telegram and payment.provider != "telegram_stars"
+    if defer_notify:
+        # Письмо уходит по SMTP прямо здесь. Внутри транзакции зависший почтовый
+        # сервер держал бы незакоммиченное начисление и блокировки строк платежа
+        # и покупателя — поэтому сообщаем уже после коммита.
+        user = payment.user
+        transaction.on_commit(
+            lambda: _notify_balance_topup(user, total, notify_telegram=notify_telegram),
+            robust=True,
+        )
+    else:
+        _notify_balance_topup(payment.user, total, notify_telegram=notify_telegram)
 
     # Доля пригласившего. Раньше платилась только на пути сверки, поэтому
     # покупки, подтверждённые постбэком, реферера обходили стороной. Здесь
@@ -1018,7 +1033,8 @@ def _apply_purchase_credit(payment: "Payment", order_id: str, total: int,
                        idem_suffix=str((meta_extra or {}).get("idem") or ""))
 
 
-def _credit_token_package_for_payment(payment: "Payment", order_id: str) -> None:
+def _credit_token_package_for_payment(payment: "Payment", order_id: str, *,
+                                      defer_notify: bool = False) -> None:
     """Начислить токены за оплаченный пакет. Идемпотентно по order_id.
 
     Защита от двойного начисления:
@@ -1072,7 +1088,7 @@ def _credit_token_package_for_payment(payment: "Payment", order_id: str) -> None
     if total <= 0:
         raise ValueError("token_package_zero_amount")
 
-    _apply_purchase_credit(payment, order_id, total)
+    _apply_purchase_credit(payment, order_id, total, defer_notify=defer_notify)
 
     response["token_purchase_applied"] = True
     payment.response = response
@@ -1184,6 +1200,62 @@ def _clawback_token_package_for_payment(payment: "Payment", order_id: str, paylo
         pass
 
 
+def _result_ok(script: str, secret: str, description: str) -> HttpResponse:
+    """Ответ на result-уведомление FreedomPay: 200 и подписанный XML со статусом ok.
+
+    Описание — латиницей: оно входит в подпись, и так не о чем спорить в
+    кодировках. Другого статуса не отдаём — см. build_result_response_xml.
+    """
+    return HttpResponse(
+        build_result_response_xml(script, secret, description),
+        content_type="application/xml; charset=utf-8",
+    )
+
+
+# В уведомлении FreedomPay приходят токен сохранённой карты, её владелец и срок,
+# а подпись делает всё сообщение пригодным для повторной отправки. В журнале
+# платежа, который видит любой сотрудник в админке, этому не место.
+_CALLBACK_SECRET_KEYS = ("pg_sig", "pg_card_token", "pg_card_owner", "pg_card_exp")
+
+
+def _callback_for_storage(payload: dict) -> dict:
+    return {k: v for k, v in (payload or {}).items() if k not in _CALLBACK_SECRET_KEYS}
+
+
+def _order_settled(payment: "Payment", order_id: str) -> bool:
+    """По заказу уже начислено (или начисленное уже изъято возвратом).
+
+    Вызывать под блокировкой строки платежа. Такой заказ запоздавшее или
+    повторное уведомление менять не должно.
+    """
+    from plans.models import TokenTransaction
+
+    response = payment.response or {}
+    if response.get("token_purchase_applied") or response.get("token_purchase_clawed_back"):
+        return True
+    return TokenTransaction.objects.filter(
+        user=payment.user, reason="purchase", meta__order_id=order_id).exists()
+
+
+class _IgnoreAcceptNegotiation(DefaultContentNegotiation):
+    """Не смотреть на заголовок Accept.
+
+    FreedomPay ждёт в ответ XML и вправе прислать Accept: application/xml.
+    Такого рендерера у DRF нет, и запрос получил бы 406 ещё до обработчика.
+    """
+
+    def select_renderer(self, request, renderers, format_suffix=None):
+        return renderers[0], renderers[0].media_type
+
+
+class _ResultNotifyThrottle(AnonRateThrottle):
+    # Все уведомления идут с одного адреса FreedomPay: общий анонимный лимит
+    # (30 в минуту) отвечал бы им 429, а это повтор только через полчаса.
+    # Совсем без лимита не оставляем: до проверки подписи идёт запрос в базу.
+    scope = "fp_result_notify"
+    rate = "600/min"
+
+
 class FreedomPayTokenPurchaseResultBaseView(APIView):
     """Обработка success/failure/postback оплаты пакета токенов.
 
@@ -1203,7 +1275,6 @@ class FreedomPayTokenPurchaseResultBaseView(APIView):
 
     def _handle(self, request, payload_source):
         from django.conf import settings as dj_settings
-        from .freedompay import verify_freedompay_signature
 
         payload = _normalize_payload(payload_source)
         order_id = payload.get("pg_order_id") or payload.get("order_id")
@@ -1213,10 +1284,20 @@ class FreedomPayTokenPurchaseResultBaseView(APIView):
         # Браузерные success/failure — презентационные (никаких начислений),
         # т.к. их может открыть кто угодно с pg_status=success (подделка оплаты).
         if self.result_type == "post":
-            if not payment:
-                return Response({"status": "ok"}, status=status.HTTP_200_OK)
             secret = (dj_settings.FREEDOM_PAY_TOKEN or "").strip()
-            if not verify_freedompay_signature(request, payload, secret):
+            script = match_freedompay_script_name(request, payload, secret, allow_empty_script=True)
+            if not payment:
+                # Подписываем ответ только тому, кто сам прислал верную подпись:
+                # иначе любой прохожий набирал бы здесь образцы подписей нашим
+                # секретом для подбора.
+                if script is None:
+                    return Response({"status": "ok"}, status=status.HTTP_200_OK)
+                return _result_ok(script, secret, "Order not found")
+            if script is None:
+                # Только имена полей, без значений: по ним видно, что именно
+                # прислали, а личных данных и подписи в журнале не остаётся.
+                logger.warning("tokens postback bad signature order=%s keys=%s",
+                               order_id, ",".join(sorted(payload)))
                 _log_payment_event(payment, "tokens_postback_bad_signature")
                 return Response({"status": "invalid_signature"}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -1229,7 +1310,7 @@ class FreedomPayTokenPurchaseResultBaseView(APIView):
                         payment = Payment.objects.select_for_update().get(pk=payment.pk)
                         response = payment.response or {}
                         callbacks = list(response.get("callbacks") or [])
-                        callbacks.append({"type": "post", "payload": payload})
+                        callbacks.append({"type": "post", "payload": _callback_for_storage(payload)})
                         response["callbacks"] = callbacks
                         payment.response = response
                         _clawback_token_package_for_payment(payment, order_id, payload)
@@ -1241,12 +1322,19 @@ class FreedomPayTokenPurchaseResultBaseView(APIView):
                     payment.error = f"token_clawback_failed:{exc}"
                     payment.save(update_fields=["response", "success", "error"])
                 _log_payment_event(payment, "tokens_refund")
-                return Response({"status": "ok"}, status=status.HTTP_200_OK)
+                return _result_ok(script, secret, "Refund accepted")
 
             error_text = payload.get("pg_error_description") or payload.get("pg_error_message") or ""
             status_text = str(payload.get("pg_status") or "").lower()
             result_flag = str(payload.get("pg_result") or "").strip()
-            is_ok = (status_text in {"ok", "success"} or not status_text) and (result_flag in {"1", ""})
+            if not result_flag:
+                # pg_result в уведомлении обязателен. Без него это не уведомление
+                # об оплате — например, подписанный запрос, с которым FreedomPay
+                # возвращает покупателя в браузер (если имя скрипта у них пустое,
+                # подпись у него та же). Отвечаем ok и ничего не меняем.
+                logger.warning("tokens postback without pg_result order=%s", order_id)
+                return _result_ok(script, secret, "Accepted")
+            is_ok = (status_text in {"ok", "success"} or not status_text) and result_flag == "1"
 
             # Лочим Payment на весь разбор постбэка: два параллельных ретрая
             # постбэка сериализуются, и идемпотентность (флаг token_purchase_applied
@@ -1255,44 +1343,64 @@ class FreedomPayTokenPurchaseResultBaseView(APIView):
                 payment = Payment.objects.select_for_update().get(pk=payment.pk)
                 response = payment.response or {}
                 callbacks = list(response.get("callbacks") or [])
-                callbacks.append({"type": "post", "payload": payload})
+                callbacks.append({"type": "post", "payload": _callback_for_storage(payload)})
                 response["callbacks"] = callbacks
                 payment.response = response
+                # Заказ уже зачислен, а следом пришёл отказ (запоздавший повтор
+                # про первую неудачную попытку) или повтор с другой суммой:
+                # оплаченный заказ не должен стать «неуспешным» — сверка такой
+                # уже не поправит. Только записываем обращение.
+                settled = _order_settled(payment, order_id)
 
                 if error_text or not is_ok:
-                    payment.success = False
-                    payment.error = str(error_text or f"freedompay_status:{status_text or result_flag or 'unknown'}")
+                    if not settled:
+                        payment.success = False
+                        payment.error = str(error_text or f"freedompay_status:{status_text or result_flag or 'unknown'}")
+                elif settled:
+                    pass
                 else:
                     # Сверка суммы и валюты с заказом до начисления: подпись валидна,
                     # но баг провайдера/подмена может прислать другую сумму.
-                    amount_ok = Decimal(str(payload.get("pg_amount") or "0")) == (payment.amount or 0)
+                    # Нечисловая сумма — то же несовпадение, а не падение с 500:
+                    # на не-200 FreedomPay повторяет уведомление ещё два часа.
+                    try:
+                        amount_ok = Decimal(str(payload.get("pg_amount") or "0")) == (payment.amount or 0)
+                    except Exception:
+                        amount_ok = False
                     currency_ok = (payload.get("pg_currency") or "").upper() == (payment.currency or "").upper()
                     if not (amount_ok and currency_ok):
                         payment.success = False
                         payment.error = "amount_mismatch"
                         payment.save(update_fields=["response", "success", "error"])
                         _log_payment_event(payment, "tokens_amount_mismatch")
-                        return Response({"status": "ok"}, status=status.HTTP_200_OK)
+                        return _result_ok(script, secret, "Amount mismatch")
 
                     payment.success = True
                     payment.error = ""
                     try:
-                        _credit_token_package_for_payment(payment, order_id)
+                        _credit_token_package_for_payment(payment, order_id, defer_notify=True)
                     except Exception as exc:
                         payment.success = False
                         payment.error = f"token_purchase_apply_failed:{exc}"
                 payment.save(update_fields=["response", "success", "error"])
             _log_payment_event(payment, "tokens_postback")
-            return Response({"status": "ok"}, status=status.HTTP_200_OK)
+            return _result_ok(script, secret, "Order paid" if payment.success else "Accepted")
 
         # Браузерный редирект — только сохранить факт обращения + редирект.
         if payment:
-            response = payment.response or {}
-            callbacks = list(response.get("callbacks") or [])
-            callbacks.append({"type": self.result_type, "payload": payload, "presentational": True})
-            response["callbacks"] = callbacks
-            payment.response = response
-            payment.save(update_fields=["response"])
+            # Уведомление об оплате приходит почти одновременно с возвратом
+            # покупателя. Без блокировки эта запись легла бы поверх ответа,
+            # прочитанного до уведомления, и стёрла бы его след и отметку о
+            # начислении.
+            with transaction.atomic():
+                payment = Payment.objects.select_for_update().get(pk=payment.pk)
+                response = payment.response or {}
+                callbacks = list(response.get("callbacks") or [])
+                callbacks.append({"type": self.result_type, "payload": _callback_for_storage(payload),
+                                  "presentational": True})
+                response["callbacks"] = callbacks
+                payment.response = response
+                payment.save(update_fields=["response"])
 
         # Куда возвращать, решено при создании платежа (студия платит прямо из
         # проекта). Путь там уже проверен, здесь только читаем.
@@ -1326,6 +1434,8 @@ class FreedomPayTokenPurchaseFailureView(FreedomPayTokenPurchaseResultBaseView):
 
 class FreedomPayTokenPurchasePostbackView(FreedomPayTokenPurchaseResultBaseView):
     result_type = "post"
+    content_negotiation_class = _IgnoreAcceptNegotiation
+    throttle_classes = [_ResultNotifyThrottle]
 
 
 class FreedomPayTokenRefundPostbackView(APIView):

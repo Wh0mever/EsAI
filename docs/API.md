@@ -112,7 +112,16 @@
   недоступный процессор — 503 (доставит ещё раз), повтор — 200 `duplicate`.
 
 ## FreedomPay callbacks (`/api/payments/`, public)
-- `POST /api/payments/tokens/postback/` — RESULT URL (начисление токенов, идемпотентно)
+- `POST /api/payments/tokens/postback/` — RESULT URL (начисление токенов, идемпотентно).
+  Адрес передаётся в каждом `init_payment` параметром `pg_result_url` вместе с
+  `pg_request_method=POST` (не `pg_post_link` — у `init_payment` такого параметра нет).
+  Тело — форма с полями `pg_*` и подписью `pg_sig`; неверная подпись — 400.
+  Ответ — 200, `application/xml`:
+  `<response><pg_status>ok</pg_status><pg_description>…</pg_description><pg_salt>…</pg_salt><pg_sig>…</pg_sig></response>`.
+  Статус всегда `ok` (`rejected` отменил бы оплату); не-200 FreedomPay повторяет раз в полчаса два часа.
+  Если уведомление не пришло, кредиты начисляет сверка `reconcile_pending_token_payments` (раз в 2 минуты).
+  Начисляет только `pg_result=1`; подписанное сообщение без `pg_result` и уведомление по уже зачисленному заказу ничего не меняют.
+  Заголовок `Accept` не учитывается, лимит запросов свой (600/мин), подпись в ответе — только на запрос с верной подписью.
 - `GET/POST /api/payments/tokens/success/` — SUCCESS URL
 - `.../tokens/failure/` — неуспех
 

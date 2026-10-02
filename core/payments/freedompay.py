@@ -1,4 +1,5 @@
 import logging
+import re
 import uuid
 import hashlib
 import hmac
@@ -88,19 +89,29 @@ def make_api_signature(script_name: str, params: Dict[str, Any], secret_key: str
     return hashlib.md5(raw.encode("utf-8")).hexdigest()
 
 
-def verify_freedompay_signature(request, payload: Dict[str, Any], secret: str) -> bool:
-    """Проверка подписи pg_sig ВХОДЯЩЕГО callback FreedomPay.
+def _script_signature(script: str, params: Dict[str, Any], secret_key: str) -> str:
+    """md5(script;значения по алфавиту ключей;secret) — имя скрипта берётся как есть."""
+    filtered = {k: v for k, v in (params or {}).items() if k != "pg_sig" and v is not None}
+    pieces = [script] + [str(filtered[k]) for k in sorted(filtered.keys())] + [secret_key or ""]
+    return hashlib.md5(";".join(pieces).encode("utf-8")).hexdigest()
+
+
+def match_freedompay_script_name(request, payload: Dict[str, Any], secret: str, *,
+                                 allow_empty_script: bool = False) -> Optional[str]:
+    """Имя скрипта, с которым сошлась подпись pg_sig ВХОДЯЩЕГО callback, или None.
 
     pg_sig = md5(script_name; <значения параметров по алфавиту ключей>; secret),
     где script_name — имя скрипта (последний сегмент пути callback-URL).
     Пробуем несколько кандидатов имени скрипта — все требуют секрет, поэтому
-    подделать подпись без секрета невозможно. Возвращает True только при совпадении.
+    подделать подпись без секрета невозможно. Найденное имя нужно, чтобы тем же
+    именем подписать ответ. Пустая строка — тоже найденное имя, а не «не
+    сошлось»: сравнивать результат надо с None.
     """
     if not secret:
-        return False
+        return None
     sig = str((payload or {}).get("pg_sig") or "").strip().lower()
     if not sig:
-        return False
+        return None
     path = getattr(request, "path", "") or ""
     parts = [p for p in path.rstrip("/").split("/") if p]
     candidates = []
@@ -111,14 +122,61 @@ def verify_freedompay_signature(request, payload: Dict[str, Any], secret: str) -
         candidates.append(parts[-1])
         if len(parts) >= 2:
             candidates.append(f"{parts[-2]}/{parts[-1]}")
-    filtered = {k: v for k, v in (payload or {}).items() if k != "pg_sig" and v is not None}
-    keys = sorted(filtered.keys())
+    # Наш RESULT URL кончается слэшем (.../tokens/postback/), а у такого адреса
+    # FreedomPay берёт именем скрипта ПУСТУЮ строку (всё после последнего
+    # слэша). Проверено 02.10.2026 на боевых данных: 12 из 12 подписанных
+    # возвратов покупателя сошлись с пустым именем и ни один — с «success».
+    # Пока пустого имени среди кандидатов не было, каждое уведомление об оплате
+    # получало от нас 400 (164 раза за три месяца), и кредиты ждали сверки.
+    # Только по просьбе вызывающего: с пустым именем подпись одинакова для всех
+    # наших адресов со слэшем на конце, и запрос, которым FreedomPay возвращает
+    # покупателя в браузер, подошёл бы к адресу возврата денег.
+    if allow_empty_script:
+        candidates.append("")
     for script in dict.fromkeys(candidates):
-        pieces = [script] + [str(filtered[k]) for k in keys] + [secret]
-        calc = hashlib.md5(";".join(pieces).encode("utf-8")).hexdigest()
+        calc = _script_signature(script, payload, secret)
         if hmac.compare_digest(calc.lower(), sig):
-            return True
-    return False
+            return script
+    return None
+
+
+def verify_freedompay_signature(request, payload: Dict[str, Any], secret: str) -> bool:
+    """Проверка подписи pg_sig ВХОДЯЩЕГО callback FreedomPay. True только при совпадении."""
+    return match_freedompay_script_name(request, payload, secret) is not None
+
+
+def build_result_response_xml(script: str, secret: str, description: str = "ok") -> str:
+    """Ответ магазина на result-уведомление в том виде, какой ждёт FreedomPay.
+
+    Статус всегда ok: «rejected» при pg_can_reject=1 отменил бы оплату у
+    покупателя, а отказываться от денег из-за наших внутренних причин мы не
+    хотим никогда. script — имя скрипта, с которым сошлась подпись запроса:
+    ответ подписывается им же.
+    """
+    params = {"pg_status": "ok", "pg_description": description, "pg_salt": uuid.uuid4().hex}
+    params["pg_sig"] = _script_signature(script or "", params, secret)
+    root = ET.Element("response")
+    for key in ("pg_status", "pg_description", "pg_salt", "pg_sig"):
+        ET.SubElement(root, key).text = params[key]
+    return '<?xml version="1.0" encoding="utf-8"?>' + ET.tostring(root, encoding="unicode")
+
+
+def normalize_kg_phone(raw) -> str:
+    """Телефон для pg_user_phone: 12 цифр с кодом 996 или пустая строка.
+
+    В профиле телефон — свободный текст. Отправляем его, только когда это
+    похоже на киргизский мобильный: с ним FreedomPay заранее заполняет поле на
+    форме. Всё остальное не отправляем вовсе — кривой номер не должен ломать
+    оплату. Девять цифр без кода и без нуля не берём: так свой номер пишут и
+    в соседних странах, и 996 к нему приставлять нельзя.
+    """
+    digits = re.sub(r"[^0-9]", "", str(raw or ""))
+    if len(digits) == 10 and digits.startswith("0"):
+        digits = "996" + digits[1:]
+    # Мобильные коды Кыргызстана начинаются с 2, 5, 7, 8 и 9; с 3 — городские.
+    if re.fullmatch(r"996[25789][0-9]{8}", digits):
+        return digits
+    return ""
 
 def _mask_sensitive(obj: Any) -> Any:
     """Recursively mask tokens and auth values in dicts/lists/strings."""

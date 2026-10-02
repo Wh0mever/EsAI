@@ -2,13 +2,14 @@ from __future__ import annotations
 
 # Сверка «повисших» оплат FreedomPay.
 #
-# Проблема: кредиты начисляются ТОЛЬКО на подписанном server-to-server постбэке
-# FreedomPay (POST /api/payments/tokens/postback/), а для нашего мерчанта этот
-# постбэк по факту НЕ приходит (за всю историю — 0 постбэков). Браузерный
-# success — презентационный (не начисляет). Итог: после реальной оплаты кредиты
-# не поступают сами.
+# Кредиты начисляет подписанное server-to-server уведомление FreedomPay
+# (POST /api/payments/tokens/postback/). До 02.10.2026 мы отвечали на него 400:
+# подпись проверялась с именем скрипта «postback», а FreedomPay для адреса со
+# слэшем на конце подписывает с пустым именем. Теперь подпись сходится, но
+# уведомление всё равно может потеряться (наш сервер был недоступен), а
+# браузерный success — презентационный и не начисляет.
 #
-# Решение (не зависит от постбэка): сами спрашиваем статус у FreedomPay через их
+# Поэтому сверка остаётся страховкой: сами спрашиваем статус у FreedomPay через их
 # API get_status2 (исходящий запрос) и начисляем подтверждённые оплаты. Запускается
 # по расписанию (beat, каждые ~2 мин) И мгновенно на возврате пользователя из
 # оплаты (см. FreedomPayTokenPurchaseSuccessView). Полностью идемпотентно.
@@ -176,8 +177,15 @@ def _verify_and_credit(payment) -> str:
 
 def _has_payment_marker(p) -> bool:
     for cb in (p.response or {}).get("callbacks") or []:
-        if ((cb or {}).get("payload") or {}).get("pg_payment_id"):
-            return True
+        payload = (cb or {}).get("payload") or {}
+        if not payload.get("pg_payment_id"):
+            continue
+        # Уведомление о НЕуспешной оплате тоже несёт pg_payment_id, но признаком
+        # оплаты не служит: иначе каждый отказ карты опрашивался бы у FreedomPay
+        # каждые две минуты всю неделю. Свежий заказ и так проверяется два часа.
+        if cb.get("type") == "post" and str(payload.get("pg_result") or "1").strip() != "1":
+            continue
+        return True
     return False
 
 
