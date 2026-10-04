@@ -260,6 +260,25 @@ export const CODE_SCAN = {
     // префиксами в ru бывают и коды одного бэкенда — их не зовём «лишними».
     dynamic: ["errors.", "warnings.", "subject.", "fields.", "sent.mode.", "empty.examples.", "library.filter."],
   },
+  // EsAI Creators. Только папки программы: в них t() без ns — ключ creators.
+  // Nav, Footer, сайдбар чата, профиль и поле промокода зовут creators через
+  // ns: "creators" и берут тексты из таблиц ниже, а их t() без ns — common/home.
+  creators: {
+    dirs: ["src/app/creators", "src/components/creators", "src/lib/creators"],
+    tables: [
+      { file: "src/lib/creators/errors.ts", name: "ERROR_RU", prefix: "errors." },
+      { file: "src/lib/creators/errors.ts", name: "PROMO_ERROR_RU", prefix: "promo.errors." },
+      { file: "src/lib/creators/labels.ts", name: "APPLICATION_STATUS_RU", prefix: "status.application." },
+      { file: "src/lib/creators/labels.ts", name: "PUBLICATION_STATUS_RU", prefix: "status.publication." },
+      { file: "src/lib/creators/labels.ts", name: "WITHDRAWAL_STATUS_RU", prefix: "status.withdrawal." },
+      { file: "src/lib/creators/labels.ts", name: "COMMISSION_STATUS_RU", prefix: "status.commission." },
+      { file: "src/lib/creators/labels.ts", name: "NETWORK_RU", prefix: "network." },
+      { file: "src/lib/creators/labels.ts", name: "SOURCE_RU", prefix: "source." },
+      { file: "src/lib/creators/labels.ts", name: "CREDIT_CATEGORY_RU", prefix: "credits.category." },
+      { file: "src/lib/creators/labels.ts", name: "NAV_RU", prefix: "nav." },
+    ],
+    dynamic: ["errors.", "promo.errors.", "status.", "network.", "source.", "credits.category.", "nav."],
+  },
 };
 
 /** Похоже на ключ перевода: «group.key» и глубже, без пробелов. */

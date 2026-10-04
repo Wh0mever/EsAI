@@ -9,6 +9,7 @@ import Breadcrumb from "@/components/global/AnimatedCircleBg";
 import UserProfile from "@/components/profile/UserProfile";
 import UserBalanceCard from "@/components/profile/UserBalanceCard";
 import PromoActivate from "@/components/cabinet/PromoActivate";
+import CreatorsEntryCard from "@/components/creators/shared/CreatorsEntryCard";
 import { FiSend, FiUsers } from "react-icons/fi";
 
 // Профиль в токенной модели EsAI: данные аккаунта + баланс/пополнение.
@@ -82,6 +83,10 @@ export default function ProfilePage() {
 							</span>
 						</span>
 					</Link>
+					{/* Программа EsAI Creators: креатору — вход в кабинет, остальным —
+					    страница программы. Карточка сама спрашивает API и не
+					    показывается, если программа для этого человека выключена. */}
+					<CreatorsEntryCard className="sm:col-span-2" />
 				</div>
 			</div>
 		</main>

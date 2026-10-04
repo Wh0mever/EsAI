@@ -24,6 +24,7 @@ import {
   FiSend,
   FiTag,
   FiFilm,
+  FiAward,
 } from "react-icons/fi";
 import Link from "next/link";
 import NextLink from "@/components/ui/nextLink/NextLink";
@@ -35,6 +36,8 @@ import { clearAuthTokens, fetchData } from "@/tools/fetchData";
 import { useTheme } from "@/hooks/useTheme";
 import { useBonusSettings } from "@/hooks/useBonusSettings";
 import { pushSupported, pushPermission, enablePush } from "@/tools/webPush";
+import { CREATORS_NAV } from "@/lib/creators/format";
+import { NAV_RU } from "@/lib/creators/labels";
 
 export type ChatItem = { id: string; uid?: string; title: string; chat_mode?: string };
 
@@ -578,6 +581,17 @@ export default function ChatSidebar({
                 >
                   <FiGift className="text-accent" /> {t("chat.partnership", { defaultValue: "🤝 Партнёрство" })}
                 </NextLink>
+                {/* Программа EsAI Creators — пункт появляется вместе с меню сайта
+                    (флаг сборки), когда программа открыта всем. */}
+                {CREATORS_NAV && (
+                  <NextLink
+                    href="/creators"
+                    onClick={onClose}
+                    className="flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm hover:bg-surface-2 cursor-pointer"
+                  >
+                    <FiAward className="text-accent" /> {t("nav.link", { ns: "creators", defaultValue: NAV_RU.link })}
+                  </NextLink>
+                )}
                 {isAuthed ? (
                   <>
                     <NextLink

@@ -174,7 +174,9 @@ export async function middleware(request: NextRequest) {
 
   // '/admin' убран: /admin (Django) обслуживает nginx мимо Next, а у /admin-new
   // собственный гейт с формой входа по паролю (layout admin-new).
-  const protectedRoutes = ['/dashboard', '/profile', '/orders'];
+  // '/creators/dashboard' — кабинет креатора: с '/dashboard' он не начинается,
+  // поэтому указан отдельно. Публичная /creators остаётся открытой.
+  const protectedRoutes = ['/dashboard', '/profile', '/orders', '/creators/dashboard'];
   const authRoutes = ['/auth/signin', '/auth/signup', '/auth/signup'];
 
   const accessCookie = request.cookies.get('access')?.value;

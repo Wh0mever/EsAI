@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "next lint",
     "test:vstudio": "node --experimental-strip-types --test \"src/lib/vstudio/*.test.mjs\" \"src/components/vstudio/**/*.test.mjs\" \"scripts/i18n-parity.test.mjs\"",
-    "check:i18n": "node scripts/i18n-parity.mjs vstudio home"
+    "test:creators": "node --experimental-strip-types --test \"src/lib/creators/*.test.mjs\" \"src/components/creators/**/*.test.mjs\"",
+    "check:i18n": "node scripts/i18n-parity.mjs vstudio home creators"
   },
   "dependencies": {
     "@floating-ui/dom": "1.8.0",

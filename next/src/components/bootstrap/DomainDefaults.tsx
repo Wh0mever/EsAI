@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { getOrCreateDeviceKey } from "@/tools/deviceKey";
+import { captureRef } from "@/lib/creators/refCapture";
 
 /**
  * DomainDefaults — раньше синхронизировала ВАЛЮТУ по домену (принудительно
@@ -21,11 +22,16 @@ import { getOrCreateDeviceKey } from "@/tools/deviceKey";
  * потому, что смонтирован он на КАЖДОЙ странице, а ключ нужен уже к моменту
  * входа — в том числе при соц-входе, где страница успевает только уйти на
  * редирект (значение дублируется в cookie и доезжает вместе с ним).
+ *
+ * По той же причине здесь ловится ?ref=CODE: ссылка креатора ведёт на любую
+ * страницу сайта (esai.kg/?ref=TORA20), а не только на вход. Ключ устройства
+ * к этому моменту уже есть — по нему сервер считает переход один раз в день.
  */
 export default function DomainDefaults() {
   useEffect(() => {
     try {
       getOrCreateDeviceKey();
+      captureRef();
     } catch {}
   }, []);
   return null;

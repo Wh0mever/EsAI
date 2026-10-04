@@ -24,13 +24,23 @@ export default function ShareButtons({
   url,
   text,
   compact = false,
+  labels,
 }: {
   url: string;
   /** Подпись, которая уедет вместе со ссылкой — в ней и живёт призыв. */
   text: string;
   compact?: boolean;
+  /**
+   * Подписи кнопок на языке страницы. Без них — русские, как было: студия
+   * зовёт компонент без этого параметра.
+   */
+  labels?: { copy?: string; copied?: string; link?: string; more?: string };
 }) {
   const [copied, setCopied] = useState(false);
+  const copyLabel = labels?.copy ?? "Скопировать ссылку";
+  const copiedLabel = labels?.copied ?? "Скопировано";
+  const linkLabel = labels?.link ?? "Ссылка";
+  const moreLabel = labels?.more ?? "Ещё";
 
   const enc = encodeURIComponent;
   const full = `${text} ${url}`;
@@ -147,12 +157,12 @@ export default function ShareButtons({
         type="button"
         onClick={() => void copy()}
         className={`${size} inline-flex cursor-pointer items-center justify-center rounded-xl border border-border bg-surface font-semibold text-foreground transition-colors hover:border-accent`}
-        title="Скопировать ссылку"
+        title={copyLabel}
       >
         <span className={compact ? "" : "text-lg"}>
           {copied ? <FiCheck className="text-emerald-400" /> : <FiLink />}
         </span>
-        {!compact && (copied ? "Скопировано" : "Ссылка")}
+        {!compact && (copied ? copiedLabel : linkLabel)}
       </button>
 
       {/* Системное «поделиться» — на телефоне это самый короткий путь в любое
@@ -161,12 +171,12 @@ export default function ShareButtons({
         type="button"
         onClick={() => void native()}
         className={`${size} inline-flex cursor-pointer items-center justify-center rounded-xl border border-border bg-surface font-semibold text-foreground transition-colors hover:border-accent sm:hidden`}
-        title="Ещё"
+        title={moreLabel}
       >
         <span className={compact ? "" : "text-lg"}>
           <FiShare2 />
         </span>
-        {!compact && "Ещё"}
+        {!compact && moreLabel}
       </button>
     </div>
   );

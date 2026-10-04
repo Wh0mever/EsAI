@@ -1,0 +1,386 @@
+{
+	"common": {
+		"home": "Home",
+		"retry": "Retry",
+		"loading_more": "Loading…",
+		"more": "More ({{shown}} of {{total}} shown)"
+	},
+	"nav": {
+		"link": "Creators"
+	},
+	"entry": {
+		"cabinet_title": "Creator dashboard",
+		"cabinet_hint": "Statistics, promo code and payouts",
+		"join_hint": "Earn up to {{max}}% on payments from people you invite"
+	},
+	"errors": {
+		"disabled": "The EsAI Creators program is currently unavailable",
+		"not_found": "Not found",
+		"not_creator": "You are not a member of the EsAI Creators program",
+		"creator_blocked": "The creator account is blocked",
+		"superuser_required": "Only the chief administrator can do this",
+		"apply_blocked": "Applications are closed for this account",
+		"payouts_disabled": "Withdrawal requests are temporarily not accepted",
+		"already_creator": "You are already a member of the EsAI Creators program",
+		"application_open": "Your application is already under review",
+		"code_taken": "This promo code is already taken",
+		"code_already_set": "The promo code has already been created. Only an administrator can change it",
+		"code_unchanged": "This promo code is already set",
+		"already_bound": "The user is already linked to another creator",
+		"has_referrer": "The user has already signed up by invitation",
+		"publication_duplicate": "This publication has already been added",
+		"withdrawal_open": "You already have a withdrawal request in progress",
+		"txid_duplicate": "This TXID is already used in another payout",
+		"bad_state": "This action is not available in the current status",
+		"already_marked": "The payment is already marked as refunded",
+		"payment_refunded": "The payment was refunded — no commission can be accrued on it",
+		"duplicate_request": "This request has just been processed. Wait a few seconds",
+		"creator_conflict": "Both accounts take part in the Creators program — please contact support",
+		"validation": "Check that the fields are filled in correctly",
+		"links_required": "Add at least one social media link",
+		"code_format": "Promo code: 4 to 16 characters, Latin letters and digits, starting with a letter",
+		"code_reserved": "This promo code can't be used",
+		"self": "You can't use your own promo code",
+		"staff": "A staff member can't be linked to a creator",
+		"creator_unusable": "This creator can't accept referrals right now",
+		"too_late": "A creator promo code can only be entered within the first 72 hours after sign-up",
+		"already_paid": "A creator promo code can only be entered before the first payment",
+		"link_window": "A creator link only works at sign-up",
+		"race": "Couldn't complete the action, please try again",
+		"no_user": "User not found or disabled",
+		"already_bound_same": "The user is already linked to this creator",
+		"network_invalid": "Choose a social network from the list",
+		"url_invalid": "Enter a valid link (http:// or https://)",
+		"address_required": "Enter your USDT TRC20 wallet address",
+		"address_invalid": "Invalid USDT TRC20 address",
+		"amount_invalid": "Invalid amount",
+		"amount_below_min": "The minimum withdrawal amount is {{min}} USDT",
+		"insufficient_available": "Not enough funds available to withdraw",
+		"txid_invalid": "Invalid TXID: 64 hexadecimal characters are required",
+		"reason_required": "Enter a reason",
+		"kind_invalid": "Specify the mark type: refund or fraud",
+		"category_invalid": "Choose a grant reason from the list",
+		"level_unknown": "There is no such level",
+		"percent_invalid": "The commission percentage must be greater than 0 and no more than 25",
+		"unauthorized": "Sign in to continue",
+		"forbidden": "Access denied",
+		"throttled": "Too many requests. Wait a little and try again",
+		"network": "No connection. Check your internet and try again",
+		"server_error": "The server didn't respond. Please try again",
+		"unknown": "Something went wrong. Please try again",
+		"field_invalid": "Check this field"
+	},
+	"promo": {
+		"creator_accepted": "Promo code accepted — you joined by invitation from {{name}}",
+		"errors": {
+			"self": "You can't use your own promo code",
+			"staff": "This promo code is not available for this account",
+			"already_bound": "You are already linked to another creator",
+			"has_referrer": "You already signed up by invitation — a creator promo code can't be applied",
+			"too_late": "A creator promo code can only be entered within the first 72 hours after sign-up",
+			"already_paid": "A creator promo code can only be entered before the first payment"
+		}
+	},
+	"status": {
+		"application": {
+			"new": "Application under review",
+			"approved": "Application approved",
+			"rejected": "Application rejected",
+			"blocked": "Applications are closed"
+		},
+		"publication": {
+			"review": "Under review",
+			"approved": "Confirmed",
+			"rejected": "Rejected"
+		},
+		"withdrawal": {
+			"review": "Under review",
+			"approved": "Approved",
+			"paid": "Paid",
+			"rejected": "Rejected"
+		},
+		"commission": {
+			"hold": "On hold",
+			"available": "Available",
+			"held": "Under review",
+			"reversed": "Cancelled: payment refunded",
+			"cancelled": "Cancelled",
+			"void": "Voided"
+		}
+	},
+	"network": {
+		"instagram": "Instagram",
+		"tiktok": "TikTok",
+		"youtube": "YouTube",
+		"telegram": "Telegram",
+		"facebook": "Facebook",
+		"x": "X (Twitter)",
+		"vk": "VK",
+		"other": "Other"
+	},
+	"source": {
+		"link": "Link",
+		"promo": "Promo code",
+		"bot": "Telegram bot",
+		"admin": "Administrator"
+	},
+	"credits": {
+		"category": {
+			"start": "Start",
+			"activity": "Activity",
+			"content": "For content",
+			"result": "For results",
+			"special": "Special bonus",
+			"other": "Other",
+			"merge": "Transferred from the Telegram account"
+		}
+	},
+	"levels": {
+		"col_level": "Level",
+		"col_percent": "Commission",
+		"col_publications": "Publications",
+		"col_registrations": "Sign-ups",
+		"col_paying": "Paying users",
+		"current": "Your level"
+	},
+	"public": {
+		"hero": {
+			"title": "Create with EsAI. Earn from your audience.",
+			"sub": "Get up to {{max}}% of every payment made by the users you bring in — on an ongoing basis."
+		},
+		"cta": {
+			"join": "BECOME AN ESAI CREATOR",
+			"cabinet": "Open dashboard"
+		},
+		"benefits": {
+			"title": "Benefits",
+			"commission": "Up to {{max}}% ongoing commission",
+			"credits": "Creator Credits for creating content",
+			"link": "Personal link",
+			"promo": "Personal promo code",
+			"stats": "Detailed statistics",
+			"usdt": "Payouts in USDT TRC20",
+			"level": "Level upgrades"
+		},
+		"how": {
+			"title": "How it works",
+			"step1_title": "Apply",
+			"step1_text": "Tell us about yourself and add your social media.",
+			"step2_title": "We review your application",
+			"step2_text": "Every participant is reviewed manually.",
+			"step3_title": "Get your level and partner link",
+			"step3_text": "Once approved, you get a personal dashboard.",
+			"step4_title": "Create content",
+			"step4_text": "Use EsAI to create videos, cartoons and other content.",
+			"step5_title": "Bring your audience",
+			"step5_text": "Use your personal link or promo code.",
+			"step6_title": "Earn",
+			"step6_text": "Get an ongoing commission on payments from the users you brought in."
+		},
+		"commission": {
+			"title": "Commission",
+			"text": "The commission is ongoing: you get your percentage not only on the first purchase but on every later paid order of the user you brought in. The commission applies as long as the referral link between you exists and the creator account is not blocked."
+		},
+		"levels": {
+			"title": "Level-up requirements",
+			"text": "The figures are counted over your whole time in the program, not per month. Once they are reached, the dashboard shows the mark “Level requirements met”. Upgrades are not automatic — the final decision is made by an EsAI administrator."
+		},
+		"payouts": {
+			"title": "Payouts",
+			"main": "Payouts are in USDT only, on the {{network}} network. The minimum withdrawal is {{min}} USDT. No fee is taken from payouts: request 50 USDT and you receive 50 USDT.",
+			"hold_one": "A commission becomes available for withdrawal {{count}} day after it is accrued.",
+			"hold_other": "A commission becomes available for withdrawal {{count}} days after it is accrued.",
+			"no_tariff": "You don't need to buy a plan to take part."
+		}
+	},
+	"apply": {
+		"form": {
+			"title": "Application to join",
+			"name": "Name",
+			"country": "Country",
+			"instagram": "Instagram link",
+			"tiktok": "TikTok link",
+			"youtube": "YouTube link",
+			"other_links": "Other social media",
+			"other_links_hint": "One link per line",
+			"followers": "Number of followers",
+			"occupation": "What you do",
+			"motivation": "Why you want to join the program",
+			"samples": "Work samples",
+			"samples_hint": "Links to your work, one per line",
+			"submit": "Submit application",
+			"submitting": "Sending…"
+		},
+		"errors": {
+			"required": "Fill in this field",
+			"too_long": "No longer than {{max}} characters",
+			"url": "The link must start with http:// or https://",
+			"url_too_long": "The link must be no longer than {{max}} characters",
+			"too_many_links": "No more than {{max}} links",
+			"followers": "Enter a whole number, 0 or more"
+		},
+		"status": {
+			"sent": "Submitted on {{date}}",
+			"pending_text": "We review every application manually and will let you know our decision.",
+			"reason": "Reason:",
+			"again": "Apply again",
+			"member": "You are a member of the program"
+		}
+	},
+	"dash": {
+		"common": {
+			"cancel": "Cancel",
+			"saving": "Saving…",
+			"sending": "Sending…",
+			"reason": "Reason: {{reason}}"
+		},
+		"tabs": {
+			"aria": "Dashboard sections",
+			"overview": "Overview",
+			"publications": "Publications",
+			"payouts": "Payouts",
+			"referrals": "Referrals",
+			"commissions": "Commissions"
+		},
+		"level": {
+			"yours": "Your level",
+			"commission": "Your commission"
+		},
+		"code": {
+			"my_code": "My promo code",
+			"my_link": "My link",
+			"copy": "Copy",
+			"copied": "Copied",
+			"share": "Share",
+			"share_text": "Create videos and cartoons with EsAI. My promo code: {{code}}",
+			"share_copy": "Copy link",
+			"share_link": "Link",
+			"share_more": "More",
+			"created": "Promo code saved. Your personal link was created automatically.",
+			"none": "No promo code has been created.",
+			"admin_only": "The promo code can only be changed through an administrator.",
+			"create_title": "Create your promo code",
+			"save": "Save",
+			"create_hint": "4 to 16 characters: Latin letters and digits, starting with a letter. Afterwards only an administrator can change the promo code.",
+			"checking": "Checking…",
+			"free": "The promo code is available",
+			"confirm": "Save the promo code {{code}}? Only an administrator will be able to change it.",
+			"confirm_yes": "Yes, save"
+		},
+		"money": {
+			"earned": "Total earned",
+			"available": "Available to withdraw",
+			"pending": "Awaiting payout",
+			"paid": "Paid out",
+			"line": "Awaiting payout {{pending}} USDT · Paid out {{paid}} USDT"
+		},
+		"results": {
+			"clicks": "Clicks",
+			"registrations": "Sign-ups",
+			"paying": "Paying users",
+			"sales": "Sales",
+			"orders": "Orders",
+			"line": "Sales {{sales}} USDT · Orders {{orders}}"
+		},
+		"progress": {
+			"to": "Next",
+			"publications": "Publications",
+			"registrations": "Sign-ups",
+			"paying": "Paying users",
+			"met": "Requirements met. Awaiting confirmation from EsAI.",
+			"max": "You have the highest level.",
+			"done": "done"
+		},
+		"overview": {
+			"telegram_link": "Link for the Telegram bot",
+			"held": "Under review: {{held}} USDT",
+			"debt": "Debt {{debt}} USDT — it will be covered by your next commissions",
+			"hint_clicks": "Clicks — unique devices per day",
+			"hint_registrations": "Sign-ups and paying users — excluding accounts under review"
+		},
+		"pubs": {
+			"title": "My publications",
+			"add": "Add publication",
+			"added": "Publication sent for review.",
+			"empty": "No publications yet. Add a link to your post — we'll review it.",
+			"note": "Only confirmed publications count towards level progress.",
+			"network": "Social network",
+			"network_placeholder": "Choose a network",
+			"url": "Link to the publication",
+			"description": "Short description",
+			"submit": "Send for review"
+		},
+		"payouts": {
+			"available": "Available",
+			"available_now": "Available: {{available}} USDT",
+			"created": "Request under review",
+			"open": "Withdrawal request for {{amount}} USDT",
+			"need_min": "You need at least {{min}} USDT to withdraw. Available: {{available}} USDT",
+			"min_note": "Minimum {{min}} USDT. No fee is taken: you receive exactly the amount you request.",
+			"withdraw_title": "Withdraw USDT",
+			"withdraw": "Withdraw",
+			"amount": "Amount, USDT",
+			"amount_format": "Enter the amount as a number with no more than two decimal places",
+			"all": "All",
+			"confirm": "Withdraw {{amount}} USDT to the address {{address}}?",
+			"confirm_yes": "Yes, withdraw",
+			"address_title": "USDT TRC20 address",
+			"address_none": "No address set",
+			"address_save": "Save address",
+			"address_saved": "Address saved",
+			"address_warning": "TRC20 network only. A transfer to an address on another network can't be recovered.",
+			"address_changed": "Address changed on {{date}}",
+			"address_show": "Show full address",
+			"history": "Payout history",
+			"empty": "No payouts yet.",
+			"col_date": "Date",
+			"col_amount": "Amount",
+			"col_status": "Status",
+			"col_address": "Address",
+			"txid_copy": "Copy TXID",
+			"txid_open": "Open in Tronscan"
+		},
+		"credits": {
+			"granted": "Granted",
+			"remaining": "Remaining",
+			"spent": "Used",
+			"about": "Creator Credits are credits for creating content in EsAI. They can't be withdrawn, transferred to another user or exchanged for USDT.",
+			"history": "History",
+			"show_spends": "Show spending",
+			"empty": "No credits granted yet. Creator Credits are granted by an EsAI administrator.",
+			"col_date": "Date",
+			"col_amount": "Amount",
+			"col_reason": "Reason",
+			"col_note": "Note",
+			"remaining_after": "Balance {{n}}",
+			"limit_note": "Showing the last {{n}} entries."
+		},
+		"refs": {
+			"col_user": "User",
+			"col_date": "Date",
+			"col_source": "Source",
+			"col_paying": "Paying",
+			"col_orders": "Orders",
+			"col_sales": "Sales",
+			"col_commission": "Commission",
+			"paying_yes": "Yes",
+			"paying_no": "No",
+			"empty": "No one has signed up with your link yet."
+		},
+		"comm": {
+			"filter_all": "All",
+			"filter_accrued": "Accrued",
+			"filter_held": "Under review",
+			"filter_reversed": "Cancelled",
+			"filter_void": "Voided",
+			"col_date": "Date",
+			"col_buyer": "Buyer",
+			"col_base": "Order amount",
+			"col_amount": "Commission",
+			"col_status": "Status",
+			"hold_until": "On hold until {{date}}",
+			"empty": "No commissions yet. They will appear after your referral's first payment.",
+			"empty_filtered": "No commissions with this status."
+		}
+	}
+}

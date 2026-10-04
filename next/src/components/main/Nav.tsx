@@ -9,6 +9,12 @@ import { DropDownHovered } from "@/components/ui/dropDown/DropDownHovered";
 import { Button } from "@/components/ui/buttons/Buttons";
 import { usePathname } from "next/navigation";
 import { setLanguagePreference } from "@/lib/locale";
+// «Creators» в меню — по тому же правилу, что «Видеостудия» ниже: флаг сборки
+// NEXT_PUBLIC_CREATORS_NAV включают, когда программа открыта всем. Подпись —
+// имя программы, одинаковое на всех языках, поэтому она верна и тогда, когда
+// namespace creators на этой странице ещё не загружен.
+import { CREATORS_NAV } from "@/lib/creators/format";
+import { NAV_RU } from "@/lib/creators/labels";
 
 type Variant = "desktop" | "mobile";
 type Props = { variant?: Variant; className?: string; onNavigate?: () => void };
@@ -21,7 +27,7 @@ const LANGUAGES: Lang[] = [
   { code: "kg", icon: "/images/local/kg.webp", label: "Кыргызча" },
 ];
 
-const CATEGORIES_ROUTES = ["/about", "/contact-us", "/faq", "/terms-conditions"];
+const CATEGORIES_ROUTES = ["/about", "/contact-us", "/faq", "/terms-conditions", "/creators"];
 
 // «Видеостудия» в меню — только когда студия открыта всем (VSTUDIO_MODE=on на
 // бэкенде). Пока она в режиме staff, обычный посетитель увидел бы там лишь
@@ -144,6 +150,11 @@ function MobileNav({ className, onNavigate }: any) {
             <Link href="/referral" onClick={onNavigate} className={linkCls("/referral")} aria-current={isActive("/referral") ? "page" : undefined}>
               {t("nav.referral")}
             </Link>
+            {CREATORS_NAV && (
+              <Link href="/creators" onClick={onNavigate} className={linkCls("/creators")} aria-current={isActive("/creators") ? "page" : undefined}>
+                {t("nav.link", { ns: "creators", defaultValue: NAV_RU.link })}
+              </Link>
+            )}
             <Link href="/contact-us" onClick={onNavigate} className={linkCls("/contact-us")} aria-current={isActive("/contact-us") ? "page" : undefined}>
               {t("nav.contact")}
             </Link>
@@ -263,6 +274,21 @@ function PCNav({ className, onNavigate, t, changeLanguage, currentLang }: any) {
                   {t("nav.referral")}
                 </Link>
               </li>
+              {CREATORS_NAV && (
+                <li className="border-b border-neutral-700">
+                  <Link
+                    href="/creators"
+                    onClick={onNavigate}
+                    className={clsx(
+                      "py-4 px-8 hover:bg-surface-2 transition-all duration-300 flex w-full",
+                      isActive("/creators") && "bg-surface-2"
+                    )}
+                    aria-current={isActive("/creators") ? "page" : undefined}
+                  >
+                    {t("nav.link", { ns: "creators", defaultValue: NAV_RU.link })}
+                  </Link>
+                </li>
+              )}
               <li className="border-b border-neutral-700">
                 <Link
                   href="/contact-us"

@@ -28,6 +28,9 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { path: "/blog", priority: 0.6 },
     { path: "/faq", priority: 0.5 },
     { path: "/referral", priority: 0.4 },
+    // Программа Creators — в карте вместе с пунктом меню: пока она открыта только
+    // сотрудникам, страница отвечает посетителю «программа недоступна».
+    ...(process.env.NEXT_PUBLIC_CREATORS_NAV === "1" ? [{ path: "/creators", priority: 0.6 }] : []),
     { path: "/about", priority: 0.4 },
     { path: "/contact-us", priority: 0.3 },
   ].map(({ path, priority }) => ({
