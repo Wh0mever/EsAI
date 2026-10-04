@@ -300,6 +300,15 @@ def clawback_tokens(user, amount: int, reason: str = "refund", meta=None) -> int
 TRANSFERABLE_IN_REASONS = ("purchase", "referral", "transfer_in")
 
 
+def _creator_credits_left(user) -> int:
+    """Creator Credits нельзя переводить: сколько их ещё лежит на балансе."""
+    try:
+        from creators.credits import remaining
+        return int(remaining(user) or 0)
+    except Exception:
+        return 0
+
+
 def transferable_tokens(user) -> int:
     """Сколько кредитов человек может перевести другому.
 
@@ -329,4 +338,7 @@ def transferable_tokens(user) -> int:
     from vstudio.reserve import total_reserved
 
     balance = max(0, balance - total_reserved(user))
+    # Creator Credits выданы на контент и другому человеку не уходят: без этого
+    # «купил 100, потратил 100, получил 100 от EsAI» давало бы 100 к переводу.
+    balance = max(0, balance - _creator_credits_left(user))
     return max(0, min(balance, int(came_in) + int(went_out)))

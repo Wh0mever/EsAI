@@ -107,6 +107,75 @@ def movable_credits(stub) -> int:
     return max(0, min(balance, balance - gifted))
 
 
+# --- EsAI Creators при слиянии ---------------------------------------------
+# Программа подключается лениво. Правило одно: если у аккаунтов есть её данные,
+# слияние либо переносит их целиком, либо не происходит вовсе. Проглоченная
+# ошибка оставила бы креатора с балансом, кодами и заявкой на вывод на
+# погашенной заглушке, в которую никто не может войти.
+
+def _creators_has_data(stub, target) -> bool:
+    """Есть ли у пары что-то от программы Creators. Не смогли узнать — слияния нет."""
+    try:
+        from creators.models import Creator, CreatorApplication, CreatorReferral
+
+        return (Creator.objects.filter(user_id__in=[stub.pk, target.pk]).exists()
+                or CreatorReferral.objects.filter(user_id=stub.pk).exists()
+                or CreatorApplication.objects.filter(user_id=stub.pk).exists())
+    except Exception:  # noqa: BLE001
+        logger.exception("merge: не удалось проверить данные Creators (stub=%s target=%s)",
+                         stub.pk, target.pk)
+        raise LinkError("creator_conflict", 409)
+
+
+def _creators_check_merge(stub, target) -> None:
+    """Оба аккаунта — креаторы: такое слияние разбирает поддержка вручную."""
+    try:
+        from creators.attribution import check_merge
+
+        check_merge(stub, target)
+    except Exception:  # noqa: BLE001 — и отказ программы, и любой её сбой
+        logger.warning("merge: слияние остановлено проверкой Creators (stub=%s target=%s)",
+                       stub.pk, target.pk, exc_info=True)
+        raise LinkError("creator_conflict", 409)
+
+
+def _creator_credits_left(stub) -> int:
+    """Сколько Creator Credits осталось у заглушки; не смогли посчитать — ноль."""
+    try:
+        from creators.credits import remaining
+
+        with transaction.atomic():
+            return max(0, int(remaining(stub) or 0))
+    except Exception:  # noqa: BLE001
+        return 0
+
+
+def _creators_on_merge(stub, target) -> dict:
+    """Перенести креатора, привязку и заявки. Ошибка откатывает слияние целиком."""
+    try:
+        from creators.attribution import on_merge
+
+        with transaction.atomic():
+            return dict(on_merge(stub, target) or {})
+    except Exception:  # noqa: BLE001
+        logger.exception("merge: перенос данных Creators не удался (stub=%s target=%s)",
+                         stub.pk, target.pk)
+        raise LinkError("creator_conflict", 409)
+
+
+def _is_creator_account(user) -> bool:
+    """Аккаунт — креатор программы. Не смогли узнать — считаем, что да."""
+    try:
+        from creators.models import Creator
+
+        # Точка сохранения: ошибка базы не должна отравить транзакцию запроса.
+        with transaction.atomic():
+            return Creator.objects.filter(user_id=user.pk).exists()
+    except Exception:  # noqa: BLE001
+        logger.exception("forget: не удалось проверить данные Creators (user=%s)", user.pk)
+        return True
+
+
 def merge_into(stub, target) -> dict:
     """Перенести всё нажитое из заглушки в аккаунт сайта и погасить заглушку."""
     from ai.models import AiChatSession, GenerationJob
@@ -119,13 +188,28 @@ def merge_into(stub, target) -> dict:
     with transaction.atomic():
         stub = User.objects.select_for_update().get(pk=stub.pk)
         target = User.objects.select_for_update().get(pk=target.pk)
+        # Без данных Creators ни одна функция программы дальше не вызывается,
+        # и слияние идёт ровно как раньше.
+        has_cd = _creators_has_data(stub, target)
+        if has_cd:
+            _creators_check_merge(stub, target)
         moved = movable_credits(stub)
+        # Считаем до списания: остаток Creator Credits выводится из леджера заглушки.
+        # Их выдают только креаторам, так что без данных программы остаток — ноль.
+        cc = _creator_credits_left(stub) if has_cd else 0
         balance = int(stub.token_balance or 0)
         if balance > 0:
             clawback_tokens(stub, balance, "admin",
                             meta={"kind": "merge_out", "merge_into": target.pk, "moved": moved})
-        if moved > 0:
-            credit_tokens(target, moved, "admin",
+        # Creator Credits переезжают как Creator Credits: зачисленные причиной
+        # "admin", они стали бы обычными кредитами, которые можно перевести.
+        cc_moved = min(cc, moved)
+        if cc_moved > 0:
+            credit_tokens(target, cc_moved, "creator_credit",
+                          meta={"category": "merge", "note": "", "by_id": None, "grant_id": "",
+                                "kind": "merge_in", "merge_from": stub.pk})
+        if moved - cc_moved > 0:
+            credit_tokens(target, moved - cc_moved, "admin",
                           meta={"kind": "merge_in", "merge_from": stub.pk})
 
         counts = {
@@ -135,8 +219,16 @@ def merge_into(stub, target) -> dict:
             "memory": UserMemory.objects.filter(user=stub).update(user=target),
             "payments": Payment.objects.filter(user=stub).update(user=target),
             "jobs": GenerationJob.objects.filter(user=stub).update(user=target),
-            "referrals": User.objects.filter(referred_by=stub).update(referred_by=target),
+            # Сам аккаунт сайта не трогаем: иначе он стал бы собственным реферером.
+            "referrals": User.objects.filter(referred_by=stub).exclude(pk=target.pk)
+                                     .update(referred_by=target),
         }
+        if target.referred_by_id == stub.pk:
+            # Заглушка «пригласила» свой же аккаунт сайта — это один человек.
+            target.referred_by = None
+            target.save(update_fields=["referred_by"])
+        if has_cd:
+            counts.update(_creators_on_merge(stub, target))
         SocialAccount.objects.filter(user=stub, provider=PROVIDER).update(user=target)
         TelegramChat.objects.filter(user=target).delete()
         TelegramChat.objects.filter(user=stub).update(user=target, source=TelegramChat.SOURCE_LINK)
@@ -208,12 +300,20 @@ def forget_telegram(telegram_id) -> dict:
 
     Аккаунт с настоящей почтой остаётся — человек просто отвязал Telegram.
     Заглушка гасится и переименовывается, чтобы следующий /start завёл
-    новый чистый аккаунт, а не воскресил старый.
+    новый чистый аккаунт, а не воскресил старый. Заглушку креатора программы
+    Creators не трогаем вовсе: ответ {"status": "creator_account"}.
     """
     user = find_user(telegram_id)
     if user is None:
         TelegramChat.objects.filter(telegram_id=int(telegram_id)).delete()
         return {"status": "not_linked", "deactivated": False}
+    if is_stub(user) and _is_creator_account(user):
+        # Заглушка-креатор не гасится и Telegram от неё не отвязывается: иначе
+        # баланс в USDT, промокод и адрес выплат остались бы на аккаунте, в
+        # который никто не может войти, а код продолжал бы привязывать людей.
+        # Такое удаление разбирает поддержка (как и слияние двух креаторов).
+        logger.warning("forget: аккаунт-заглушка креатора не погашен (user=%s)", user.pk)
+        return {"status": "creator_account", "deactivated": False}
     deactivated = False
     with transaction.atomic():
         SocialAccount.objects.filter(user=user, provider=PROVIDER).delete()
@@ -236,8 +336,11 @@ def forget_telegram(telegram_id) -> dict:
     try:
         from audit.services import log_event
 
+        # telegram_id в meta — след прежнего аккаунта этого Telegram: по нему
+        # программа Creators узнаёт повторную регистрацию (/delete -> /start).
         log_event("telegram_unlinked", message=f"tg {telegram_id} ← user {user.pk}",
-                  user=user, meta={"deactivated": deactivated})
+                  user=user, meta={"deactivated": deactivated,
+                                   "telegram_id": str(telegram_id)})
     except Exception:  # noqa: BLE001
         pass
     return {"status": "unlinked", "deactivated": deactivated}

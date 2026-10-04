@@ -82,6 +82,11 @@ KEYS = (
     "studio_voice_min_credits",
     "studio_music_credits_per_min",
     "studio_sfx_credits",
+    # Программа EsAI Creators (creators/flags.py): режим off/staff/on, срок холда
+    # комиссии в днях и рубильник приёма заявок на вывод — без выкладки.
+    "creators_mode",
+    "creators_hold_days",
+    "creators_payouts_enabled",
 )
 
 # Сентинел «в кэше пусто» — None невалиден: мы кэшируем и None («ключа нет в БД»).

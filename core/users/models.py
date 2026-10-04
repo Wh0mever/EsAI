@@ -13,6 +13,21 @@ def generate_referral_uid(length: int = 8) -> str:
     return ''.join(random.choices(alphabet, k=length))
 
 
+def _creator_code_taken(code) -> bool:
+    """Занят ли код промокодом креатора (EsAI Creators).
+
+    Реферальный UID и код креатора живут в одном пространстве имён: ссылка
+    ?ref=XXXX должна вести к одному человеку. Программа подключается лениво,
+    и любой её сбой не мешает создать пользователя.
+    """
+    try:
+        from creators.codes import creator_code_exists
+
+        return bool(creator_code_exists(code))
+    except Exception:
+        return False
+
+
 class UserCardBind(models.Model):
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="card_binds")
     card_id = models.CharField(max_length=64, verbose_name="Card ID")
@@ -184,7 +199,7 @@ class User(AbstractBaseUser, PermissionsMixin):
         alphabet = string.ascii_uppercase + string.digits
         while True:
             code = ''.join(random.choices(alphabet, k=length))
-            if not User.objects.filter(referral_uid=code).exists():
+            if not User.objects.filter(referral_uid=code).exists() and not _creator_code_taken(code):
                 return code
 
     def save(self, *args, **kwargs):
@@ -199,7 +214,8 @@ class User(AbstractBaseUser, PermissionsMixin):
                 qs = qs.exclude(pk=self.pk)
             return qs.exists()
 
-        if not self.referral_uid or uid_exists(self.referral_uid):
+        # Код креатора проверяем только при создании: один лишний запрос на нового пользователя.
+        if not self.referral_uid or uid_exists(self.referral_uid) or (self._state.adding and _creator_code_taken(self.referral_uid)):
             self.referral_uid = self._generate_unique_uid()
 
         attempts = 0

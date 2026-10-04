@@ -46,6 +46,17 @@ class PromoCodeAdminSerializer(serializers.ModelSerializer):
         value = (value or "").strip().upper()
         if not value:
             raise serializers.ValidationError("Код не может быть пустым.")
+        # Промокоды и коды креаторов (EsAI Creators) делят одно пространство
+        # имён: иначе один и тот же код и начислял бы кредиты, и привязывал к
+        # креатору. Сбой программы создание промокода не блокирует.
+        try:
+            from creators.codes import creator_code_exists
+
+            taken = bool(creator_code_exists(value))
+        except Exception:
+            taken = False
+        if taken:
+            raise serializers.ValidationError("Этот код занят промокодом креатора.")
         return value
 
 

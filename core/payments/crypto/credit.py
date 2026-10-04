@@ -238,6 +238,10 @@ def apply_provider_status(invoice, state, source: str = "ipn") -> str:
                 # решение об этом принимает человек, глядя на конкретный случай.
                 inv.flags = {**(inv.flags or {}), "refund_seen": True,
                              "needs_review": "refunded"}
+                # Комиссия креатора с возвращённой оплаты отменяется сразу и целиком.
+                from ..referral import reverse_creator_commission
+
+                reverse_creator_commission(pay, "refund:crypto")
 
             inv.save()
             pay.save(update_fields=["response", "success", "error"])

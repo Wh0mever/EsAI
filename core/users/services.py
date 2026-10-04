@@ -37,6 +37,126 @@ def activate_free_plan_for_user(user: User) -> Tuple[bool, str]:
     return False, "subscriptions_deprecated"
 
 
+# --- EsAI Creators ----------------------------------------------------------
+# Код креатора — отдельная программа (комиссия в USDT), а не referred_by.
+# Все обращения к ней ленивые и в try/except: сбой программы не должен ломать
+# ни регистрацию, ни обычные промокоды.
+
+# Отказы при вводе кода креатора: клиентский код -> текст. Кортеж
+# activate_promo код нести не может, поэтому PromoActivateView находит его по
+# тексту (creator_promo_code) — интерфейсам en/kg нужен код, а не русская фраза.
+CREATOR_PROMO_MESSAGES = {
+    "self": "Нельзя использовать собственный промокод",
+    "staff": "Промокод недоступен для этого аккаунта",
+    "already_bound": "Вы уже закреплены за другим креатором",
+    "has_referrer": "Вы уже зарегистрированы по приглашению — промокод креатора применить нельзя",
+    "too_late": "Промокод креатора можно ввести только в первые 72 часа после регистрации",
+    "already_paid": "Промокод креатора можно ввести только до первой оплаты",
+    "not_found": "Промокод не найден или неактивен",
+    "retry": "Не удалось активировать промокод, попробуйте позже",
+}
+
+# Причина отказа привязки -> клиентский код. Чего здесь нет — "retry".
+_CREATOR_BIND_CODES = {
+    "self": "self",
+    "staff": "staff",
+    "already_bound": "already_bound",
+    "has_referrer": "has_referrer",
+    "too_late": "too_late",
+    "already_paid": "already_paid",
+    "creator_unusable": "not_found",
+    "disabled": "not_found",
+    "no_user": "not_found",
+}
+
+
+def creator_promo_code(message: str) -> str:
+    """Клиентский код отказа по тексту, который вернул activate_promo."""
+    for client_code, text in CREATOR_PROMO_MESSAGES.items():
+        if text == message:
+            return client_code
+    return "error"
+
+
+def _signup_typed_code(request) -> str:
+    """Промокод, введённый при регистрации (читается так же, как в
+    maybe_activate_promo_on_signup): cookie `esai_promo`, иначе тело запроса."""
+    code = ""
+    try:
+        code = (request.COOKIES.get("esai_promo") or "").strip()
+    except Exception:
+        code = ""
+    if not code:
+        try:
+            data = getattr(request, "data", None) or {}
+            code = str(data.get("promo") or data.get("promo_code") or "").strip()
+        except Exception:
+            code = ""
+    return code
+
+
+def _creator_code(raw):
+    """Действующий код креатора (CreatorCode) или None."""
+    try:
+        from creators.attribution import creator_code
+
+        return creator_code(raw)
+    except Exception:
+        logger.exception("creator code lookup failed")
+        return None
+
+
+# После этих ответов привязки человек закреплён за креатором (за этим или за
+# другим): обычного реферера ему уже не ставим.
+_CREATOR_BOUND_REASONS = ("already_bound_same", "already_bound", "race")
+
+
+def _bind_creator(user, hit, source: str, *, bot_arrival: bool = False) -> bool:
+    """Привязать нового пользователя к креатору найденного кода. Отказ — не ошибка.
+
+    True — человек теперь закреплён за креатором. Сбой программы — тоже True:
+    не зная, состоялась ли привязка, обычного реферера рядом не ставим.
+    """
+    try:
+        if bot_arrival:
+            # Приход из бота сайт не видит: без этой строки «Переходов» у
+            # креатора было бы меньше, чем «Регистраций».
+            from creators.clicks import record_bot
+
+            record_bot(hit, user)
+        from creators.attribution import bind
+
+        res = bind(user, hit.creator, source=source, code_used=hit.code)
+        logger.info("creator bind: user %s code=%s source=%s -> %s",
+                    user.pk, hit.code, source, "ok" if res.ok else res.reason)
+        return bool(res.ok or res.reason in _CREATOR_BOUND_REASONS)
+    except Exception:
+        logger.exception("creator bind failed")
+        return True
+
+
+def _activate_creator_code(user, norm) -> "Tuple[bool, str, int] | None":
+    """Код креатора в поле промокода: привязка без начисления кредитов.
+
+    None — это не код креатора (или программа выключена): activate_promo
+    отвечает «не найден», как раньше.
+    """
+    try:
+        from creators.attribution import bind_by_typed_code
+
+        res = bind_by_typed_code(user, norm)
+    except Exception:
+        logger.exception("creator promo failed for code=%s user=%s", norm, getattr(user, "pk", None))
+        return None
+    if res is None:
+        return None
+    if res.ok or res.reason == "already_bound_same":
+        # Повторный ввод того же кода — тот же дружелюбный ответ, а не ошибка.
+        name = res.referral.creator.display_name
+        return True, f"Промокод принят — вы пришли по приглашению {name}", 0
+    return False, CREATOR_PROMO_MESSAGES[_CREATOR_BIND_CODES.get(res.reason, "retry")], 0
+
+
 def maybe_link_referrer(request, new_user, code: str = "") -> None:
     """Привязать реферера к новому пользователю при регистрации по реф-ссылке.
 
@@ -63,6 +183,8 @@ def maybe_link_referrer(request, new_user, code: str = "") -> None:
         if getattr(new_user, "referred_by_id", None):
             return
         code = (code or "").strip()
+        # Код пришёл аргументом — значит, из бота (t.me/<bot>?start=ref_XXX).
+        from_arg = bool(code)
         if not code:
             try:
                 code = (request.COOKIES.get("esai_ref") or "").strip()
@@ -85,6 +207,23 @@ def maybe_link_referrer(request, new_user, code: str = "") -> None:
 
             if _tz.now() - joined > timedelta(minutes=10):
                 return
+        # EsAI Creators. Введённый при регистрации промокод креатора сильнее
+        # реф-ссылки: человек сам назвал, кто его пригласил.
+        typed = _signup_typed_code(request)
+        if typed and typed.strip().upper() != code.upper():
+            hit = _creator_code(typed)
+            # Отказ привязки (креатор заблокирован, код не для этого аккаунта)
+            # не отменяет ссылку, по которой человек пришёл: иначе пригласивший
+            # по обычной программе терял бы его навсегда.
+            if hit and _bind_creator(new_user, hit, "promo"):
+                return
+        # Ссылка креатора (?ref=CODE или start=ref_CODE). Что бы ни ответила
+        # привязка, в referred_by код креатора не попадает никогда: иначе с
+        # одного покупателя платили бы и комиссию, и 10% кредитами.
+        hit = _creator_code(code)
+        if hit:
+            _bind_creator(new_user, hit, "bot" if from_arg else "link", bot_arrival=from_arg)
+            return
         referrer = User.objects.filter(referral_uid__iexact=code).first()
         if not referrer and code.isdigit():
             referrer = User.objects.filter(pk=int(code)).first()
@@ -134,6 +273,9 @@ def activate_promo(user, code: str) -> Tuple[bool, str, int]:
                 .first()
             )
             if not promo:
+                creator_result = _activate_creator_code(user, norm)
+                if creator_result is not None:
+                    return creator_result
                 return False, "Промокод не найден или неактивен", 0
 
             if promo.expires_at and promo.expires_at <= timezone.now():

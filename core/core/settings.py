@@ -148,6 +148,7 @@ INSTALLED_APPS = [
     "botapi.apps.BotapiConfig",
     "cartoon.apps.CartoonConfig",
     "vstudio.apps.VstudioConfig",
+    "creators.apps.CreatorsConfig",
 ]
 
 SITE_ID = 1
@@ -290,6 +291,12 @@ REST_FRAMEWORK = {
         "vstudio_upload": env.str("DRF_THROTTLE_VSTUDIO_UPLOAD", default="40/min"),
         # «Сжать с ИИ» для человека бесплатно, а вызов модели оплачиваем мы.
         "vstudio_assist": env.str("DRF_THROTTLE_VSTUDIO_ASSIST", default="20/hour"),
+        # Программа Creators. Переход по ссылке шлёт каждая загрузка страницы с
+        # ?ref= (в том числе без входа), заявка подаётся считаные разы, а записи
+        # в кабинете (код, публикация, вывод) — редкие действия руками.
+        "creators_click": env.str("DRF_THROTTLE_CREATORS_CLICK", default="30/min"),
+        "creators_apply": env.str("DRF_THROTTLE_CREATORS_APPLY", default="5/day"),
+        "creators_write": env.str("DRF_THROTTLE_CREATORS_WRITE", default="30/min"),
     },
 }
 
@@ -588,6 +595,34 @@ CELERY_BEAT_SCHEDULE = {
     "payments:reconcile_yookassa_payments": {
         "task": "payments.tasks.reconcile_yookassa_payments",
         "schedule": timedelta(minutes=5),
+    },
+    # Creators: страховка отмены комиссий. Платёж уже помечен возвращённым
+    # любым путём (постбэк, Stars, крипта, админ), а комиссия ещё начислена —
+    # отменяем. Работает в любом режиме программы: деньги должны сойтись.
+    "creators:commission_safety_net": {
+        "task": "creators.tasks.commission_safety_net",
+        "schedule": timedelta(minutes=15),
+    },
+    # Creators: покупка привязанного пользователя осталась без комиссии
+    # (хук упал, воркер перезапустился) — дозачисляем за последние 7 дней.
+    "creators:backfill_commissions": {
+        "task": "creators.tasks.backfill_commissions",
+        "schedule": timedelta(minutes=15),
+    },
+    # Creators: возврат, сделанный в кабинете платёжной системы, может не
+    # прийти уведомлением — сами спрашиваем про платежи с живой комиссией.
+    "creators:poll_yookassa_refunds": {
+        "task": "creators.tasks.poll_yookassa_refunds",
+        "schedule": timedelta(hours=1),
+    },
+    "creators:poll_freedompay_refunds": {
+        "task": "creators.tasks.poll_freedompay_refunds",
+        "schedule": timedelta(hours=6),
+    },
+    # Creators: ночная сверка инвариантов (creators_check); только читает.
+    "creators:nightly_check": {
+        "task": "creators.tasks.nightly_check",
+        "schedule": crontab(hour=5, minute=10),
     },
     # Студия: сцена или сборка, чей воркер умер (выкладка, лимит времени),
     # иначе висели бы «в работе» вечно — без кнопки «переснять» и с
@@ -930,6 +965,18 @@ FP_MERCHANT_ID = env.str("FP_MERCHANT_ID", default=FREEDOM_PAY_MERCHANT_ID)
 # коды банков сначала проверяют сотрудники, остальные платят как платили.
 # Из админки режим меняется без выкладки (adminapi.runtime, kgs_methods_mode).
 KGS_METHODS_MODE = env.str("KGS_METHODS_MODE", default="staff")
+
+# --- EsAI Creators (партнёрская программа) -----------------------------------
+# Режим off / staff / on, как у выбора способа оплаты выше. По умолчанию staff:
+# цепочку «код -> оплата -> комиссия -> вывод» сначала проверяют сотрудники.
+# Из админки меняется без выкладки (adminapi.runtime, creators_mode).
+CREATORS_MODE = env.str("CREATORS_MODE", default="staff")
+# Через сколько дней после начисления комиссия доступна к выводу (creators_hold_days).
+CREATORS_HOLD_DAYS = env.int("CREATORS_HOLD_DAYS", default=14)
+# Приём заявок на вывод USDT (creators_payouts_enabled). Сама выплата ручная.
+CREATORS_PAYOUTS_ENABLED = env.bool("CREATORS_PAYOUTS_ENABLED", default=True)
+# Основа персональной ссылки креатора: <base>/?ref=CODE.
+CREATORS_LINK_BASE = env.str("CREATORS_LINK_BASE", default="https://esai.kg")
 
 # --- ЮKassa (оплата в рублях) -------------------------------------------------
 # FreedomPay принимает сомы (KGS) — для рублёвых платежей клиент подключил
