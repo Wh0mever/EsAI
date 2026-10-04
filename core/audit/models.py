@@ -171,3 +171,79 @@ class PendingBonus(models.Model):
 
     def __str__(self) -> str:
         return f"PendingBonus(user={self.user_id}, {self.amount}, {self.status})"
+
+
+# Коды действий журнала администратора — других значений action не бывает.
+# Список закрытый: по коду сверяются инварианты (creators_check) и фильтр журнала.
+ADMIN_ACTIONS = frozenset({
+    "application.approve", "application.reject", "application.block", "application.unblock",
+    "creator.level_change", "creator.block", "creator.unblock", "creator.code_set",
+    "creator.code_change",
+    # Адрес выплаты меняет сам креатор: actor — его собственный пользователь.
+    "creator.payout_address_change",
+    "publication.approve", "publication.reject",
+    "referral.rebind", "referral.clear_suspect",
+    "commission.void", "commission.release", "commission.restore",
+    "withdrawal.approve", "withdrawal.reject", "withdrawal.mark_paid", "withdrawal.fix_txid",
+    "withdrawal.reopen",
+    "credits.grant", "level.edit",
+    # Настройки программы и ручной курс сом -> доллар.
+    "settings.edit",
+    "payment.mark_refunded",
+})
+
+
+class AdminActionLog(models.Model):
+    """Журнал ручных действий администратора (программа Creators, платежи, настройки).
+
+    Пишется через audit.services.log_admin_action в той же транзакции, что и
+    само действие: не записался журнал — откатилось и действие. Append-only:
+    строку нельзя ни изменить, ни удалить.
+    """
+
+    actor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="admin_action_logs",
+        verbose_name="Кто сделал",
+    )
+    action = models.CharField(max_length=48, db_index=True, verbose_name="Действие")
+    # "<app_label>.<model_name>" и pk объекта, над которым совершено действие.
+    target_type = models.CharField(max_length=64, blank=True, default="", verbose_name="Тип объекта")
+    target_id = models.CharField(max_length=64, blank=True, default="", verbose_name="ID объекта")
+    creator = models.ForeignKey(
+        "creators.Creator",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="action_logs",
+        verbose_name="Креатор",
+    )
+    before = models.JSONField(default=dict, blank=True, verbose_name="Было")
+    after = models.JSONField(default=dict, blank=True, verbose_name="Стало")
+    reason = models.TextField(blank=True, default="", verbose_name="Причина")
+    ip = models.GenericIPAddressField(null=True, blank=True, verbose_name="IP-адрес")
+    created_at = models.DateTimeField(
+        auto_now_add=True, db_index=True, verbose_name="Создано"
+    )
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+        indexes = [
+            models.Index(fields=["creator", "created_at"], name="audit_aal_creator"),
+            models.Index(fields=["actor", "created_at"], name="audit_aal_actor"),
+            models.Index(fields=["target_type", "target_id"], name="audit_aal_target"),
+        ]
+        verbose_name = "Действие администратора"
+        verbose_name_plural = "Действия администраторов"
+
+    def __str__(self) -> str:
+        return f"[{self.created_at:%Y-%m-%d %H:%M}] {self.action} ({self.actor_id})"
+
+    def save(self, *args, **kwargs):
+        if self.pk:
+            raise RuntimeError("AdminActionLog is append-only")
+        return super().save(*args, **kwargs)
+
+    def delete(self, *args, **kwargs):
+        raise RuntimeError("AdminActionLog is append-only")

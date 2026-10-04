@@ -1174,11 +1174,33 @@ class PromoActivateView(APIView):
                 {"status": "error", "message": "Введите промокод"},
                 status=400,
             )
+        # Код креатора (EsAI Creators) ничего не начисляет, а привязывает к
+        # креатору. Интерфейсам en/kg нужен стабильный код ответа, а не русский
+        # текст, поэтому помечаем такой ответ kind/code. Для обычного промокода
+        # тело ошибки остаётся прежним байт в байт. Таким же остаётся и ответ
+        # «не найден» на код креатора (программа выключена, креатор
+        # заблокирован, превышен лимит попыток): пометка выдавала бы, что код
+        # существует, тому, кто перебирает чужие коды.
+        try:
+            from creators.codes import creator_code_exists
+
+            is_creator = bool(creator_code_exists(code))
+        except Exception:
+            is_creator = False
         ok, msg, credited = activate_promo(request.user, code)
         if not ok:
-            return Response({"status": "error", "message": msg}, status=400)
+            body = {"status": "error", "message": msg}
+            if is_creator:
+                from .services import creator_promo_code
+
+                client_code = creator_promo_code(msg)
+                if client_code not in ("not_found", "error"):
+                    body["kind"] = "creator"
+                    body["code"] = client_code
+            return Response(body, status=400)
         balance = int(getattr(request.user, "token_balance", 0) or 0)
         return Response(
-            {"ok": True, "credited": credited, "balance": balance, "message": msg},
+            {"ok": True, "credited": credited, "balance": balance, "message": msg,
+             "kind": "creator" if is_creator else "promo"},
             status=200,
         )

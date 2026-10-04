@@ -160,9 +160,9 @@ def _verify_and_credit(payment) -> str:
     # пожизненно, при каждом пополнении. Сама выплата живёт в payments/referral.py
     # (общая для всех провайдеров), идемпотентна по order_id и не роняет покупку.
     if credited_now:
-        from .referral import pay_referral_share
+        from .referral import settle_referral
 
-        pay_referral_share(payment.user, order_id, total)
+        settle_referral(payment, order_id, total)
 
     # После коммита — пометить платным + уведомить (не критично, не роняем кредит).
     if credited_now:
@@ -273,6 +273,11 @@ def reconcile_yookassa_payments() -> dict:
                 .order_by("-id")[:100])
         checked = credited = 0
         for p in pays:
+            # Платёж, отмеченный возвращённым: ЮKassa по-прежнему отвечает
+            # «оплачен», и сверка вернула бы ему success=True, стерев отметку.
+            resp = p.response or {}
+            if resp.get("admin_refund") or resp.get("token_purchase_clawed_back") or resp.get("yookassa_refunded"):
+                continue
             if str(p.error or "").startswith(("yookassa_status:", "amount_mismatch")):
                 continue  # отменён или сумма не сошлась — решено окончательно
             yk_id = str((p.request or {}).get("yookassa_payment_id") or "").strip()

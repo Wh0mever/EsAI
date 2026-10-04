@@ -986,7 +986,7 @@ def _apply_purchase_credit(payment: "Payment", order_id: str, total: int,
     только само начисление.
     """
     from plans.wallet import credit_tokens
-    from .referral import pay_referral_share
+    from .referral import settle_referral
 
     info = (payment.request or {}).get("token_purchase") or {}
     meta = {
@@ -1029,8 +1029,9 @@ def _apply_purchase_credit(payment: "Payment", order_id: str, total: int,
     # Доля пригласившего. Раньше платилась только на пути сверки, поэтому
     # покупки, подтверждённые постбэком, реферера обходили стороной. Здесь
     # она достаётся всем провайдерам сразу; идемпотентна по order_id.
-    pay_referral_share(payment.user, order_id, total,
-                       idem_suffix=str((meta_extra or {}).get("idem") or ""))
+    # У покупателя, закреплённого за креатором, вместо доли кредитами
+    # начисляется комиссия креатору в USDT — выбирает settle_referral.
+    settle_referral(payment, order_id, total, idem=str((meta_extra or {}).get("idem") or ""))
 
 
 def _credit_token_package_for_payment(payment: "Payment", order_id: str, *,
@@ -1123,8 +1124,15 @@ def _clawback_token_package_for_payment(payment: "Payment", order_id: str, paylo
     Изымаем столько, сколько было начислено purchase-транзакцией (или сколько
     осталось — баланс не уходит ниже 0). Пишем audit-событие.
     """
+    from django.db.models import Sum
+
     from plans.models import TokenTransaction
     from plans.wallet import clawback_tokens
+    from payments.referral import reverse_creator_commission
+
+    # Комиссия креатора отменяется первой, до любого раннего выхода: возврат
+    # остаётся возвратом, даже если кредиты уже изъяты или изымать нечего.
+    reverse_creator_commission(payment, f"refund:{payment.provider}")
 
     response = payment.response or {}
     if bool(response.get("token_purchase_clawed_back")):
@@ -1132,19 +1140,18 @@ def _clawback_token_package_for_payment(payment: "Payment", order_id: str, paylo
     if not payment.user:
         return
 
-    purchase = (
-        TokenTransaction.objects
-        .filter(user=payment.user, reason="purchase", meta__order_id=order_id)
-        .order_by("created_at")
-        .first()
-    )
-    if not purchase:
+    # Сумма ВСЕХ начислений по заказу: криптосчёт зачисляется частями
+    # (недоплата, потом доплата), и первая строка — только часть купленного.
+    # У оплаты одним куском строка одна, для неё ничего не меняется.
+    purchases = TokenTransaction.objects.filter(
+        user=payment.user, reason="purchase", delta__gt=0, meta__order_id=order_id)
+    credited = int(purchases.aggregate(total=Sum("delta"))["total"] or 0)
+    if credited <= 0:
         # Начисления по заказу не было (или ещё не применялось) — клавбэк не нужен.
         response["token_purchase_clawed_back"] = True
         payment.response = response
         return
 
-    credited = int(purchase.delta or 0)  # delta положительная при начислении
     debited = clawback_tokens(
         payment.user,
         credited,
@@ -1575,7 +1582,10 @@ class YooKassaWebhookView(APIView):
 
         body = request.data if isinstance(request.data, dict) else {}
         obj = (body.get("object") or {}) if isinstance(body.get("object"), dict) else {}
-        yk_payment_id = str(obj.get("id") or "").strip()
+        # Уведомление о возврате (refund.succeeded): объект в нём — сам возврат,
+        # его id платежом не является, платёж лежит в payment_id.
+        is_refund = str(body.get("event") or "").lower().startswith("refund.")
+        yk_payment_id = str(obj.get("payment_id" if is_refund else "id") or "").strip()
         if not yk_payment_id:
             return Response({"status": "ignored"}, status=status.HTTP_200_OK)
 
@@ -1593,6 +1603,11 @@ class YooKassaWebhookView(APIView):
         payment = Payment.objects.filter(order_id=order_id).order_by("-id").first() if order_id else None
         if not payment:
             logger.warning("yookassa webhook: заказ не найден order_id=%s", order_id)
+            return Response({"status": "ok"}, status=status.HTTP_200_OK)
+
+        if is_refund:
+            # Сумму возврата берём из ответа API: телу уведомления не верим.
+            apply_yookassa_refund(payment, fresh, source="yookassa_refund_webhook")
             return Response({"status": "ok"}, status=status.HTTP_200_OK)
 
         apply_yookassa_state(payment, fresh, source="yookassa_webhook")
@@ -1654,3 +1669,118 @@ def apply_yookassa_state(payment, fresh: dict, *, source: str) -> str:
 
     _log_payment_event(payment, source)
     return result
+
+
+def yookassa_refunded_amount(fresh: dict) -> Decimal:
+    """Сколько по платежу возвращено, по ответу API ЮKassa. Ошибка разбора — ноль."""
+    try:
+        return Decimal(str(((fresh or {}).get("refunded_amount") or {}).get("value") or "0"))
+    except Exception:
+        return Decimal("0")
+
+
+def apply_yookassa_refund(payment, fresh: dict, *, source: str) -> str:
+    """Возврат в ЮKassa: отменить комиссию креатора. Идемпотентно.
+
+    Общий путь для вебхука refund.succeeded и для опроса
+    (creators.tasks.poll_yookassa_refunds). Возвращает "refunded" / "already" / "none".
+
+    Кредиты покупателя, признак оплаты и обычная реферальная доля здесь НЕ
+    трогаются — как и у крипты, это решает человек (админская отметка «платёж
+    возвращён» с изъятием кредитов). Любой возврат, в том числе частичный,
+    отменяет комиссию целиком.
+    """
+    refunded = yookassa_refunded_amount(fresh)
+    if refunded <= 0:
+        return "none"
+    # Ответ API про другой заказ к этому платежу не применяем.
+    fresh_order = str(((fresh.get("metadata") or {}).get("order_id") or "")).strip()
+    if fresh_order and fresh_order != str(payment.order_id or ""):
+        logger.warning("yookassa refund: ответ про заказ %s применяют к заказу %s",
+                       fresh_order, payment.order_id)
+        return "none"
+
+    from .referral import reverse_creator_commission
+
+    with transaction.atomic():
+        payment = Payment.objects.select_for_update().get(pk=payment.pk)
+        response = payment.response or {}
+        if response.get("yookassa_refunded"):
+            return "already"
+        callbacks = list(response.get("callbacks") or [])
+        callbacks.append({"type": source, "payload": fresh})
+        response["callbacks"] = callbacks
+        response["yookassa_refunded"] = {
+            "amount": str(refunded),
+            "currency": str((fresh.get("refunded_amount") or {}).get("currency")
+                            or payment.currency or "").upper(),
+            "full": refunded >= (payment.amount or 0),
+            "at": timezone.now().isoformat(),
+        }
+        payment.response = response
+        reverse_creator_commission(payment, "refund:yookassa")
+        payment.save(update_fields=["response"])
+
+    _log_payment_event(payment, "yookassa_refund")
+    return "refunded"
+
+
+# Статусы get_status2, которые считаем возвратом. По документации FreedomPay
+# значения НЕ сверены (возврат из кабинета на живом магазине ещё не делали),
+# поэтому набор лежит одной константой: поправить его — одна строка.
+FREEDOMPAY_REFUND_STATUSES = frozenset({
+    "refunded", "refund", "partial_refunded", "revoked", "revoke",
+    "reversed", "reversal", "chargeback",
+})
+
+
+def freedompay_status_is_refund(st: dict) -> bool:
+    """Говорит ли ответ get_status2, что оплату вернули. Никогда не бросает."""
+    try:
+        if not st:
+            return False
+        if _is_refund_signal(st):
+            return True
+        if str(st.get("pg_transaction_status") or "").lower() in FREEDOMPAY_REFUND_STATUSES:
+            return True
+        if str(st.get("pg_payment_status") or "").lower() in FREEDOMPAY_REFUND_STATUSES:
+            return True
+        return Decimal(str(st.get("pg_refund_amount") or 0)) > 0
+    except Exception:
+        return False
+
+
+def apply_freedompay_refund(payment, st: dict, *, source: str) -> str:
+    """Возврат, сделанный в кабинете FreedomPay: отменить комиссию креатора. Идемпотентно.
+
+    При создании платежа адрес для уведомления о возврате мы не передаём,
+    поэтому такой возврат может не дойти до нас вовсе. Его находит опрос
+    (creators.tasks.poll_freedompay_refunds). Возвращает "refunded" / "already" / "none".
+
+    Кредиты, признак оплаты и обычная реферальная доля здесь НЕ трогаются — как
+    у ЮKassa и крипты: их изымает админская отметка «платёж возвращён».
+    """
+    if not freedompay_status_is_refund(st):
+        return "none"
+
+    from .referral import reverse_creator_commission
+
+    with transaction.atomic():
+        payment = Payment.objects.select_for_update().get(pk=payment.pk)
+        response = payment.response or {}
+        if response.get("freedompay_refunded"):
+            return "already"
+        callbacks = list(response.get("callbacks") or [])
+        callbacks.append({"type": source, "payload": _callback_for_storage(st)})
+        response["callbacks"] = callbacks
+        response["freedompay_refunded"] = {
+            "status": str(st.get("pg_transaction_status") or st.get("pg_payment_status")
+                          or st.get("pg_status") or ""),
+            "at": timezone.now().isoformat(),
+        }
+        payment.response = response
+        reverse_creator_commission(payment, "refund:freedompay")
+        payment.save(update_fields=["response"])
+
+    _log_payment_event(payment, "freedompay_refund_poll")
+    return "refunded"

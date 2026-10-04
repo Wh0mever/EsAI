@@ -15,6 +15,7 @@ import logging
 
 from django.conf import settings
 from django.db import transaction
+from django.utils import timezone
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +42,8 @@ def pay_referral_share(buyer, order_id: str, base_credits: int, *, idem_suffix: 
     try:
         ref = getattr(buyer, "referred_by", None)
         base = int(base_credits or 0)
-        if not ref or base <= 0 or not order_id:
+        # Сам себе пригласивший (след слияния аккаунтов) долю не получает.
+        if not ref or getattr(ref, "pk", None) == getattr(buyer, "pk", None) or base <= 0 or not order_id:
             return 0
 
         percent = referral_percent()
@@ -78,6 +80,80 @@ def pay_referral_share(buyer, order_id: str, base_credits: int, *, idem_suffix: 
         return share
     except Exception as exc:  # noqa: BLE001 — реферал не важнее покупки
         logger.exception("referral payout failed order=%s: %s", order_id, exc)
+        return 0
+
+
+def settle_referral(payment, order_id: str, credited: int, *, idem: str = "") -> str:
+    """Кому причитается с оплаченного заказа: креатору или обычному пригласившему.
+
+    Возвращает "commission" | "referral" | "none". Двух программ сразу не
+    бывает: если покупатель закреплён за креатором (программа EsAI Creators),
+    тот получает комиссию в USDT, а доля кредитами не платится никому. Все
+    остальные заказы идут через pay_referral_share ровно как раньше.
+
+    Привязка проверяется на момент ЗАЧИСЛЕНИЯ, а не создания платежа: строка
+    платежа появляется при открытии оплаты и живёт долго (счёт Stars — сутки,
+    криптосчёт — до оплаты). Человек, который открыл оплату, ввёл промокод
+    креатора и потом оплатил тот же заказ, должен дать креатору комиссию.
+
+    Никогда не бросает исключений: покупка важнее.
+    """
+    buyer = getattr(payment, "user", None)
+    part = str(idem or "")
+
+    referral = None
+    has_commission = False
+    try:
+        # Своя точка сохранения: ошибка базы здесь не должна отравить транзакцию покупки.
+        with transaction.atomic():
+            from creators import flags
+            from creators.models import CreatorCommission, CreatorReferral
+
+            if flags.accrual_enabled() and buyer is not None and getattr(buyer, "pk", None):
+                referral = CreatorReferral.objects.covering(buyer.pk, timezone.now())
+            if referral is None and getattr(payment, "pk", None):
+                # Зеркало правила referral_share_paid в начислении комиссии. Криптосчёт
+                # зачисляется частями: если с первой части креатор уже получил
+                # комиссию, а привязку потом сняли (или программу выключили), доля
+                # кредитами с остатка того же заказа не платится. От рубильника
+                # программы проверка не зависит.
+                has_commission = CreatorCommission.objects.filter(
+                    payment_id=payment.pk, status__in=("accrued", "held")).exists()
+    except Exception:  # noqa: BLE001 — обычная реферальная программа должна отработать
+        logger.exception("creator coverage lookup failed order=%s", order_id)
+        referral = None
+        has_commission = False
+
+    if referral is not None:
+        try:
+            from creators.commission import accrue
+
+            accrue(payment, referral=referral, part=part, credited=int(credited or 0))
+        except Exception:  # noqa: BLE001 — дозачислит creators.tasks.backfill_commissions
+            logger.exception("creator commission accrual failed order=%s", order_id)
+        return "commission"
+
+    if has_commission:
+        return "none"
+
+    share = pay_referral_share(buyer, order_id, credited, idem_suffix=part)
+    return "referral" if share else "none"
+
+
+def reverse_creator_commission(payment, reason: str) -> int:
+    """Возврат оплаты: отменить комиссию креатора по этому платежу.
+
+    Тонкая обёртка для кода оплаты: ленивый импорт и никаких исключений наружу.
+    Возвращает число отменённых строк (0 — комиссии не было или сбой; сбой
+    подберёт страховочная задача creators.tasks.commission_safety_net).
+    """
+    try:
+        from creators.commission import reverse_for_payment
+
+        return int(reverse_for_payment(payment, reason) or 0)
+    except Exception:  # noqa: BLE001 — возврат не должен падать из-за комиссии
+        logger.exception("creator commission reversal failed order=%s",
+                         getattr(payment, "order_id", ""))
         return 0
 
 

@@ -3,7 +3,7 @@ from django.template.response import TemplateResponse
 from django.urls import path
 
 from .metrics import collect_dashboard_metrics
-from .models import EventLog
+from .models import AdminActionLog, EventLog
 
 
 @admin.register(EventLog)
@@ -32,6 +32,39 @@ class EventLogAdmin(admin.ModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         # Запрещаем удаление, чтобы журнал оставался append-only.
+        return False
+
+    def get_readonly_fields(self, request, obj=None):
+        return [f.name for f in self.model._meta.fields]
+
+
+@admin.register(AdminActionLog)
+class AdminActionLogAdmin(admin.ModelAdmin):
+    """Read-only журнал ручных действий администраторов. Без add/change/delete."""
+
+    list_display = ("created_at", "actor", "action", "target_type", "target_id", "creator",
+                    "short_reason", "ip")
+    list_filter = ("action", "created_at")
+    search_fields = ("actor__email", "target_id", "reason")
+    date_hierarchy = "created_at"
+    ordering = ("-created_at", "-id")
+    list_per_page = 50
+    list_select_related = ("actor", "creator")
+
+    @admin.display(description="Причина")
+    def short_reason(self, obj):
+        text = obj.reason or ""
+        return (text[:120] + "…") if len(text) > 120 else text
+
+    # ---- read-only enforcement ----
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        # Журнал append-only: удаление скрыло бы ручное действие с деньгами.
         return False
 
     def get_readonly_fields(self, request, obj=None):

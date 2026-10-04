@@ -807,6 +807,10 @@ class SettingsView(StaffAPIView):
 
         if "currency_kgs_to_usd_rate" in data:
             raw = data["currency_kgs_to_usd_rate"]
+            # Ручной курс — первый источник базы комиссии креаторов: от него
+            # зависит сумма USDT по каждой оплате в сомах и рублях.
+            old_rate = get_runtime("currency_kgs_to_usd_rate", 0.0) or None
+            new_rate = None
             if raw is None or str(raw).strip() == "":
                 # Сброс на живой курс из CurrencyRate — так и должно быть по
                 # умолчанию, ручная фиксация нужна только в особых случаях.
@@ -827,6 +831,15 @@ class SettingsView(StaffAPIView):
                         status=status.HTTP_400_BAD_REQUEST,
                     )
                 set_runtime("currency_kgs_to_usd_rate", usd_rate)
+                new_rate = usd_rate
+            if new_rate != old_rate:
+                # В журнал — в той же транзакции: не записалось, откатится и курс.
+                from audit.services import log_admin_action
+
+                log_admin_action(request.user, "settings.edit",
+                                 before={"currency_kgs_to_usd_rate": old_rate},
+                                 after={"currency_kgs_to_usd_rate": new_rate},
+                                 request=request)
 
         if "crypto_fee_paid_by_user" in data:
             from django.core.cache import cache as _cache
@@ -959,21 +972,75 @@ class PaymentRefundStarsView(StaffAPIView):
     Возврат в Telegram только полный; кредиты изымаются тем же клобэком, что
     и при возврате карточной оплаты. Если человек уже потратил кредиты, без
     force возврат не делаем — это спор, а не кнопка.
+
+    Если по платежу начислена комиссия креатора, возврат отменяет и её — это
+    уже денежное решение («отметить платёж возвращённым»), его принимает
+    только главный администратор. Платежи без комиссии возвращает любой
+    сотрудник, как и раньше.
     """
 
     def post(self, request, pk):
+        import logging
+
+        from django.db import transaction
+
         from botapi import stars as stars_service
 
         payment = get_object_or_404(Payment, pk=pk)
         invoice = getattr(payment, "star_invoice", None)
         if invoice is None:
             return Response({"detail": "not_stars_payment"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            from creators.commission import open_for_payment
+
+            # Точка сохранения: сбой чтения не должен отравить транзакцию запроса.
+            with transaction.atomic():
+                rows = open_for_payment(payment.pk)
+            needs_su = bool(rows)
+        except Exception:  # noqa: BLE001
+            # Не смогли проверить — считаем, что комиссия есть: лучше отказать
+            # сотруднику, чем молча отменить чужой заработок.
+            logging.getLogger("creators").exception(
+                "refund-stars: комиссии платежа %s не прочитаны", payment.pk)
+            rows, needs_su = [], True
+        if needs_su and not request.user.is_superuser:
+            # До любого обращения к Telegram.
+            return Response(
+                {"code": "superuser_required",
+                 "detail": "Это действие доступно только главному администратору"},
+                status=status.HTTP_403_FORBIDDEN)
+
         reason = str((request.data or {}).get("reason") or "admin")[:120]
         force = bool((request.data or {}).get("force"))
         try:
             result = stars_service.refund(invoice, reason=reason, by=request.user, force=force)
         except stars_service.StarsError as exc:
             return Response({"detail": exc.code, **exc.extra}, status=exc.http)
+
+        # Обычно комиссию уже отменил общий код возврата (изъятие кредитов);
+        # вызов здесь закрывает платёж без пользователя, куда тот код не доходит.
+        from payments.referral import reverse_creator_commission
+
+        if result.get("status") != "foreign_charge":
+            # foreign_charge — возвращён другой платёж по тому же счёту: этот не трогаем.
+            reverse_creator_commission(payment, "refund:telegram_stars")
+        try:
+            from audit.services import log_admin_action
+
+            # Stars уже возвращены в Telegram: сбой записи журнала не должен
+            # откатить отметку о возврате, поэтому своя точка сохранения.
+            with transaction.atomic():
+                log_admin_action(
+                    request.user, "payment.mark_refunded", target=payment,
+                    creator=rows[0].creator if rows else None,
+                    after={"kind": "refund", "via": "refund-stars", "reversed": len(rows),
+                           "result": result.get("status")},
+                    reason=reason, request=request)
+        except Exception:  # noqa: BLE001
+            logging.getLogger("creators").exception(
+                "refund-stars: запись в журнал не сделана, платёж %s", payment.pk)
+
         payment.refresh_from_db()
         return Response({"result": result, "payment": PaymentAdminSerializer(payment).data})
 

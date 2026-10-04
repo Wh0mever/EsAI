@@ -442,6 +442,9 @@ class TokenTransactionReason(models.TextChoices):
     TRANSFER_IN = "transfer_in", "Перевод получен"
     TRANSFER_OUT = "transfer_out", "Перевод отправлен"
     PROMO = "promo", "Промокод"
+    # Creator Credits: выдаёт администратор вручную участнику программы Creators.
+    # Лежат в общем кошельке, но не переводятся (plans.wallet.transferable_tokens).
+    CREATOR_CREDIT = "creator_credit", "Creator Credits"
     # Студия и распознавание речи писали свои причины мимо этого списка —
     # в базе они лежат давно, а в фильтрах и подписях админки их не было.
     CARTOON_KEYFRAME = "cartoon_keyframe", "Студия: кадр"

@@ -4,6 +4,7 @@ user_tier:
   - guest — неавторизованный посетитель
   - free  — авторизован, но ещё не платил (User.is_paid == False)
   - paid  — есть хотя бы одна успешная оплата (User.is_paid == True)
+            либо человек — активный участник программы Creators
 
 «Бесплатная» модель = markup_coefficient <= settings.FREE_MODEL_MAX_COEFF (=1).
 Гость и free-пользователь могут использовать ТОЛЬКО бесплатные модели;
@@ -27,12 +28,22 @@ def is_unlimited(user) -> bool:
     return bool(user and getattr(user, "is_unlimited", False))
 
 
+def _creator_access(user) -> bool:
+    """Активный креатор пользуется платными моделями без покупки пакета (программа Creators)."""
+    try:
+        from creators.access import has_paid_access
+        return has_paid_access(user)
+    except Exception:
+        return False
+
+
 def user_tier(user) -> str:
     """Вернуть тир пользователя: 'guest' | 'free' | 'paid'."""
     if not user or not getattr(user, "is_authenticated", False):
         return TIER_GUEST
     # Безлимитный тест-аккаунт ведёт себя как paid (все модели, без лимитов).
-    if is_unlimited(user) or bool(getattr(user, "is_paid", False)):
+    # Активный креатор — тоже paid, хотя is_paid у него может быть False.
+    if is_unlimited(user) or bool(getattr(user, "is_paid", False)) or _creator_access(user):
         return TIER_PAID
     return TIER_FREE
 
