@@ -55,6 +55,7 @@ const REASON_LABELS: Record<string, string> = {
   daily_bonus: "Ежедневный бонус",
   chat: "Чат",
   refund: "Возврат",
+  creator_credit: "Creator Credits",
 };
 
 export default function AdminUsersPage() {
@@ -333,9 +334,10 @@ function UserRows({
         <td className="px-4 py-3">
           <div className="font-medium">{u.email || u.username}</div>
           <div className="mt-0.5 text-xs text-muted-2">
-            {fio && <span>{fio}</span>}
-            {fio && u.telegram && <span> · </span>}
-            {u.telegram && <span>@{u.telegram.replace(/^@/, "")}</span>}
+            {/* id нужен для ручной перепривязки к креатору (Creators → Рефералы). */}
+            <span>id {u.id}</span>
+            {fio && <span> · {fio}</span>}
+            {u.telegram && <span> · @{u.telegram.replace(/^@/, "")}</span>}
             {u.is_staff && <span className="ml-1 text-accent">· админ</span>}
           </div>
         </td>

@@ -2,6 +2,10 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { fetchData } from "@/tools/fetchData";
+import { adminMarkRefunded } from "@/lib/creators/adminApi";
+import ReasonDialog from "../creators/_shared/ReasonDialog";
+import { CreatorsRoleProvider } from "../creators/_shared/role";
+import { SuButton, SuCaption } from "../creators/_shared/ui";
 
 type CryptoInfo = {
   status: string;
@@ -41,6 +45,7 @@ const PROVIDERS: Record<string, string> = {
   freedompay: "FreedomPay",
   yookassa: "ЮKassa",
   crypto_nowpayments: "Крипта",
+  telegram_stars: "Telegram Stars",
 };
 
 /** Способ оплаты в сомах, выбранный человеком в нашем окне (Payment.request.pay_method). */
@@ -74,7 +79,27 @@ const fmtDate = (s: string) => {
   });
 };
 
+/**
+ * «Отметить возврат» — денежное действие программы EsAI Creators, оно только
+ * для главного администратора. Роль узнаём той же пробой, что и раздел
+ * «Creators» (настройки программы открыты только ему).
+ */
 export default function AdminPaymentsPage() {
+  return (
+    <CreatorsRoleProvider>
+      <PaymentsPage />
+    </CreatorsRoleProvider>
+  );
+}
+
+type RefundKind = "refund" | "fraud";
+
+const REFUND_KINDS: { key: RefundKind; label: string }[] = [
+  { key: "refund", label: "Возврат" },
+  { key: "fraud", label: "Мошенничество" },
+];
+
+function PaymentsPage() {
   const [payments, setPayments] = useState<Payment[]>([]);
   const [count, setCount] = useState(0);
   const [page, setPage] = useState(1);
@@ -85,6 +110,11 @@ export default function AdminPaymentsPage() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [rechecking, setRechecking] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Ручная отметка возврата: платёж, вид отметки (по умолчанию не выбран), изъятие кредитов.
+  const [refunding, setRefunding] = useState<Payment | null>(null);
+  const [refundKind, setRefundKind] = useState<RefundKind | "">("");
+  const [clawback, setClawback] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const load = useCallback(
     async (pageNum: number, append: boolean, filterKey = filter, q = search) => {
@@ -210,8 +240,14 @@ export default function AdminPaymentsPage() {
         </div>
       )}
 
+      {notice && (
+        <div className="rounded-xl border border-status-ok/40 bg-status-ok/10 px-3 py-2 text-sm text-status-ok">
+          {notice}
+        </div>
+      )}
+
       <div className="overflow-x-auto rounded-2xl border border-border bg-surface">
-        <table className="w-full min-w-[980px] text-sm">
+        <table className="w-full min-w-[1080px] text-sm">
           <thead>
             <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-2">
               <th className="px-4 py-3 font-medium">Дата</th>
@@ -292,13 +328,27 @@ export default function AdminPaymentsPage() {
                     {p.error || ""}
                   </td>
                   <td className="whitespace-nowrap px-4 py-3 text-right">
-                    <button
-                      onClick={() => recheck(p.id)}
-                      disabled={rechecking === p.id}
-                      className="rounded-lg border border-border px-2.5 py-1 text-xs text-muted transition-colors hover:border-accent hover:text-accent disabled:opacity-50"
-                    >
-                      {rechecking === p.id ? "Проверяю…" : "Перепроверить"}
-                    </button>
+                    <div className="flex flex-col items-end gap-1.5">
+                      <button
+                        onClick={() => recheck(p.id)}
+                        disabled={rechecking === p.id}
+                        className="rounded-lg border border-border px-2.5 py-1 text-xs text-muted transition-colors hover:border-accent hover:text-accent disabled:opacity-50"
+                      >
+                        {rechecking === p.id ? "Проверяю…" : "Перепроверить"}
+                      </button>
+                      <SuButton
+                        onClick={() => {
+                          setRefundKind("");
+                          setClawback(false);
+                          setNotice(null);
+                          setRefunding(p);
+                        }}
+                        className="cursor-pointer rounded-lg border border-border px-2.5 py-1 text-xs text-muted transition-colors enabled:hover:border-rose-400 enabled:hover:text-rose-300 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Отметить возврат
+                      </SuButton>
+                      <SuCaption />
+                    </div>
                   </td>
                 </tr>
               );
@@ -319,6 +369,75 @@ export default function AdminPaymentsPage() {
               : `Ещё (показано ${nf(payments.length)} из ${nf(count)})`}
           </button>
         </div>
+      )}
+
+      {refunding && (
+        <ReasonDialog
+          title="Отметить возврат платежа"
+          description={
+            <>
+              {refunding.user_email || "—"} · {nf(refunding.amount)} {refunding.currency} ·{" "}
+              <span className="break-all font-mono text-xs">{refunding.order_id}</span>
+              <br />
+              Комиссия креатора по этому платежу будет отменена. Деньги покупателю панель не возвращает — отметка
+              нужна, когда о возврате не сообщил сам провайдер.
+            </>
+          }
+          reason="required"
+          confirmLabel="Отметить"
+          danger
+          canSubmit={refundKind !== ""}
+          confirmText={`Отметить платёж как «${refundKind === "fraud" ? "Мошенничество" : "Возврат"}»${
+            clawback ? " и изъять кредиты покупателя" : ""
+          }?`}
+          onClose={() => setRefunding(null)}
+          onSubmit={async (reason) => {
+            if (refundKind === "") return null;
+            const res = await adminMarkRefunded<Payment>(refunding.id, {
+              kind: refundKind,
+              reason,
+              clawback_credits: clawback,
+            });
+            if (!res.ok) return res.error;
+            const fresh = res.data.payment;
+            setPayments((prev) => prev.map((p) => (p.id === refunding.id ? fresh : p)));
+            setNotice(
+              `Отменено комиссий: ${nf(res.data.reversed)}, изъято кредитов: ${nf(res.data.clawback_debited)}`
+            );
+            return null;
+          }}
+        >
+          <fieldset className="space-y-2 text-sm">
+            <legend className="text-muted">Вид отметки *</legend>
+            {REFUND_KINDS.map((option) => (
+              <label key={option.key} className="flex cursor-pointer items-center gap-2">
+                <input
+                  type="radio"
+                  name="refund-kind"
+                  checked={refundKind === option.key}
+                  onChange={() => setRefundKind(option.key)}
+                  className="accent-accent"
+                />
+                {option.label}
+              </label>
+            ))}
+          </fieldset>
+          <label className="flex cursor-pointer items-start gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={clawback}
+              onChange={(e) => setClawback(e.target.checked)}
+              className="mt-0.5 accent-accent"
+            />
+            <span>
+              Изъять кредиты покупателя
+              <span className="block text-xs text-muted-2">
+                Кредиты этого заказа будут списаны с баланса покупателя. Если платёж уже отмечен, повторная отметка
+                принимается только чтобы добавить изъятие.
+              </span>
+            </span>
+          </label>
+        </ReasonDialog>
       )}
     </div>
   );

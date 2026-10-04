@@ -21,6 +21,7 @@ declare global {
     Telegram?: {
       WebApp?: {
         initData?: string;
+        initDataUnsafe?: { start_param?: string };
         ready: () => void;
         expand: () => void;
         colorScheme?: string;
@@ -75,12 +76,26 @@ export default function TgShell({ children }: { children: ReactNode }) {
       setStatus("ready");
       return stop;
     }
+    // Mini App открыли по ссылке t.me/<бот>/<app>?startapp=ref_CODE (или
+    // promo_CODE): параметр запуска несёт код креатора или промокод. Сервер
+    // применяет их только при создании аккаунта — без этого регистрации из
+    // Mini App не закреплялись ни за кем.
+    let startParam = "";
+    try {
+      startParam =
+        app.initDataUnsafe?.start_param ||
+        new URLSearchParams(window.location.search).get("tgWebAppStartParam") ||
+        "";
+    } catch {}
+    const ref = /^ref_([A-Za-z0-9]{4,32})$/.exec(startParam)?.[1];
+    const promo = /^promo_([A-Za-z0-9_-]{2,48})$/.exec(startParam)?.[1];
+
     (async () => {
       try {
         const res = await fetch("/api/users/auth/telegram/webapp/", {
           method: "POST",
           headers: { "Content-Type": "application/json", Accept: "application/json" },
-          body: JSON.stringify({ init_data: initData }),
+          body: JSON.stringify({ init_data: initData, ...(ref ? { ref } : {}), ...(promo ? { promo } : {}) }),
         });
         const data = await res.json().catch(() => ({}));
         if (!res.ok || !data?.access) {

@@ -24,6 +24,7 @@ import {
   FiFilter,
   FiFilm,
   FiActivity,
+  FiAward,
 } from "react-icons/fi";
 
 const NAV = [
@@ -38,6 +39,7 @@ const NAV = [
   { href: "/admin-new/blocks", label: "Блокировки", icon: FiShield },
   { href: "/admin-new/blog", label: "Блог", icon: FiFileText },
   { href: "/admin-new/promo", label: "Промокоды", icon: FiTag },
+  { href: "/admin-new/creators", label: "Creators", icon: FiAward },
   { href: "/admin-new/openrouter", label: "OpenRouter", icon: FiKey },
   { href: "/admin-new/settings", label: "Настройки", icon: FiSettings },
 ];

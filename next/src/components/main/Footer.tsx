@@ -7,6 +7,8 @@ import { SiThreads } from "react-icons/si";
 import { useTranslation } from "react-i18next";
 import EsaiLogo from "@/components/brand/EsaiLogo";
 import NetKgCounter from "@/components/main/NetKgCounter";
+import { CREATORS_NAV } from "@/lib/creators/format";
+import { NAV_RU } from "@/lib/creators/labels";
 
 export default function Footer() {
   const { t } = useTranslation("home");
@@ -87,6 +89,14 @@ export default function Footer() {
                   {t("nav.about")}
                 </a>
               </li>
+              {/* Программа Creators — в подвале вместе с пунктом меню (CREATORS_NAV). */}
+              {CREATORS_NAV && (
+                <li>
+                  <a href="/creators" className="hover:text-foreground transition-colors">
+                    {t("nav.link", { ns: "creators", defaultValue: NAV_RU.link })}
+                  </a>
+                </li>
+              )}
               <li>
                 <a href="/contact-us" className="hover:text-foreground transition-colors">
                   {t("nav.contact")}

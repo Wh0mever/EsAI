@@ -4,10 +4,24 @@ import React, { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { FiTag } from "react-icons/fi";
 import { fetchData } from "@/tools/fetchData";
+import { getInvite } from "@/lib/creators/api";
+import { promoCreatorAccepted, promoCreatorError } from "@/lib/creators/errors";
 
-type PromoResult =
-	| { ok: true; credited: number; balance: number }
-	| { detail?: string };
+/**
+ * Ответ users/promo/activate/. kind отличает код креатора (EsAI Creators) от
+ * обычного промокода: код креатора ничего не начисляет, а закрепляет
+ * человека за креатором.
+ */
+type PromoResult = {
+	ok?: boolean;
+	credited?: number;
+	balance?: number;
+	message?: string;
+	detail?: string;
+	kind?: "promo" | "creator";
+	/** Причина отказа по коду креатора (self, too_late…) — по ней переводим текст. */
+	code?: string;
+};
 
 type Props = {
 	/** Уведомить родителя о новом балансе (например обновить карточку баланса). */
@@ -18,11 +32,15 @@ type Props = {
 
 /**
  * PromoActivate — поле ввода промокода + кнопка «Активировать».
- * POST users/promo/activate/ { code } → { ok, credited, balance } | { detail } 400.
- * Успех: «Начислено N кредитов». Ошибка: текст из detail бэка.
+ * POST users/promo/activate/ { code } → { ok, credited, balance, message, kind }
+ * | 400 { status: "error", message, kind?, code? }.
+ * Обычный промокод: «Начислено N кредитов», ошибка — текст бэка.
+ * Код креатора: ничего не начислено — «Промокод принят — вы пришли по
+ * приглашению …»; отказ переводится по коду (текст бэка только русский).
  */
 export default function PromoActivate({ onCredited, bare = false }: Props) {
-	const { t } = useTranslation("common");
+	// creators — ленивый namespace: пока он грузится, работают русские тексты по умолчанию.
+	const { t } = useTranslation(["common", "creators"], { useSuspense: false });
 	const [code, setCode] = useState("");
 	const [busy, setBusy] = useState(false);
 	const [msg, setMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
@@ -35,8 +53,15 @@ export default function PromoActivate({ onCredited, bare = false }: Props) {
 		setMsg(null);
 		try {
 			const res = await fetchData<PromoResult>("users/promo/activate/", "POST", { code: value }, true);
-			const data = res.data as any;
-			if (res.ok && data?.ok) {
+			const data: PromoResult = res.data && typeof res.data === "object" ? res.data : {};
+			if (res.ok && data.ok && data.kind === "creator") {
+				// Код креатора: кредитов нет, «Начислено 0» не пишем и баланс не трогаем.
+				let text = data.message || "";
+				const invite = await getInvite();
+				if (invite.ok && invite.data.invited_by) text = promoCreatorAccepted(t, invite.data.invited_by);
+				setMsg(text ? { type: "success", text } : null);
+				setCode("");
+			} else if (res.ok && data.ok) {
 				const credited = Number(data.credited ?? 0);
 				setMsg({
 					type: "success",
@@ -48,9 +73,11 @@ export default function PromoActivate({ onCredited, bare = false }: Props) {
 				setCode("");
 				if (typeof data.balance === "number") onCredited?.(data.balance);
 			} else {
+				const fallback =
+					data.detail || res.error || t("promo.error", { defaultValue: "Не удалось активировать промокод." });
 				setMsg({
 					type: "error",
-					text: data?.detail || res.error || t("promo.error", { defaultValue: "Не удалось активировать промокод." }),
+					text: data.kind === "creator" ? promoCreatorError(t, data.code, fallback) : fallback,
 				});
 			}
 		} catch {
