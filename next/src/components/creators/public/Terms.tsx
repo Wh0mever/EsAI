@@ -44,6 +44,37 @@ export function CommissionSection({ levels }: { levels: LevelRow[] }) {
 }
 
 /**
+ * «Creator Credits» (дополнение клиента от 05.10.2026): что это за кредиты и
+ * что их начисляет команда вручную — чтобы креатор не ждал их автоматически и
+ * не путал с комиссией.
+ */
+export function CreatorCreditsSection() {
+  const { t } = useTranslation("creators", { useSuspense: false });
+
+  return (
+    <section className={SECTION}>
+      <h2 className={TITLE}>{t("public.credits.title", { defaultValue: "Creator Credits" })}</h2>
+      <div className={`${CARD} mx-auto mt-6 max-w-3xl`}>
+        <div className="flex flex-col gap-3 break-words text-sm leading-relaxed text-foreground sm:text-base">
+          <p>
+            {t("public.credits.text1", {
+              defaultValue:
+                "Creator Credits — это внутренние кредиты EsAI, которые команда может начислять активным участникам программы за качественный контент, активность и результаты.",
+            })}
+          </p>
+          <p>
+            {t("public.credits.text2", {
+              defaultValue:
+                "Количество и периодичность начисления определяются индивидуально командой EsAI. Credits можно использовать внутри EsAI, но нельзя вывести в деньги, продать или передать другому пользователю.",
+            })}
+          </p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/**
  * «Условия повышения уровня» (ТЗ п.5): пороги по публикациям, регистрациям и
  * платящим. Пороги — только ориентир: уровень повышает администратор.
  */

@@ -170,8 +170,8 @@
 			"step2_text": "Every participant is reviewed manually.",
 			"step3_title": "Get your level and partner link",
 			"step3_text": "Once approved, you get a personal dashboard.",
-			"step4_title": "Create content",
-			"step4_text": "Use EsAI to create videos, cartoons and other content.",
+			"step4_title": "Create and promote",
+			"step4_text": "Create content with EsAI, tell your audience about the service and earn Creator Credits for being active.",
 			"step5_title": "Bring your audience",
 			"step5_text": "Use your personal link or promo code.",
 			"step6_title": "Earn",
@@ -180,6 +180,11 @@
 		"commission": {
 			"title": "Commission",
 			"text": "The commission is ongoing: you get your percentage not only on the first purchase but on every later paid order of the user you brought in. The commission applies as long as the referral link between you exists and the creator account is not blocked."
+		},
+		"credits": {
+			"title": "Creator Credits",
+			"text1": "Creator Credits are internal EsAI credits that the team may grant to active program members for quality content, activity and results.",
+			"text2": "The amount and frequency of grants are decided individually by the EsAI team. Credits can be used inside EsAI, but cannot be withdrawn as money, sold or transferred to another user."
 		},
 		"levels": {
 			"title": "Level-up requirements",
