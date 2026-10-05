@@ -13,7 +13,7 @@ import Benefits from "./Benefits";
 import Hero from "./Hero";
 import HowItWorks from "./HowItWorks";
 import LandingSkeleton from "./LandingSkeleton";
-import { CommissionSection, LevelConditionsSection, PayoutsSection } from "./Terms";
+import { CommissionSection, CreatorCreditsSection, LevelConditionsSection, PayoutsSection } from "./Terms";
 import { canApply, stageOf } from "./applyLogic";
 import { CARD } from "./ui";
 
@@ -157,6 +157,7 @@ export default function CreatorsLanding() {
       <Benefits max={max} />
       <HowItWorks />
       <CommissionSection levels={program.levels} />
+      <CreatorCreditsSection />
       <LevelConditionsSection levels={program.levels} />
       <PayoutsSection program={program} />
 

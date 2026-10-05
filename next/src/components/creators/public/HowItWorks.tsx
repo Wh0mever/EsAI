@@ -20,9 +20,10 @@ export default function HowItWorks() {
       text: t("public.how.step3_text", { defaultValue: "После одобрения вы получаете персональный кабинет." }),
     },
     {
-      title: t("public.how.step4_title", { defaultValue: "Создавайте контент" }),
+      title: t("public.how.step4_title", { defaultValue: "Создавайте и продвигайте" }),
       text: t("public.how.step4_text", {
-        defaultValue: "Используйте EsAI для создания видео, мультфильмов и другого контента.",
+        defaultValue:
+          "Создавайте контент с EsAI, рассказывайте о сервисе своей аудитории и получайте Creator Credits за активность.",
       }),
     },
     {
