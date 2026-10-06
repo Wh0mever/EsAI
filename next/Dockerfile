@@ -26,13 +26,17 @@ ARG NEXT_PUBLIC_FREEDOM_PAY_TEST
 # Видеостудия: 1 — пункт меню, sitemap и индексация /video-studio (ставить
 # вместе с VSTUDIO_MODE=on на бэкенде). NEXT_PUBLIC_VSTUDIO_FIXTURES сюда не добавлять.
 ARG NEXT_PUBLIC_VSTUDIO_NAV
+# Программа Creators: 1 — пункт в меню и подвале, sitemap и индексация /creators
+# (ставить вместе с режимом creators_mode=on в админке).
+ARG NEXT_PUBLIC_CREATORS_NAV
 
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL \
     NEXT_PUBLIC_FREEDOM_PAY_PUBLIC_KEY=$NEXT_PUBLIC_FREEDOM_PAY_PUBLIC_KEY \
     NEXT_PUBLIC_FREEDOM_PAY_TOKEN=$NEXT_PUBLIC_FREEDOM_PAY_TOKEN \
     NEXT_PUBLIC_FREEDOM_PAY_MERCHANT_ID=$NEXT_PUBLIC_FREEDOM_PAY_MERCHANT_ID \
     NEXT_PUBLIC_FREEDOM_PAY_TEST=$NEXT_PUBLIC_FREEDOM_PAY_TEST \
-    NEXT_PUBLIC_VSTUDIO_NAV=$NEXT_PUBLIC_VSTUDIO_NAV
+    NEXT_PUBLIC_VSTUDIO_NAV=$NEXT_PUBLIC_VSTUDIO_NAV \
+    NEXT_PUBLIC_CREATORS_NAV=$NEXT_PUBLIC_CREATORS_NAV
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY package.json package-lock.json* ./

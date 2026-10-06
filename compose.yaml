@@ -260,6 +260,9 @@ services:
         # Пункт «Видеостудия» в меню, sitemap и индексация /video-studio.
         # Ставить 1 только вместе с VSTUDIO_MODE=on на бэкенде.
         NEXT_PUBLIC_VSTUDIO_NAV: ${NEXT_PUBLIC_VSTUDIO_NAV:-}
+        # Пункт «Creators» в меню и подвале, sitemap и индексация /creators.
+        # Ставить 1 только вместе с creators_mode=on в админке.
+        NEXT_PUBLIC_CREATORS_NAV: ${NEXT_PUBLIC_CREATORS_NAV:-}
     env_file: .env
     environment:
       NODE_ENV: production
