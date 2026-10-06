@@ -5,14 +5,19 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  FEATURED_BANK,
+  SHOWCASE_BANKS,
   appNotOpened,
   appsForPlatform,
+  bankIconSources,
   clockSkewMs,
   detectEmbed,
   detectPlatform,
   isHttpsUrl,
   isQrInvoice,
   isSafeAppUrl,
+  lifetimeLeft,
+  localBankIcon,
   normalizeQrInvoice,
   otherMethodStep,
   pollDelayMs,
@@ -20,6 +25,8 @@ import {
   secondsLeft,
   shouldStopPolling,
   splitApps,
+  splitFeatured,
+  worksWithBanks,
 } from "./qrpay.ts";
 
 const UA = {
@@ -186,6 +193,109 @@ test("splitApps: 8 сразу, остальные под «показать вс
   assert.equal(s.main.length, 4);
   assert.equal(s.rest.length, 2);
   assert.deepEqual(splitApps([]), { main: [], rest: [] });
+});
+
+test("localBankIcon: наш файл есть ровно у тех банков, чьи значки лежат в public", async () => {
+  assert.equal(localBankIcon("mbank"), "/images/banks/mbank.webp");
+  assert.equal(localBankIcon(" MBank "), "/images/banks/mbank.webp");
+  assert.equal(localBankIcon("newbank"), "");
+  assert.equal(localBankIcon(""), "");
+  assert.equal(localBankIcon(null), "");
+  // Код уходит в адрес файла — чужой путь через него не подставить.
+  assert.equal(localBankIcon("../mbank"), "");
+  // Каждый банк из списка действительно лежит файлом: иначе вместо значка —
+  // битая картинка и снова буква.
+  const { existsSync } = await import("node:fs");
+  const known = ["mbank", "odengi", "bakaibank", "optima", "megapay", "kompanion", "elcart", "demirbank", "kicb", "eldik", "nambaone", "simbank"];
+  for (const code of known) {
+    const src = localBankIcon(code);
+    assert.equal(src, `/images/banks/${code}.webp`);
+    assert.equal(existsSync(new URL(`../../public${src}`, import.meta.url)), true, code);
+  }
+});
+
+test("bankIconSources: свой файл → https-адрес сервера → ничего (буква)", () => {
+  // Свой значок первым; адрес сервера остаётся запасным.
+  assert.deepEqual(bankIconSources("mbank", "https://media.gopay.kg/payment_apps/mbank.webp"), [
+    "/images/banks/mbank.webp",
+    "https://media.gopay.kg/payment_apps/mbank.webp",
+  ]);
+  // Сервер прислал пусто или путь без узла — свой значок всё равно есть.
+  assert.deepEqual(bankIconSources("mbank", ""), ["/images/banks/mbank.webp"]);
+  assert.deepEqual(bankIconSources("mbank", "payment_apps/mbank.webp"), ["/images/banks/mbank.webp"]);
+  // Банк, которого у нас нет: только https-адрес сервера.
+  assert.deepEqual(bankIconSources("newbank", "https://media.gopay.kg/payment_apps/newbank.webp"), [
+    "https://media.gopay.kg/payment_apps/newbank.webp",
+  ]);
+  assert.deepEqual(bankIconSources("newbank", "http://media.gopay.kg/x.webp"), []);
+  assert.deepEqual(bankIconSources("newbank", "payment_apps/newbank.webp"), []);
+  assert.deepEqual(bankIconSources("newbank", "javascript:alert(1)"), []);
+  assert.deepEqual(bankIconSources("newbank"), []);
+  assert.deepEqual(bankIconSources(undefined, null), []);
+});
+
+test("splitFeatured: МБанк — наверх, остальные в порядке сервера, никто не теряется", () => {
+  assert.equal(FEATURED_BANK, "mbank");
+  const list = [app("odengi"), app("mbank"), app("optima")];
+  let s = splitFeatured(list);
+  assert.equal(s.featured.code, "mbank");
+  // Ссылка главной кнопки — та же самая, что пришла с сервера.
+  assert.equal(s.featured.url, list[1].url);
+  assert.deepEqual(s.others.map((a) => a.code), ["odengi", "optima"]);
+  // МБанка нет (не работает на этой платформе) — главной кнопки нет.
+  s = splitFeatured([app("odengi"), app("optima")]);
+  assert.equal(s.featured, null);
+  assert.deepEqual(s.others.map((a) => a.code), ["odengi", "optima"]);
+  assert.deepEqual(splitFeatured([]), { featured: null, others: [] });
+  assert.deepEqual(splitFeatured(undefined), { featured: null, others: [] });
+  // Вместе с главной кнопкой показаны все банки, что и раньше.
+  const many = Array.from({ length: 12 }, (_, i) => app(i === 0 ? "mbank" : `b${i}`));
+  s = splitFeatured(many);
+  const grid = splitApps(s.others);
+  assert.equal(1 + grid.main.length + grid.rest.length, 12);
+});
+
+test("worksWithBanks: значки банков счёта, а без списка — известные всем", () => {
+  const list = (n) => Array.from({ length: n }, (_, i) => app(`b${i}`));
+  // Списка нет — пять банков, которые знает каждый, и никакого «+N».
+  let w = worksWithBanks([]);
+  assert.deepEqual(w.shown.map((b) => b.code), SHOWCASE_BANKS.map((b) => b.code));
+  assert.equal(w.more, 0);
+  assert.deepEqual(worksWithBanks(undefined).shown.length, SHOWCASE_BANKS.length);
+  // У каждого «известного» банка есть наш значок.
+  for (const bank of SHOWCASE_BANKS) assert.notEqual(localBankIcon(bank.code), "", bank.code);
+  // Влезают все.
+  w = worksWithBanks(list(7));
+  assert.equal(w.shown.length, 7);
+  assert.equal(w.more, 0);
+  // Не влезли — последнее место под счётчик, и ни один банк не потерян.
+  w = worksWithBanks(list(12));
+  assert.equal(w.shown.length, 6);
+  assert.equal(w.more, 6);
+  assert.equal(w.shown[0].code, "b0");
+  // Банк без значка в ряд не идёт (буква там ничего не скажет), но посчитан.
+  w = worksWithBanks([app("mbank", { icon: "" }), app("nologo", { icon: "" }), app("optima", { icon: "x" })]);
+  assert.deepEqual(w.shown.map((b) => b.code), ["mbank", "optima"]);
+  assert.equal(w.more, 1);
+  // Повтор кода и мусор не роняют и не двоят значок.
+  w = worksWithBanks([app("mbank"), app("MBANK"), null, {}, app("kicb")]);
+  assert.deepEqual(w.shown.map((b) => b.code), ["mbank", "kicb"]);
+  assert.equal(w.more, 0);
+  // Список есть, но значков нет ни у кого — показываем известные.
+  w = worksWithBanks([app("x1", { icon: "" }), app("x2", { icon: "" })]);
+  assert.deepEqual(w.shown.map((b) => b.code), SHOWCASE_BANKS.map((b) => b.code));
+});
+
+test("lifetimeLeft: доля срока для полоски, без срока — полоски нет", () => {
+  assert.equal(lifetimeLeft(900, 900), 1);
+  assert.equal(lifetimeLeft(450, 900), 0.5);
+  assert.equal(lifetimeLeft(0, 900), 0);
+  assert.equal(lifetimeLeft(-5, 900), 0);
+  // Часы сервера и браузера разошлись — полоска не вылезает за край.
+  assert.equal(lifetimeLeft(1200, 900), 1);
+  assert.equal(lifetimeLeft(100, 0), null);
+  assert.equal(lifetimeLeft(100, NaN), null);
+  assert.equal(lifetimeLeft(NaN, 900), 0);
 });
 
 test("pollDelayMs: 3 с первые две минуты, потом 5 с", () => {

@@ -5,7 +5,9 @@ import { useTranslation } from "react-i18next";
 import { FiChevronRight, FiCreditCard, FiLoader, FiShield } from "react-icons/fi";
 import { IoQrCodeOutline } from "react-icons/io5";
 import { Modal } from "@/components/dialog/Dialog";
+import BankIcon from "@/components/payments/qr/BankIcon";
 import type { KgsMethod, KgsMethodKey } from "@/lib/currency";
+import { SHOWCASE_BANKS, localBankIcon } from "@/lib/qrpay";
 
 /**
  * Окно «чем удобнее оплатить» для оплаты в сомах.
@@ -21,8 +23,11 @@ import type { KgsMethod, KgsMethodKey } from "@/lib/currency";
  * список способов, «кто сейчас крутится» и текст ошибки приходят от того, кто
  * его открыл (TokenPackages, TopUpModal).
  *
- * Чужих логотипов нет намеренно: нейтральная плитка с первой буквой или
- * значком — без картинок и товарных знаков.
+ * Банки показаны значками своих приложений (public/images/banks): плитку с
+ * первой буквой люди не узнавали («что за буквы?»). Под единым QR — ряд из
+ * пяти самых известных банков: по ним понятно, что QR подходит к своему банку.
+ * Способ без нашего значка по-прежнему получает букву. Сами значки ничего не
+ * делают — нажимается вся кнопка способа, как и раньше.
  *
  * Как и у окна крипты, модалка должна быть одна: открывающий прячет свою.
  */
@@ -130,6 +135,8 @@ export default function KgsMethodModal({
     const busy = busyKey === m.key;
     const label = labels[m.key];
     const wide = m.kind !== "app" || m.key === lastOddApp;
+    // Банк, чей значок у нас есть, показываем значком; остальным — буква.
+    const bankIcon = m.kind === "app" && Boolean(localBankIcon(m.key));
     return (
       <button
         key={m.key}
@@ -145,20 +152,27 @@ export default function KgsMethodModal({
             : "cursor-pointer border-border bg-surface-2 hover:border-accent/70 hover:bg-surface-3 disabled:opacity-60 disabled:hover:border-border disabled:hover:bg-surface-2"
         }`}
       >
-        <span
-          aria-hidden="true"
-          className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-base font-bold sm:h-9 sm:w-9 ${
-            primary ? "bg-accent/15 text-accent" : "bg-surface-3 text-foreground"
-          }`}
-        >
-          {m.kind === "qr" ? (
-            <IoQrCodeOutline className="h-5 w-5" />
-          ) : m.kind === "card" ? (
-            <FiCreditCard className="h-5 w-5" />
-          ) : (
-            label.trim().charAt(0).toUpperCase()
-          )}
-        </span>
+        {bankIcon ? (
+          // Значок приложения банка вместо буквы; название — рядом, в подписи.
+          <span aria-hidden="true" className="inline-flex h-10 w-10 shrink-0 sm:h-9 sm:w-9">
+            <BankIcon code={m.key} name={label} />
+          </span>
+        ) : (
+          <span
+            aria-hidden="true"
+            className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-base font-bold sm:h-9 sm:w-9 ${
+              primary ? "bg-accent/15 text-accent" : "bg-surface-3 text-foreground"
+            }`}
+          >
+            {m.kind === "qr" ? (
+              <IoQrCodeOutline className="h-5 w-5" />
+            ) : m.kind === "card" ? (
+              <FiCreditCard className="h-5 w-5" />
+            ) : (
+              label.trim().charAt(0).toUpperCase()
+            )}
+          </span>
+        )}
         <span
           className={`min-w-0 flex-1 leading-snug text-foreground ${
             primary ? "text-[15px] font-semibold" : "text-sm font-medium"
@@ -169,6 +183,19 @@ export default function KgsMethodModal({
             // Тестовые ключи платёжной системы: такую кнопку видят только сотрудники.
             <span className="ml-2 inline-flex items-center rounded-full border border-status-fail/40 bg-status-fail/10 px-1.5 py-px align-middle text-[10px] font-semibold uppercase tracking-wide text-status-fail">
               {t("kgspay.test_tag", { defaultValue: "тест" })}
+            </span>
+          ) : null}
+          {m.kind === "qr" ? (
+            // Знакомые значки: «единый QR» — это и есть оплата из своего банка.
+            <span className="mt-1.5 flex flex-wrap items-center gap-x-1.5 gap-y-1">
+              <span className="flex shrink-0 items-center gap-1">
+                {SHOWCASE_BANKS.map((bank) => (
+                  <BankIcon key={bank.code} code={bank.code} name={bank.name} size={22} alt={bank.name} />
+                ))}
+              </span>
+              <span className="text-xs font-normal text-muted">
+                {t("kgspay.qr_banks_more", { defaultValue: "и другие банки" })}
+              </span>
             </span>
           ) : null}
         </span>

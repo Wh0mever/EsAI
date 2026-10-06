@@ -2142,6 +2142,7 @@
 		"held_text": "Your discount is already attached to the payment you started ({{method}}, {{amount}}). Continue it, or pay with the selected method without the discount.",
 		"held_text_plain": "Your discount is already attached to the payment you started ({{amount}}). Continue it, or pay with the selected method without the discount.",
 		"held_continue": "Continue with the discount — {{amount}}",
-		"held_full": "{{method}} without the discount — {{amount}}"
+		"held_full": "{{method}} without the discount — {{amount}}",
+		"qr_banks_more": "and other banks"
 	}
 }

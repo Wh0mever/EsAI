@@ -60,5 +60,13 @@
 	"pending_title": "You have an unfinished QR payment",
 	"pending_left": "{{time}} left",
 	"pending_open": "Open QR code",
-	"pending_dismiss": "Hide"
+	"pending_dismiss": "Hide",
+	"m_step_1": "Choose your bank",
+	"m_step_2": "Confirm the payment in the app",
+	"m_step_3": "Come back — the credits are already on your balance",
+	"featured_badge": "Most popular",
+	"featured_caption": "The amount is already filled in — just confirm",
+	"qr_alt_title": "or pay with the QR code",
+	"works_with": "Works with",
+	"works_with_more": "and {{n}} more banks"
 }

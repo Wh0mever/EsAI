@@ -28,6 +28,7 @@ import logging
 import re
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
+from urllib.parse import urljoin, urlsplit
 
 from django.core.cache import cache
 from django.db import IntegrityError, transaction
@@ -107,6 +108,41 @@ def _date(value: str):
 def _https(url) -> str:
     url = str(url or "")
     return url if (url.startswith("https://") and len(url) <= 500) else ""
+
+
+# Значки банков GoPay отдаёт ОТНОСИТЕЛЬНЫМ путём («payment_apps/mbank.webp»),
+# сами файлы лежат здесь.
+_ICON_BASE = "https://media.gopay.kg/"
+# Адрес уйдёт в <img src> на экране оплаты: только обычные символы адреса —
+# без пробелов, переводов строк, обратных слэшей, «@», «#» и прочего, чем
+# подменяют узел или ломают разметку.
+_ICON_TEXT_RE = re.compile(r"[A-Za-z0-9._~%/:?=&\-]+")
+
+
+def _icon_url(value) -> str:
+    """Значок банка: полный https-адрес на узле gopay.kg — или пусто.
+
+    Раньше сюда проходил только готовый https-адрес, а GoPay присылает путь без
+    узла — значок до экрана не доходил, и вместо него у банка стояла буква
+    (жалоба 07.10.2026). Путь достраиваем до media.gopay.kg; всё, что после
+    этого оказалось не https или не на узле gopay.kg, не пропускаем: чужую
+    картинку на экране оплаты никто не должен подставить.
+    """
+    text = value.strip() if isinstance(value, str) else ""
+    if not text or len(text) > 500 or not _ICON_TEXT_RE.fullmatch(text):
+        return ""
+    try:
+        url = urljoin(_ICON_BASE, text)
+        parts = urlsplit(url)
+        host = (parts.hostname or "").lower()
+        port = parts.port
+    except ValueError:
+        return ""
+    if parts.scheme != "https" or parts.username or parts.password or port not in (None, 443):
+        return ""
+    if host != "gopay.kg" and not host.endswith(".gopay.kg"):
+        return ""
+    return url if len(url) <= 500 else ""
 
 
 def _safe_links(links) -> dict:
@@ -1010,7 +1046,7 @@ def apps_for(invoice) -> list[dict]:
             "code": code,
             "name": (entry or {}).get("name") or code.capitalize(),
             "url": _fix_bank_link(code, url),
-            "icon": _https((entry or {}).get("icon") or ""),
+            "icon": _icon_url((entry or {}).get("icon")),
             # True / False / None. False обязан дойти до клиента: банк, которого
             # нет на iPhone, там прячут — поэтому никаких «x or None».
             "ios": entry.get("is_active_on_ios") if entry is not None else None,

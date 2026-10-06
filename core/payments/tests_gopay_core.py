@@ -2718,6 +2718,74 @@ class InvoiceHelpersTests(GoPayTestCase):
                                    "ios": None, "android": None})
         self.assertEqual(self.fake.calls, [])
 
+    def test_relative_icon_path_resolves_to_gopay_media(self):
+        # GoPay отдаёт значок путём без узла; файлы лежат на media.gopay.kg.
+        # Раньше такой путь отбрасывался — и у банка на экране стояла буква.
+        self.fake.on("/v1/payment-app", ok([
+            {"code": "mbank", "name": "MBank", "order": 1, "url": "mbank://elqr?data={qr_data}",
+             "icon": "payment_apps/mbank.webp", "android_package_name": "kg.mbank",
+             "is_active_on_ios": True},
+            {"code": "odengi", "name": "O!Dengi", "order": 2, "url": "odengi://elqr?d={qr_data}",
+             "icon": "/payment_apps/odengi.webp", "android_package_name": "kg.o",
+             "is_active_on_ios": True},
+            {"code": "optima", "name": "Optima24", "order": 3, "url": "optima://elqr?d={qr_data}",
+             "icon": "https://media.gopay.kg/apps/optima.png", "android_package_name": "kg.optima",
+             "is_active_on_ios": True},
+            {"code": "evil", "name": "Evil", "order": 4, "url": "evil://elqr?d={qr_data}",
+             "icon": "//evil.example/icon.png", "android_package_name": "kg.evil",
+             "is_active_on_ios": True}]))
+        service.refresh_apps_cache("live")
+        icons = {a["code"]: a["icon"] for a in service.apps_for(self.make_invoice(app_links={}))}
+        self.assertEqual(icons, {
+            "mbank": "https://media.gopay.kg/payment_apps/mbank.webp",
+            "odengi": "https://media.gopay.kg/payment_apps/odengi.webp",
+            "optima": "https://media.gopay.kg/apps/optima.png",
+            "evil": ""})
+        # Значок без узла, но кнопка всё равно есть: буква на экране, а не дыра.
+        self.assertEqual(len(icons), 4)
+
+    def test_icon_url_is_https_on_a_gopay_host_or_nothing(self):
+        base = "https://media.gopay.kg/"
+        for value, expected in (
+                ("payment_apps/mbank.webp", base + "payment_apps/mbank.webp"),
+                ("  payment_apps/mbank.webp  ", base + "payment_apps/mbank.webp"),
+                ("/payment_apps/mbank.webp", base + "payment_apps/mbank.webp"),
+                ("../payment_apps/mbank.webp", base + "payment_apps/mbank.webp"),
+                ("payment_apps/mbank.webp?v=3", base + "payment_apps/mbank.webp?v=3"),
+                (base + "apps/mbank.png", base + "apps/mbank.png"),
+                ("https://gopay.kg/static/mbank.png", "https://gopay.kg/static/mbank.png"),
+                ("https://pay.gopay.kg/i/mbank.png", "https://pay.gopay.kg/i/mbank.png")):
+            self.assertEqual(service._icon_url(value), expected, value)
+        for value in (
+                "", "   ", None, 0, 5, ["payment_apps/mbank.webp"], {"icon": "x"},
+                # не https
+                "http://media.gopay.kg/apps/mbank.png", "ftp://media.gopay.kg/mbank.png",
+                "javascript:alert(1)", "data:image/png;base64,AAAA",
+                # чужой узел — в том числе похожий на наш
+                "https://insecure.example/icon.png", "//evil.example/icon.png",
+                "https://media.gopay.kg.evil.example/icon.png",
+                "https://evilgopay.kg/icon.png", "https://gopay.kg.evil.example/icon.png",
+                # узел подменён учётными данными, портом или обратным слэшем
+                "https://media.gopay.kg@evil.example/icon.png",
+                "https://user:pass@media.gopay.kg/icon.png",
+                "https://media.gopay.kg:8443/icon.png",
+                "https://evil.example\\@media.gopay.kg/icon.png",
+                "\\\\evil.example/icon.png",
+                # то, чему в адресе картинки не место
+                "payment_apps/m bank.webp", "payment_apps/mbank.webp#x",
+                'payment_apps/"><script>.webp', "payment_apps/mbank.webp\nX",
+                "https://[media.gopay.kg/icon.png",
+                "p/" + "a" * 500):
+            self.assertEqual(service._icon_url(value), "", repr(value))
+
+    def test_apps_for_drops_an_icon_from_a_foreign_or_insecure_address(self):
+        cache.set("gopay:apps:v1:live", self.CATALOG, 600)
+        invoice = self.make_invoice(app_links={
+            "mbank": "mbank://payment?id=1", "optima": "optima24://pay?id=1"})
+        icons = {a["code"]: a["icon"] for a in service.apps_for(invoice)}
+        # У optima в списке http-адрес на чужом узле — значка нет, кнопка есть.
+        self.assertEqual(icons, {"mbank": "https://media.gopay.kg/apps/mbank.png", "optima": ""})
+
     def test_mbank_link_gets_the_slash_mbank_itself_uses(self):
         # GoPay отдаёт /qr#<код>, а МБанк открывает оплату по /qr/#<код>.
         cache.set("gopay:apps:v1:live", self.CATALOG, 600)

@@ -14,13 +14,23 @@ import CopyField from "@/components/ui/CopyField";
 import QrCode from "@/components/ui/QrCode";
 import { formatCountdown } from "@/lib/cryptoUri";
 import { formatPrice } from "@/lib/currency";
-import { detectEmbed, detectPlatform, isHttpsUrl, isQrInvoice, otherMethodStep, qrFileName } from "@/lib/qrpay";
+import {
+  detectEmbed,
+  detectPlatform,
+  isHttpsUrl,
+  isQrInvoice,
+  lifetimeLeft,
+  otherMethodStep,
+  qrFileName,
+  worksWithBanks,
+} from "@/lib/qrpay";
 import type { QrCancelPhase, QrEmbed, QrPlatform } from "@/lib/qrpay";
 import { clearQrSession, saveQrSession } from "@/lib/qrSession";
 import { useQrInvoice } from "@/hooks/useQrInvoice";
 import { fetchData } from "@/tools/fetchData";
 import { trackFunnel } from "@/tools/funnel";
 import type { QrCancelResult, QrInvoice, QrUiState } from "@/types/qrpay";
+import BankIcon from "./BankIcon";
 import QrBankApps from "./QrBankApps";
 import QrStatusPill from "./QrStatusPill";
 import { renderQrPng, saveQrImage } from "./saveQrImage";
@@ -571,6 +581,11 @@ export default function QrInvoiceView({
   const otherBusy = cancelPhase === "sending";
   const otherDisabled = otherBusy || cancelPhase === "hold";
   const lowTime = secondsLeft > 0 && secondsLeft <= 60;
+  // Полоска срока: цифры таймера надо читать, а полоску видно краем глаза.
+  // Последние две минуты она цвета «внимание» — пора платить или брать новый QR.
+  const leftShare = lifetimeLeft(secondsLeft, invoice.lifetime_seconds);
+  // «> 0»: пока отсчёт не сделал первый шаг, секунд ноль — это ещё не «мало времени».
+  const barWarn = secondsLeft > 0 && secondsLeft <= 120;
 
   const testStrip = isTest ? (
     <div
@@ -619,8 +634,47 @@ export default function QrInvoiceView({
           </div>
         </div>
       </div>
+      {leftShare !== null && (
+        // Диктору полоска не нужна: то же самое говорит таймер выше.
+        // Ширину не анимируем: шаг в секунду меньше пикселя, а при возврате к
+        // начатой оплате полоска «вырастала» бы из пустой. Плавно меняем только цвет.
+        <div aria-hidden="true" className="h-1.5 w-full overflow-hidden rounded-full bg-surface-3">
+          <div
+            className={`h-full rounded-full transition-colors duration-500 motion-reduce:transition-none ${
+              barWarn ? "bg-status-wait" : "bg-status-ok"
+            }`}
+            style={{ width: `${(leftShare * 100).toFixed(2)}%` }}
+          />
+        </div>
+      )}
     </div>
   );
+
+  // Компьютер: рядом с QR — значки банков, чтобы свой банк узнавался с
+  // первого взгляда. Тестовый QR не оплатить — там обещать банки незачем.
+  const banks = isTest ? null : worksWithBanks(invoice.apps, 8);
+  const worksWith = banks ? (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-2xl border border-border bg-surface-2 px-3.5 py-3">
+      <div className="text-[11px] font-medium uppercase tracking-wider text-muted-2">
+        {t("works_with", { defaultValue: "Работает с" })}
+      </div>
+      <ul className="flex flex-wrap items-center gap-1.5">
+        {banks.shown.map((bank) => (
+          <li key={bank.code} className="flex">
+            <BankIcon code={bank.code} name={bank.name} icon={bank.icon} size={32} alt={bank.name} />
+          </li>
+        ))}
+        {banks.more > 0 && (
+          <li
+            aria-label={t("works_with_more", { n: banks.more, defaultValue: "и ещё банков: {{n}}" })}
+            className="inline-flex h-8 min-w-8 items-center justify-center rounded-[24%] bg-surface-3 px-1.5 text-xs font-semibold tabular-nums text-muted"
+          >
+            +{banks.more}
+          </li>
+        )}
+      </ul>
+    </div>
+  ) : null;
 
   const qrTile = (size: number) =>
     qrData ? (
@@ -764,6 +818,15 @@ export default function QrInvoiceView({
           />
         )}
 
+        {/* QR на телефоне — запасной путь: главный — кнопки банков выше. */}
+        {qrData && !isTest && (
+          <div className="flex items-center gap-3 text-xs text-muted-2">
+            <span aria-hidden="true" className="h-px flex-1 bg-border" />
+            {t("qr_alt_title", { defaultValue: "или оплатите по QR-коду" })}
+            <span aria-hidden="true" className="h-px flex-1 bg-border" />
+          </div>
+        )}
+
         <div className="flex flex-col items-center gap-2.5">
           {qrTile(208)}
           {saveButton && <div className="flex w-full flex-col">{saveButton}</div>}
@@ -818,6 +881,7 @@ export default function QrInvoiceView({
               </li>
             ))}
           </ol>
+          {worksWith}
           <div className="flex flex-wrap gap-2">
             {saveButton}
             {checkButton(BTN_SECONDARY)}
