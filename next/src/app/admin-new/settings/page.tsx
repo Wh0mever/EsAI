@@ -1502,7 +1502,8 @@ function GoPayPanel({
     (e) => gopay.health?.[e]?.ok === false && (e === savedEnv || inFlight(e) > 0)
   );
 
-  const save = async () => {
+  /** true — сохранено (или сохранять было нечего); false — отказ или ошибка в поле. */
+  const save = async (): Promise<boolean> => {
     const patch: Record<string, unknown> = {};
     // Режим и среду шлём, только если их поменяли: наличие ключей сервер
     // проверяет лишь тогда, и сохранение одних ключей проходит всегда.
@@ -1512,7 +1513,7 @@ function GoPayPanel({
       const n = Number(lifetime.trim());
       if (!/^\d+$/.test(lifetime.trim()) || n < GOPAY_LIFETIME_MIN || n > GOPAY_LIFETIME_MAX) {
         setErr(`Срок жизни QR: целое число минут от ${GOPAY_LIFETIME_MIN} до ${GOPAY_LIFETIME_MAX}`);
-        return;
+        return false;
       }
       patch.lifetime_minutes = n;
     }
@@ -1527,13 +1528,13 @@ function GoPayPanel({
           setErr(
             `${f.label} (${goPayEnvName(e)} среда): от 8 до 256 символов, только латиница, цифры и знаки, без пробелов`
           );
-          return;
+          return false;
         }
         part[f.key] = value;
       }
       if (Object.keys(part).length) patch[e] = part;
     }
-    if (Object.keys(patch).length === 0) return;
+    if (Object.keys(patch).length === 0) return true;
 
     setSaving(true);
     setErr(null);
@@ -1545,9 +1546,10 @@ function GoPayPanel({
       setTests({});
       setFlash(true);
       setTimeout(() => setFlash(false), 2000);
-    } else {
-      setErr(res.error || "Не удалось сохранить");
+      return true;
     }
+    setErr(res.error || "Не удалось сохранить");
+    return false;
   };
 
   const removeSecret = async (e: GoPayEnv, field: GoPaySecretField, label: string) => {
@@ -1602,6 +1604,14 @@ function GoPayPanel({
     // чтобы красная строка о сбое не висела после удачной проверки.
     const snapshot = await fetchData<Settings>("manage/settings/", "GET", null, true);
     if (snapshot.ok && snapshot.data?.gopay) onSaved(snapshot.data);
+  };
+
+  // Кнопка «Сохранить» всей секции стоит в её шапке, далеко от полей ключей:
+  // человек вставлял ключи, жал «Проверить соединение» рядом и получал «не
+  // заданы». Поэтому кнопка у самих полей сначала сохраняет введённое.
+  const saveAndTest = async (e: GoPayEnv) => {
+    if (!(await save())) return;
+    await runTest(e);
   };
 
   const copyWebhook = async () => {
@@ -1795,11 +1805,21 @@ function GoPayPanel({
                   )}
                 </div>
                 <button
-                  onClick={() => runTest(e)}
-                  disabled={testing !== null}
-                  className="rounded-lg border border-border bg-surface-2 px-3 py-1.5 text-xs font-semibold text-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+                  onClick={() => (hasDraft(e) ? saveAndTest(e) : runTest(e))}
+                  disabled={testing !== null || busy}
+                  className={
+                    hasDraft(e)
+                      ? "rounded-lg bg-accent px-3 py-1.5 text-xs font-semibold text-on-accent transition-opacity hover:opacity-90 disabled:opacity-50"
+                      : "rounded-lg border border-border bg-surface-2 px-3 py-1.5 text-xs font-semibold text-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+                  }
                 >
-                  {testing === e ? "Проверка…" : "Проверить соединение"}
+                  {saving && hasDraft(e)
+                    ? "Сохранение…"
+                    : testing === e
+                      ? "Проверка…"
+                      : hasDraft(e)
+                        ? "Сохранить и проверить"
+                        : "Проверить соединение"}
                 </button>
               </div>
 
@@ -1854,7 +1874,8 @@ function GoPayPanel({
               )}
               {hasDraft(e) && (
                 <p className="mt-3 text-[11px] text-muted-2">
-                  Проверка идёт по сохранённым ключам — сначала сохраните введённые.
+                  Введённые значения ещё не сохранены. Нажмите «Сохранить и проверить» выше — после сохранения поля
+                  очистятся, а рядом с названием появится «задан».
                 </p>
               )}
 
