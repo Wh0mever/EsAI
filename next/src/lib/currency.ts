@@ -14,13 +14,18 @@ export type Currency = "USD" | "RUB" | "KGS";
 export type CurrencySource = "manual" | "auto";
 
 /**
- * Способ оплаты в сомах, который человек выбирает у нас до ухода на страницу
- * Freedom Pay (core/payments/kgs_methods.py). kind решает, в какой из двух
- * групп окна выбора окажется кнопка: «через приложение банка» или «картой».
+ * Способ оплаты в сомах, который человек выбирает у нас
+ * (core/payments/kgs_methods.py). kind решает, в какой группе окна выбора
+ * окажется кнопка: «по QR» (свой экран оплаты, GoPay), «через приложение
+ * банка» или «картой» (оба — страница Freedom Pay).
  */
 export type KgsMethodKey = "elqr" | "mbank" | "odengi" | "balance" | "megapay" | "card";
 export type KgsMethodKind = "qr" | "app" | "card";
-export type KgsMethod = { key: KgsMethodKey; kind: KgsMethodKind };
+/**
+ * test — способ работает в тестовом окружении платёжной системы (единый QR на
+ * тестовых ключах GoPay): его видят только сотрудники, и кнопка помечена.
+ */
+export type KgsMethod = { key: KgsMethodKey; kind: KgsMethodKind; test?: boolean };
 
 /** Ключи, которые знает клиент, в порядке показа. Незнакомый ключ с сервера отбрасываем. */
 export const KGS_METHOD_KEYS: KgsMethodKey[] = ["elqr", "mbank", "odengi", "balance", "megapay", "card"];
@@ -40,7 +45,9 @@ export function parseKgsMethods(raw: unknown): KgsMethod[] {
     if (!KGS_METHOD_KEYS.includes(key as KgsMethodKey)) continue;
     if (kind !== "qr" && kind !== "app" && kind !== "card") continue;
     if (out.some((m) => m.key === key)) continue;
-    out.push({ key: key as KgsMethodKey, kind });
+    // Пометку «тест» ставим только по явному true: всё остальное — боевой способ.
+    const test = (item as { test?: unknown } | null)?.test === true;
+    out.push(test ? { key: key as KgsMethodKey, kind, test: true } : { key: key as KgsMethodKey, kind });
   }
   return out;
 }

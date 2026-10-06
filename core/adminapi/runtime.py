@@ -69,6 +69,21 @@ KEYS = (
     "kgs_methods_mode",
     "kgs_methods_enabled",
     "kgs_elqr_ps_code",
+    # Единый QR через GoPay (payments/gopay/config.py). Режим off/staff/on, среда
+    # test/live, срок жизни счёта в минутах, передавать ли GoPay почту покупателя,
+    # и по три ключа на среду: публичный API-ключ, секрет подписи запросов и
+    # секрет вебхуков. Наружу — только хвост публичного ключа и «задан / не
+    # задан»; менять их может только главный администратор.
+    "gopay_mode",
+    "gopay_env",
+    "gopay_lifetime_minutes",
+    "gopay_send_buyer_email",
+    "GOPAY_TEST_API_KEY",
+    "GOPAY_TEST_API_SECRET",
+    "GOPAY_TEST_WEBHOOK_SECRET",
+    "GOPAY_LIVE_API_KEY",
+    "GOPAY_LIVE_API_SECRET",
+    "GOPAY_LIVE_WEBHOOK_SECRET",
     # Видеостудия: режим off/staff/on поверх VSTUDIO_MODE из окружения
     # (выключить или открыть студию без выкладки; читает vstudio.views.studio_mode).
     "vstudio_mode",

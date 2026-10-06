@@ -200,6 +200,41 @@ class BaseAndAmountTests(MoneyTestCase):
                          (Decimal("10.00"), "EUR", Decimal("0"), ""))
         self.assertIsNone(row.available_at)
 
+    def test_gopay_kgs(self):
+        # Единый QR (GoPay): те же сомы, что и карта, — база = сумма × курс сома.
+        payment = f.make_payment(self.buyer, provider="gopay", amount="490.00")
+        self.assertEqual((payment.currency, payment.request["provider"],
+                          payment.request["pay_method"]), ("KGS", "gopay", "elqr"))
+        row = self.accrued(payment)
+        self.assertEqual((row.paid_amount, row.paid_currency), (Decimal("490.00"), "KGS"))
+        self.assertEqual(row.base_usd, Decimal("5.635000"))
+        self.assertEqual(row.rate_to_usd, Decimal("0.01150000"))
+        self.assertEqual(row.rate_source, "kgs:test")
+        self.assertEqual(row.amount_usdt, Decimal("0.563500"))
+        self.assertEqual((row.status, row.reason, row.provider), ("accrued", "", "gopay"))
+        self.assertEqual(commission.compute_base(payment, credited=None),
+                         (Decimal("490.00"), "KGS", Decimal("0.01150000"), "kgs:test",
+                          Decimal("5.635000")))
+
+    def test_gopay_other_currency_is_void(self):
+        # У GoPay всё в сомах: долларовая ветка есть только у FreedomPay.
+        for currency in ("USD", "RUB"):
+            with self.subTest(currency=currency):
+                payment = f.make_payment(self.buyer, provider="gopay", amount="10.00",
+                                         currency=currency)
+                with self.assertRaises(CreatorsError) as raised:
+                    commission.compute_base(payment, credited=None)
+                self.assertEqual(raised.exception.code, "unsupported_currency")
+                row = self.accrued(payment)
+                self.assertEqual((row.status, row.reason, row.amount_usdt),
+                                 ("void", "unsupported_currency", Decimal("0")))
+
+    def test_gopay_test_payment_is_void(self):
+        # Тестовая среда GoPay: кредиты зачисляются, комиссии нет.
+        row = self.accrued(f.make_payment(self.buyer, provider="gopay", is_test=True))
+        self.assertEqual((row.status, row.reason, row.amount_usdt),
+                         ("void", "test_payment", Decimal("0")))
+
     def test_yookassa_by_kgs_price(self):
         # В рублях заплачено 520, но база — цена пакета в сомах: 490 × 0.0115.
         payment = f.make_payment(self.buyer, provider="yookassa", amount="520.00",

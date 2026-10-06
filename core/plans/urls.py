@@ -8,6 +8,7 @@ from .views import (
     PublicBonusSettingsView,
 )
 from payments.crypto.views import CryptoInvoiceStatusView
+from payments.gopay.views import GoPayInvoiceCancelView, GoPayInvoiceStatusView
 from .exit_discount import (
     ExitDiscountStatusView, ExitDiscountShowView, ExitDiscountClaimView, ExitDiscountDismissView,
 )
@@ -29,6 +30,11 @@ urlpatterns = [
     # Криптосчёт: экран оплаты опрашивает его, пока идёт перевод.
     path("purchase/crypto/<str:order_id>/", CryptoInvoiceStatusView.as_view(),
          name="token-purchase-crypto-status"),
+    # Единый QR (GoPay): экран оплаты опрашивает счёт и может от него отказаться.
+    path("purchase/qr/<str:order_id>/", GoPayInvoiceStatusView.as_view(),
+         name="token-purchase-qr-status"),
+    path("purchase/qr/<str:order_id>/cancel/", GoPayInvoiceCancelView.as_view(),
+         name="token-purchase-qr-cancel"),
 
     # Exit-intent скидка на pricing. Объявлены ДО "<int:pk>/", чтобы не перехватывались.
     path("exit-discount/status/", ExitDiscountStatusView.as_view(), name="exit-discount-status"),

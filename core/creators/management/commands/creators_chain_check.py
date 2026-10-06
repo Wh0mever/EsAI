@@ -5,9 +5,9 @@
 баланс -> вывод USDT -> возврат -> долг -> блокировка -> сверка.
 
 Платежи подставные, а пути начисления и возврата — НАСТОЯЩИЕ: те же функции,
-которые вызывают постбэк FreedomPay, сверка, вебхук ЮKassa, криптопроцессор и
-бот Stars. Наружу не уходит ни одного запроса: провайдеры и уведомления
-подменены.
+которые вызывают постбэк FreedomPay, сверка, вебхук ЮKassa, криптопроцессор,
+единый QR (GoPay) и бот Stars. Наружу не уходит ни одного запроса: провайдеры
+и уведомления подменены.
 
 По умолчанию работает в отдельной временной базе (под settings_sqlitetest — в
 памяти, на PostgreSQL — test_<имя>). С --rollback — в текущей базе внутри одной
@@ -36,7 +36,7 @@ from django.utils import timezone
 from creators import balance, checks, commission, levels, tasks, withdrawals
 from creators.errors import CreatorsError
 from creators.models import Creator, CreatorCommission, CreatorReferral
-from payments.models import CryptoInvoice, Payment, StarInvoice
+from payments.models import CryptoInvoice, GoPayInvoice, Payment, StarInvoice
 
 CACHES = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache",
                       "LOCATION": "creators-chain-check"}}
@@ -199,6 +199,25 @@ class Chain:
             pay_currency=invoice.pay_currency, pay_amount=invoice.pay_amount,
             actually_paid=Decimal(paid), raw={"payment_status": status, "chain_check": True})
 
+    def gopay_invoice(self, payment, env: str = "live") -> GoPayInvoice:
+        """Счёт единого QR — как его сохраняет оформление оплаты после ответа GoPay."""
+        return GoPayInvoice.objects.create(
+            payment=payment, env=env, provider_payment_id=uuid.uuid4().hex, status="created",
+            amount=payment.amount, lifetime_seconds=900, qr_data="https://pay.example#chain",
+            expires_at=timezone.now() + timedelta(minutes=15))
+
+    @staticmethod
+    def gopay_state(payment, invoice, status: str = "COMMITTED"):
+        """Ответ GoPay на наш запрос статуса. Оба номера обязательны: без них не зачисляется."""
+        from payments.gopay.client import PaymentState
+
+        data = {"payment_id": invoice.provider_payment_id, "order_id": payment.order_id,
+                "status": status, "amount": str(payment.amount)}
+        if invoice.env == "test":
+            # GoPay присылает флаг только у тестовых платежей.
+            data["testing_mode"] = True
+        return PaymentState.from_payload(data)
+
     def star_invoice(self, payment, telegram_id: int) -> StarInvoice:
         info = payment.request["token_purchase"]
         return StarInvoice.objects.create(
@@ -339,6 +358,43 @@ class Chain:
                    self.expect(("", "113.850000", "17.077500", "15.00", "kgs:chain_check", "accrued")),
                    self.facts(self.fp_reconcile))
         self.expected_earned += Decimal("17.077500")
+
+        # Единый QR (GoPay): то же начисление, что по вебхуку и в сверке, —
+        # через единственный путь зачисления apply_state.
+        from payments.gopay import service as gopay_service
+
+        provider = "gopay (вебхук и сверка)"
+        self.gp = self.payment(self.buyer_link, "gopay", "490.00", "KGS", 500, {
+            "provider": "gopay", "pay_method": "elqr", "gopay": {"env": "live", "lifetime": 900}})
+        self.gp_invoice = self.gopay_invoice(self.gp)
+        state = self.gopay_state(self.gp, self.gp_invoice)
+        first = gopay_service.apply_state(self.gp_invoice, state, source="webhook")
+        second = gopay_service.apply_state(self.gp_invoice, state, source="reconcile")   # повтор
+        self.check(step, provider, "credited затем already", f"{first} затем {second}")
+        self.check(step, provider,
+                   self.expect(("", "5.635000", "0.845250", "15.00", "kgs:chain_check", "accrued")),
+                   self.facts(self.gp))
+        self.expected_earned += Decimal("0.845250")
+
+        # Тестовая среда GoPay: кредиты зачисляются (цепочку проверяет сотрудник),
+        # а комиссии креатору нет. Привязку делаем, пока покупатель — обычный
+        # пользователь (сотрудника привязать нельзя), и только потом повышаем:
+        # тестовый платёж зачисляется лишь сотруднику.
+        from users.services import maybe_link_referrer
+
+        self.buyer_gp_test = self.user("buyer-gp-test")
+        maybe_link_referrer(self.request({"esai_ref": CODE}), self.buyer_gp_test)
+        self.User.objects.filter(pk=self.buyer_gp_test.pk).update(is_staff=True)
+        self.buyer_gp_test.refresh_from_db()
+        test_payment = self.payment(self.buyer_gp_test, "gopay", "490.00", "KGS", 500, {
+            "provider": "gopay", "pay_method": "elqr", "gopay": {"env": "test", "lifetime": 900}})
+        Payment.objects.filter(pk=test_payment.pk).update(is_test=True)
+        test_payment.refresh_from_db()
+        test_invoice = self.gopay_invoice(test_payment, env="test")
+        result = gopay_service.apply_state(
+            test_invoice, self.gopay_state(test_payment, test_invoice), source="webhook")
+        self.check(step, "gopay (тестовый платёж)", "credited void/test_payment",
+                   f"{result} {self.states(test_payment)}")
 
     def s08_yookassa(self, step):
         from payments import views as payment_views
@@ -510,6 +566,22 @@ class Chain:
                    f"reversed={result['reversed']} изъято={result['clawback_debited']} "
                    f"{self.states(self.fp_reconcile)}, повтор: {repeat}")
 
+        # Единый QR: возврата через API у GoPay нет — только отметка администратора.
+        # После неё GoPay по-прежнему отвечает «оплачен», и сверка не должна ни
+        # зачислить заказ заново, ни вернуть ему success.
+        from payments.gopay import service as gopay_service
+
+        result = commission.mark_payment_refunded(
+            self.gp.pk, kind="refund", actor=self.admin,
+            reason="creators_chain_check", clawback_credits=True)
+        again = gopay_service.apply_state(
+            self.gp_invoice, self.gopay_state(self.gp, self.gp_invoice), source="reconcile")
+        self.gp.refresh_from_db()
+        self.check(step, "gopay (отметка администратора)",
+                   "reversed=1 изъято=500 reversed/refund:admin, сверка после: already success=False",
+                   f"reversed={result['reversed']} изъято={result['clawback_debited']} "
+                   f"{self.states(self.gp)}, сверка после: {again} success={self.gp.success}")
+
     def s17_refund_yookassa(self, step):
         from payments import views as payment_views
 
@@ -648,6 +720,8 @@ class Command(BaseCommand):
             stack.enter_context(patch("payments.views._notify_balance_topup"))
             stack.enter_context(patch("payments.tasks.fetch_payment_status", fp_status))
             stack.enter_context(patch("payments.yookassa.fetch_payment",
+                                      side_effect=RuntimeError("creators_chain_check: сеть закрыта")))
+            stack.enter_context(patch("payments.gopay.client.requests.post",
                                       side_effect=RuntimeError("creators_chain_check: сеть закрыта")))
             # Под settings_sqlitetest миграции выключены: уровни засевает не 0002_seed_levels.
             levels.ensure_levels()

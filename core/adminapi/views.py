@@ -24,7 +24,7 @@ from plans.models import (ExitDiscountOffer, PromoCode, TokenPackage, TokenTrans
 from plans.wallet import clawback_tokens, credit_tokens
 
 from .permissions import IsStaff
-from .runtime import delete_runtime, get_runtime, set_runtime
+from .runtime import CACHE_PREFIX, delete_runtime, get_runtime, set_runtime
 from .serializers import (
     BlogPostFullSerializer,
     BlogPostListSerializer,
@@ -115,8 +115,10 @@ class SummaryView(StaffAPIView):
     def get(self, request):
         today = timezone.localdate()
 
+        # Тестовые оплаты (единый QR в тестовой среде) идут без денег: кредиты
+        # сотруднику начисляются, но в выручку они не попадают.
         revenue = (
-            Payment.objects.filter(success=True, currency="KGS")
+            Payment.objects.filter(success=True, currency="KGS", is_test=False)
             .aggregate(s=Sum("amount"))["s"] or 0
         )
 
@@ -247,12 +249,37 @@ class UserTransactionsView(StaffAPIView):
 
 # --------------------------------------------------------------- payments ---
 
+def _unsettled_gopay_payment_ids() -> list:
+    """Платежи единого QR, по которым GoPay подтвердил оплату, а кредитов нет.
+
+    Те же строки, что считает счётчик «Оплачено, но не зачислено» в настройках:
+    счёт оплачен, платёж не успешен, возврат не отмечен и начисленное не изъято.
+    Отметки возврата сверяем в Python — таких строк единицы, а отбор по ключу
+    JSON ведёт себя по-разному на SQLite (тесты) и PostgreSQL (бой).
+    """
+    from payments.models import GoPayInvoice
+
+    rows = (GoPayInvoice.objects.select_related("payment")
+            .filter(status=GoPayInvoice.STATUS_COMMITTED, payment__success=False))
+    ids = []
+    for invoice in rows:
+        response = invoice.payment.response
+        response = response if isinstance(response, dict) else {}
+        if not (response.get("admin_refund") or response.get("token_purchase_clawed_back")):
+            ids.append(invoice.payment_id)
+    return ids
+
+
 class PaymentsListView(StaffAPIView):
     """Список платежей. Крипта живёт дольше карточной оплаты, поэтому здесь
-    появились фильтры: иначе незакрытый криптосчёт не найти среди сотен строк."""
+    появились фильтры: иначе незакрытый криптосчёт не найти среди сотен строк.
+    Единый QR добавил свои: тестовые оплаты и «оплачено, но не зачислено»."""
 
     def get(self, request):
-        qs = (Payment.objects.select_related("user", "crypto_invoice")
+        # Все три счёта подтягиваем тем же запросом: сериализатор читает их у
+        # каждой строки, и без этого страница из 50 платежей — это 150 запросов.
+        qs = (Payment.objects
+              .select_related("user", "crypto_invoice", "gopay_invoice", "star_invoice")
               .order_by("-created_at", "-id"))
 
         provider = str(request.query_params.get("provider") or "").strip()
@@ -263,8 +290,16 @@ class PaymentsListView(StaffAPIView):
         if success in ("0", "1"):
             qs = qs.filter(success=(success == "1"))
 
+        is_test = str(request.query_params.get("is_test") or "").strip()
+        if is_test in ("0", "1"):
+            qs = qs.filter(is_test=(is_test == "1"))
+
         if str(request.query_params.get("needs_review") or "") == "1":
-            qs = qs.filter(crypto_invoice__flags__has_key="needs_review")
+            qs = qs.filter(Q(crypto_invoice__flags__has_key="needs_review")
+                           | Q(gopay_invoice__flags__has_key="needs_review"))
+
+        if str(request.query_params.get("unsettled") or "") == "1":
+            qs = qs.filter(pk__in=_unsettled_gopay_payment_ids())
 
         query = str(request.query_params.get("q") or "").strip()
         if query:
@@ -424,6 +459,223 @@ def _mask_key(key: str):
     return f"{key[:10]}...{key[-4:]}"
 
 
+# ------------------------------------------------------ единый QR (GoPay) ---
+
+# Что можно прислать в блоке «gopay». force — не настройка, а подтверждение
+# «удаляю ключ, хотя по среде есть незавершённые счета».
+_GOPAY_PATCH_KEYS = ("mode", "env", "lifetime_minutes", "send_buyer_email", "test", "live", "force")
+
+
+def _gopay_snapshot() -> dict:
+    """Блок «gopay» снимка настроек: конфигурация и живое состояние.
+
+    Значений секретов здесь нет вовсе: у публичного ключа — «…» и четыре
+    последних символа, у двух секретов — только «задан / не задан».
+    """
+    from payments.gopay import config as gopay_config
+
+    block = gopay_config.public_state()
+    try:
+        from django.db import transaction
+
+        from payments.gopay import service as gopay_service
+
+        # Счётчики читают базу. Точка сохранения: сбой чтения не должен
+        # отравить транзакцию запроса — тогда трёх ключей просто нет, а
+        # страница настроек открывается.
+        with transaction.atomic():
+            block.update(gopay_service.admin_state())
+    except Exception:  # noqa: BLE001
+        pass
+    return block
+
+
+def _gopay_bad(detail: str):
+    return Response({"detail": detail}, status=status.HTTP_400_BAD_REQUEST)
+
+
+def _drop_runtime_cache(keys) -> None:
+    try:
+        from django.core.cache import cache
+
+        cache.delete_many([CACHE_PREFIX + key for key in keys])
+    except Exception:  # noqa: BLE001 — кэш сам истечёт через полминуты
+        pass
+
+
+def _gopay_patch(request, raw):
+    """Проверить и записать блок «gopay». Отказ — Response, иначе None.
+
+    Сначала проверяется всё, потом пишется всё: блок сохраняется одной кнопкой,
+    и ошибка в одном ключе не должна оставить уже переключённый режим.
+    Ни один текст ошибки не повторяет присланное значение.
+    """
+    from django.db import transaction
+
+    from audit.services import log_admin_action
+    from payments.gopay import config as gopay_config
+    from payments.gopay import service as gopay_service
+
+    # Подменив ключи, можно увести оплаты покупателей на чужую точку GoPay —
+    # поэтому это решение только главного администратора, а не любого сотрудника.
+    if not request.user.is_superuser:
+        return Response(
+            {"code": "superuser_required",
+             "detail": "Это действие доступно только главному администратору"},
+            status=status.HTTP_403_FORBIDDEN)
+
+    if not isinstance(raw, dict):
+        return _gopay_bad("gopay должен быть объектом")
+    if any(key not in _GOPAY_PATCH_KEYS for key in raw):
+        return _gopay_bad("gopay: неизвестное поле; допустимо "
+                          + ", ".join(_GOPAY_PATCH_KEYS))
+
+    new_mode = new_env = new_lifetime = new_email = None
+    if "mode" in raw:
+        # Только строки: str(True) дал бы «true», а это не режим.
+        value = raw["mode"]
+        new_mode = value.strip().lower() if isinstance(value, str) else ""
+        if new_mode not in gopay_config.MODES:
+            return _gopay_bad("gopay: mode — допустимо off, staff или on")
+    if "env" in raw:
+        value = raw["env"]
+        new_env = value.strip().lower() if isinstance(value, str) else ""
+        if new_env not in gopay_config.ENVS:
+            return _gopay_bad("gopay: env — допустимо test или live")
+    if "lifetime_minutes" in raw:
+        value = raw["lifetime_minutes"]
+        # bool — подкласс int: True стал бы «1 минутой».
+        if (isinstance(value, bool) or not isinstance(value, int)
+                or not (gopay_config.LIFETIME_MIN_MINUTES <= value
+                        <= gopay_config.LIFETIME_MAX_MINUTES)):
+            return _gopay_bad(
+                f"gopay: lifetime_minutes — целое число от {gopay_config.LIFETIME_MIN_MINUTES} "
+                f"до {gopay_config.LIFETIME_MAX_MINUTES}")
+        new_lifetime = value
+    if "send_buyer_email" in raw:
+        # Строка "false" из формы стала бы True — а это передача почты наружу.
+        if not isinstance(raw["send_buyer_email"], bool):
+            return _gopay_bad("gopay: send_buyer_email — true или false")
+        new_email = raw["send_buyer_email"]
+    if "force" in raw and not isinstance(raw["force"], bool):
+        return _gopay_bad("gopay: force — true или false")
+    force = raw.get("force") is True
+
+    # (среда, поле) -> новое значение; пустая строка — убрать значение из админки.
+    secrets = {}
+    for env_name in gopay_config.ENVS:
+        if env_name not in raw:
+            continue
+        block = raw[env_name]
+        if not isinstance(block, dict):
+            return _gopay_bad(f"gopay: {env_name} должен быть объектом")
+        if any(key not in gopay_config.SECRET_FIELDS for key in block):
+            return _gopay_bad(f"gopay: {env_name} — неизвестное поле; допустимо "
+                              + ", ".join(gopay_config.SECRET_FIELDS))
+        for field in gopay_config.SECRET_FIELDS:
+            if field not in block:
+                continue
+            try:
+                secrets[(env_name, field)] = gopay_config.clean_secret(block[field])
+            except ValueError as exc:
+                # Текст clean_secret значения не содержит — только требование.
+                return _gopay_bad(f"gopay: {env_name}.{field} — {exc}")
+
+    current = {env_name: gopay_config.credentials(env_name) for env_name in gopay_config.ENVS}
+
+    def resulting(env_name: str, field: str) -> str:
+        """Каким ключ станет после этого запроса."""
+        if (env_name, field) not in secrets:
+            return getattr(current[env_name], field)
+        # Удалили значение из админки — снова действует ключ из окружения.
+        fallback = getattr(settings, gopay_config.runtime_key(env_name, field), "")
+        return secrets[(env_name, field)] or str(fallback or "").strip()
+
+    # Наличие ключей проверяем, только когда сам запрос может сделать QR
+    # видимым: включает режим или трогает среду. Сохранить одни ключи можно
+    # всегда — первым действием владельца вполне может быть ввод боевой пары
+    # при ещё тестовой среде, и отказ «введите ключ» сразу после ввода ключа
+    # был бы нелепым. Видимым такой запрос ничего не делает: среду без ключей
+    # не показывает сама проверка доступности.
+    if (new_mode is not None and new_mode != gopay_config.MODE_OFF) or new_env is not None:
+        mode_after = new_mode if new_mode is not None else gopay_config.mode()
+        env_after = new_env if new_env is not None else gopay_config.env()
+        if mode_after != gopay_config.MODE_OFF and not (
+                resulting(env_after, "api_key") and resulting(env_after, "api_secret")):
+            return _gopay_bad("gopay: сначала введите API-ключ и секрет для выбранной среды")
+        if mode_after == gopay_config.MODE_ON and not resulting(env_after, "webhook_secret"):
+            # Без секрета вебхуков оплату узнаём только опросом — для всех
+            # покупателей так открывать нельзя.
+            return _gopay_bad("gopay: для режима «Включено» нужен секрет вебхуков")
+
+    # Одинаковый ключ в обеих средах — значит, тестовую пару вставили в боевые
+    # поля или наоборот: счёт создался бы не в той среде.
+    test_key = resulting(gopay_config.ENV_TEST, "api_key")
+    if test_key and test_key == resulting(gopay_config.ENV_LIVE, "api_key"):
+        return _gopay_bad("gopay: ключи Test и Live совпадают")
+
+    # Ключи, которыми ещё кто-то пользуется. Статус счёта спрашивается ключами
+    # ЕГО среды: уберём их — оплаченный счёт не зачислится. Удаление требует
+    # подтверждения, замена (ротация) разрешена, но попадает в журнал.
+    in_flight = {}
+    for env_name in gopay_config.ENVS:
+        changed = [field for field in gopay_config.SECRET_FIELDS
+                   if (env_name, field) in secrets
+                   and resulting(env_name, field) != getattr(current[env_name], field)]
+        if not changed:
+            continue
+        count = gopay_service.in_flight_count(env_name)
+        if count <= 0:
+            continue
+        if not force and any(secrets[(env_name, field)] == "" for field in changed):
+            return Response(
+                {"code": "gopay_in_flight", "count": count,
+                 "detail": (f"gopay: по этой среде есть незавершённые QR-счета ({count}). "
+                            "Без ключей оплаченный счёт не будет зачислен. "
+                            "Повторите с подтверждением, если уверены.")},
+                status=status.HTTP_409_CONFLICT)
+        in_flight[env_name] = count
+
+    # --- запись ---
+    writes = []      # (runtime-ключ, значение); None — удалить строку
+    if new_mode is not None:
+        writes.append((gopay_config.RT_MODE, new_mode))
+    if new_env is not None:
+        writes.append((gopay_config.RT_ENV, new_env))
+    if new_lifetime is not None:
+        writes.append((gopay_config.RT_LIFETIME, new_lifetime))
+    if new_email is not None:
+        writes.append((gopay_config.RT_SEND_BUYER_EMAIL, new_email))
+    for (env_name, field), value in secrets.items():
+        writes.append((gopay_config.runtime_key(env_name, field), value if value else None))
+    if not writes:
+        return None
+
+    keys = [key for key, _value in writes]
+    before = gopay_config.public_state()
+    try:
+        for key, value in writes:
+            if value is None:
+                delete_runtime(key)
+            else:
+                set_runtime(key, value)
+        # public_state() значений не содержит — значит, их нет и в журнале.
+        after = {"gopay": gopay_config.public_state()}
+        if in_flight:
+            after["gopay_in_flight"] = in_flight
+        # В журнал — в той же транзакции: не записалось, откатятся и настройки.
+        log_admin_action(request.user, "settings.edit", before={"gopay": before},
+                         after=after, request=request)
+    except Exception:
+        # Запрос откатится, а в кэше уже лежат значения, которых в базе не будет.
+        _drop_runtime_cache(keys)
+        raise
+    # Пока транзакция не закрыта, соседний процесс мог прочитать из базы старое
+    # значение и положить его в кэш на полминуты — после фиксации сбрасываем.
+    transaction.on_commit(lambda: _drop_runtime_cache(keys))
+    return None
+
+
 def _settings_snapshot() -> dict:
     """Единый снимок для GET и ответа PATCH (контракт settings/)."""
     site = SiteSettings.get_solo()
@@ -518,6 +770,9 @@ def _settings_snapshot() -> dict:
     snapshot["kgs_elqr_ps_code"] = _kgs_methods.elqr_code()
     snapshot["kgs_methods_known"] = list(_kgs_methods.ORDER)
 
+    # --- единый QR (GoPay) ---
+    snapshot["gopay"] = _gopay_snapshot()
+
     # Калькулятор ценности кредитов: эталонные модели по категориям (openrouter_id)
     # + размер "страницы" документа в токенах.
     for field, (rt_key, settings_attr, _category) in _CREDIT_CALC_MODEL_FIELDS.items():
@@ -549,6 +804,14 @@ class SettingsView(StaffAPIView):
 
     def patch(self, request):
         data = request.data or {}
+
+        # --- единый QR (GoPay): режим, среда, срок счёта, ключи ---
+        # Первым блоком: отказ (права, проверка, ключи в работе) должен
+        # случиться до того, как из этого запроса записано хоть что-то.
+        if "gopay" in data:
+            refusal = _gopay_patch(request, data["gopay"])
+            if refusal is not None:
+                return refusal
 
         # --- целочисленные настройки (>= 0) ---
         for field, (rt_key, _attr, _d) in _INT_SETTINGS.items():
@@ -939,6 +1202,32 @@ class PaymentRecheckView(StaffAPIView):
         payment = get_object_or_404(Payment, pk=pk)
         invoice = getattr(payment, "crypto_invoice", None)
 
+        # Единый QR (GoPay): спрашиваем статус сами, ключами среды счёта, и
+        # применяем ответ тем же путём, что вебхук и сверка, — с теми же
+        # проверками и той же идемпотентностью. Предохранитель «GoPay не
+        # отвечает» здесь не действует: кнопку нажал человек.
+        if invoice is None:
+            from payments.gopay import service as gopay_service
+            from payments.gopay.client import GoPayError
+
+            gp = gopay_service.invoice_of(payment)
+            if gp is not None:
+                try:
+                    result = gopay_service.refresh_invoice(gp, source="admin")
+                except GoPayError as exc:
+                    # В ответ идёт только наш короткий код, без текста GoPay.
+                    return Response({"detail": f"GoPay не ответил: {exc.code}"},
+                                    status=status.HTTP_502_BAD_GATEWAY)
+                payment.refresh_from_db()
+                return Response({"result": result,
+                                 "payment": PaymentAdminSerializer(payment).data})
+            if payment.provider == "gopay":
+                # Счёт у GoPay создать не удалось: общая сверка FreedomPay такой
+                # платёж не знает, а «в очереди» было бы неправдой.
+                return Response(
+                    {"detail": "QR по этому заказу не был создан — проверять нечего."},
+                    status=status.HTTP_400_BAD_REQUEST)
+
         if invoice is None:
             # Не крипта — отдаём задаче сверки FreedomPay, она умеет это сама.
             from payments.tasks import reconcile_pending_token_payments
@@ -1066,6 +1355,84 @@ class SettingsTestNowPaymentsView(StaffAPIView):
             return Response(crypto_registry.get_adapter().healthcheck())
         except Exception as exc:  # noqa: BLE001
             return Response({"ok": False, "error": str(exc)[:200]})
+
+
+class SettingsTestGoPayView(StaffAPIView):
+    """Проверка ключей единого QR: {env?} -> {ok, env, apps, webhook_secret_set, error, provider_code}.
+
+    Шлёт GoPay безвредный подписанный запрос списка банковских приложений
+    ключами выбранной среды (без env — активной). Чего зелёный ответ НЕ
+    доказывает: тестовая это пара или боевая и активирована ли организация —
+    это покажет только первый созданный QR. Пустой список приложений — успех:
+    у тестового ключа банков может не быть вовсе.
+    """
+
+    _IP_HINT = " Проверьте также ограничение по IP для боевого ключа в кабинете GoPay."
+
+    @classmethod
+    def _error_text(cls, env: str, result: dict) -> str:
+        kind = str(result.get("kind") or "other")
+        if kind == "auth":
+            text = "GoPay не принял ключ или подпись. Проверьте API-ключ и секрет."
+        elif kind == "org_inactive":
+            text = "Организация в GoPay не активирована (код 0016)."
+        elif kind == "rate_limited":
+            text = "Лимит запросов GoPay, повторите через минуту."
+        elif kind == "unavailable":
+            text = ("GoPay не отвечает. Проверьте сеть сервера и ограничение по IP "
+                    "для боевого ключа.")
+        else:
+            code = result.get("provider_code") or result.get("http_status") or ""
+            text = "GoPay отклонил запрос" + (f" (код {code})" if code else "") + "."
+        # Как GoPay отвечает адресу не из белого списка, не описано: это может
+        # быть и 401/403 (JSON или HTML), а не таймаут.
+        if env == "live" and kind in ("auth", "other"):
+            text += cls._IP_HINT
+        return text
+
+    def post(self, request):
+        from payments.gopay import client as gopay_client
+        from payments.gopay import config as gopay_config
+        from payments.gopay import service as gopay_service
+
+        data = request.data if hasattr(request.data, "get") else {}
+        env = data.get("env")
+        if env is None:
+            env = gopay_config.env()
+        elif not isinstance(env, str) or env not in gopay_config.ENVS:
+            return Response({"detail": "env: допустимо test или live"},
+                            status=status.HTTP_400_BAD_REQUEST)
+
+        answer = {"ok": False, "env": env, "apps": None, "webhook_secret_set": False,
+                  "error": None, "provider_code": None}
+        try:
+            answer["webhook_secret_set"] = bool(gopay_config.credentials(env).webhook_secret)
+            try:
+                client = gopay_client.get_client(env)
+            except gopay_client.GoPayError:
+                answer["error"] = "Ключ и секрет для этой среды не заданы."
+                return Response(answer)
+
+            # Предохранитель не спрашиваем: проверку попросил человек. Исход
+            # идёт в «здоровье» GoPay — после удачной проверки красная строка
+            # о сбое в настройках гаснет.
+            result = client.healthcheck()
+            if result.get("ok"):
+                gopay_service.note_result(env, None)
+                answer.update(ok=True, apps=int(result.get("apps") or 0))
+                return Response(answer)
+
+            gopay_service.note_result(env, gopay_client.GoPayError(
+                "", code=str(result.get("code") or "gopay_error"),
+                kind=str(result.get("kind") or "other"),
+                provider_code=str(result.get("provider_code") or ""),
+                http_status=result.get("http_status")))
+            answer["error"] = self._error_text(env, result)
+            answer["provider_code"] = str(result.get("provider_code") or "") or None
+        except Exception:  # noqa: BLE001 — кнопка проверки не должна давать 500
+            answer.update(ok=False, apps=None,
+                          error="Не удалось выполнить проверку. Повторите позже.")
+        return Response(answer)
 
 
 class SettingsTestOpenRouterView(StaffAPIView):

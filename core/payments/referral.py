@@ -136,6 +136,13 @@ def settle_referral(payment, order_id: str, credited: int, *, idem: str = "") ->
     if has_commission:
         return "none"
 
+    if getattr(payment, "is_test", False):
+        # Тестовый платёж (единый QR в тестовой среде): кредиты покупателю
+        # начислены, чтобы проверить всю цепочку, но денег не было — долю
+        # пригласившему за него не платим. Ветка креатора выше не тронута:
+        # там тестовый платёж даёт строку void/test_payment.
+        return "none"
+
     share = pay_referral_share(buyer, order_id, credited, idem_suffix=part)
     return "referral" if share else "none"
 

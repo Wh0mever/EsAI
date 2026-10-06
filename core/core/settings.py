@@ -297,6 +297,12 @@ REST_FRAMEWORK = {
         "creators_click": env.str("DRF_THROTTLE_CREATORS_CLICK", default="30/min"),
         "creators_apply": env.str("DRF_THROTTLE_CREATORS_APPLY", default="5/day"),
         "creators_write": env.str("DRF_THROTTLE_CREATORS_WRITE", default="30/min"),
+        # Единый QR (GoPay). Статус опрашивает открытая вкладка раз в 3-5 секунд —
+        # общий лимит 120 в минуту она делила бы с чатом. Вебхуки приходят с
+        # нескольких адресов GoPay: анонимные 30 в минуту превратили бы повторы в 429.
+        "gopay_status": env.str("DRF_THROTTLE_GOPAY_STATUS", default="90/min"),
+        "gopay_cancel": env.str("DRF_THROTTLE_GOPAY_CANCEL", default="10/min"),
+        "gopay_webhook": env.str("DRF_THROTTLE_GOPAY_WEBHOOK", default="600/min"),
     },
 }
 
@@ -471,6 +477,9 @@ LOGGING = {
             "level": "INFO",
             "propagate": False,
         },
+        # Единый QR (GoPay): то же правило — идентификаторы, суммы и коды ответов.
+        # Ключей, секретов, подписей и одноразовых строк в этом журнале не бывает.
+        "payments.gopay": {"handlers": ["file"], "level": "INFO", "propagate": False},
         "django": {
             "handlers": ["file"],
             "level": "WARNING",
@@ -581,6 +590,12 @@ CELERY_BEAT_SCHEDULE = {
     "payments:reconcile_crypto_invoices": {
         "task": "payments.tasks.reconcile_crypto_invoices",
         "schedule": timedelta(minutes=2),
+    },
+    # Единый QR (GoPay): QR живёт 15 минут, а вебхук может не дойти — без
+    # ежеминутной сверки человек, закрывший вкладку, ждал бы кредиты до утра.
+    "payments:reconcile_gopay_invoices": {
+        "task": "payments.tasks.reconcile_gopay_invoices",
+        "schedule": timedelta(minutes=1),
     },
     # Stars: бот мог упасть между successful_payment и начислением, а
     # Telegram деньги уже списал. Раз в 10 минут читаем журнал бота и
@@ -1043,3 +1058,23 @@ CRYPTO_FULL_TOLERANCE_PERCENT = env.float("CRYPTO_FULL_TOLERANCE_PERCENT", defau
 # десять раз больше суммы — почти наверняка ошибка, и разбирать её должен
 # человек, а не автомат.
 CRYPTO_OVERPAY_CAP_PERCENT = env.int("CRYPTO_OVERPAY_CAP_PERCENT", default=200)
+
+# --- GoPay (единый QR / ELQR) ---
+# Межбанковский QR для оплаты в сомах: FreedomPay его не даёт, а магазин уже
+# подключён к GoPay. Ключи владелец вводит в админке (adminapi.runtime); значения
+# ниже — запасные и то, к чему откатывается чтение, если кэш или база недоступны.
+# Поэтому GOPAY_ENV по умолчанию test: тестовый счёт создаётся и зачисляется
+# только сотруднику. При запуске в бой в .env прода ставят GOPAY_ENV=live.
+# Адрес API из админки не меняется намеренно: подписанный запрос с ключом
+# нельзя дать увести на чужой сервер.
+GOPAY_API_URL = env.str("GOPAY_API_URL", default="https://api.gopay.kg")
+GOPAY_MODE = env.str("GOPAY_MODE", default="staff")
+GOPAY_ENV = env.str("GOPAY_ENV", default="test")
+GOPAY_LIFETIME_MINUTES = env.int("GOPAY_LIFETIME_MINUTES", default=15)
+GOPAY_SEND_BUYER_EMAIL = env.bool("GOPAY_SEND_BUYER_EMAIL", default=True)
+GOPAY_TEST_API_KEY = env.str("GOPAY_TEST_API_KEY", default="")
+GOPAY_TEST_API_SECRET = env.str("GOPAY_TEST_API_SECRET", default="")
+GOPAY_TEST_WEBHOOK_SECRET = env.str("GOPAY_TEST_WEBHOOK_SECRET", default="")
+GOPAY_LIVE_API_KEY = env.str("GOPAY_LIVE_API_KEY", default="")
+GOPAY_LIVE_API_SECRET = env.str("GOPAY_LIVE_API_SECRET", default="")
+GOPAY_LIVE_WEBHOOK_SECRET = env.str("GOPAY_LIVE_WEBHOOK_SECRET", default="")

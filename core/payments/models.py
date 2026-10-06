@@ -13,6 +13,9 @@ class Payment(models.Model):
         ("crypto_nowpayments", "NOWPayments (крипта)"),
         # Оплата внутри Telegram-бота. Сумма хранится в Stars, валюта XTR.
         ("telegram_stars", "Telegram Stars"),
+        # Межбанковский QR в сомах. Номера заказов той же формы tokpkg-…, что у
+        # FreedomPay, поэтому различать их можно только по этому полю.
+        ("gopay", "GoPay (единый QR)"),
     )
 
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
@@ -77,6 +80,11 @@ class FunnelEvent(models.Model):
              # Оплата в сомах: какой способ (банк-приложение или карта) человек
              # выбрал у нас перед уходом на страницу FreedomPay.
              "kgs_method_pick",
+             # Единый QR на нашем экране: показали, открыли банк, сохранили
+             # картинку, оплатили, не успели, ушли к другому способу. По ним
+             # клиент сравнивает QR с картой.
+             "kgs_qr_shown", "kgs_qr_app_open", "kgs_qr_save",
+             "kgs_qr_paid", "kgs_qr_expired", "kgs_qr_other_method",
              # Бот: от первого /start до оплаты Stars.
              "bot_start", "bot_pricing_view", "bot_stars_invoice", "bot_stars_paid",
              # Видеостудия (/video-studio): только клиентские шаги. Исходы
@@ -313,3 +321,106 @@ class StarInvoice(models.Model):
     @property
     def total_tokens(self) -> int:
         return int(self.tokens or 0) + int(self.bonus_tokens or 0)
+
+
+class GoPayInvoice(models.Model):
+    """Счёт единого QR (GoPay): что показываем человеку и что знаем об оплате.
+
+    Состояние живёт здесь, а не в Payment.response: по нему ищут «открытые счета
+    этого покупателя», «что сверять» и «счёт заказа X» — это индексы, а не пути
+    внутри JSON. Строка помнит и среду (test/live), в которой счёт создан:
+    статус спрашивают той же парой ключей, даже если среду потом переключили.
+
+    Менять строку вправе только payments.gopay.service — там же блокировки.
+    """
+
+    STATUS_CREATED, STATUS_PENDING, STATUS_COMMITTED = "created", "pending", "committed"
+    STATUS_FAILED, STATUS_EXPIRED, STATUS_CANCELLED = "failed", "expired", "cancelled"
+    STATUS_CHOICES = ((STATUS_CREATED, "Ждём оплату"), (STATUS_PENDING, "Банк обрабатывает"),
+                      (STATUS_COMMITTED, "Оплачен"), (STATUS_FAILED, "Не прошёл"),
+                      (STATUS_EXPIRED, "Просрочен"), (STATUS_CANCELLED, "Отменён"))
+    # Счёт ещё может быть оплачен — за ним следит сверка.
+    OPEN_STATES = (STATUS_CREATED, STATUS_PENDING)
+    # Закрыт без денег. «Оплачен» сюда не входит и побеждает любой из них.
+    CLOSED_UNPAID = (STATUS_FAILED, STATUS_EXPIRED, STATUS_CANCELLED)
+    ENV_CHOICES = (("test", "Тест"), ("live", "Боевой"))
+
+    payment = models.OneToOneField(
+        "payments.Payment", on_delete=models.CASCADE, related_name="gopay_invoice",
+        verbose_name="Платёж")
+    env = models.CharField(max_length=4, choices=ENV_CHOICES, verbose_name="Среда")
+    provider_payment_id = models.CharField(max_length=64, unique=True,
+                                           verbose_name="Платёж в GoPay")
+    status = models.CharField(max_length=12, choices=STATUS_CHOICES, default=STATUS_CREATED,
+                              db_index=True, verbose_name="Статус")
+    amount = models.DecimalField(max_digits=12, decimal_places=2, verbose_name="Сумма, сом")
+    lifetime_seconds = models.PositiveIntegerField(verbose_name="Срок жизни, сек")
+    # Пусто бывает только у тестового счёта: тестовый QR не предназначен для оплаты.
+    qr_data = models.TextField(blank=True, default="", verbose_name="Содержимое QR")
+    qr_url = models.CharField(max_length=500, blank=True, default="", verbose_name="Картинка QR")
+    checkout_url = models.CharField(max_length=500, blank=True, default="",
+                                    verbose_name="Страница оплаты GoPay")
+    app_links = models.JSONField(default=dict, blank=True, verbose_name="Ссылки в банки")
+    # НАШ срок: момент перед запросом создания плюс срок жизни. Время GoPay
+    # приходит без часового пояса и хранится ниже только для справки.
+    expires_at = models.DateTimeField(db_index=True, verbose_name="Действителен до")
+    provider_expires_at = models.CharField(max_length=40, blank=True, default="",
+                                           verbose_name="Срок по данным GoPay")
+    committed_at = models.DateTimeField(null=True, blank=True, verbose_name="Оплачен")
+    bank_op_date = models.DateField(null=True, blank=True,
+                                    verbose_name="Операционный день банка")
+    receipt_url = models.CharField(max_length=500, blank=True, default="", verbose_name="Чек")
+    # Заполнено — у покупателя этого QR больше нет: отменён или оставлен.
+    cancel_requested_at = models.DateTimeField(null=True, blank=True,
+                                               verbose_name="Отмена запрошена")
+    last_checked_at = models.DateTimeField(null=True, blank=True, verbose_name="Последняя сверка")
+    last_webhook_at = models.DateTimeField(null=True, blank=True, verbose_name="Последний вебхук")
+    finalized_at = models.DateTimeField(null=True, blank=True, verbose_name="Закрыт")
+    flags = models.JSONField(default=dict, blank=True, verbose_name="Пометки")
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("-created_at", "-id")
+        indexes = [models.Index(fields=["status", "created_at"]),
+                   models.Index(fields=["status", "expires_at"])]
+        verbose_name = "Счёт единого QR (GoPay)"
+        verbose_name_plural = "Счета единого QR (GoPay)"
+
+    def __str__(self) -> str:
+        return f"{self.amount} сом ({self.env}) -> {self.status}"
+
+    @property
+    def is_open(self) -> bool:
+        return self.status in self.OPEN_STATES
+
+
+class GoPayWebhookEvent(models.Model):
+    """Журнал подписанных событий GoPay — дневник для разбора, а не защита денег.
+
+    Номера события у GoPay нет, поэтому ключ собираем сами. От повторной
+    доставки деньги защищает идемпотентное начисление, а не эта таблица.
+    Тело хранится очищенным: только поля из белого списка, без заголовков.
+    """
+    event_key = models.CharField(max_length=64, unique=True, verbose_name="Ключ события")
+    event = models.CharField(max_length=48, db_index=True, verbose_name="Событие")
+    provider_payment_id = models.CharField(max_length=64, blank=True, default="",
+                                           db_index=True, verbose_name="Платёж в GoPay")
+    order_id = models.CharField(max_length=64, blank=True, default="", db_index=True,
+                                verbose_name="Заказ")
+    status = models.CharField(max_length=32, blank=True, default="", verbose_name="Статус")
+    amount = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True,
+                                 verbose_name="Сумма")
+    testing_mode = models.BooleanField(default=False, verbose_name="Тестовый")
+    payload = models.JSONField(default=dict, blank=True, verbose_name="Тело")
+    processed = models.BooleanField(default=False, verbose_name="Обработан")
+    result = models.CharField(max_length=64, blank=True, default="", verbose_name="Итог")
+    received_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ("-received_at", "-id")
+        verbose_name = "Вебхук GoPay"
+        verbose_name_plural = "Вебхуки GoPay"
+
+    def __str__(self) -> str:
+        return f"{self.event} {self.order_id} {self.status}"

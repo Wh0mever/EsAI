@@ -113,5 +113,7 @@ urlpatterns = [
     path("settings/", views.SettingsView.as_view(), name="settings"),
     path("settings/test-openrouter/", views.SettingsTestOpenRouterView.as_view(), name="settings-test-openrouter"),
     path("settings/test-nowpayments/", views.SettingsTestNowPaymentsView.as_view(), name="settings-test-nowpayments"),
+    # Единый QR (GoPay): безвредный подписанный запрос ключами выбранной среды.
+    path("settings/test-gopay/", views.SettingsTestGoPayView.as_view(), name="settings-test-gopay"),
     path("settings/test-elevenlabs/", views.SettingsTestElevenLabsView.as_view(), name="settings-test-elevenlabs"),
 ]

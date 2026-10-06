@@ -11,12 +11,13 @@ import type { KgsMethod, KgsMethodKey } from "@/lib/currency";
  * Окно «чем удобнее оплатить» для оплаты в сомах.
  *
  * Раньше «Пополнить» сразу уводило на страницу Freedom Pay, где способов
- * десяток: люди терялись и уходили. Теперь выбор делается здесь, в два
- * понятных шага — «через приложение банка» или «картой», — а на страницу
- * банка человек попадает уже с выбранным способом.
+ * десяток: люди терялись и уходили. Теперь выбор делается здесь: первым и
+ * главным — единый QR (любой банк Кыргызстана), вторым — карта.
  *
- * Своего экрана оплаты тут нет: клик по кнопке — это сразу создание платежа и
- * уход на страницу Freedom Pay. Поэтому окно ничего не запрашивает само:
+ * Клик по кнопке — это сразу создание платежа. У карты (и банков Freedom Pay,
+ * если их включат) дальше уход на страницу Freedom Pay. У единого QR (GoPay)
+ * ухода нет: открывший окно получает QR-счёт и показывает СВОЙ экран оплаты
+ * (QrCheckoutModal) вместо этого окна. Само окно ничего не запрашивает:
  * список способов, «кто сейчас крутится» и текст ошибки приходят от того, кто
  * его открыл (TokenPackages, TopUpModal).
  *
@@ -45,6 +46,10 @@ type Props = {
   onPick: (method: KgsMethodKey) => void;
   /** «оплатить выбранным способом без скидки» из блока held */
   onPayFull?: () => void;
+  /** скидку держит QR-счёт: вернуться к нему (ссылки у него нет, есть номер заказа) */
+  onResumeHeld?: (orderId: string) => void;
+  /** скидку держит QR-счёт: отменить его и оплатить выбранным способом со скидкой */
+  onCancelHeldQr?: (orderId: string) => void;
 };
 
 export type KgsHeldDiscount = {
@@ -56,8 +61,10 @@ export type KgsHeldDiscount = {
   heldPriceLabel: string;
   /** «490 сом» — цена выбранным способом */
   fullPriceLabel: string;
-  /** ссылка на начатую оплату со скидкой */
-  redirectUrl: string;
+  /** ссылка на начатую оплату со скидкой (карта, банк Freedom Pay) */
+  redirectUrl?: string;
+  /** номер заказа, если скидку держит QR-счёт: ссылки у него нет, есть наш экран */
+  orderId?: string;
 };
 
 export default function KgsMethodModal({
@@ -71,6 +78,8 @@ export default function KgsMethodModal({
   held,
   onPick,
   onPayFull,
+  onResumeHeld,
+  onCancelHeldQr,
 }: Props) {
   const { t } = useTranslation("common");
   const headingRef = useRef<HTMLHeadingElement>(null);
@@ -90,16 +99,32 @@ export default function KgsMethodModal({
     card: t("kgspay.method_card", { defaultValue: "Картой Visa, Mastercard, Элкарт" }),
   };
 
-  const bankMethods = methods.filter((m) => m.kind !== "card");
+  // Единый QR — отдельной группой и первым: им платит вся страна, и это
+  // единственный способ со своим экраном оплаты.
+  const qrMethods = methods.filter((m) => m.kind === "qr");
+  const appMethods = methods.filter((m) => m.kind === "app");
   const cardMethods = methods.filter((m) => m.kind === "card");
   const title = t("kgspay.title", { defaultValue: "Как вам удобнее оплатить?" });
 
   // На телефоне банки идут столбиком, крупными кнопками. На широком экране
   // окно не во всю высоту, и столбик из пяти кнопок уводил «картой» под
-  // прокрутку — там банки встают по два в ряд. Длинная подпись единого QR и
-  // оставшаяся без пары кнопка занимают ряд целиком.
-  const appMethods = bankMethods.filter((m) => m.kind === "app");
+  // прокрутку — там банки встают по два в ряд. Оставшаяся без пары кнопка
+  // занимает ряд целиком.
   const lastOddApp = appMethods.length % 2 === 1 ? appMethods[appMethods.length - 1].key : null;
+
+  // Скидку держит QR-счёт: ссылки у него нет, зато его можно отменить.
+  const heldQrOrder = held && !held.redirectUrl && held.orderId ? held.orderId : "";
+  const heldLabel = !held
+    ? ""
+    : held.heldMethod in labels
+      ? labels[held.heldMethod as KgsMethodKey]
+      : heldQrOrder
+        ? labels.elqr
+        : "";
+  const heldContinueClass =
+    "inline-flex flex-1 items-center justify-center rounded-xl bg-accent px-3 py-2.5 text-center text-sm font-semibold text-on-accent transition-colors hover:bg-accent-strong";
+  const heldSecondaryClass =
+    "inline-flex flex-1 cursor-pointer items-center justify-center rounded-xl border border-border bg-surface-2 px-3 py-2.5 text-center text-sm font-medium text-foreground transition-colors hover:bg-surface-3 disabled:cursor-wait disabled:opacity-60";
 
   const methodButton = (m: KgsMethod, primary: boolean) => {
     const busy = busyKey === m.key;
@@ -140,6 +165,12 @@ export default function KgsMethodModal({
           }`}
         >
           {label}
+          {m.test ? (
+            // Тестовые ключи платёжной системы: такую кнопку видят только сотрудники.
+            <span className="ml-2 inline-flex items-center rounded-full border border-status-fail/40 bg-status-fail/10 px-1.5 py-px align-middle text-[10px] font-semibold uppercase tracking-wide text-status-fail">
+              {t("kgspay.test_tag", { defaultValue: "тест" })}
+            </span>
+          ) : null}
         </span>
         {busy ? (
           <FiLoader className="shrink-0 animate-spin text-accent" />
@@ -178,9 +209,9 @@ export default function KgsMethodModal({
             className="flex flex-col gap-2.5 rounded-xl border border-accent/50 bg-accent/5 px-3.5 py-3"
           >
             <p className="text-sm leading-snug text-foreground">
-              {held.heldMethod in labels
+              {heldLabel
                 ? t("kgspay.held_text", {
-                    method: labels[held.heldMethod as KgsMethodKey],
+                    method: heldLabel,
                     amount: held.heldPriceLabel,
                     defaultValue:
                       "Скидка уже закреплена за оплатой, которую вы начали ({{method}}, {{amount}}). Продолжите её или оплатите выбранным способом без скидки.",
@@ -191,22 +222,45 @@ export default function KgsMethodModal({
                       "Скидка уже закреплена за оплатой, которую вы начали ({{amount}}). Продолжите её или оплатите выбранным способом без скидки.",
                   })}
             </p>
-            <div className="flex flex-col gap-2 sm:flex-row">
-              <a
-                href={held.redirectUrl}
-                className="inline-flex flex-1 items-center justify-center rounded-xl bg-accent px-3 py-2.5 text-center text-sm font-semibold text-on-accent transition-colors hover:bg-accent-strong"
-              >
-                {t("kgspay.held_continue", {
-                  amount: held.heldPriceLabel,
-                  defaultValue: "Продолжить со скидкой — {{amount}}",
-                })}
-              </a>
-              <button
-                type="button"
-                onClick={onPayFull}
-                disabled={busyKey !== null}
-                className="inline-flex flex-1 cursor-pointer items-center justify-center rounded-xl border border-border bg-surface-2 px-3 py-2.5 text-center text-sm font-medium text-foreground transition-colors hover:bg-surface-3 disabled:cursor-wait disabled:opacity-60"
-              >
+            <div className={`flex flex-col gap-2 ${heldQrOrder ? "" : "sm:flex-row"}`}>
+              {held.redirectUrl ? (
+                <a href={held.redirectUrl} className={heldContinueClass}>
+                  {t("kgspay.held_continue", {
+                    amount: held.heldPriceLabel,
+                    defaultValue: "Продолжить со скидкой — {{amount}}",
+                  })}
+                </a>
+              ) : heldQrOrder ? (
+                // QR-счёт продолжается на нашем экране — это кнопка, а не ссылка.
+                <button
+                  type="button"
+                  onClick={() => onResumeHeld?.(heldQrOrder)}
+                  disabled={busyKey !== null}
+                  className={`${heldContinueClass} cursor-pointer disabled:cursor-wait disabled:opacity-60`}
+                >
+                  {t("kgspay.held_continue", {
+                    amount: held.heldPriceLabel,
+                    defaultValue: "Продолжить со скидкой — {{amount}}",
+                  })}
+                </button>
+              ) : null}
+              {heldQrOrder ? (
+                // QR, в отличие от ссылки Freedom Pay, мы можем отменить сами —
+                // не оставляем человека с выбором «назад к QR» или «полная цена».
+                <button
+                  type="button"
+                  onClick={() => onCancelHeldQr?.(heldQrOrder)}
+                  disabled={busyKey !== null}
+                  className={heldSecondaryClass}
+                >
+                  {t("kgspay.held_cancel_qr", {
+                    method: labels[held.method],
+                    price: held.heldPriceLabel,
+                    defaultValue: "Отменить QR и оплатить «{{method}}» со скидкой — {{price}}",
+                  })}
+                </button>
+              ) : null}
+              <button type="button" onClick={onPayFull} disabled={busyKey !== null} className={heldSecondaryClass}>
                 {t("kgspay.held_full", {
                   method: labels[held.method],
                   amount: held.fullPriceLabel,
@@ -217,13 +271,28 @@ export default function KgsMethodModal({
           </div>
         ) : null}
 
-        {bankMethods.length > 0 && (
+        {qrMethods.length > 0 && (
+          <section className="flex flex-col gap-2">
+            <div className="text-sm font-semibold text-foreground">
+              {t("kgspay.section_qr", { defaultValue: "Оплата по QR" })}
+            </div>
+            {qrMethods.map((m) => methodButton(m, true))}
+            <p className="text-xs leading-snug text-muted">
+              {t("kgspay.section_qr_hint", {
+                defaultValue:
+                  "Любой банк Кыргызстана: отсканируйте код в приложении банка. На телефоне банк откроется одной кнопкой.",
+              })}
+            </p>
+          </section>
+        )}
+
+        {appMethods.length > 0 && (
           <section className="flex flex-col gap-2">
             <div className="text-sm font-semibold text-foreground">
               {t("kgspay.section_app", { defaultValue: "Через приложение банка" })}
             </div>
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              {bankMethods.map((m) => methodButton(m, true))}
+              {appMethods.map((m) => methodButton(m, true))}
             </div>
             <p className="text-xs leading-snug text-muted">
               {t("kgspay.section_app_hint", {
@@ -242,7 +311,8 @@ export default function KgsMethodModal({
             {cardMethods.map((m) => methodButton(m, false))}
             <p className="text-xs leading-snug text-muted">
               {t("kgspay.section_card_hint", {
-                defaultValue: "Данные карты вводятся на защищённой странице Freedom Pay.",
+                defaultValue:
+                  "Данные карты вводятся на защищённой странице Freedom Pay. Подходит карта любой страны.",
               })}
             </p>
           </section>
@@ -251,7 +321,11 @@ export default function KgsMethodModal({
         {/* Пока платёж не создаётся, строка скрыта, но остаётся в разметке:
             иначе экранный диктор не объявит её появление. */}
         <div className={busyKey ? "text-xs text-muted" : "sr-only"} aria-live="polite">
-          {busyKey ? t("kgspay.opening", { defaultValue: "Открываем страницу оплаты…" }) : ""}
+          {busyKey === "elqr"
+            ? t("kgspay.opening_qr", { defaultValue: "Создаём QR-код…" })
+            : busyKey
+              ? t("kgspay.opening", { defaultValue: "Открываем страницу оплаты…" })
+              : ""}
         </div>
 
         <p className="flex items-start gap-1.5 border-t border-border pt-3 text-[11px] leading-snug text-muted-2">

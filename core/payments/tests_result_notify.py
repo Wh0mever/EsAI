@@ -17,6 +17,7 @@ from django.core.cache import cache
 from django.test import SimpleTestCase, TestCase, override_settings
 from rest_framework.test import APIClient
 
+from payments import kgs_methods
 from payments.freedompay import (
     make_api_signature,
     match_freedompay_script_name,
@@ -71,6 +72,11 @@ class PurchasePayloadTests(TestCase):
     def setUp(self):
         cache.clear()
         self.addCleanup(cache.clear)
+        # По умолчанию из способов FreedomPay теперь включена одна карта (банки
+        # платят единым QR), а эти тесты — про кошельки: возвращаем прежний список.
+        default = patch.object(kgs_methods, "DEFAULT_ENABLED", "mbank,odengi,megapay,card")
+        default.start()
+        self.addCleanup(default.stop)
         self.user = get_user_model().objects.create_user(email="buyer@example.com", password="x")
         self.pkg = TokenPackage.objects.create(name="A", tokens=500, price=Decimal("490"))
         self.client = APIClient()

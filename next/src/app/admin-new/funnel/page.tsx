@@ -20,6 +20,22 @@ import { FiAlertCircle } from "react-icons/fi";
 type Step = { key: string; label: string; count: number; lost: number; rate: number | null };
 type Reason = { key: string; label: string; count: number; hint: string };
 type StudioStep = { key: string; label: string; count: number; share: number | null };
+/** Покупки периода по способу оплаты: провайдер + выбранный в нашем окне способ. */
+type MethodRow = { key: string; provider: string; method: string; label: string; всего: number; оплачено: number };
+/**
+ * Единый QR (GoPay). created / paid / expired — по платежам на сервере,
+ * остальное — по устройствам (события экрана QR), поэтому числа разной природы.
+ */
+type QrFunnel = {
+  created: number;
+  shown: number;
+  app_open: number;
+  saved: number;
+  other_method: number;
+  paid: number;
+  expired: number;
+  paid_seen: number;
+};
 
 type Report = {
   studio?: StudioStep[];
@@ -30,10 +46,27 @@ type Report = {
   reasons: Reason[];
   by_currency: { currency: string; всего: number; оплачено: number }[];
   by_package: { package_id: number; всего: number; оплачено: number }[];
+  /** Старый сервер этих двух ключей не присылает — блоки тогда просто не рисуются. */
+  by_method?: MethodRow[];
+  qr?: QrFunnel;
   conversion: number | null;
 };
 
 const PERIODS = [7, 30, 90];
+
+const num = (n: number | undefined | null) => (Number(n) || 0).toLocaleString("ru-RU");
+
+/** Подписи строки единого QR — в порядке пути покупателя. */
+const QR_PARTS: { key: keyof QrFunnel; label: string }[] = [
+  { key: "created", label: "создано" },
+  { key: "shown", label: "экран показан" },
+  { key: "app_open", label: "открыли приложение банка" },
+  { key: "saved", label: "сохранили QR" },
+  { key: "other_method", label: "ушли к другому способу" },
+  { key: "paid", label: "оплачено" },
+  { key: "expired", label: "истекло" },
+  { key: "paid_seen", label: "увидели «Оплачено»" },
+];
 
 export default function AdminFunnelPage() {
   const [data, setData] = useState<Report | null>(null);
@@ -42,7 +75,6 @@ export default function AdminFunnelPage() {
 
   useEffect(() => {
     let alive = true;
-    setLoading(true);
     (async () => {
       const res = await fetchData<Report>(`manage/funnel/?days=${days}`, "GET", null, true);
       if (!alive) return;
@@ -65,6 +97,8 @@ export default function AdminFunnelPage() {
 
   const steps = data?.steps || [];
   const top = steps.length ? Math.max(...steps.map((s) => s.count), 1) : 1;
+  const byMethod = Array.isArray(data?.by_method) ? data.by_method : null;
+  const qr = data?.qr && typeof data.qr === "object" ? data.qr : null;
 
   return (
     <div className="space-y-6">
@@ -81,7 +115,13 @@ export default function AdminFunnelPage() {
             <button
               key={d}
               type="button"
-              onClick={() => setDays(d)}
+              onClick={() => {
+                // «Загрузка» включается здесь, а не в эффекте: тот же период
+                // эффект не перезапустит, и флаг остался бы висеть.
+                if (d === days) return;
+                setLoading(true);
+                setDays(d);
+              }}
               className={`rounded-lg px-3 py-1.5 text-sm transition-colors ${
                 days === d ? "bg-accent text-on-accent" : "text-muted hover:text-foreground"
               }`}
@@ -170,6 +210,62 @@ export default function AdminFunnelPage() {
           ))}
         </div>
       </div>
+
+      {(byMethod || qr) && (
+        <div className="rounded-2xl border border-border bg-surface p-5">
+          <h2 className="text-base font-semibold">По способам оплаты</h2>
+          {byMethod && (
+            <div className="mt-3 overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="text-xs uppercase text-muted-2">
+                  <tr>
+                    <th className="pb-2 text-left">Способ</th>
+                    <th className="pb-2 text-right">Всего</th>
+                    <th className="pb-2 text-right">Оплачено</th>
+                    <th className="pb-2 text-right">Конверсия</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {byMethod.length === 0 && (
+                    <tr className="border-t border-border">
+                      <td colSpan={4} className="py-3 text-center text-muted">
+                        За период покупок не было.
+                      </td>
+                    </tr>
+                  )}
+                  {byMethod.map((r) => (
+                    <tr key={r.key} className="border-t border-border">
+                      <td className="py-2 pr-3">{r.label || r.key}</td>
+                      <td className="py-2 text-right tabular-nums">{num(r.всего)}</td>
+                      <td className="py-2 text-right tabular-nums">{num(r.оплачено)}</td>
+                      <td className="py-2 text-right tabular-nums text-muted">
+                        {r.всего ? Math.round((r.оплачено * 100) / r.всего) : 0}%
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          {qr && (
+            <div className="mt-4 rounded-xl bg-surface-2 p-4">
+              <p className="text-sm leading-relaxed">
+                <span className="font-medium">Единый QR:</span>{" "}
+                {QR_PARTS.map((part, i) => (
+                  <span key={part.key} className="whitespace-nowrap text-muted">
+                    {i > 0 && <span className="text-muted-2"> · </span>}
+                    {part.label} <span className="tabular-nums text-foreground">{num(qr[part.key])}</span>
+                  </span>
+                ))}
+              </p>
+              <p className="mt-2 text-xs text-muted-2">
+                Оплачено и истекло — по платежам; остальное — по устройствам. «Увидели Оплачено» меньше, чем
+                «оплачено»: многие платят в приложении банка и не возвращаются на вкладку.
+              </p>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <div className="rounded-2xl border border-border bg-surface p-5">

@@ -3,6 +3,7 @@ from django.urls import path
 
 from .crypto.views import CryptoCurrenciesView, NowPaymentsIpnView
 from .funnel import FunnelEventView
+from .gopay.views import GoPayWebhookView
 from .views import (
     StartBindCardAPIView,
     FreedomPayCallbackAPIView,
@@ -52,4 +53,11 @@ urlpatterns = [
     # подлинность проверяется подписью, а суммы всё равно перезапрашиваются.
     path('crypto/currencies/', CryptoCurrenciesView.as_view(), name='crypto-currencies'),
     path('crypto/nowpayments/ipn/', NowPaymentsIpnView.as_view(), name='crypto-nowpayments-ipn'),
+
+    # Единый QR (GoPay): события по счетам. Без авторизации — подлинность
+    # проверяется подписью, а «оплачено» всё равно перезапрашивается у GoPay.
+    # Оба написания адреса: POST не умеет идти за APPEND_SLASH, и адрес,
+    # вставленный в кабинет GoPay без слэша на конце, терял бы уведомления.
+    path('gopay/webhook/', GoPayWebhookView.as_view(), name='gopay-webhook'),
+    path('gopay/webhook', GoPayWebhookView.as_view(), name='gopay-webhook-noslash'),
 ]
