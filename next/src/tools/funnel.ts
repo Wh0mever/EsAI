@@ -34,6 +34,18 @@ export type FunnelStep =
   // Оплата в сомах: какой способ человек выбрал в нашем окне до ухода на
   // страницу банка. meta: { package_id, method }.
   | "kgs_method_pick"
+  // Единый QR (GoPay), наш экран оплаты. shown — экран с кодом показан
+  // { package_id, resumed, mobile, embed, is_test }; app_open — нажата кнопка
+  // банка { package_id, app }; save — «сохранить QR» { package_id, ok };
+  // other_method — ушёл платить иначе; paid — УВИДЕЛ наш экран «Оплачено»
+  // { package_id, seconds } (на телефоне многие платят в банке и во вкладку не
+  // возвращаются, настоящие оплаты отчёт берёт с сервера); expired — код истёк.
+  | "kgs_qr_shown"
+  | "kgs_qr_app_open"
+  | "kgs_qr_save"
+  | "kgs_qr_other_method"
+  | "kgs_qr_paid"
+  | "kgs_qr_expired"
   // Видеостудия (/video-studio): имена — в белом списке FunnelEvent.NAMES,
   // meta по шагам — VsFunnelMeta в lib/vstudio/types.ts (отправлять через trackVs).
   | "vstudio_view"
@@ -47,7 +59,49 @@ export type FunnelStep =
   | "vstudio_condense"
   | "vstudio_share";
 
+/**
+ * Шаги, после которых страница сразу уходит в фон: нажали кнопку банка или
+ * открылось системное окно «сохранить». iOS замораживает вкладку в тот же
+ * миг, и обычный запрос не успевает уйти — а именно эти два шага показывают,
+ * пользуются ли люди кнопками банков.
+ */
+const LEAVING_STEPS: ReadonlySet<FunnelStep> = new Set<FunnelStep>(["kgs_qr_app_open", "kgs_qr_save"]);
+
+const EVENT_URL = "/api/payments/funnel/event/";
+
+/** Доставка, которая переживает уход со страницы. Пишется без пользователя, по устройству. */
+function sendLeaving(name: FunnelStep, meta: Record<string, unknown>): void {
+  const key = getOrCreateDeviceKey();
+  const json = JSON.stringify({ name, meta, device_key: key });
+  try {
+    void fetch(EVENT_URL, {
+      method: "POST",
+      keepalive: true,
+      headers: { "Content-Type": "application/json", "X-Device-Key": key },
+      body: json,
+    }).catch(() => {
+      // тишина: аналитика не должна мешать покупке
+    });
+    return;
+  } catch {
+    // fetch с keepalive не поддержан или отклонён — пробуем sendBeacon
+  }
+  try {
+    navigator.sendBeacon(EVENT_URL, new Blob([json], { type: "application/json" }));
+  } catch {
+    // тишина
+  }
+}
+
 export function trackFunnel(name: FunnelStep, meta?: Record<string, unknown>): void {
+  if (LEAVING_STEPS.has(name)) {
+    try {
+      sendLeaving(name, meta || {});
+    } catch {
+      // тишина
+    }
+    return;
+  }
   try {
     void fetchData(
       "payments/funnel/event/",

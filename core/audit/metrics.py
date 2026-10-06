@@ -83,7 +83,9 @@ def collect_dashboard_metrics() -> dict:
     try:
         from payments.models import Payment
 
-        paid_qs = Payment.objects.filter(success=True)
+        # Тестовые оплаты (единый QR в тестовой среде) проходят без денег —
+        # в выручку, число оплат и средний чек они не идут.
+        paid_qs = Payment.objects.filter(success=True, is_test=False)
         data["payments_success_count"] = paid_qs.count()
         revenue = paid_qs.aggregate(s=Sum("amount"))["s"] or Decimal("0")
         data["revenue_total"] = revenue

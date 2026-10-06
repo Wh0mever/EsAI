@@ -4,6 +4,13 @@
 Меняются только параметры init_payment. Главное, что здесь проверяется:
 без способа запрос к FreedomPay остаётся прежним, а ссылка, созданная под
 один способ, не достаётся нажавшему на другой.
+
+Единый QR — не способ FreedomPay, а GoPay (payments/gopay): здесь проверяется
+только, откуда берётся его кнопка. Сама покупка по QR — в tests_gopay_purchase.
+
+По умолчанию из способов FreedomPay теперь включена одна карта, а тесты ниже
+написаны про кошельки — поэтому базовый класс возвращает им прежний список по
+умолчанию, не трогая настройку в базе (её отсутствие тоже проверяется).
 """
 from datetime import timedelta
 from decimal import Decimal
@@ -24,6 +31,18 @@ from plans.models import ExitDiscountOffer, TokenPackage
 
 TEST_CACHES = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache",
                            "LOCATION": "plans-kgs-methods-tests"}}
+
+OLD_DEFAULT_ENABLED = "mbank,odengi,megapay,card"
+# Заведомые пустышки: настоящих ключей в тестах не бывает.
+GOPAY_OFF = dict(GOPAY_TEST_API_KEY="", GOPAY_TEST_API_SECRET="", GOPAY_TEST_WEBHOOK_SECRET="",
+                 GOPAY_LIVE_API_KEY="", GOPAY_LIVE_API_SECRET="", GOPAY_LIVE_WEBHOOK_SECRET="")
+GOPAY_LIVE_ON = dict(GOPAY_API_URL="https://api.gopay.kg", GOPAY_MODE="on", GOPAY_ENV="live",
+                     GOPAY_LIVE_API_KEY="dummy-live-api-key-not-real",
+                     GOPAY_LIVE_API_SECRET="dummy-live-api-secret-not-real")
+GOPAY_TEST_ON = dict(GOPAY_API_URL="https://api.gopay.kg", GOPAY_MODE="on", GOPAY_ENV="test",
+                     GOPAY_TEST_API_KEY="dummy-api-key-not-real",
+                     GOPAY_TEST_API_SECRET="dummy-api-secret-not-real")
+QR_BUTTON = {"key": "elqr", "kind": "qr"}
 
 APP_PARAMS = {
     "mbank": "MBANKKGS",
@@ -47,12 +66,18 @@ def _fp_ok(*args, **kwargs):
 
 @override_settings(CACHES=TEST_CACHES, FREEDOM_PAY_MERCHANT_ID="m1", FREEDOM_PAY_TOKEN="secret",
                    FREEDOM_PAY_INIT_PAYMENT_URL="https://fp.example/init_payment.php",
-                   YOOKASSA_SHOP_ID="", YOOKASSA_SECRET_KEY="", KGS_METHODS_MODE="on")
+                   YOOKASSA_SHOP_ID="", YOOKASSA_SECRET_KEY="", KGS_METHODS_MODE="on",
+                   **GOPAY_OFF)
 class KgsMethodsTestCase(TestCase):
     def setUp(self):
         # Настройки из админки кэшируются на 30 с, а кэш между тестами общий.
         cache.clear()
         self.addCleanup(cache.clear)
+        # Прежний список по умолчанию — подменой значения в модуле, а не записью
+        # настройки: тесты админки проверяют, что строки настройки в базе НЕТ.
+        default = patch.object(kgs_methods, "DEFAULT_ENABLED", OLD_DEFAULT_ENABLED)
+        default.start()
+        self.addCleanup(default.stop)
         users = get_user_model().objects
         self.user = users.create_user(email="buyer@example.com", password="x")
         self.staff = users.create_user(email="staff@example.com", password="x", is_staff=True)
@@ -140,6 +165,12 @@ class PurchasePayloadTests(KgsMethodsTestCase):
 
     @patch("plans.views.requests.post", side_effect=_fp_ok)
     def test_unknown_method_creates_nothing(self, post):
+        # Условие для «elqr»: GoPay не настроен — способа нет, и ни FreedomPay,
+        # ни GoPay запрос не получают.
+        from payments.gopay import config as gopay_config
+
+        self.assertFalse(gopay_config.is_configured("test"))
+        self.assertFalse(gopay_config.is_configured("live"))
         for method in ("paypal", "MBANKKGS", "elqr", ["mbank"]):
             with self.subTest(method=method):
                 r = self._buy(method)
@@ -239,33 +270,113 @@ class AvailabilityTests(KgsMethodsTestCase):
         self.assertEqual(kgs_methods.fp_params("mbank", self.user), {"pg_payment_system": "MBANKKGS"})
 
 
+class ShippedDefaultTests(TestCase):
+    """Значение по умолчанию как оно поставляется — без подмены из базового класса."""
+
+    def setUp(self):
+        cache.clear()
+        self.addCleanup(cache.clear)
+
+    def test_shipped_default_is_card_only(self):
+        self.assertEqual(kgs_methods.DEFAULT_ENABLED, "card")
+        self.assertEqual(kgs_methods.enabled_keys(), ["card"])
+
+    @override_settings(CACHES=TEST_CACHES, KGS_METHODS_MODE="on", **GOPAY_OFF)
+    def test_card_only_without_gopay_is_not_a_choice(self):
+        # GoPay выключен, из FreedomPay включена одна карта: выбора нет, «Пополнить»
+        # ведёт на обычную страницу FreedomPay, как до появления выбора.
+        staff = get_user_model().objects.create_user(email="s@example.com", password="x",
+                                                     is_staff=True)
+        self.assertEqual(kgs_methods.available_for(None), [])
+        self.assertEqual(kgs_methods.available_for(staff), [])
+        self.assertEqual(kgs_methods.keys_for(False), [])
+        self.assertEqual(kgs_methods.keys_for(True), [])
+
+    @override_settings(CACHES=TEST_CACHES, KGS_METHODS_MODE="on", **{**GOPAY_OFF, **GOPAY_LIVE_ON})
+    def test_shipped_checkout_is_qr_then_card(self):
+        self.assertEqual(kgs_methods.available_for(None), [QR_BUTTON, {"key": "card", "kind": "card"}])
+
+
 class ElqrTests(KgsMethodsTestCase):
+    """Единый QR — это GoPay: кнопку даёт он, а не код платёжной системы FreedomPay."""
+
     @patch("plans.views.requests.post", side_effect=_fp_ok)
-    def test_elqr_absent_without_code(self, post):
-        self.assertNotIn("elqr", [m["key"] for m in self._rate()["kgs_methods"]])
-        # В списке включённых он без кода ничего не значит.
+    def test_freedompay_code_shows_no_button(self, post):
+        # Код FreedomPay остался в настройках как задел, но кнопку не показывает
+        # и в FreedomPay из него ничего не уходит.
+        set_runtime("kgs_elqr_ps_code", " ELQRKGS_1 ")
+        self.assertEqual(kgs_methods.elqr_code(), "ELQRKGS_1")
+        self.assertEqual(self._rate()["kgs_methods"], DEFAULT_LIST)
+        self.assertEqual(self._rate(self.staff_client)["kgs_methods"], DEFAULT_LIST)
+        self.assertIsNone(kgs_methods.fp_params("elqr", self.user))
+        self.assertFalse(kgs_methods.is_available("elqr", self.staff))
+        # В списке включённых он ничего не значит.
         set_runtime("kgs_methods_enabled", "elqr,mbank,card")
         self.assertEqual(kgs_methods.enabled_keys(), ["mbank", "card"])
-        self.assertEqual(self._buy("elqr").status_code, 400)
+        r = self._buy("elqr")
+        self.assertEqual(r.status_code, 400)
+        self.assertEqual(r.data, {"detail": "method_unavailable"})
+        self.assertEqual(Payment.objects.count(), 0)
+        # requests.post один на всех: не ушло ничего ни в FreedomPay, ни в GoPay.
         post.assert_not_called()
 
-    @patch("plans.views.requests.post", side_effect=_fp_ok)
-    def test_elqr_with_code_goes_first_and_sends_the_code(self, post):
-        set_runtime("kgs_elqr_ps_code", " ELQRKGS_1 ")
-        self.assertEqual(self._rate()["kgs_methods"], [{"key": "elqr", "kind": "qr"}] + DEFAULT_LIST)
+    def test_button_comes_from_gopay_and_goes_first(self):
+        with override_settings(**GOPAY_LIVE_ON):
+            self.assertEqual(self._rate()["kgs_methods"], [QR_BUTTON] + DEFAULT_LIST)
+            self.assertEqual(self._rate(APIClient())["kgs_methods"], [QR_BUTTON] + DEFAULT_LIST)
+            self.assertEqual(kgs_methods.keys_for(False),
+                             ["elqr", "mbank", "odengi", "megapay", "card"])
+            self.assertTrue(kgs_methods.is_available("elqr", self.user))
+            self.assertTrue(kgs_methods.is_available(" ELQR ", None))
+            self.assertFalse(kgs_methods.is_available("balance", self.user))
+            # И при работающем GoPay параметром FreedomPay единый QR не становится.
+            self.assertIsNone(kgs_methods.fp_params("elqr", self.user))
+            # В списке способов FreedomPay его по-прежнему нет.
+            self.assertNotIn("elqr", kgs_methods.enabled_keys())
+        # GoPay выключен — кнопки нет.
+        with override_settings(**{**GOPAY_LIVE_ON, "GOPAY_MODE": "off"}):
+            self.assertEqual(self._rate()["kgs_methods"], DEFAULT_LIST)
+            self.assertFalse(kgs_methods.is_available("elqr", self.staff))
 
-        r = self._buy("elqr")
-        self.assertEqual(r.status_code, 200)
-        sent = post.call_args.kwargs["data"]
-        self.assertEqual(sent["pg_payment_system"], "ELQRKGS_1")
-        self.assertEqual(sent["pg_lifetime"], "2700")
-        self._assert_signed(sent)
-        self.assertEqual(Payment.objects.get(order_id=r.data["order_id"]).request["pay_method"], "elqr")
+    def test_gopay_staff_mode_shows_the_button_to_staff_only(self):
+        with override_settings(**{**GOPAY_LIVE_ON, "GOPAY_MODE": "staff"}):
+            self.assertEqual(self._rate()["kgs_methods"], DEFAULT_LIST)
+            self.assertEqual(self._rate(self.staff_client)["kgs_methods"], [QR_BUTTON] + DEFAULT_LIST)
+            self.assertNotIn("elqr", kgs_methods.keys_for(False))
+            self.assertEqual(kgs_methods.keys_for(True)[0], "elqr")
 
-    def test_elqr_alone_is_still_a_choice_for_the_buyer(self):
-        set_runtime("kgs_elqr_ps_code", "ELQRKGS")
+    def test_test_env_is_staff_only_and_marked(self):
+        # Тестовая пара ключей имитирует оплату без денег: кнопка только у
+        # сотрудника (при любом режиме) и помечена — экран покажет, что QR учебный.
+        with override_settings(**GOPAY_TEST_ON):
+            self.assertEqual(self._rate()["kgs_methods"], DEFAULT_LIST)
+            self.assertEqual(self._rate(self.staff_client)["kgs_methods"],
+                             [{"key": "elqr", "kind": "qr", "test": True}] + DEFAULT_LIST)
+            self.assertFalse(kgs_methods.is_available("elqr", self.user))
+            self.assertTrue(kgs_methods.is_available("elqr", self.staff))
+        # В боевой среде пометки нет вовсе (ключа, а не False).
+        with override_settings(**GOPAY_LIVE_ON):
+            self.assertEqual(self._rate(self.staff_client)["kgs_methods"][0], QR_BUTTON)
+
+    def test_elqr_with_card_alone_is_a_choice(self):
         set_runtime("kgs_methods_enabled", "card")
-        self.assertEqual([m["key"] for m in self._rate()["kgs_methods"]], ["elqr", "card"])
+        self.assertEqual(self._rate()["kgs_methods"], [])
+        with override_settings(**GOPAY_LIVE_ON):
+            self.assertEqual(self._rate()["kgs_methods"], [QR_BUTTON, {"key": "card", "kind": "card"}])
+            # Даже без единого способа FreedomPay QR остаётся выбором.
+            set_runtime("kgs_methods_enabled", "")
+            cache.clear()
+            self.assertEqual(self._rate()["kgs_methods"], [QR_BUTTON])
+
+    def test_chooser_mode_still_gates_the_button(self):
+        # Выключателей два: без допуска к выбору способа нет и кнопки QR.
+        with override_settings(**GOPAY_LIVE_ON):
+            set_runtime("kgs_methods_mode", "off")
+            self.assertEqual(self._rate(self.staff_client)["kgs_methods"], [])
+            self.assertFalse(kgs_methods.is_available("elqr", self.staff))
+            set_runtime("kgs_methods_mode", "staff")
+            self.assertEqual(self._rate()["kgs_methods"], [])
+            self.assertEqual(self._rate(self.staff_client)["kgs_methods"][0], QR_BUTTON)
 
     @patch("plans.views.requests.post", side_effect=_fp_ok)
     def test_bad_code_is_ignored(self, post):
@@ -331,25 +442,6 @@ class ResumeTests(KgsMethodsTestCase):
         set_runtime("kgs_methods_enabled", "odengi,card")
         self.assertEqual(self._buy("mbank").status_code, 400)
         self.assertEqual(Payment.objects.count(), 1)
-
-    @patch("plans.views.requests.post", side_effect=_fp_ok)
-    def test_link_with_an_old_code_is_not_resumed(self, post):
-        # Код единого QR поправили в админке: ссылка со старым кодом открыла бы
-        # прежнюю, неверную страницу — повторный клик должен уйти с новым кодом.
-        set_runtime("kgs_elqr_ps_code", "ELQR1")
-        old = self._buy("elqr").data
-        self.assertTrue(self._buy("elqr").data["resumed"])
-
-        set_runtime("kgs_elqr_ps_code", "ELQR2")
-        new = self._buy("elqr").data
-        self.assertNotIn("resumed", new)
-        self.assertNotEqual(new["order_id"], old["order_id"])
-        self.assertEqual(post.call_args.kwargs["data"]["pg_payment_system"], "ELQR2")
-        # Дальше возвращаем уже к новой ссылке.
-        again = self._buy("elqr").data
-        self.assertTrue(again["resumed"])
-        self.assertEqual(again["order_id"], new["order_id"])
-        self.assertEqual(post.call_count, 2)
 
     @patch("plans.views.requests.post", side_effect=_fp_ok)
     def test_resumed_bank_link_outlives_the_resume_window(self, post):
@@ -539,7 +631,8 @@ class AdminSettingsTests(KgsMethodsTestCase):
         r = self._patch({"kgs_elqr_ps_code": " ELQRKGS "})
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.data["kgs_elqr_ps_code"], "ELQRKGS")
-        self.assertEqual(r.data["kgs_methods_enabled"], "elqr,mbank,odengi,megapay,card")
+        # Код FreedomPay больше не добавляет единый QR в список способов.
+        self.assertEqual(r.data["kgs_methods_enabled"], "mbank,odengi,megapay,card")
 
         # Пустое значение убирает код, а не записывает пустую строку.
         self.assertEqual(self._patch({"kgs_elqr_ps_code": ""}).status_code, 200)

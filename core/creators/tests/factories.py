@@ -57,7 +57,7 @@ Q2 = Decimal("0.01")
 Q8 = Decimal("0.00000001")
 
 # Валюта платежа по умолчанию — как её пишет каждый провайдер.
-_CURRENCY = {"freedompay": "KGS", "yookassa": "RUB", "telegram_stars": "XTR"}
+_CURRENCY = {"freedompay": "KGS", "gopay": "KGS", "yookassa": "RUB", "telegram_stars": "XTR"}
 
 _seq = itertools.count(1)
 
@@ -203,7 +203,8 @@ def make_payment(user, *, provider="freedompay", amount="490.00", currency=None,
     request["token_purchase"] заполнен; token_purchase=None убирает его
     (старое списание с сохранённой карты). Остальные ключевые слова попадают в
     request поверх значений по умолчанию (например kgs_price="490.00").
-    Валюта по провайдеру: FreedomPay — KGS, ЮKassa — RUB, крипта — USD, Stars — XTR.
+    Валюта по провайдеру: FreedomPay и GoPay (единый QR) — KGS, ЮKassa — RUB,
+    крипта — USD, Stars — XTR.
     Кредиты фабрика не начисляет — для этого credit_purchase().
     """
     amount = Decimal(str(amount))
@@ -221,6 +222,8 @@ def make_payment(user, *, provider="freedompay", amount="490.00", currency=None,
                        rate_kgs_to_usd=str(rate), amount_usd=str(amount))
     elif provider == "telegram_stars":
         request.update(provider="telegram_stars", pay_method="stars", stars=int(amount))
+    elif provider == "gopay":
+        request.update(provider="gopay", pay_method="elqr")
     request.update(request_extra)
     if request.get("token_purchase") is None:
         request.pop("token_purchase", None)

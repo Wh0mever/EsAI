@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { fetchData } from "@/tools/fetchData";
 import {
   FiKey,
@@ -14,6 +15,7 @@ import {
   FiDollarSign,
   FiMic,
   FiFilm,
+  FiGrid,
 } from "react-icons/fi";
 
 type SiteContacts = {
@@ -24,6 +26,50 @@ type SiteContacts = {
   instagram: string;
   facebook: string;
   twitter: string;
+};
+
+type GoPayMode = "off" | "staff" | "on";
+type GoPayEnv = "test" | "live";
+type GoPaySecretField = "api_key" | "api_secret" | "webhook_secret";
+
+/** Что известно о ключах среды. Самих значений сервер не отдаёт никогда. */
+type GoPayKeyState = {
+  api_key_set: boolean;
+  /** «…a1b2» — хвост публичного ключа; у секретов нет и его */
+  api_key_tail: string;
+  api_secret_set: boolean;
+  webhook_secret_set: boolean;
+};
+
+type GoPayHealth = {
+  ok: boolean;
+  fails: number;
+  kind: string;
+  code: string;
+  since: string | null;
+  down: boolean;
+};
+
+/** Блок «Единый QR (GoPay)» в снимке настроек. */
+type GoPaySettings = {
+  mode: GoPayMode;
+  env: GoPayEnv;
+  lifetime_minutes: number;
+  send_buyer_email: boolean;
+  /** у активной среды есть ключ и секрет */
+  configured: boolean;
+  /** кому сервер готов показать QR: всем / сотрудникам */
+  effective: { public: boolean; staff: boolean };
+  webhook_url: string;
+  webhook_events: string[];
+  webhook_events_optional?: string[];
+  api_host: string;
+  test: GoPayKeyState;
+  live: GoPayKeyState;
+  // Три ключа ниже считает отдельный вызов сервера: при сбое их просто нет.
+  health?: Partial<Record<GoPayEnv, GoPayHealth>>;
+  in_flight?: Partial<Record<GoPayEnv, number>>;
+  unsettled?: number;
 };
 
 type Settings = {
@@ -68,12 +114,14 @@ type Settings = {
   vstudio_mode_override?: string;
   // --- оплата в сомах: выбор способа до ухода на Freedom Pay ---
   kgs_methods_mode?: "off" | "staff" | "on";
-  /** включённые способы через запятую (единый QR сервер добавляет сам, когда задан его код) */
+  /** включённые способы Freedom Pay через запятую (единого QR здесь нет: он идёт через GoPay) */
   kgs_methods_enabled?: string;
-  /** код единого QR от Freedom Pay; "" — не выдан */
+  /** код единого QR от Freedom Pay; хранится на будущее, кнопку не включает */
   kgs_elqr_ps_code?: string;
   /** все способы, которые знает сервер, в порядке показа */
   kgs_methods_known?: string[];
+  /** единый QR через GoPay; у старого сервера ключа нет — блок тогда не показываем */
+  gopay?: GoPaySettings;
   site: SiteContacts;
 };
 
@@ -1118,6 +1166,9 @@ export default function AdminSettingsPage() {
         {audioError && <div className="mt-3 text-sm text-red-400">{audioError}</div>}
       </section>
 
+      {/* 3.65 Единый QR (GoPay) */}
+      <GoPaySection settings={settings} onSaved={setSettings} />
+
       {/* 3.7 Оплата в сомах: выбор способа */}
       <KgsMethodsSection settings={settings} onSaved={setSettings} />
 
@@ -1255,6 +1306,634 @@ function VStudioModeSection({ settings, onSaved }: { settings: Settings; onSaved
   );
 }
 
+const GOPAY_MODES: { value: GoPayMode; label: string; hint: string }[] = [
+  {
+    value: "off",
+    label: "Выключено",
+    hint: "кнопки «Единый QR» нет ни у кого; уже выставленные счета досверяются и зачисляются, если их оплатят",
+  },
+  { value: "staff", label: "Только сотрудникам", hint: "QR видят только сотрудники — для проверки перед запуском" },
+  {
+    value: "on",
+    label: "Включено",
+    hint: "QR видят все покупатели; в тестовой среде — всё равно только сотрудники",
+  },
+];
+
+const GOPAY_ENVS: { value: GoPayEnv; label: string; hint: string }[] = [
+  {
+    value: "test",
+    label: "Тест",
+    hint: "работает тестовая пара ключей: оплата имитируется, деньги не списываются, QR видят только сотрудники",
+  },
+  { value: "live", label: "Боевая", hint: "работает боевая пара ключей: платежи настоящие" },
+];
+
+const GOPAY_ENV_KEYS: GoPayEnv[] = ["test", "live"];
+
+const GOPAY_SECRET_FIELDS: { key: GoPaySecretField; label: string }[] = [
+  { key: "api_key", label: "API-ключ" },
+  { key: "api_secret", label: "API-секрет" },
+  { key: "webhook_secret", label: "Секрет вебхуков" },
+];
+
+// То же правило, что на сервере: печатные латинские символы без пробелов, 8–256.
+const GOPAY_SECRET_RE = /^[\x21-\x7E]{8,256}$/;
+const GOPAY_LIFETIME_MIN = 5;
+const GOPAY_LIFETIME_MAX = 1440;
+
+const GOPAY_NO_KEYS: GoPayKeyState = {
+  api_key_set: false,
+  api_key_tail: "",
+  api_secret_set: false,
+  webhook_secret_set: false,
+};
+
+/** Причина сбоя словами: сервер отдаёт короткий код вида сбоя. */
+const GOPAY_HEALTH_KIND: Record<string, string> = {
+  unavailable: "нет ответа",
+  auth: "ключ или подпись не приняты",
+  org_inactive: "код 0016",
+  not_configured: "ключи не заданы",
+};
+
+type GoPaySecretDraft = Record<GoPaySecretField, string>;
+
+const goPayEmptySecrets = (): Record<GoPayEnv, GoPaySecretDraft> => ({
+  test: { api_key: "", api_secret: "", webhook_secret: "" },
+  live: { api_key: "", api_secret: "", webhook_secret: "" },
+});
+
+type GoPayTestResult = {
+  ok: boolean;
+  env?: string;
+  /** сколько приложений банков вернул GoPay; у тестового ключа бывает 0 */
+  apps?: number | null;
+  webhook_secret_set?: boolean;
+  error?: string | null;
+  provider_code?: string | null;
+};
+
+const goPayEnvName = (env: GoPayEnv, form: "nom" | "gen" = "nom"): string =>
+  env === "test" ? (form === "gen" ? "тестовой" : "тестовая") : form === "gen" ? "боевой" : "боевая";
+
+const goPaySince = (iso: string | null | undefined): string => {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return "";
+  return d.toLocaleString("ru-RU", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+};
+
+async function goPayCopy(text: string): Promise<boolean> {
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // Буфер недоступен (http, старый webview) — пробуем через textarea.
+  }
+  try {
+    const area = document.createElement("textarea");
+    area.value = text;
+    area.style.position = "fixed";
+    area.style.opacity = "0";
+    document.body.appendChild(area);
+    area.select();
+    const ok = document.execCommand("copy");
+    document.body.removeChild(area);
+    return ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Единый QR через GoPay. Старый сервер ключа `gopay` не присылает — тогда
+ * блока нет вовсе, а не пустая форма, которая ничего не сохраняет.
+ */
+function GoPaySection({ settings, onSaved }: { settings: Settings; onSaved: (s: Settings) => void }) {
+  if (!settings.gopay) return null;
+  return <GoPayPanel gopay={settings.gopay} kgsMode={settings.kgs_methods_mode ?? "off"} onSaved={onSaved} />;
+}
+
+/**
+ * Режим, среда, срок жизни QR и ключи GoPay. Ключи — только на запись: сервер
+ * отдаёт «задан / не задан» и хвост публичного ключа, поэтому поля всегда
+ * пустые, а пустое поле при сохранении значит «не трогать».
+ */
+function GoPayPanel({
+  gopay,
+  kgsMode,
+  onSaved,
+}: {
+  gopay: GoPaySettings;
+  kgsMode: KgsMode;
+  onSaved: (s: Settings) => void;
+}) {
+  const savedMode: GoPayMode = gopay.mode ?? "off";
+  const savedEnv: GoPayEnv = gopay.env === "live" ? "live" : "test";
+  const savedLifetime = String(gopay.lifetime_minutes ?? 15);
+  const savedEmail = Boolean(gopay.send_buyer_email);
+
+  const [mode, setMode] = useState<GoPayMode>(savedMode);
+  const [env, setEnv] = useState<GoPayEnv>(savedEnv);
+  const [lifetime, setLifetime] = useState(savedLifetime);
+  const [sendEmail, setSendEmail] = useState(savedEmail);
+  const [secrets, setSecrets] = useState(goPayEmptySecrets);
+  const [saving, setSaving] = useState(false);
+  /** какое поле сейчас удаляется: «test.api_key» */
+  const [removing, setRemoving] = useState<string | null>(null);
+  const [flash, setFlash] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const [testing, setTesting] = useState<GoPayEnv | null>(null);
+  const [tests, setTests] = useState<Partial<Record<GoPayEnv, GoPayTestResult>>>({});
+  const [copied, setCopied] = useState<"ok" | "fail" | null>(null);
+  // Сервер отказал в удалении из-за незавершённых счетов (409): запоминаем их
+  // число, чтобы повторное «Удалить» спросило уже про них и ушло с force.
+  const [inFlightSeen, setInFlightSeen] = useState<Partial<Record<GoPayEnv, number>>>({});
+
+  // Сохранили (или перечитали настройки) — черновик снова равен сохранённому.
+  const savedKey = `${savedMode}|${savedEnv}|${savedLifetime}|${savedEmail}`;
+  const [prevSavedKey, setPrevSavedKey] = useState(savedKey);
+  if (savedKey !== prevSavedKey) {
+    setPrevSavedKey(savedKey);
+    setMode(savedMode);
+    setEnv(savedEnv);
+    setLifetime(savedLifetime);
+    setSendEmail(savedEmail);
+  }
+
+  const keysOf = (e: GoPayEnv): GoPayKeyState => gopay[e] ?? GOPAY_NO_KEYS;
+  const isSet = (e: GoPayEnv, field: GoPaySecretField): boolean =>
+    field === "api_key"
+      ? Boolean(keysOf(e).api_key_set)
+      : field === "api_secret"
+        ? Boolean(keysOf(e).api_secret_set)
+        : Boolean(keysOf(e).webhook_secret_set);
+  const inFlight = (e: GoPayEnv): number =>
+    Math.max(Number(gopay.in_flight?.[e]) || 0, Number(inFlightSeen[e]) || 0);
+  const hasDraft = (e: GoPayEnv): boolean => GOPAY_SECRET_FIELDS.some((f) => secrets[e][f.key].trim() !== "");
+
+  const dirty =
+    mode !== savedMode ||
+    env !== savedEnv ||
+    lifetime.trim() !== savedLifetime ||
+    sendEmail !== savedEmail ||
+    hasDraft("test") ||
+    hasDraft("live");
+  const busy = saving || removing !== null;
+
+  // ---------- кто сейчас видит QR ----------
+  // Два выключателя: GoPay (effective) и окно выбора способа. QR — кнопка в
+  // этом окне, поэтому без него «включённый» QR не видит никто.
+  const effective = gopay.effective ?? { public: false, staff: false };
+  const audience =
+    kgsMode === "on" && effective.public
+      ? "QR видят все покупатели"
+      : kgsMode !== "off" && effective.staff
+        ? "QR видят только сотрудники"
+        : "QR не видит никто";
+  const otherEnv: GoPayEnv = savedEnv === "test" ? "live" : "test";
+  const otherEnvReady = keysOf(otherEnv).api_key_set && keysOf(otherEnv).api_secret_set;
+  const unsettled = Number(gopay.unsettled) || 0;
+  // Сбой неактивной среды важен, только пока по ней есть незакрытые счета.
+  const healthEnvs = GOPAY_ENV_KEYS.filter(
+    (e) => gopay.health?.[e]?.ok === false && (e === savedEnv || inFlight(e) > 0)
+  );
+
+  const save = async () => {
+    const patch: Record<string, unknown> = {};
+    // Режим и среду шлём, только если их поменяли: наличие ключей сервер
+    // проверяет лишь тогда, и сохранение одних ключей проходит всегда.
+    if (mode !== savedMode) patch.mode = mode;
+    if (env !== savedEnv) patch.env = env;
+    if (lifetime.trim() !== savedLifetime) {
+      const n = Number(lifetime.trim());
+      if (!/^\d+$/.test(lifetime.trim()) || n < GOPAY_LIFETIME_MIN || n > GOPAY_LIFETIME_MAX) {
+        setErr(`Срок жизни QR: целое число минут от ${GOPAY_LIFETIME_MIN} до ${GOPAY_LIFETIME_MAX}`);
+        return;
+      }
+      patch.lifetime_minutes = n;
+    }
+    if (sendEmail !== savedEmail) patch.send_buyer_email = sendEmail;
+    for (const e of GOPAY_ENV_KEYS) {
+      const part: Record<string, string> = {};
+      for (const f of GOPAY_SECRET_FIELDS) {
+        const value = secrets[e][f.key].trim();
+        if (!value) continue;
+        if (!GOPAY_SECRET_RE.test(value)) {
+          // Само значение в текст ошибки не попадает.
+          setErr(
+            `${f.label} (${goPayEnvName(e)} среда): от 8 до 256 символов, только латиница, цифры и знаки, без пробелов`
+          );
+          return;
+        }
+        part[f.key] = value;
+      }
+      if (Object.keys(part).length) patch[e] = part;
+    }
+    if (Object.keys(patch).length === 0) return;
+
+    setSaving(true);
+    setErr(null);
+    const res = await fetchData<Settings>("manage/settings/", "PATCH", { gopay: patch }, true);
+    setSaving(false);
+    if (res.ok && res.data) {
+      onSaved(res.data);
+      setSecrets(goPayEmptySecrets());
+      setTests({});
+      setFlash(true);
+      setTimeout(() => setFlash(false), 2000);
+    } else {
+      setErr(res.error || "Не удалось сохранить");
+    }
+  };
+
+  const removeSecret = async (e: GoPayEnv, field: GoPaySecretField, label: string) => {
+    const open = inFlight(e);
+    const consequence =
+      field === "webhook_secret"
+        ? "Без него вебхуки GoPay не принимаются: оплата зачисляется только сверкой, с задержкой."
+        : e === savedEnv
+          ? "Без него единый QR перестанет показываться."
+          : "";
+    const question =
+      open > 0
+        ? `По этой среде есть незавершённые QR-счета (${open}). Без ключа оплаченный счёт не будет зачислен. Всё равно удалить?`
+        : `Удалить «${label}» ${goPayEnvName(e, "gen")} среды? ${consequence}`.trim();
+    if (!confirm(question)) return;
+
+    const body: Record<string, unknown> = { [e]: { [field]: "" } };
+    if (open > 0) body.force = true;
+    setRemoving(`${e}.${field}`);
+    setErr(null);
+    const res = await fetchData<Settings>("manage/settings/", "PATCH", { gopay: body }, true);
+    setRemoving(null);
+    if (res.ok && res.data) {
+      onSaved(res.data);
+      setSecrets((prev) => ({ ...prev, [e]: { ...prev[e], [field]: "" } }));
+      setInFlightSeen((prev) => ({ ...prev, [e]: 0 }));
+      setTests((prev) => ({ ...prev, [e]: undefined }));
+      setFlash(true);
+      setTimeout(() => setFlash(false), 2000);
+      return;
+    }
+    const refusal = res.data as unknown as { code?: string; count?: number } | null;
+    if (res.status === 409 && refusal && typeof refusal === "object" && refusal.code === "gopay_in_flight") {
+      setInFlightSeen((prev) => ({ ...prev, [e]: Math.max(1, Number(refusal.count) || 0) }));
+    }
+    setErr(res.error || "Не удалось удалить");
+  };
+
+  const runTest = async (e: GoPayEnv) => {
+    setTesting(e);
+    setTests((prev) => ({ ...prev, [e]: undefined }));
+    const res = await fetchData<GoPayTestResult>("manage/settings/test-gopay/", "POST", { env: e }, true);
+    setTesting(null);
+    setTests((prev) => ({
+      ...prev,
+      [e]:
+        res.ok && res.data && typeof res.data === "object"
+          ? res.data
+          : { ok: false, error: res.error || "Нет связи с сервером" },
+    }));
+    // Проверка меняет на сервере счётчик сбоев GoPay — перечитываем снимок,
+    // чтобы красная строка о сбое не висела после удачной проверки.
+    const snapshot = await fetchData<Settings>("manage/settings/", "GET", null, true);
+    if (snapshot.ok && snapshot.data?.gopay) onSaved(snapshot.data);
+  };
+
+  const copyWebhook = async () => {
+    const ok = await goPayCopy(gopay.webhook_url);
+    setCopied(ok ? "ok" : "fail");
+    setTimeout(() => setCopied(null), 2000);
+  };
+
+  const modeLabel = GOPAY_MODES.find((m) => m.value === savedMode)?.label || savedMode;
+  const chip = (on: boolean) =>
+    `rounded-lg border px-3 py-1.5 text-xs transition-colors ${
+      on ? "border-accent bg-accent/10 text-accent" : "border-border text-muted hover:text-foreground"
+    }`;
+
+  return (
+    <section className="rounded-2xl border border-border bg-surface p-5">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <FiGrid className="h-4 w-4 text-accent" />
+          <h2 className="text-base font-semibold">Единый QR (GoPay)</h2>
+        </div>
+        <div className="flex items-center gap-3">
+          {flash && <SavedFlash />}
+          {dirty && (
+            <button
+              onClick={save}
+              disabled={busy}
+              className="rounded-lg bg-accent px-4 py-2 text-xs font-semibold text-on-accent transition-opacity hover:opacity-90 disabled:opacity-50"
+            >
+              {saving ? "Сохранение…" : "Сохранить"}
+            </button>
+          )}
+        </div>
+      </div>
+      <p className="mt-1 text-xs text-muted-2">
+        Сейчас: <span className="text-foreground">{modeLabel}</span> · среда:{" "}
+        <span className="text-foreground">{savedEnv === "test" ? "ТЕСТ" : "БОЕВАЯ"}</span> ·{" "}
+        <span className="text-foreground">{audience}</span>
+      </p>
+      <p className="mt-1 text-xs text-muted-2">
+        Покупатель платит по QR любым банком Кыргызстана на нашей странице. Кредиты начисляются только после
+        подтверждения оплаты самим GoPay. Менять режим, среду и ключи может только главный администратор.
+      </p>
+
+      {savedEnv === "test" && (
+        <div className="mt-3 rounded-xl border border-status-wait/50 bg-status-wait/10 px-3 py-2 text-sm font-semibold text-status-wait">
+          ТЕСТОВАЯ СРЕДА: QR видят только сотрудники, деньги не списываются, платежи помечаются «тест» и не
+          попадают в выручку
+        </div>
+      )}
+
+      {healthEnvs.map((e) => {
+        const h = gopay.health?.[e];
+        if (!h) return null;
+        const since = goPaySince(h.since);
+        const text =
+          // Среду называем, только когда сбоит не та, что сейчас включена.
+          (e !== savedEnv ? `${e === "test" ? "Тестовая" : "Боевая"} среда: ` : "") +
+          `GoPay не отвечает / отклоняет запросы${since ? ` с ${since}` : ""}` +
+          ` (${GOPAY_HEALTH_KIND[h.kind] || h.kind || "сбой"}` +
+          `${h.code && h.code !== h.kind ? `, код ${h.code}` : ""}, подряд: ${Number(h.fails) || 0})` +
+          (h.kind === "auth" ? " — проверьте ключ, секрет и ограничение по IP" : "") +
+          (h.kind === "org_inactive" ? " — организация не активирована" : "") +
+          (h.down ? ". Запросы к GoPay временно приостановлены" : "");
+        return (
+          <p key={e} className="mt-3 text-sm text-status-fail">
+            {text}
+          </p>
+        );
+      })}
+
+      {err && <div className="mt-3 text-sm text-status-fail">{err}</div>}
+
+      {unsettled > 0 && (
+        <p className="mt-3 text-sm text-status-fail">
+          <Link href="/admin-new/payments?unsettled=1" className="font-semibold underline underline-offset-2">
+            Оплачено, но не зачислено: {unsettled}
+          </Link>
+        </p>
+      )}
+
+      {effective.public && kgsMode !== "on" && (
+        <p className="mt-3 text-xs text-status-wait">
+          QR включён, но окно выбора способа открыто не всем — включите «Оплата в сомах: выбор способа»
+        </p>
+      )}
+      {effective.staff && !effective.public && kgsMode === "off" && (
+        <p className="mt-3 text-xs text-status-wait">
+          QR готов для сотрудников, но окно выбора способа выключено — включите «Оплата в сомах: выбор способа»
+          хотя бы для сотрудников
+        </p>
+      )}
+      {!gopay.configured && otherEnvReady && (
+        <p className="mt-3 text-xs text-status-wait">
+          Ключи сохранены для {goPayEnvName(otherEnv, "gen")} среды, а активна {goPayEnvName(savedEnv)} —
+          переключите среду, иначе QR никому не показывается
+        </p>
+      )}
+      {!gopay.configured && !otherEnvReady && savedMode !== "off" && (
+        <p className="mt-3 text-xs text-muted-2">
+          Для {goPayEnvName(savedEnv, "gen")} среды не заданы API-ключ и секрет — пока их нет, QR никому не
+          показывается.
+        </p>
+      )}
+
+      {/* Режим */}
+      <div className="mt-4 flex flex-wrap gap-2">
+        {GOPAY_MODES.map((m) => (
+          <button key={m.value} onClick={() => setMode(m.value)} title={m.hint} className={chip(mode === m.value)}>
+            {m.label}
+          </button>
+        ))}
+      </div>
+      <p className="mt-2 text-[11px] text-muted-2">{GOPAY_MODES.find((m) => m.value === mode)?.hint}</p>
+
+      {/* Среда и срок жизни */}
+      <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div className="flex flex-col gap-1">
+          <span className="text-xs text-muted">Среда — какая пара ключей работает</span>
+          <div className="flex flex-wrap gap-2">
+            {GOPAY_ENVS.map((item) => (
+              <button
+                key={item.value}
+                onClick={() => setEnv(item.value)}
+                title={item.hint}
+                className={chip(env === item.value)}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+          <span className="text-[11px] text-muted-2">{GOPAY_ENVS.find((item) => item.value === env)?.hint}</span>
+        </div>
+        <div className="flex flex-col gap-1">
+          <label htmlFor="gopay-lifetime" className="text-xs text-muted">
+            Срок жизни QR, минут
+          </label>
+          <input
+            id="gopay-lifetime"
+            type="number"
+            inputMode="numeric"
+            min={GOPAY_LIFETIME_MIN}
+            max={GOPAY_LIFETIME_MAX}
+            step={1}
+            value={lifetime}
+            onChange={(e) => setLifetime(e.target.value)}
+            className={`${INPUT} max-w-[10rem]`}
+          />
+          <span className="text-[11px] text-muted-2">
+            От {GOPAY_LIFETIME_MIN} до {GOPAY_LIFETIME_MAX}. Столько покупатель видит QR и таймер; действует на
+            новые счета.
+          </span>
+        </div>
+      </div>
+
+      <label className="mt-4 flex max-w-xl cursor-pointer items-start gap-3 rounded-xl border border-border bg-surface-2 px-3 py-2.5">
+        <input
+          type="checkbox"
+          checked={sendEmail}
+          onChange={(e) => setSendEmail(e.target.checked)}
+          className="mt-0.5 h-4 w-4 accent-[var(--accent)]"
+        />
+        <span className="flex flex-col gap-0.5">
+          <span className="text-sm text-foreground">Передавать e-mail покупателя в GoPay</span>
+          <span className="text-[11px] text-muted-2">
+            Без него страница оплаты GoPay сначала спрашивает у покупателя контакт, а чек онлайн-кассы уходит
+            без получателя. Тот же e-mail уже передаётся в Freedom Pay. Выключите, если передавать нельзя.
+          </span>
+          <span className="text-[11px] text-muted-2">
+            У аккаунтов без настоящей почты (вход только через Telegram) e-mail не передаётся при любом
+            положении галочки.
+          </span>
+        </span>
+      </label>
+
+      {/* Ключи: две среды */}
+      <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+        {GOPAY_ENV_KEYS.map((e) => {
+          const test = tests[e];
+          const open = inFlight(e);
+          return (
+            <div key={e} className="rounded-xl border border-border p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <FiKey className="h-4 w-4 text-accent" />
+                  <h3 className="text-sm font-semibold">{e === "test" ? "Тестовые ключи" : "Боевые ключи"}</h3>
+                  {e === savedEnv && (
+                    <span className="rounded border border-accent/40 px-1.5 py-0.5 text-[10px] text-accent">
+                      активная среда
+                    </span>
+                  )}
+                </div>
+                <button
+                  onClick={() => runTest(e)}
+                  disabled={testing !== null}
+                  className="rounded-lg border border-border bg-surface-2 px-3 py-1.5 text-xs font-semibold text-foreground transition-opacity hover:opacity-90 disabled:opacity-50"
+                >
+                  {testing === e ? "Проверка…" : "Проверить соединение"}
+                </button>
+              </div>
+
+              <div className="mt-3 flex flex-col gap-3">
+                {GOPAY_SECRET_FIELDS.map((f) => {
+                  const set = isSet(e, f.key);
+                  const tail = f.key === "api_key" ? String(keysOf(e).api_key_tail || "") : "";
+                  const inputId = `gopay-${e}-${f.key}`;
+                  return (
+                    <div key={f.key} className="flex flex-col gap-1">
+                      <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
+                        <label htmlFor={inputId} className="text-xs text-muted">
+                          {f.label}:{" "}
+                          <span className={set ? "text-status-ok" : "text-muted-2"}>
+                            {set ? (tail ? `задан · ${tail}` : "задан") : "не задан"}
+                          </span>
+                        </label>
+                        {set && (
+                          <button
+                            type="button"
+                            onClick={() => removeSecret(e, f.key, f.label)}
+                            disabled={busy}
+                            className="text-[11px] text-muted-2 underline underline-offset-2 transition-colors hover:text-status-fail disabled:opacity-50"
+                          >
+                            {removing === `${e}.${f.key}` ? "Удаление…" : "Удалить"}
+                          </button>
+                        )}
+                      </div>
+                      <input
+                        id={inputId}
+                        name={inputId}
+                        type="password"
+                        value={secrets[e][f.key]}
+                        onChange={(ev) =>
+                          setSecrets((prev) => ({ ...prev, [e]: { ...prev[e], [f.key]: ev.target.value } }))
+                        }
+                        placeholder={set ? "новое значение заменит текущее" : "вставьте значение"}
+                        autoComplete="new-password"
+                        spellCheck={false}
+                        className={`${INPUT} w-full font-mono`}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+
+              {open > 0 && (
+                <p className="mt-3 text-[11px] text-status-wait">
+                  Незавершённых QR-счетов по этой среде: {open}. Пока они не закрыты, ключи не удаляйте — без них
+                  оплаченный счёт не будет зачислен.
+                </p>
+              )}
+              {hasDraft(e) && (
+                <p className="mt-3 text-[11px] text-muted-2">
+                  Проверка идёт по сохранённым ключам — сначала сохраните введённые.
+                </p>
+              )}
+
+              {test && (
+                <div className={`mt-3 text-sm ${test.ok ? "text-status-ok" : "text-status-fail"}`}>
+                  {test.ok
+                    ? `Ключ и секрет приняты · приложений банков: ${test.apps ?? "—"}` +
+                      (test.webhook_secret_set === false ? " · ВНИМАНИЕ: не задан секрет вебхуков" : "")
+                    : test.error || "GoPay отклонил запрос"}
+                </div>
+              )}
+              <p className="mt-3 text-[11px] text-muted-2">
+                Проверка не различает тестовый и боевой ключ и не показывает, активирована ли организация в
+                GoPay, — это покажет первый QR
+              </p>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Вебхуки: что перенести в кабинет GoPay */}
+      <div className="mt-5 border-t border-border pt-4">
+        <h3 className="text-sm font-semibold">Вебхуки — что указать в кабинете GoPay</h3>
+        {gopay.webhook_url ? (
+          <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
+            <input
+              type="text"
+              readOnly
+              value={gopay.webhook_url}
+              onFocus={(e) => e.currentTarget.select()}
+              aria-label="Адрес вебхуков GoPay"
+              className={`${INPUT} min-w-0 flex-1 font-mono text-xs`}
+            />
+            <button
+              type="button"
+              onClick={copyWebhook}
+              className="shrink-0 rounded-lg border border-border bg-surface-2 px-3 py-2 text-xs font-semibold text-foreground transition-opacity hover:opacity-90"
+            >
+              {copied === "ok" ? "Скопировано" : copied === "fail" ? "Выделите и скопируйте вручную" : "Скопировать"}
+            </button>
+          </div>
+        ) : (
+          <p className="mt-2 text-sm text-status-wait">Не задан SITE_BASE_URL на сервере</p>
+        )}
+        <p className="mt-3 text-xs text-muted">
+          Кабинет GoPay → Developer → Webhooks: вставьте этот адрес и отметьте события. Те, что не отмечены,
+          GoPay не присылает.
+        </p>
+        <ul className="mt-2 flex flex-col gap-1 text-xs">
+          {(gopay.webhook_events || []).map((name) => (
+            <li key={name} className="flex flex-wrap items-baseline gap-x-2">
+              <code className="rounded bg-surface-2 px-1.5 py-0.5 font-mono">{name}</code>
+              <span className="text-status-ok">обязательно</span>
+            </li>
+          ))}
+          {(gopay.webhook_events_optional || []).map((name) => (
+            <li key={name} className="flex flex-wrap items-baseline gap-x-2">
+              <code className="rounded bg-surface-2 px-1.5 py-0.5 font-mono">{name}</code>
+              <span className="text-muted-2">
+                включите, если в кабинете включена онлайн-касса — иначе чеки в журнал не попадут
+              </span>
+            </li>
+          ))}
+        </ul>
+        <p className="mt-3 text-[11px] text-muted-2">Поле callback_url в кабинете GoPay оставьте пустым.</p>
+        <p className="mt-1 text-[11px] text-muted-2">
+          Если «Отправить тест» в кабинете показывает 403, 5xx или таймаут — запрос не дошёл до сайта
+          (Cloudflare/WAF), секрет тут ни при чём; 400 — неверный секрет.
+        </p>
+        {gopay.api_host && (
+          <p className="mt-1 text-[11px] text-muted-2">
+            Запросы к GoPay уходят на <span className="font-mono">{gopay.api_host}</span>.
+          </p>
+        )}
+      </div>
+    </section>
+  );
+}
+
 type KgsMode = "off" | "staff" | "on";
 
 const KGS_MODES: { value: KgsMode; label: string; hint: string }[] = [
@@ -1263,7 +1942,7 @@ const KGS_MODES: { value: KgsMode; label: string; hint: string }[] = [
   { value: "on", label: "Включено", hint: "выбор способа видят все" },
 ];
 
-/** Подписи способов в админке. Единый QR здесь не галочка: он включается своим кодом. */
+/** Подписи способов в админке. Единый QR здесь не галочка: он включается блоком GoPay. */
 const KGS_METHOD_LABELS: Record<string, string> = {
   elqr: "Единый QR",
   mbank: "MBANK",
@@ -1285,9 +1964,9 @@ const kgsEnabledList = (raw?: string): string[] =>
     .filter((k) => k && k !== "elqr");
 
 /**
- * Оплата в сомах: окно «банк или карта» перед уходом на страницу Freedom Pay.
- * Режим off/staff/on, какие способы показывать и код единого QR — его
- * Freedom Pay выдаёт магазину отдельно, до тех пор поле пустое.
+ * Оплата в сомах: окно выбора способа перед оплатой. Режим off/staff/on и
+ * какие способы Freedom Pay показывать. Единый QR в это окно добавляет блок
+ * GoPay выше; код единого QR от Freedom Pay остался полем на будущее.
  */
 function KgsMethodsSection({ settings, onSaved }: { settings: Settings; onSaved: (s: Settings) => void }) {
   const known = (settings.kgs_methods_known?.length ? settings.kgs_methods_known : KGS_METHODS_FALLBACK).filter(
@@ -1318,7 +1997,9 @@ function KgsMethodsSection({ settings, onSaved }: { settings: Settings; onSaved:
   const codeTrimmed = code.trim();
   const dirty =
     mode !== savedMode || enabledOrdered.join(",") !== savedEnabled.join(",") || codeTrimmed !== savedCode;
-  const onlyCard = !codeTrimmed && enabledOrdered.every((k) => k === "card");
+  // Одна «карта» — не выбор. Единый QR считается, только если GoPay готов показать
+  // его хотя бы сотрудникам; код Freedom Pay кнопку больше не даёт.
+  const onlyCard = enabledOrdered.every((k) => k === "card") && !settings.gopay?.effective?.staff;
 
   const save = async () => {
     const patch: Record<string, string> = {};
@@ -1408,14 +2089,14 @@ function KgsMethodsSection({ settings, onSaved }: { settings: Settings; onSaved:
         </div>
         {onlyCard && (
           <p className="mt-2 text-[11px] text-status-wait">
-            Без единого QR и без банков окно выбора не показывается: с одной кнопкой «картой» выбирать не из
-            чего, и человек сразу попадает на страницу Freedom Pay.
+            Без единого QR (GoPay) окно выбора не показывается: с одной кнопкой «картой» выбирать не из
+            чего.
           </p>
         )}
       </div>
 
       <div className="mt-4 flex max-w-sm flex-col gap-1">
-        <label className="text-xs text-muted">Код единого QR (от Freedom Pay)</label>
+        <label className="text-xs text-muted">Код единого QR Freedom Pay (не используется)</label>
         <input
           type="text"
           value={code}
@@ -1426,10 +2107,7 @@ function KgsMethodsSection({ settings, onSaved }: { settings: Settings; onSaved:
           className={`${INPUT} font-mono`}
         />
         <span className="text-[11px] text-muted-2">
-          Поле пустое, пока Freedom Pay не выдаст код платёжной системы для единого QR. Как только код задан,
-          кнопка «{KGS_METHOD_LABELS.elqr} — любой банк Кыргызстана» появляется в окне первой; очистите поле —
-          кнопка пропадёт.{" "}
-          {savedCode ? "Сейчас единый QR показывается." : "Сейчас единого QR в окне нет."}
+          Единый QR работает через GoPay (блок выше). Код Freedom Pay хранится на будущее и кнопку не включает.
         </span>
       </div>
 

@@ -155,6 +155,24 @@ class MoneyInvariantTests(ChecksTestCase):
         self.commission(payment, amount="8.700000", base="87.000000")
         self.assertGreaterEqual(sum(v.count for v in self.found("I2")), 2)   # курс и потолок
 
+    def test_i2_gopay_is_checked_as_a_kgs_payment(self):
+        # Единый QR (GoPay) — оплата в сомах: без своей ветки такая строка не
+        # попала бы ни в одну проверку и завышенная база прошла бы незамеченной.
+        payment = f.make_payment(self.buyer, provider="gopay", amount="490.00")
+        row = self.commission(payment, amount="0.563500", base="5.635000")
+        self.assertClean()
+        # Курс в десять раз выше настоящего: строка сходится сама с собой, но не с платежом.
+        CreatorCommission.objects.filter(pk=row.pk).update(
+            base_usd=D("56.350000"), amount_usdt=D("5.635000"))
+        violation = self.assertFails("I2")[0]
+        self.assertIn(str(payment.pk), violation.detail)
+
+    def test_i2_gopay_base_above_the_payment(self):
+        # Сом никогда не дороже доллара: база больше суммы в сомах — нарушение.
+        payment = f.make_payment(self.buyer, provider="gopay", amount="1.00")
+        self.commission(payment, amount="8.700000", base="87.000000")
+        self.assertGreaterEqual(sum(v.count for v in self.found("I2")), 2)   # курс и потолок
+
     def test_i2_yookassa_base_above_the_kgs_price(self):
         payment = f.make_payment(self.buyer, provider="yookassa", amount="520.00",
                                  kgs_price="490.00")

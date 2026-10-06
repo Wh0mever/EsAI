@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import dynamic from "next/dynamic";
 import { fetchData } from "@/tools/fetchData";
@@ -17,11 +17,23 @@ import CryptoPendingBanner from "@/components/payments/crypto/CryptoPendingBanne
 import KgsMethodModal from "@/components/payments/KgsMethodModal";
 import type { KgsHeldDiscount } from "@/components/payments/KgsMethodModal";
 import type { PendingPayment } from "@/types/crypto";
+import QrPendingBanner from "@/components/payments/qr/QrPendingBanner";
+import { useQrBannerWatch } from "@/hooks/useQrBannerWatch";
+import { useQrReturn } from "@/hooks/useQrReturn";
+import { clockSkewMs, isQrInvoice } from "@/lib/qrpay";
+import { clearQrSession, saveQrSession } from "@/lib/qrSession";
+import type { QrCancelResult, QrInvoice } from "@/types/qrpay";
 
 // Экран криптооплаты тянет за собой QR и значки монет — грузим его только
 // тому, кто действительно выбрал крипту.
 const CryptoCheckoutModal = dynamic(
   () => import("@/components/payments/crypto/CryptoCheckoutModal"),
+  { ssr: false }
+);
+
+// Экран оплаты по единому QR — то же правило: нужен только выбравшему QR.
+const QrCheckoutModal = dynamic(
+  () => import("@/components/payments/qr/QrCheckoutModal"),
   { ssr: false }
 );
 
@@ -38,6 +50,36 @@ type Pkg = {
   badge?: string;
   /** визуально выделить пакет как рекомендованный (из админки) */
   featured?: boolean;
+};
+
+/**
+ * Ответ POST /api/plans/purchase/ для оплаты картой: ссылка на страницу банка
+ * (ключ зависит от платёжной системы) либо отказ с подсказками. QR-счёт
+ * приходит тем же запросом — его отличает isQrInvoice.
+ */
+type PurchaseAnswer = {
+  redirect_url?: string;
+  payment_url?: string;
+  url?: string;
+  checkout_url?: string;
+  /** цена выбранным способом без скидки (ответ discount_held) */
+  amount?: string;
+  /** оплата, за которой закреплена скидка; kind = "qr" — это QR-счёт без ссылки */
+  held?: { method?: string; order_id?: string; redirect_url?: string; amount?: string; kind?: string };
+};
+
+/** Открытый экран оплаты по единому QR. */
+type QrCheckoutState = {
+  /** null — вернулись к счёту (баннер, возврат из банка): пакет знает только сервер */
+  pkg: Pkg | null;
+  /** счёт из ответа на покупку */
+  initial?: QrInvoice;
+  /** известен только номер заказа */
+  resumeOrderId?: string;
+  /** человек согласился платить этим способом без скидки */
+  fullPrice?: boolean;
+  /** окно открыто подсказкой «вернулся из приложения банка» */
+  fromReturn?: boolean;
 };
 
 /**
@@ -141,6 +183,9 @@ export default function TokenPackages({
   // закрылась, и продолжить было нечем, кроме как начать заново.
   const [pending, setPending] = useState<PendingPayment | null>(null);
   const [pendingHidden, setPendingHidden] = useState(false);
+  // Насколько часы сервера впереди часов браузера на момент ответа о
+  // незавершённой оплате: отсчёт баннера QR идёт по часам сервера.
+  const [pendingSkewMs, setPendingSkewMs] = useState(0);
   // Крипта: список монет и открытый экран оплаты.
   const crypto = useCryptoCurrencies();
   const [checkout, setCheckout] = useState<
@@ -157,6 +202,11 @@ export default function TokenPackages({
   // Номер «сеанса» окна выбора: закрыли окно — ответ на запрос, начатый в
   // нём, уже никуда не ведёт (ни на страницу банка, ни в текст ошибки).
   const kgsSession = useRef(0);
+  // Единый QR: свой экран оплаты вместо ухода на страницу банка. pkg = null —
+  // вернулись к счёту (баннер, возврат из банка): пакет знает только сервер.
+  const [qrCheckout, setQrCheckout] = useState<QrCheckoutState | null>(null);
+  // «Оплатил в приложении банка и вернулся на перезагруженную страницу».
+  const { ret: qrReturn, dismiss: dismissQrReturn } = useQrReturn();
 
   useEffect(() => {
     setAuthed(Boolean(Cookies.get("access")));
@@ -173,37 +223,60 @@ export default function TokenPackages({
     return () => window.removeEventListener("pageshow", onShow);
   }, []);
 
+  // Незавершённая оплата с сервера. Вынесено в функцию: после закрытия окна QR
+  // без оплаты спрашиваем ещё раз, чтобы баннер появился без перезагрузки.
+  const pendingRequest = useRef(0);
+  const refetchPending = useCallback(async () => {
+    const request = ++pendingRequest.current;
+    const res = await fetchData<{ pending: PendingPayment | null }>(
+      "plans/purchase/pending/", "GET", null, true
+    );
+    if (request !== pendingRequest.current) return;
+    if (res.ok && res.data?.pending) {
+      const found = res.data.pending;
+      setPendingSkewMs(found.kind === "qr" ? clockSkewMs(found.server_time ?? null, Date.now()) : 0);
+      setPending(found);
+      return;
+    }
+    // Сервер не знает о счёте (например, ответ не успел дойти до перезагрузки) —
+    // подстраховываемся памятью вкладки: номер заказа хватит, чтобы открыть
+    // тот же экран. Только для крипты: баннер QR из одной подсказки не
+    // строим — что с QR на самом деле, знает сервер (useQrReturn).
+    const saved = readCryptoSession();
+    if (saved) {
+      setPending({
+        kind: "crypto", order_id: saved.order_id, amount: "", currency: "USD",
+        package: saved.package_name || "", redirect_url: null,
+        status_url: `/api/plans/purchase/crypto/${saved.order_id}/`,
+        coin: saved.coin || "", network: saved.network || "",
+        pay_amount: "", amount_remaining: "", expires_at: null,
+        created_at: new Date(saved.saved_at).toISOString(),
+      });
+      return;
+    }
+    // Сервер ответил «ничего нет» — убираем баннер о счёте, которого уже нет
+    // (QR отменили или оплатили). На сбой сети баннер не трогаем.
+    if (res.ok) setPending(null);
+  }, []);
+
   useEffect(() => {
     if (!authed) return;
-    let alive = true;
-    (async () => {
-      const res = await fetchData<{ pending: PendingPayment | null }>(
-        "plans/purchase/pending/", "GET", null, true
-      );
-      if (!alive) return;
-      if (res.ok && res.data?.pending) {
-        setPending(res.data.pending);
-        return;
-      }
-      // Сервер не знает о счёте (например, ответ не успел дойти до перезагрузки) —
-      // подстраховываемся памятью вкладки: номер заказа хватит, чтобы открыть
-      // тот же экран.
-      const saved = readCryptoSession();
-      if (saved) {
-        setPending({
-          kind: "crypto", order_id: saved.order_id, amount: "", currency: "USD",
-          package: saved.package_name || "", redirect_url: null,
-          status_url: `/api/plans/purchase/crypto/${saved.order_id}/`,
-          coin: saved.coin || "", network: saved.network || "",
-          pay_amount: "", amount_remaining: "", expires_at: null,
-          created_at: new Date(saved.saved_at).toISOString(),
-        });
-      }
-    })();
+    void refetchPending();
     return () => {
-      alive = false;
+      // ответ на запрос размонтированной витрины уже некому показывать
+      pendingRequest.current += 1;
     };
-  }, [authed]);
+  }, [authed, refetchPending]);
+
+  // Вернулся уже оплативший: окно QR откроется само (см. qrView ниже) —
+  // попап скидки «при уходе» поверх «Оплачено» не нужен.
+  const qrReturnOpen = qrReturn.state === "open";
+  useEffect(() => {
+    if (qrReturnOpen) onPurchaseStart?.();
+    // onPurchaseStart — новая функция на каждый рендер родителя; важен только
+    // сам переход в «открыто».
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [qrReturnOpen]);
 
   useEffect(() => {
     let cancelled = false;
@@ -311,6 +384,121 @@ export default function TokenPackages({
     void startCardPurchase(kgsPick, "KGS", method);
   };
 
+  /**
+   * Убрать окно выбора, НЕ сообщая «конец оплаты»: вместо него сразу
+   * открывается экран QR, и попап скидки «при уходе» поверх него не нужен.
+   * «Конец оплаты» сообщит закрытие экрана QR.
+   */
+  const hideKgsChooser = () => {
+    kgsSession.current += 1;
+    setKgsPick(null);
+    setKgsBusy(null);
+    setKgsError("");
+    setKgsHeld(null);
+  };
+
+  // Экран QR на экране: то, что открыли сами, либо возврат уже оплатившего.
+  const qrView: QrCheckoutState | null =
+    qrCheckout ??
+    (qrReturn.state === "open" ? { pkg: null, resumeOrderId: qrReturn.orderId, fromReturn: true } : null);
+
+  // Баннер «незавершённая оплата по QR» на экране (окно QR закрыто) — следим
+  // за счётом сами. Первый ответ статуса обычно устаревший: сервер только
+  // ставит перепроверку у GoPay в очередь, и только что оплативший видел бы
+  // «незавершённая оплата… осталось 12:40» — момент, когда платят второй раз.
+  // Скрытый баннер тоже досматриваем: «Оплачено» важнее, чем «Скрыть».
+  const returnBanner = qrReturn.state === "banner" ? qrReturn : null;
+  const bannerOrderId =
+    qrView || checkout
+      ? null
+      : pending?.kind === "qr"
+        ? pending.order_id
+        : (returnBanner?.invoice.order_id ?? null);
+  const bannerSeed =
+    returnBanner && returnBanner.invoice.order_id === bannerOrderId
+      ? { invoice: returnBanner.invoice, skewMs: returnBanner.skewMs }
+      : null;
+  const bannerFresh = useQrBannerWatch(bannerOrderId, {
+    seed: bannerSeed,
+    onOpen: (invoice) => {
+      // Оплачен, пока человек смотрел на баннер: показываем экран QR — он
+      // скажет «Оплачено», обновит баланс и уберёт баннер.
+      onPurchaseStart?.();
+      setQrCheckout({ pkg: null, resumeOrderId: invoice.order_id, fromReturn: true });
+    },
+    onClosed: (orderId) => {
+      // Истёк, отменён, не прошёл: звать к этому коду больше незачем.
+      setPending((prev) => (prev && prev.kind === "qr" && prev.order_id === orderId ? null : prev));
+      if (returnBanner && returnBanner.invoice.order_id === orderId) dismissQrReturn();
+      else clearQrSession(orderId);
+    },
+  });
+  // Срок и часы сервера для баннера: самый свежий ответ статуса, иначе тот, с
+  // которым баннер появился.
+  const bannerClock = bannerFresh ?? bannerSeed;
+
+  /**
+   * С QR что-то сделали (открыли окно, закрыли, ушли к другому способу) —
+   * подсказка «вернулся из банка» своё отработала. Дальше баннер строится
+   * только по ответу сервера, иначе он звал бы к уже отменённому коду.
+   */
+  const settleQrReturn = () => {
+    if (qrReturn.state !== "none") dismissQrReturn();
+  };
+
+  const closeQrCheckout = () => {
+    settleQrReturn();
+    setQrCheckout(null);
+    setPendingHidden(false);
+    void refetchPending();
+    onPurchaseEnd?.();
+  };
+
+  /** Скидку держит QR-счёт, человек выбрал «продолжить его». */
+  const onResumeHeldQr = (orderId: string) => {
+    const pkg = kgsPick;
+    hideKgsChooser();
+    setQrCheckout({ pkg, resumeOrderId: orderId });
+  };
+
+  /**
+   * Скидку держит QR-счёт, человек выбрал «отменить QR и оплатить выбранным
+   * способом со скидкой». Сначала отменяем QR на сервере, и только если он
+   * действительно отпущен — повторяем покупку: скидку применит сервер.
+   */
+  const onCancelHeldQr = async (orderId: string) => {
+    if (!kgsPick || !kgsHeld || kgsBusy !== null) return;
+    const pkg = kgsPick;
+    const method = kgsHeld.method;
+    const session = kgsSession.current;
+    setKgsBusy(method);
+    setKgsError("");
+    const res = await fetchData<QrCancelResult>(
+      `plans/purchase/qr/${encodeURIComponent(orderId)}/cancel/`, "POST", null, true
+    );
+    // Окно выбора закрыли, пока шёл запрос, — вести уже некуда.
+    if (session !== kgsSession.current) return;
+    setKgsBusy(null);
+    const data = res.ok ? res.data : null;
+    // 404 — такого QR у человека уже нет: держать скидку нечему, пробуем покупку.
+    if (data?.released === true || res.status === 404) {
+      clearQrSession(orderId);
+      void startCardPurchase(pkg, "KGS", method);
+      return;
+    }
+    if (data?.result === "committed") {
+      // QR, оказывается, уже оплачен: показываем его экран, а не вторую оплату.
+      hideKgsChooser();
+      setQrCheckout({ pkg, resumeOrderId: orderId });
+      return;
+    }
+    if (data?.result === "busy") {
+      setKgsError(cardPurchaseError(429, "qr_busy"));
+      return;
+    }
+    setKgsError(cardPurchaseError(res.status, res.error));
+  };
+
   // Способ выбирают для оплаты в сомах — и сумма в окне всегда в сомах, даже
   // если на витрине сейчас доллары (сюда приходят и из окна крипты, кнопкой
   // «Карта · сом»). Скидка «при уходе» на сомовую оплату действует всегда.
@@ -348,6 +536,28 @@ export default function TokenPackages({
         defaultValue: "Этот пакет сейчас недоступен. Обновите страницу и выберите пакет снова.",
       });
     }
+    // Единый QR. qr_busy может прийти и на клик по карте: сервер сначала
+    // выясняет судьбу предыдущего QR этого человека.
+    if (code === "qr_too_often") {
+      return t("kgspay.err_qr_too_often", {
+        defaultValue: "Слишком много попыток — подождите минуту и попробуйте снова.",
+      });
+    }
+    if (code === "qr_busy") {
+      return t("kgspay.err_qr_busy", {
+        defaultValue: "Проверяем вашу предыдущую оплату по QR — повторите через несколько секунд.",
+      });
+    }
+    if (code === "qr_too_many_open_invoices") {
+      return t("kgspay.err_qr_too_many", {
+        defaultValue: "Слишком много открытых QR-кодов. Подождите несколько минут и попробуйте снова.",
+      });
+    }
+    if (code === "qr_request_failed" || code === "qr_config_error") {
+      return t("kgspay.err_qr_unavailable", {
+        defaultValue: "Оплата по QR сейчас недоступна. Попробуйте позже или выберите другой способ.",
+      });
+    }
     return t("topup.err_payment_unavailable", {
       defaultValue:
         "Не удалось открыть страницу оплаты. Попробуйте ещё раз через минуту или выберите другой способ оплаты.",
@@ -358,6 +568,8 @@ export default function TokenPackages({
    * Оплата картой: уходим на страницу банка. Валюта решает, какого.
    * method — способ, выбранный в окне оплаты сомами (только KGS): с ним
    * страница Freedom Pay открывается сразу на нужном банке или на карте.
+   * Исключение — единый QR (method = "elqr"): сервер отвечает QR-счётом, и
+   * вместо ухода на страницу банка открывается свой экран оплаты.
    */
   const startCardPurchase = async (
     pkg: Pkg,
@@ -382,6 +594,8 @@ export default function TokenPackages({
     // Уходим на страницу банка — кнопка способа крутится до самого перехода,
     // чтобы за эти полсекунды нельзя было создать второй платёж другим способом.
     let leaving = false;
+    // Открылся свой экран оплаты по QR: «конец оплаты» сообщит его закрытие.
+    let qrOpened = false;
     setBuyingId(pkg.id);
     setError("");
     if (method) {
@@ -391,7 +605,7 @@ export default function TokenPackages({
     }
     onPurchaseStart?.();
     try {
-      const res = await fetchData<any>(
+      const res = await fetchData<PurchaseAnswer | QrInvoice>(
         "plans/purchase/",
         "POST",
         // Валюта решает платёжный путь: RUB -> ЮKassa, KGS -> FreedomPay.
@@ -418,23 +632,39 @@ export default function TokenPackages({
             return;
           }
         }
-        const heldUrl = res?.data?.held?.redirect_url;
-        if (method && res?.error === "discount_held" && typeof heldUrl === "string" && heldUrl) {
+        const refused = (res?.data || {}) as PurchaseAnswer;
+        const heldInfo = refused.held;
+        const heldUrl =
+          typeof heldInfo?.redirect_url === "string" && heldInfo.redirect_url ? heldInfo.redirect_url : "";
+        // Скидку держит QR-счёт: ссылки у него нет, возвращаемся по номеру заказа.
+        const heldQrOrder =
+          !heldUrl && heldInfo?.kind === "qr" && heldInfo.order_id ? String(heldInfo.order_id) : "";
+        if (method && res?.error === "discount_held" && heldInfo && (heldUrl || heldQrOrder)) {
           // Скидка занята оплатой, начатой другим способом: сумму молча не
           // меняем, а даём выбрать — продолжить ту оплату или платить без скидки.
           setKgsHeld({
             method,
-            heldMethod: String(res.data.held.method || ""),
-            heldPriceLabel: somLabel(res.data.held.amount),
-            fullPriceLabel: somLabel(res.data.amount),
-            redirectUrl: heldUrl,
+            heldMethod: String(heldInfo.method || ""),
+            heldPriceLabel: somLabel(heldInfo.amount),
+            fullPriceLabel: somLabel(refused.amount),
+            ...(heldUrl ? { redirectUrl: heldUrl } : { orderId: heldQrOrder }),
           });
           return;
         }
         fail(cardPurchaseError(res?.status, res?.error));
         return;
       }
-      const d = res.data || {};
+      if (isQrInvoice(res.data)) {
+        // Единый QR: страницы банка нет — показываем свой экран с кодом.
+        // Номер заказа запоминаем: вернувшись из приложения банка на
+        // перезагруженную страницу, человек должен увидеть «Оплачено».
+        saveQrSession({ order_id: res.data.order_id, package_name: pkg.name });
+        qrOpened = true;
+        hideKgsChooser();
+        setQrCheckout({ pkg, initial: res.data, fullPrice });
+        return;
+      }
+      const d = (res.data || {}) as PurchaseAnswer;
       const url = d.redirect_url || d.payment_url || d.url || d.checkout_url;
       if (url && typeof url === "string") {
         leaving = true;
@@ -457,7 +687,7 @@ export default function TokenPackages({
         // (closeKgsChooser), иначе попап скидки вылез бы поверх окна.
         // Закрытое окно своё состояние уже сбросило — чужое не трогаем.
         if (!leaving && !dismissed()) setKgsBusy(null);
-      } else {
+      } else if (!qrOpened) {
         onPurchaseEnd?.();
       }
       if (retryPlain) {
@@ -530,7 +760,43 @@ export default function TokenPackages({
         />
       )}
 
-      {pending && !pendingHidden && pending.kind !== "crypto" && (
+      {/* Незавершённая оплата по QR: продолжается на нашем экране, по номеру заказа. */}
+      {pending && !pendingHidden && pending.kind === "qr" && (
+        <QrPendingBanner
+          packageName={pending.package}
+          amountLabel={pending.currency === "KGS" ? somLabel(pending.amount) : `${pending.amount} ${pending.currency}`}
+          expiresAt={bannerClock?.invoice.expires_at ?? pending.expires_at}
+          skewMs={bannerClock ? bannerClock.skewMs : pendingSkewMs}
+          onOpen={() => {
+            onPurchaseStart?.();
+            setQrCheckout({ pkg: null, resumeOrderId: pending.order_id });
+          }}
+          onDismiss={() => setPendingHidden(true)}
+        />
+      )}
+
+      {/* Вернулись из приложения банка на перезагруженную страницу, QR ещё ждёт
+          оплаты, а сервер незавершённого не назвал: баннер по ответу статуса —
+          с настоящими суммой и сроком, не по одной подсказке из браузера. */}
+      {!pending && qrReturn.state === "banner" && (
+        <QrPendingBanner
+          packageName={qrReturn.invoice.package.name}
+          amountLabel={
+            qrReturn.invoice.currency === "KGS"
+              ? somLabel(qrReturn.invoice.amount)
+              : `${qrReturn.invoice.amount} ${qrReturn.invoice.currency}`
+          }
+          expiresAt={bannerClock?.invoice.expires_at ?? qrReturn.invoice.expires_at}
+          skewMs={bannerClock ? bannerClock.skewMs : qrReturn.skewMs}
+          onOpen={() => {
+            onPurchaseStart?.();
+            setQrCheckout({ pkg: null, resumeOrderId: qrReturn.invoice.order_id, fromReturn: true });
+          }}
+          onDismiss={dismissQrReturn}
+        />
+      )}
+
+      {pending && !pendingHidden && pending.kind === "card" && (
         <div className="mx-auto mb-6 flex max-w-2xl flex-col gap-3 rounded-2xl border border-accent/50 bg-accent/5 p-4 sm:flex-row sm:items-center">
           <div className="flex-1">
             <p className="text-sm font-semibold text-foreground">
@@ -606,9 +872,37 @@ export default function TokenPackages({
         />
       )}
 
-      {/* Одновременно с окном крипты не открывается: оба живут по одному
-          (две модалки ломают друг другу Escape и блокировку прокрутки). */}
-      {kgsPick && !checkout && (
+      {/* Экран оплаты по единому QR. Закрытие окна счёт не отменяет — после
+          него спрашиваем сервер о незавершённой оплате, чтобы появился баннер. */}
+      {qrView && !checkout && (
+        <QrCheckoutModal
+          open
+          pkg={qrView.pkg}
+          initial={qrView.initial || null}
+          resumeOrderId={qrView.resumeOrderId || null}
+          deviceKey={deviceKey}
+          returnTo={returnTo}
+          fullPrice={qrView.fullPrice}
+          onPaid={() => setPending(null)}
+          onOtherMethod={
+            qrView.pkg
+              ? () => {
+                  const pkg = qrView.pkg as Pkg;
+                  settleQrReturn();
+                  setQrCheckout(null);
+                  // QR отменён — баннер о нём больше не нужен.
+                  void refetchPending();
+                  openKgsChooser(pkg);
+                }
+              : undefined
+          }
+          onClose={closeQrCheckout}
+        />
+      )}
+
+      {/* Одновременно с окном крипты или QR не открывается: модалка на экране
+          одна (две ломают друг другу Escape и блокировку прокрутки). */}
+      {kgsPick && !checkout && !qrView && (
         <KgsMethodModal
           open
           methods={kgsMethods}
@@ -621,6 +915,8 @@ export default function TokenPackages({
           onPayFull={() => {
             if (kgsHeld) void startCardPurchase(kgsPick, "KGS", kgsHeld.method, true);
           }}
+          onResumeHeld={onResumeHeldQr}
+          onCancelHeldQr={(orderId) => void onCancelHeldQr(orderId)}
           onClose={closeKgsChooser}
         />
       )}

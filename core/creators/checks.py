@@ -103,7 +103,7 @@ def _i1() -> list[Violation]:
 
 def _kgs_ceiling(payment) -> Decimal | None:
     """Сумма оплаты в сомах — потолок базы: сом никогда не дороже доллара."""
-    if payment.provider == "freedompay":
+    if payment.provider in ("freedompay", "gopay"):
         return _dec(payment.amount)
     req = payment.request or {}
     kgs = _dec(req.get("kgs_price"))
@@ -134,7 +134,10 @@ def _i2() -> list[Violation]:
         total_base = sum((row.base_usd for row in items), ZERO)
         amount = _dec(payment.amount)
 
-        kgs_based = (provider == "freedompay" and str(payment.currency or "").upper() == "KGS") \
+        # Единый QR (GoPay) — оплата в сомах, как и карта: без него такая строка
+        # не попала бы ни в одну ветку и осталась бы непроверенной.
+        kgs_based = (provider in ("freedompay", "gopay")
+                     and str(payment.currency or "").upper() == "KGS") \
             or provider == "yookassa"
         if kgs_based:
             if any(row.base_usd > 0 and not (commission.RATE_MIN <= row.rate_to_usd <= commission.RATE_MAX)

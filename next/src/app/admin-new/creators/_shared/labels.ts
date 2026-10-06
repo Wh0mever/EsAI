@@ -104,6 +104,7 @@ export function commissionReason(reason: string | null | undefined): string {
 
 export const PROVIDERS: Record<string, string> = {
   freedompay: "FreedomPay",
+  gopay: "Единый QR (GoPay)",
   yookassa: "ЮKassa",
   crypto_nowpayments: "Крипта",
   telegram_stars: "Telegram Stars",

@@ -76,6 +76,21 @@ def _payment_stage(p: Payment) -> str:
             return "pending"
         return "left"
 
+    # Единый QR (GoPay): ссылки на чужую страницу нет, а в callbacks лежит
+    # история статусов — по общему правилу ниже истёкший QR считался бы
+    # «оплата отклонена», а открытый — «ушёл и не вернулся».
+    qr = _gopay_invoice(p)
+    if qr is not None:
+        if qr.status == "failed":
+            return "declined"
+        abandoned = qr.cancel_requested_at is not None
+        if qr.is_open and not abandoned and qr.expires_at > timezone.now():
+            return "pending"
+        if qr.status == "cancelled" or abandoned:
+            # Человек сам ушёл с экрана QR («оплатить другим способом»).
+            return "canceled"
+        return "left"
+
     callbacks = (p.response or {}).get("callbacks") or []
     if p.error and "canceled" in str(p.error):
         return "canceled"
@@ -84,6 +99,66 @@ def _payment_stage(p: Payment) -> str:
     if (p.response or {}).get("yookassa_create") or (p.response or {}).get("init"):
         return "left"
     return "left"
+
+
+def _gopay_invoice(p: Payment):
+    """Счёт единого QR этого платежа или None (обратная связь один-к-одному не бросает)."""
+    try:
+        return p.gopay_invoice
+    except Exception:  # noqa: BLE001 — счёта нет
+        return None
+
+
+def _method_of(p: Payment) -> tuple[str, str, str]:
+    """(провайдер, способ, подпись) — строка разбивки «чем платили»."""
+    provider = str(p.provider or "")
+    method = str((p.request or {}).get("pay_method") or "")
+    if provider == "gopay":
+        return provider, method, "Единый QR (GoPay)"
+    if provider == "freedompay":
+        if method == "card":
+            return provider, method, "Карта (FreedomPay)"
+        if not method:
+            return provider, method, "FreedomPay без выбора способа"
+        return provider, method, f"{method.upper()} (FreedomPay)"
+    if provider == "yookassa":
+        return provider, "", "ЮKassa"
+    if provider.startswith("crypto_"):
+        return provider, "", "Крипта"
+    if provider == "telegram_stars":
+        return provider, "", "Telegram Stars"
+    return provider, method, provider or "—"
+
+
+def _qr_report(payments, events) -> dict:
+    """Единый QR: что произошло на сервере и что человек видел на экране.
+
+    created / paid / expired считаются по строкам платежей — эти числа сходятся
+    с разбивкой by_method на той же странице. Остальное — события клиента
+    (разные устройства). paid_seen — «увидел наш экран „Оплачено“»: с телефона
+    многие платят в приложении банка и во вкладку не возвращаются, поэтому оно
+    по замыслу меньше paid и «оплатами» не называется.
+    """
+    created = paid = expired = 0
+    for p in payments:
+        if str(p.provider or "") != "gopay":
+            continue
+        qr = _gopay_invoice(p)
+        if qr is None:
+            continue
+        created += 1
+        paid += 1 if p.success else 0
+        expired += 1 if qr.status == "expired" else 0
+    return {
+        "created": created,
+        "shown": events.get("kgs_qr_shown", 0),
+        "app_open": events.get("kgs_qr_app_open", 0),
+        "saved": events.get("kgs_qr_save", 0),
+        "other_method": events.get("kgs_qr_other_method", 0),
+        "paid": paid,
+        "expired": expired,
+        "paid_seen": events.get("kgs_qr_paid", 0),
+    }
 
 
 def _registered_after(ev, view_name: str, since) -> int:
@@ -131,7 +206,7 @@ def studio_report(since) -> list:
 
     paid = 0
     for p in Payment.objects.filter(created_at__gte=since, success=True,
-                                    request__token_purchase__isnull=False):
+                                    request__token_purchase__isnull=False).exclude(is_test=True):
         path = _return_to(p)
         if "studio" in path and not _is_vstudio_return(path):
             paid += 1
@@ -175,6 +250,7 @@ def vstudio_report(since) -> list:
 
     paid = sum(1 for p in Payment.objects.filter(created_at__gte=since, success=True,
                                                  request__token_purchase__isnull=False)
+               .exclude(is_test=True)
                if _is_vstudio_return(_return_to(p)))
 
     rows = [
@@ -208,7 +284,10 @@ def funnel_report(days: int = 30) -> dict:
     payments = list(
         Payment.objects.filter(created_at__gte=since,
                                request__token_purchase__isnull=False)
-        .select_related("crypto_invoice")
+        # Тестовые платежи (единый QR в тестовой среде) — проверка цепочки
+        # сотрудником, а не покупка: в воронке им не место.
+        .exclude(is_test=True)
+        .select_related("crypto_invoice", "gopay_invoice")
     )
     stages = {"paid": 0, "declined": 0, "canceled": 0, "left": 0,
               "partial": 0, "pending": 0}
@@ -252,15 +331,16 @@ def funnel_report(days: int = 30) -> dict:
          "count": stages["partial"],
          "hint": "Перевели меньше суммы — обычно не учли комиссию сети. "
                  "Кредиты начислены пропорционально, счёт ждёт доплаты."},
-        {"key": "pending", "label": "Ждём перевод (крипта)",
+        {"key": "pending", "label": "Ждём оплату (крипта, QR)",
          "count": stages["pending"],
          "hint": "Счёт выставлен и ещё действует — человек в этот момент "
-                 "может стоять в своём кошельке."},
+                 "может стоять в своём кошельке или в приложении банка."},
     ]
 
     by_currency = list(
         Payment.objects.filter(created_at__gte=since,
                                request__token_purchase__isnull=False)
+        .exclude(is_test=True)
         .values("currency")
         .annotate(всего=Count("id"), оплачено=Count("id", filter=Q(success=True)))
         .order_by("-всего")
@@ -275,6 +355,16 @@ def funnel_report(days: int = 30) -> dict:
         row["всего"] += 1
         row["оплачено"] += 1 if p.success else 0
 
+    # Чем платили: единый QR и карта — обе в сомах, по валюте их не различить.
+    methods = {}
+    for p in payments:
+        provider, method, label = _method_of(p)
+        key = f"{provider}:{method}"
+        row = methods.setdefault(key, {"key": key, "provider": provider, "method": method,
+                                       "label": label, "всего": 0, "оплачено": 0})
+        row["всего"] += 1
+        row["оплачено"] += 1 if p.success else 0
+
     return {
         "days": days,
         "studio": studio_report(since),
@@ -283,5 +373,7 @@ def funnel_report(days: int = 30) -> dict:
         "reasons": reasons,
         "by_currency": by_currency,
         "by_package": sorted(packages.values(), key=lambda r: -r["всего"]),
+        "by_method": sorted(methods.values(), key=lambda r: (-r["всего"], r["key"])),
+        "qr": _qr_report(payments, events),
         "conversion": round(stages["paid"] * 100 / started, 1) if started else None,
     }

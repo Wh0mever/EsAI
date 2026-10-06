@@ -784,6 +784,14 @@ class PaymentMarkRefundedView(SuperuserAPIView):
 
     def post(self, request, pk):
         data = _data(request)
+        # Единый QR (GoPay): пока счёт открыт, его ещё можно оплатить — а платёж
+        # сейчас отметят возвращённым. Сначала гасим счёт у GoPay, и только потом
+        # берём блокировки: сетевой вызов под блокировкой строки недопустим.
+        # Запрос, который отметка всё равно отклонит (нет причины, неизвестный
+        # вид), чужой QR гасить не должен — отмену у GoPay назад не вернуть.
+        if (str(data.get("kind") or "") in ("refund", "fraud")
+                and str(data.get("reason") or "").strip()):
+            self._close_gopay_invoice(pk)
         result = commissions.mark_payment_refunded(
             pk, kind=data.get("kind"), actor=request.user, reason=data.get("reason"),
             clawback_credits=_flag(data.get("clawback_credits")), request=request)
@@ -791,3 +799,31 @@ class PaymentMarkRefundedView(SuperuserAPIView):
         return Response({"reversed": int(result.get("reversed") or 0),
                          "clawback_debited": int(result.get("clawback_debited") or 0),
                          "payment": PaymentAdminSerializer(payment).data})
+
+    @staticmethod
+    def _close_gopay_invoice(pk) -> None:
+        """Отменить у GoPay ещё открытый QR этого платежа. Не бросает.
+
+        Не вышло отменить (GoPay молчит или банк занят) — счёт помечается
+        оставленным: покупателю он больше не показывается, а поздняя оплата по
+        нему уже не зачислится, потому что платёж отмечен возвращённым.
+        """
+        import logging
+
+        from django.db import transaction
+
+        try:
+            from payments.gopay import service as gopay_service
+            from payments.models import GoPayInvoice
+
+            # Точка сохранения: сбой здесь не должен отравить транзакцию запроса —
+            # сама отметка от GoPay не зависит.
+            with transaction.atomic():
+                gp = gopay_service.invoice_of(Payment.objects.filter(pk=pk).first())
+                if gp is not None and (gp.status in GoPayInvoice.OPEN_STATES
+                                       or (gp.flags or {}).get("local_expiry")):
+                    if gopay_service.cancel_invoice(gp, reason="admin_refund") in ("retry", "busy"):
+                        gopay_service.mark_abandoned(gp, "admin_refund")
+        except Exception:  # noqa: BLE001 — отметка возврата важнее отмены счёта
+            logging.getLogger("payments.gopay").warning(
+                "gopay: cancel before refund mark failed payment=%s", pk)

@@ -103,4 +103,18 @@ export type PendingPayment =
       amount_remaining: string;
       expires_at: string | null;
       created_at: string;
+    }
+  | {
+      /** единый QR (GoPay): продолжается на нашем экране, по номеру заказа */
+      kind: "qr";
+      order_id: string;
+      amount: string;
+      currency: string;
+      package: string;
+      redirect_url: null;
+      status_url: string;
+      expires_at: string | null;
+      /** время сервера на момент ответа — отсчёт баннера идёт по нему; старый сервер не присылает */
+      server_time?: string | null;
+      created_at: string;
     };

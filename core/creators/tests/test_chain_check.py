@@ -17,7 +17,7 @@ from django.core.management import call_command
 
 from adminapi.runtime import get_runtime, set_runtime
 from audit.models import AdminActionLog
-from payments.models import CryptoInvoice, Payment, StarInvoice
+from payments.models import CryptoInvoice, GoPayInvoice, Payment, StarInvoice
 from plans.models import TokenTransaction
 
 from ..models import (
@@ -34,8 +34,8 @@ OTHER_TRACKS = ("creators.program", "creators.codes", "creators.attribution")
 ASSEMBLED = all(importlib.util.find_spec(name) is not None for name in OTHER_TRACKS)
 
 TABLES = (Creator, CreatorApplication, CreatorCode, CreatorCommission, CreatorReferral,
-          CreatorWithdrawal, Payment, CryptoInvoice, StarInvoice, TokenTransaction,
-          AdminActionLog)
+          CreatorWithdrawal, Payment, CryptoInvoice, StarInvoice, GoPayInvoice,
+          TokenTransaction, AdminActionLog)
 
 
 @skipUnless(ASSEMBLED, "[gate] нужны все части программы Creators")
@@ -78,7 +78,9 @@ class ChainCheckTests(f.CreatorsTestCase):
                      "crypto_nowpayments", "telegram_stars", "telegram_stars (без пользователя)",
                      "freedompay (сигнал возврата)", "freedompay (возврат в кабинете)",
                      "freedompay (изъятие упало)", "freedompay (отметка администратора)",
-                     "freedompay (обычная рефералка)"):
+                     "freedompay (обычная рефералка)",
+                     "gopay (вебхук и сверка)", "gopay (тестовый платёж)",
+                     "gopay (отметка администратора)"):
             self.assertIn(name, providers)
         self.assertTrue(all(row["expected"] == row["actual"] for row in data["rows"]))
         # S02 проверяет общее пространство имён в обе стороны.

@@ -395,9 +395,10 @@ class CurrencyRateView(APIView):
         except Exception:  # noqa: BLE001 — витрина не должна падать из-за крипты
             crypto_enabled = False
 
-        # Оплата в сомах: какие способы (банк-приложение, карта) предложить
-        # этому человеку до ухода на FreedomPay. Пустой список — выбора нет,
-        # витрина ведёт себя как раньше.
+        # Оплата в сомах: какие способы (единый QR через GoPay, карта через
+        # FreedomPay) предложить этому человеку. Пустой список — выбора нет,
+        # витрина ведёт себя как раньше. У единого QR в тестовой среде GoPay
+        # есть пометка "test": true — экран оплаты покажет, что QR учебный.
         kgs_methods_list = []
         try:
             from payments import kgs_methods
@@ -486,6 +487,22 @@ KGS_APP_LINK_LIFETIME_SECONDS = (RESUME_WINDOW_MINUTES + 15) * 60
 DISCOUNT_INIT_GRACE = timedelta(minutes=2)
 
 
+def _gopay_invoice_of(payment):
+    """Счёт единого QR (GoPay) этого платежа или None. Не бросает.
+
+    У платежа другого провайдера счёта быть не может — туда даже не смотрим:
+    карточный путь не должен платить лишним запросом за существование QR.
+    """
+    try:
+        if payment is None or getattr(payment, "provider", "") != "gopay":
+            return None
+        from payments.gopay import service as gopay_service
+
+        return gopay_service.invoice_of(payment)
+    except Exception:  # noqa: BLE001 — проверка не должна ронять оплату
+        return None
+
+
 def _offer_free_for_new_payment(offer, now=None) -> bool:
     """Скидку можно отдать новому платежу.
 
@@ -504,6 +521,21 @@ def _offer_free_for_new_payment(offer, now=None) -> bool:
     if applied.success:
         return False
     now = now or timezone.now()
+    gp = _gopay_invoice_of(applied)
+    if gp is not None:
+        # Единый QR. «Наш срок вышел плюс минута» здесь сознательно не правило:
+        # оплату, сделанную в последние секунды QR или пока GoPay не отвечал, мы
+        # зачислим позже по скидочной цене — а скидка уже сидела бы на втором
+        # платеже. У самой скидки свой срок, так что навсегда она не зависнет.
+        if gp.status == "committed":
+            return False            # деньги пришли: зачисление или разбор впереди
+        if gp.cancel_requested_at is not None:
+            return True             # отменён или оставлен покупателем
+        if gp.status in ("failed", "expired", "cancelled"):
+            # Освобождает только закрытие, подтверждённое самим GoPay: закрытие
+            # по нашим часам (local_expiry) — ещё не истина о деньгах.
+            return not (gp.flags or {}).get("local_expiry")
+        return False                # открыт у GoPay: по нему можно платить
     response = applied.response or {}
     if any(isinstance(cb, dict) and cb.get("type") == "success"
            for cb in (response.get("callbacks") or [])):
@@ -584,6 +616,13 @@ def _discount_holder(request, package_id, currency):
             return None
         if str(holder.currency).upper() != str(currency).upper():
             return None
+        gp = _gopay_invoice_of(holder)
+        if gp is not None:
+            # У QR нет ссылки на чужую страницу: он «живой», пока открыт, не
+            # оставлен покупателем и наш срок не вышел.
+            return holder if (gp.status in ("created", "pending")
+                              and gp.cancel_requested_at is None
+                              and now < gp.expires_at) else None
         response = holder.response or {}
         if response.get("callbacks") or not _redirect_url_of(response):
             return None
@@ -597,6 +636,218 @@ def _discount_holder(request, package_id, currency):
         return holder
     except Exception:  # noqa: BLE001 — проверка не должна ронять оплату
         return None
+
+
+def _held_payload(holder) -> dict:
+    """Платёж, за которым закреплена скидка, — для ответа «скидка занята» (409)."""
+    data = {
+        "method": str((holder.request or {}).get("pay_method") or ""),
+        "order_id": holder.order_id,
+        "redirect_url": _redirect_url_of(holder.response or {}),
+        "amount": str(holder.amount),
+    }
+    if _gopay_invoice_of(holder) is not None:
+        # У QR ссылки нет (redirect_url пуст): клиент возвращается к нему по order_id.
+        data["kind"] = "qr"
+    return data
+
+
+def _pick_exit_discount(request, base_amount, now=None, superseded=frozenset()):
+    """(сумма к оплате, скидка | None) для нового платежа.
+
+    Вызывать ТОЛЬКО внутри transaction.atomic(): строка скидки блокируется, и
+    блокировка должна дожить до записи applied_to_payment — иначе два
+    параллельных клика «Купить» оба получили бы скидку.
+
+    superseded — номера платежей, которые этот же запрос вытесняет (прежние QR
+    покупателя): скидка, закреплённая за таким платежом, считается свободной —
+    она переезжает на новый QR.
+    """
+    from .exit_discount import _resolve_identity
+
+    identity = _resolve_identity(request)
+    ident_user, device_key = identity["user"], identity["device_key"]
+    now = now or timezone.now()
+
+    discount_offer = None
+    offer = None
+    if ident_user is not None:
+        offer = ExitDiscountOffer.objects.select_for_update().filter(user=ident_user).first()
+    if offer is None and device_key:
+        offer = ExitDiscountOffer.objects.select_for_update().filter(device_key=device_key).first()
+
+    if (
+        offer is not None
+        and offer.claimed_at is not None
+        and offer.redeemed_at is None
+        and (_offer_free_for_new_payment(offer) or offer.applied_to_payment_id in superseded)
+        and offer.expires_at is not None
+        and now <= offer.expires_at
+        and offer.percent
+    ):
+        discount_offer = offer
+
+    if discount_offer is not None:
+        percent = Decimal(int(discount_offer.percent))
+        amount = (base_amount * (Decimal(100) - percent) / Decimal(100)).quantize(Decimal("0.01"))
+        if amount <= 0 or amount >= base_amount:
+            # Защита от бракованной конфигурации (0% или >=100%) — не применяем скидку.
+            discount_offer = None
+            amount = base_amount
+    else:
+        amount = base_amount
+    return amount, discount_offer
+
+
+def _release_stale_qr_discount(request):
+    """Разобраться — спросив GoPay — со скидочным QR ЭТОГО покупателя, чей срок по нашим часам вышел.
+
+    Между «наш срок прошёл» и «GoPay подтвердил закрытие» есть до пары минут:
+    живым такой QR уже не считается (ответа «скидка занята» нет), а скидка ещё
+    не свободна. Нажавший в этот момент «Создать новый QR-код» или «картой»
+    молча получил бы полную цену. Поэтому спрашиваем GoPay сейчас.
+
+    Возвращает (итог, платёж):
+      ("", None)             — делать нечего или вопрос решён;
+      ("busy", None)         — банк прямо сейчас работает с тем QR, надо подождать;
+      ("committed", платёж)  — тот QR оказался оплачен.
+    Никогда не бросает: чужая оплата (картой) из-за QR сорваться не должна.
+    Без такого QR выходит до любого обращения к GoPay.
+    """
+    try:
+        from .exit_discount import _resolve_identity
+
+        identity = _resolve_identity(request)
+        offer = None
+        if identity["user"] is not None:
+            offer = ExitDiscountOffer.objects.filter(user=identity["user"]).first()
+        if offer is None and identity["device_key"]:
+            offer = ExitDiscountOffer.objects.filter(device_key=identity["device_key"]).first()
+        now = timezone.now()
+        if (offer is None or offer.claimed_at is None or offer.redeemed_at is not None
+                or not offer.percent or offer.expires_at is None or now > offer.expires_at):
+            return "", None
+        applied = offer.applied_to_payment
+        if applied is None or applied.success or applied.user_id != request.user.id:
+            return "", None
+        gp = _gopay_invoice_of(applied)
+        if gp is None or gp.cancel_requested_at is not None:
+            return "", None
+        over = ((gp.status in ("created", "pending") and now >= gp.expires_at)
+                or (gp.status == "expired" and (gp.flags or {}).get("local_expiry")))
+        if not over:
+            return "", None
+
+        from payments.gopay import service as gopay_service
+
+        if gopay_service.provider_down(gp.env):
+            # GoPay только что несколько раз не ответил: не заставляем человека
+            # ждать таймаут ещё раз — исход тот же, что у несостоявшейся отмены.
+            result = "retry"
+        else:
+            # Сначала GoPay, строки — потом: до вызова ничего не блокируем.
+            result = gopay_service.cancel_invoice(gp, reason="expired")
+        if result == "committed":
+            applied.refresh_from_db()
+            return "committed", applied
+        if result == "busy":
+            return "busy", None
+        if result == "retry":
+            # GoPay недоступен или отменить не может. Срок QR по нашим часам уже
+            # вышел, GoPay закроет его сам по lifetime — держать покупателя из-за
+            # чужого сбоя незачем. Счёт остаётся в сверке: поздняя оплата по нему
+            # всё равно зачислится (и попадёт на разбор).
+            if gopay_service.mark_abandoned(gp, "expired"):
+                from payments.gopay.views import _enqueue_cancel
+
+                transaction.on_commit(lambda i=gp.id: _enqueue_cancel(i, "expired"))
+        # cancelled / closed / not_open — GoPay подтвердил: скидка свободна.
+        return "", None
+    except Exception:  # noqa: BLE001 — проверка не должна ронять оплату
+        logging.getLogger("payments.gopay").exception(
+            "gopay: не удалось разобраться с истёкшим скидочным QR")
+        return "", None
+
+
+def _paid_qr_answer(stale_payment, package):
+    """Ответ «тот QR оплачен» для клика по этому же пакету, иначе None.
+
+    _release_stale_qr_discount только что выяснил, что скидочный QR покупателя
+    оплачен. Если нажали на тот же пакет, человек должен увидеть «оплачено», а
+    не второй счёт: вернуть деньги через API у GoPay нельзя. Оплачен другой
+    пакет — None, покупка идёт как обычно.
+    """
+    if stale_payment is None:
+        return None
+    paid_package = ((stale_payment.request or {}).get("token_purchase") or {}).get("package_id")
+    paid_invoice = _gopay_invoice_of(stale_payment)
+    if paid_invoice is None or str(paid_package) != str(package.id):
+        return None
+    from payments.gopay import service as gopay_service
+
+    paid_invoice.payment = stale_payment
+    return Response(gopay_service.invoice_json(paid_invoice, resumed=True))
+
+
+def _bucket_hits(key: str, window: int) -> int:
+    """Сколько раз за окно обратились по этому ключу (вместе с текущим разом)."""
+    from django.core.cache import cache as _cache
+
+    if _cache.add(key, 1, window):
+        return 1
+    try:
+        return int(_cache.incr(key))
+    except ValueError:
+        return 1
+
+
+def _client_ip(request) -> str:
+    # То же правило, что в creators/clicks.py: nginx кладёт сюда ровно один адрес.
+    meta = getattr(request, "META", None) or {}
+    forwarded = str(meta.get("HTTP_X_FORWARDED_FOR") or "").split(",")[0].strip()
+    return (forwarded or str(meta.get("REMOTE_ADDR") or "").strip())[:64]
+
+
+def _gopay_buyer_email(user) -> str:
+    """Почта покупателя для GoPay — только если это настоящий ящик.
+
+    С почтой страница GoPay не спрашивает у плательщика контакт, а чеку есть
+    куда прийти. У аккаунта, вошедшего через Telegram, почта — заглушка
+    (…@social.esai.local): её не шлём никогда. Отдельный выключатель в админке
+    отключает передачу почты совсем.
+    """
+    try:
+        from payments.gopay import config as gopay_config
+        from payments.gopay.client import SYNTHETIC_EMAIL_SUFFIX
+
+        if not gopay_config.send_buyer_email():
+            return ""
+        email = str(getattr(user, "email", "") or "").strip()
+        if (not email or "@" not in email or len(email) > 254
+                or email.lower().endswith(SYNTHETIC_EMAIL_SUFFIX)):
+            return ""
+        return email
+    except Exception:  # noqa: BLE001 — без почты счёт создаётся так же
+        return ""
+
+
+def _gopay_return_url(path: str, flag: str) -> str:
+    """Адрес возврата со страницы GoPay. Пусто — не передаём вовсе.
+
+    Путь приходит с клиента и может содержать пробелы, кавычки и кириллицу, а
+    GoPay проверяет поле как uri — поэтому адрес собираем закодированным и
+    сверяем с тем, что готовы отправить.
+    """
+    import urllib.parse
+
+    from payments.gopay.client import RETURN_URL_RE
+
+    base = str(getattr(settings, "SITE_BASE_URL", "") or "").strip().rstrip("/")
+    if not base.startswith("https://"):
+        return ""
+    query = urllib.parse.urlencode({"payment": flag})
+    url = f"{base}{urllib.parse.quote(str(path or ''), safe='/-._~')}?{query}"
+    return url if RETURN_URL_RE.fullmatch(url) else ""
 
 
 def pending_token_payment(user, package_id=None, currency=None, method=None):
@@ -652,11 +903,11 @@ def pending_token_resume(user, package_id=None):
     """Незавершённая оплата любого вида, к которой можно вернуться.
 
     Карточная — это ссылка на страницу банка, крипта — счёт с адресом и
-    таймером; общее у них одно: человек ушёл платить и не закончил. Если
-    незакрытыми оказались обе, показываем ту, что новее: она и есть текущее
-    намерение.
+    таймером, единый QR — наш экран с кодом; общее у них одно: человек ушёл
+    платить и не закончил. Если незакрытых несколько, показываем ту, что
+    новее: она и есть текущее намерение.
     """
-    from payments.models import CryptoInvoice
+    from payments.models import CryptoInvoice, GoPayInvoice
 
     payment, url = pending_token_payment(user, package_id)
     card = {"kind": "card", "payment": payment, "redirect_url": url} if url else None
@@ -672,9 +923,27 @@ def pending_token_resume(user, package_id=None):
     invoice = invoices.order_by("-created_at").first()
     crypto = {"kind": "crypto", "payment": invoice.payment, "invoice": invoice} if invoice else None
 
-    if card and crypto:
-        return card if card["payment"].created_at >= crypto["payment"].created_at else crypto
-    return card or crypto
+    # Единый QR: только неоплаченный, открытый и не оставленный покупателем —
+    # QR, от которого человек ушёл «платить другим способом», больше не
+    # предлагаем. Запас в полминуты: вернуть к коду, который истечёт, пока
+    # открывается экран, — хуже, чем не вернуть.
+    qr_invoices = GoPayInvoice.objects.select_related("payment").filter(
+        payment__user=user, payment__success=False,
+        status__in=list(GoPayInvoice.OPEN_STATES),
+        cancel_requested_at__isnull=True,
+        expires_at__gt=timezone.now() + timedelta(seconds=30),
+    )
+    if package_id:
+        qr_invoices = qr_invoices.filter(
+            payment__request__token_purchase__package_id=int(package_id))
+    qr_invoice = qr_invoices.order_by("-created_at", "-id").first()
+    qr = {"kind": "qr", "payment": qr_invoice.payment, "invoice": qr_invoice} if qr_invoice else None
+
+    found = [item for item in (card, crypto, qr) if item]
+    if not found:
+        return None
+    # При равном времени порядок прежний: карта, крипта, затем QR.
+    return max(found, key=lambda item: item["payment"].created_at)
 
 
 def _redirect_url_of(response: dict) -> str:
@@ -760,6 +1029,16 @@ class PendingPaymentView(APIView):
                 "amount_remaining": amount_str(remaining),
                 "expires_at": invoice.expires_at.isoformat() if invoice.expires_at else None,
             })
+        elif found["kind"] == "qr":
+            pending.update({
+                "redirect_url": None,
+                # Экран с QR открывается по этому адресу: чужой страницы оплаты нет.
+                "status_url": f"/api/plans/purchase/qr/{payment.order_id}/",
+                "expires_at": found["invoice"].expires_at.isoformat(),
+                # Отсчёт на плашке идёт по часам сервера: часы телефона могут
+                # спешить на минуты, и «осталось» врало бы до первого опроса.
+                "server_time": timezone.now().isoformat(),
+            })
         else:
             pending["redirect_url"] = found["redirect_url"]
 
@@ -776,6 +1055,9 @@ class TokenPurchaseView(APIView):
     Необязательное поле "method" — способ оплаты в сомах, выбранный на нашей
     стороне (payments/kgs_methods.py): FreedomPay сразу открывает нужный банк
     или форму карты. Без него запрос к FreedomPay остаётся прежним.
+
+    Способ "elqr" — единый QR через GoPay: страницы банка нет, в ответе —
+    счёт с QR для нашего экрана оплаты (см. _purchase_via_gopay).
     """
     authentication_classes = [JWTAuthentication]
     permission_classes = [permissions.IsAuthenticated]
@@ -785,7 +1067,6 @@ class TokenPurchaseView(APIView):
         from payments.models import Payment
         from payments import kgs_methods
         from django.urls import reverse
-        from .exit_discount import _resolve_identity
 
         package_id = (request.data or {}).get("package_id")
         try:
@@ -822,6 +1103,12 @@ class TokenPurchaseView(APIView):
         method_params = {}
         if pay_currency != "RUB":
             method = str((request.data or {}).get("method") or "").strip().lower()
+            if method == "elqr":
+                # Единый QR — это GoPay и наш экран оплаты: ни ссылки, ни параметров FreedomPay.
+                if currency != "KGS" or not kgs_methods.is_available("elqr", request.user):
+                    return Response({"detail": "method_unavailable"},
+                                    status=drf_status.HTTP_400_BAD_REQUEST)
+                return self._purchase_via_gopay(request, package, base_amount, return_to)
             if method:
                 method_params = kgs_methods.fp_params(method, request.user)
                 if method_params is None:
@@ -829,6 +1116,30 @@ class TokenPurchaseView(APIView):
                     # способ не должен ни завести платёж, ни вернуть старую ссылку.
                     return Response({"detail": "method_unavailable"},
                                     status=drf_status.HTTP_400_BAD_REQUEST)
+
+        if pay_currency != "RUB" and currency == "KGS":
+            # Скидочный QR этого покупателя, у которого вышло наше время:
+            # спрашиваем GoPay сейчас, а не отдаём молча полную цену. У кого
+            # такого QR нет — два дешёвых чтения и ни одного запроса к GoPay.
+            stale_state, stale_payment = _release_stale_qr_discount(request)
+            if stale_state == "busy":
+                # Банк прямо сейчас проводит оплату по тому QR: вторая оплата
+                # картой стала бы двойной, а возврата через API у GoPay нет.
+                return Response({"detail": "qr_busy"},
+                                status=drf_status.HTTP_429_TOO_MANY_REQUESTS)
+            if stale_state == "committed":
+                # Тот QR только что оказался оплачен (человек заплатил в последние
+                # секунды, вкладка уже показала «истёк», и он нажал «картой»).
+                # Вести его на страницу банка платить за тот же пакет второй раз
+                # нельзя — отдаём оплаченный счёт, клиент откроет экран «Оплачено».
+                try:
+                    paid = _paid_qr_answer(stale_payment, package)
+                except Exception:  # noqa: BLE001 — оплату картой это ронять не должно
+                    logging.getLogger("payments.gopay").exception(
+                        "gopay: не удалось показать оплаченный QR на карточном пути")
+                    paid = None
+                if paid is not None:
+                    return paid
 
         # Тот же пакет, начатый минуту назад, — это не второй платёж, а тот же
         # самый: человек вернулся и жмёт снова. Отдаём прежнюю ссылку.
@@ -855,12 +1166,7 @@ class TokenPurchaseView(APIView):
                     "detail": "discount_held",
                     "amount": str(base_amount),
                     "currency": currency,
-                    "held": {
-                        "method": str((holder.request or {}).get("pay_method") or ""),
-                        "order_id": holder.order_id,
-                        "redirect_url": _redirect_url_of(holder.response or {}),
-                        "amount": str(holder.amount),
-                    },
+                    "held": _held_payload(holder),
                 }, status=drf_status.HTTP_409_CONFLICT)
         # Прежняя ссылка — полная цена, а человек с тех пор забрал скидку: не
         # подсовываем её, иначе на витрине 392, а платёжка просит 490.
@@ -898,38 +1204,8 @@ class TokenPurchaseView(APIView):
         # оффера конкретным платежом (applied_to_payment) делаются в одной короткой
         # atomic-транзакции вместе с созданием Payment, ДО любого сетевого вызова к
         # FreedomPay — чтобы 2 параллельных клика "Купить" не могли оба получить скидку.
-        identity = _resolve_identity(request)
-        ident_user, device_key = identity["user"], identity["device_key"]
-        now = timezone.now()
-
         with transaction.atomic():
-            discount_offer = None
-            offer = None
-            if ident_user is not None:
-                offer = ExitDiscountOffer.objects.select_for_update().filter(user=ident_user).first()
-            if offer is None and device_key:
-                offer = ExitDiscountOffer.objects.select_for_update().filter(device_key=device_key).first()
-
-            if (
-                offer is not None
-                and offer.claimed_at is not None
-                and offer.redeemed_at is None
-                and _offer_free_for_new_payment(offer)
-                and offer.expires_at is not None
-                and now <= offer.expires_at
-                and offer.percent
-            ):
-                discount_offer = offer
-
-            if discount_offer is not None:
-                percent = Decimal(int(discount_offer.percent))
-                amount = (base_amount * (Decimal(100) - percent) / Decimal(100)).quantize(Decimal("0.01"))
-                if amount <= 0 or amount >= base_amount:
-                    # Защита от бракованной конфигурации (0% или >=100%) — не применяем скидку.
-                    discount_offer = None
-                    amount = base_amount
-            else:
-                amount = base_amount
+            amount, discount_offer = _pick_exit_discount(request, base_amount)
 
             order_id = f"tokpkg-{request.user.id}-{package.id}-{uuid.uuid4().hex[:10]}"
             payload = {
@@ -1237,6 +1513,231 @@ class TokenPurchaseView(APIView):
         _log_payment_event(payment, "crypto_created")
         invoice.payment = payment
         return Response(invoice_json(invoice), status=drf_status.HTTP_200_OK)
+
+    def _purchase_via_gopay(self, request, package, base_amount, return_to="/profile"):
+        """Выставить счёт единого QR (GoPay) и отдать его нашему экрану оплаты.
+
+        Ссылки на чужую страницу нет: в ответе QR, сумма, срок и ссылки в
+        приложения банков. Кредиты начисляются не здесь, а когда GoPay ответит
+        COMMITTED на наш собственный запрос статуса (payments/gopay/service.py).
+
+        Порядок шагов важен и держится на трёх правилах:
+        * сначала GoPay, блокировки потом — при ATOMIC_REQUESTS блокировка
+          строки живёт до конца запроса, и сетевой вызов под ней подвесил бы
+          вебхук и сверку. Два осознанных исключения: строка скидки (как и на
+          карточном пути) и строки СВОЕГО же прежнего QR, который этот запрос
+          только что закрыл;
+        * живой QR у покупателя один: новый вытесняет прежние, и скидка идёт
+          за самым новым;
+        * «тест только сотрудникам» проверяется здесь заново: среду читаем
+          один раз, а чтение настроек при сбое кэша откатывается к окружению.
+        """
+        from django.core.cache import cache as _cache
+
+        from payments.gopay import config as gopay_config
+        from payments.gopay import service as gopay_service
+        from payments.gopay.client import GoPayError
+        from payments.gopay.views import _enqueue_cancel
+        from payments.models import Payment
+        from payments.views import _log_payment_event
+
+        gopay_logger = logging.getLogger("payments.gopay")
+
+        def refuse(detail, status):
+            return Response({"detail": detail}, status=status)
+
+        # 1. Среда — одно чтение на весь запрос.
+        env = gopay_config.env()
+        if env == gopay_config.ENV_TEST and not gopay_config.is_staff_user(request.user):
+            return refuse("method_unavailable", drf_status.HTTP_400_BAD_REQUEST)
+        lifetime = gopay_config.lifetime_seconds()
+        if base_amount > Decimal("999999.99"):
+            # Больше GoPay не примет (сумма — до восьми знаков до запятой).
+            return refuse("method_unavailable", drf_status.HTTP_400_BAD_REQUEST)
+
+        # 2. Десяти нажатий в минуту хватит любому живому человеку (возвраты
+        #    к прежнему QR тоже считаются).
+        if _bucket_hits(f"gopay:purchase:{request.user.id}", 60) > 10:
+            return refuse("qr_too_often", drf_status.HTTP_429_TOO_MANY_REQUESTS)
+
+        # 3. Скидочный QR с вышедшим сроком: решаем его судьбу у GoPay сейчас.
+        stale_state, stale_payment = _release_stale_qr_discount(request)
+        if stale_state == "busy":
+            return refuse("qr_busy", drf_status.HTTP_429_TOO_MANY_REQUESTS)
+        if stale_state == "committed":
+            # Тот QR оплачен: человек должен увидеть «оплачено», а не второй код.
+            paid = _paid_qr_answer(stale_payment, package)
+            if paid is not None:
+                return paid
+
+        # 4. Тот же пакет с ещё живым QR — это тот же счёт, а не второй.
+        existing = gopay_service.find_resumable(request.user, package.id)
+        if existing is not None and _discount_waiting(request, existing.payment):
+            # Прежний QR — полная цена, а человек с тех пор забрал скидку:
+            # заводим новый, прежний будет вытеснен на шаге 13.
+            existing = None
+
+        # 5. Скидка закреплена за другим платежом этого пакета.
+        if (request.data or {}).get("full_price") is not True:
+            holder = _discount_holder(request, package.id, "KGS")
+            if holder is not None and not (existing is not None
+                                           and existing.payment_id == holder.pk):
+                held_invoice = _gopay_invoice_of(holder)
+                if held_invoice is not None:
+                    # Держатель скидки — сам QR: возвращаем к нему, сколько бы
+                    # времени ни осталось. «Скидка занята единым QR, оплатите
+                    # единым QR без скидки» покупателю не объяснить.
+                    held_invoice.payment = holder
+                    existing = held_invoice
+                else:
+                    return Response({
+                        "detail": "discount_held",
+                        "amount": str(base_amount),
+                        "currency": "KGS",
+                        "held": _held_payload(holder),
+                    }, status=drf_status.HTTP_409_CONFLICT)
+
+        # 6.
+        if existing is not None:
+            return Response(gopay_service.invoice_json(existing, resumed=True))
+
+        # 7. Прежние живые QR покупателя: будут вытеснены новым. Предел —
+        #    подстраховка на случай, когда GoPay отказывает в отменах, а человек
+        #    создаёт QR за QR.
+        stale = list(gopay_service.open_invoices_for(request.user))
+        stale_payment_ids = {inv.payment_id for inv in stale}
+        if (gopay_service.open_at_provider_count(request.user)
+                >= gopay_service.MAX_OPEN_AT_PROVIDER):
+            return refuse("qr_too_many_open_invoices", drf_status.HTTP_429_TOO_MANY_REQUESTS)
+
+        # 8. Создания с одного адреса и по всему сайту: ограничивают, сколько
+        #    счетов одноразовые аккаунты могут навалить в кабинет магазина и в
+        #    нашу сверку. Лимит на адрес щедрый: за одним адресом мобильного
+        #    оператора сидит много настоящих покупателей.
+        ip = _client_ip(request)
+        if ip and _bucket_hits(f"gopay:purchase:ip:{ip}", 600) > 60:
+            return refuse("qr_too_often", drf_status.HTTP_429_TOO_MANY_REQUESTS)
+        if _bucket_hits("gopay:purchase:all", 60) > 200:
+            if _cache.add("gopay:purchase:all:alert", 1, 60):
+                gopay_logger.error("gopay: больше 200 новых счетов за минуту — создание приостановлено")
+            return refuse("qr_too_often", drf_status.HTTP_429_TOO_MANY_REQUESTS)
+
+        # 9. Одно создание за раз на пакет. Замок нужен только на время самого
+        #    запроса к GoPay (с повтором и поиском по номеру заказа — до 90 с);
+        #    дальше дубли не даёт уже сам счёт. Поэтому снимается на КАЖДОМ выходе.
+        guard_key = f"gopay:create:{request.user.id}:{package.id}"
+        if not _cache.add(guard_key, "1", 90):
+            return refuse("qr_too_often", drf_status.HTTP_429_TOO_MANY_REQUESTS)
+
+        try:
+            # 10.
+            order_id = f"tokpkg-{request.user.id}-{package.id}-{uuid.uuid4().hex[:10]}"
+            if len(order_id) > 32:
+                # Предел GoPay. При нынешних номерах недостижим, но молча
+                # обрезанный номер заказа — это платёж, который не найти.
+                gopay_logger.error("gopay: номер заказа длиннее 32 символов user=%s package=%s",
+                                   request.user.id, package.id)
+                _cache.delete(guard_key)
+                return refuse("qr_config_error", drf_status.HTTP_502_BAD_GATEWAY)
+
+            # 11. Скидка и платёж — одной короткой транзакцией ДО запроса к GoPay.
+            with transaction.atomic():
+                amount, discount_offer = _pick_exit_discount(
+                    request, base_amount, superseded=stale_payment_ids)
+                prev_holder_id = discount_offer.applied_to_payment_id if discount_offer else None
+
+                request_payload = {
+                    "provider": "gopay",
+                    "pay_method": "elqr",
+                    "token_purchase": {
+                        "package_id": package.id,
+                        "tokens": int(package.tokens or 0),
+                        "bonus_tokens": int(package.bonus_tokens or 0),
+                    },
+                    "return_to": return_to,
+                    "gopay": {
+                        "env": env,
+                        "lifetime": lifetime,
+                        "package_name": str(tr(package, "name", request_lang(request)) or ""),
+                    },
+                }
+                if discount_offer is not None:
+                    request_payload["exit_discount"] = {
+                        "offer_id": discount_offer.id,
+                        "percent": int(discount_offer.percent),
+                        "original_amount": str(base_amount),
+                    }
+
+                payment = Payment.objects.create(
+                    user=request.user,
+                    provider="gopay",
+                    amount=amount,
+                    currency="KGS",
+                    order_id=order_id,
+                    description=f"Token package purchase #{package.id} (qr)",
+                    # Тестовая среда: платёж зачисляется (цепочку надо проверять),
+                    # но в выручку и комиссии не попадает.
+                    is_test=(env == gopay_config.ENV_TEST),
+                    request=request_payload,
+                    response={},
+                )
+                if discount_offer is not None:
+                    discount_offer.applied_to_payment = payment
+                    discount_offer.save(update_fields=["applied_to_payment"])
+
+            # 12. Запрос к GoPay — вне той транзакции.
+            try:
+                invoice = gopay_service.create_invoice(
+                    payment,
+                    description=f"EsAI: {package.name} — {int(package.tokens or 0)} кредитов"[:255],
+                    lifetime_seconds=lifetime,
+                    buyer_email=_gopay_buyer_email(request.user),
+                    success_url=_gopay_return_url(return_to, "tokens_success"),
+                    failure_url=_gopay_return_url(return_to, "tokens_failed"),
+                )
+            except GoPayError as exc:
+                # В ошибке платежа — только наш короткий код: ни текста GoPay, ни ключей.
+                payment.error = f"gopay_create_failed:{exc.code}"[:200]
+                payment.save(update_fields=["error"])
+                if discount_offer is not None and prev_holder_id in stale_payment_ids:
+                    # Ничего не создано: прежний QR покупателя остаётся живым,
+                    # поэтому скидка возвращается к нему. В остальных случаях
+                    # платёж с ошибкой и без счёта освобождает скидку сразу.
+                    discount_offer.applied_to_payment_id = prev_holder_id
+                    discount_offer.save(update_fields=["applied_to_payment"])
+                _log_payment_event(payment, "gopay_create_failed")
+                gopay_logger.warning("gopay: счёт не создан order=%s code=%s kind=%s",
+                                     order_id, exc.code, exc.kind)
+                _cache.delete(guard_key)
+                if exc.kind == "rate_limited":
+                    return refuse("qr_too_often", drf_status.HTTP_429_TOO_MANY_REQUESTS)
+                if exc.kind in ("auth", "org_inactive", "not_configured", "mismatch"):
+                    # Дело в настройке (ключи, среда, магазин не активен): повтор
+                    # покупателю не поможет, нужен администратор.
+                    return refuse("qr_config_error", drf_status.HTTP_502_BAD_GATEWAY)
+                return refuse("qr_request_failed", drf_status.HTTP_502_BAD_GATEWAY)
+
+            # 13. Новый QR есть — прежние вытесняем. ПОСЛЕ запроса к GoPay, чтобы
+            #     под сетевым вызовом не держать ни одной существовавшей строки.
+            #     Шаги 13–14 — под тем же try: вытеснение берёт блокировки строк
+            #     прежнего QR и может упасть (на PostgreSQL — взаимной блокировкой
+            #     с зачислением того QR). Запрос тогда откатывается целиком, и
+            #     снятие замка «после коммита» не сработает никогда.
+            for inv in stale:
+                if gopay_service.mark_abandoned(inv, "superseded"):
+                    transaction.on_commit(lambda i=inv.id: _enqueue_cancel(i, "superseded"))
+
+            # 14.
+            _log_payment_event(payment, "gopay_created")
+            invoice.payment = payment
+            response = Response(gopay_service.invoice_json(invoice),
+                                status=drf_status.HTTP_200_OK)
+            transaction.on_commit(lambda: _cache.delete(guard_key))
+            return response
+        except Exception:
+            # Что бы ни случилось, замок не должен пережить запрос на полторы минуты.
+            _cache.delete(guard_key)
+            raise
 
     def _purchase_via_yookassa(self, request, package, base_amount, rate, return_to="/profile"):
         """Оплата пакета в рублях через ЮKassa.

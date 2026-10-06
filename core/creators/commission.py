@@ -119,12 +119,14 @@ def compute_base(payment, *, credited: int | None) -> tuple[Decimal, str, Decima
     provider = str(payment.provider or "")
     amount = _dec(payment.amount)
 
-    if provider == "freedompay":
+    if provider in ("freedompay", "gopay"):
+        # Единый QR (GoPay) — те же сомы, что и карта: база = сумма × курс сома.
         currency = str(payment.currency or "").upper()
         if currency == "KGS":
             rate, source = kgs_rate()
             base, rate_source = amount * rate, f"kgs:{source}"
-        elif currency == "USD":
+        elif currency == "USD" and provider == "freedompay":
+            # В долларах принимает только FreedomPay; у GoPay всё в сомах.
             base, rate_source = amount, "usd"
         else:
             raise CreatorsError("unsupported_currency")

@@ -18,11 +18,21 @@ import { formatPrice } from "@/lib/currency";
 import type { KgsMethodKey } from "@/lib/currency";
 import { trackFunnel } from "@/tools/funnel";
 import KgsMethodModal from "@/components/payments/KgsMethodModal";
+import { useQrReturn } from "@/hooks/useQrReturn";
+import { isQrInvoice } from "@/lib/qrpay";
+import { saveQrSession } from "@/lib/qrSession";
+import type { QrInvoice } from "@/types/qrpay";
 
 // Значки монет и QR нужны только тому, кто выбрал крипту, — в общий бандл
 // чата они не попадают.
 const CryptoCheckoutModal = dynamic(
   () => import("@/components/payments/crypto/CryptoCheckoutModal"),
+  { ssr: false }
+);
+
+// Экран оплаты по единому QR — то же правило: грузим только выбравшему QR.
+const QrCheckoutModal = dynamic(
+  () => import("@/components/payments/qr/QrCheckoutModal"),
   { ssr: false }
 );
 
@@ -41,6 +51,18 @@ type Pkg = {
 type Props = {
   open: boolean;
   onClose: () => void;
+};
+
+/**
+ * Ответ POST /api/plans/purchase/ для оплаты картой: ссылка на страницу банка
+ * (ключ зависит от платёжной системы). QR-счёт приходит тем же запросом — его
+ * отличает isQrInvoice.
+ */
+type PurchaseAnswer = {
+  redirect_url?: string;
+  payment_url?: string;
+  url?: string;
+  checkout_url?: string;
 };
 
 /**
@@ -82,6 +104,15 @@ export default function TopUpModal({ open, onClose }: Props) {
   // Номер «сеанса» окна выбора: закрыли окно — ответ на запрос, начатый в
   // нём, уже никуда не ведёт (ни на страницу банка, ни в текст ошибки).
   const kgsSession = useRef(0);
+  // Единый QR: свой экран оплаты вместо ухода на страницу банка.
+  const [qrCheckout, setQrCheckout] = useState<{ pkg: Pkg; initial: QrInvoice } | null>(null);
+  // Оплата по QR прошла: «Оплачено» человек должен успеть увидеть, поэтому
+  // всё закрываем не в момент оплаты, а когда он сам закроет экран.
+  const qrPaid = useRef(false);
+  // «Оплатил в приложении банка и вернулся на перезагруженную страницу».
+  // Окно пополнения живёт в чате и студиях постоянно, так что это и точка
+  // возврата для них — хук работает независимо от того, открыто ли окно.
+  const { ret: qrReturn, dismiss: dismissQrReturn } = useQrReturn();
   const valueById = useMemo(() => {
     const map: Record<string, PackageValue> = {};
     for (const item of valuePackages) {
@@ -181,6 +212,28 @@ export default function TopUpModal({ open, onClose }: Props) {
         defaultValue: "Этот способ сейчас недоступен. Выберите другой.",
       });
     }
+    // Единый QR. qr_busy может прийти и на клик по карте: сервер сначала
+    // выясняет судьбу предыдущего QR этого человека.
+    if (code === "qr_too_often") {
+      return t("kgspay.err_qr_too_often", {
+        defaultValue: "Слишком много попыток — подождите минуту и попробуйте снова.",
+      });
+    }
+    if (code === "qr_busy") {
+      return t("kgspay.err_qr_busy", {
+        defaultValue: "Проверяем вашу предыдущую оплату по QR — повторите через несколько секунд.",
+      });
+    }
+    if (code === "qr_too_many_open_invoices") {
+      return t("kgspay.err_qr_too_many", {
+        defaultValue: "Слишком много открытых QR-кодов. Подождите несколько минут и попробуйте снова.",
+      });
+    }
+    if (code === "qr_request_failed" || code === "qr_config_error") {
+      return t("kgspay.err_qr_unavailable", {
+        defaultValue: "Оплата по QR сейчас недоступна. Попробуйте позже или выберите другой способ.",
+      });
+    }
     return t("topup.err_payment_unavailable", {
       defaultValue:
         "Не удалось открыть страницу оплаты. Попробуйте ещё раз через минуту или выберите другой способ оплаты.",
@@ -211,7 +264,7 @@ export default function TopUpModal({ open, onClose }: Props) {
       setKgsError("");
     }
     try {
-      const res = await fetchData<any>(
+      const res = await fetchData<PurchaseAnswer | QrInvoice>(
         "plans/purchase/",
         "POST",
         // full_price: здесь в окне выбора показана полная цена (скидки «при
@@ -241,7 +294,17 @@ export default function TopUpModal({ open, onClose }: Props) {
         else setError(res?.error || t("topup.purchase_error", { defaultValue: "Не удалось начать оплату" }));
         return;
       }
-      const d = res.data || {};
+      if (isQrInvoice(res.data)) {
+        // Единый QR: страницы банка нет — показываем свой экран с кодом.
+        // Номер заказа запоминаем: вернувшись из приложения банка на
+        // перезагруженную страницу, человек должен увидеть «Оплачено».
+        saveQrSession({ order_id: res.data.order_id, package_name: pkg.name });
+        qrPaid.current = false;
+        closeKgsChooser();
+        setQrCheckout({ pkg, initial: res.data });
+        return;
+      }
+      const d = (res.data || {}) as PurchaseAnswer;
       const url = d.payment_url || d.redirect_url || d.url || d.checkout_url;
       if (url && typeof url === "string") {
         leaving = true;
@@ -268,6 +331,53 @@ export default function TopUpModal({ open, onClose }: Props) {
       }
     }
   };
+
+  if (qrCheckout) {
+    // Экран оплаты по единому QR. Модалка на экране одна — свою прячем.
+    return (
+      <QrCheckoutModal
+        open
+        pkg={qrCheckout.pkg}
+        initial={qrCheckout.initial}
+        // В этом окне цены всегда полные (скидки «при уходе» тут нет), и
+        // покупка уходит с full_price — новый QR создаётся так же.
+        fullPrice
+        onPaid={() => {
+          qrPaid.current = true;
+        }}
+        onOtherMethod={() => {
+          const pkg = qrCheckout.pkg;
+          setQrCheckout(null);
+          openKgsChooser(pkg);
+        }}
+        onClose={() => {
+          setQrCheckout(null);
+          // Закрыли экран «Оплачено» — пополнение завершено, закрываем всё.
+          // Закрыли неоплаченный QR — возвращаемся к пакетам: счёт жив, и
+          // повторный клик по тому же пакету вернёт тот же код.
+          if (qrPaid.current) {
+            qrPaid.current = false;
+            closeKgsChooser();
+            onClose();
+          }
+        }}
+      />
+    );
+  }
+
+  if (qrReturn.state !== "none" && !kgsPick && !checkout) {
+    // Вернулись из приложения банка на перезагруженную страницу. В чате и
+    // студиях баннеру «незавершённая оплата» места нет, поэтому экран QR
+    // открываем сразу — даже если само окно пополнения закрыто: оплатившему
+    // он покажет «Оплачено», не успевшему — тот же код с настоящим сроком.
+    return (
+      <QrCheckoutModal
+        open
+        resumeOrderId={qrReturn.state === "open" ? qrReturn.orderId : qrReturn.invoice.order_id}
+        onClose={dismissQrReturn}
+      />
+    );
+  }
 
   if (kgsPick && !checkout) {
     // То же правило, что и с окном крипты ниже: модалка на экране одна.

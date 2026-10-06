@@ -4,6 +4,7 @@
 Decimal-поля отдаём числами (coerce_to_string=False), чтобы фронту не парсить строки.
 """
 from django.contrib.auth import get_user_model
+from django.utils import timezone
 from rest_framework import serializers
 from rest_framework.validators import UniqueValidator
 
@@ -160,7 +161,8 @@ class PaymentAdminSerializer(PaymentShortSerializer):
 
     У крипты «неуспешно» и «ещё не оплачено» — разные вещи: счёт живёт до часа,
     и всё это время платёж не успешен, но и не провален. Поэтому рядом с
-    success идёт pending и подробности счёта.
+    success идёт pending и подробности счёта. То же у единого QR (GoPay): счёт
+    живёт минуты, и пока его срок не вышел, платёж ждёт оплату, а не провален.
     """
 
     provider = serializers.CharField(read_only=True)
@@ -168,10 +170,12 @@ class PaymentAdminSerializer(PaymentShortSerializer):
     pending = serializers.SerializerMethodField()
     crypto = serializers.SerializerMethodField()
     stars = serializers.SerializerMethodField()
+    qr = serializers.SerializerMethodField()
 
     class Meta(PaymentShortSerializer.Meta):
         fields = PaymentShortSerializer.Meta.fields + [
-            "description", "error", "provider", "method", "pending", "crypto", "stars"]
+            "description", "error", "provider", "method", "pending", "crypto", "stars",
+            "is_test", "qr"]
 
     def get_method(self, obj) -> str:
         """Способ оплаты в сомах, выбранный до ухода на FreedomPay (пусто — не выбирали).
@@ -201,8 +205,40 @@ class PaymentAdminSerializer(PaymentShortSerializer):
         }
 
     def get_pending(self, obj) -> bool:
+        if obj.success:
+            return False
         invoice = getattr(obj, "crypto_invoice", None)
-        return bool(invoice is not None and not obj.success and invoice.is_open)
+        if invoice is not None and invoice.is_open:
+            return True
+        # Единый QR ждёт оплату, только пока он живой: открыт у GoPay, наш срок
+        # не вышел и покупатель его не оставил. Оставленный счёт ещё может быть
+        # оплачен, но «ждём оплату» про него уже неправда.
+        qr = getattr(obj, "gopay_invoice", None)
+        return bool(qr is not None and qr.is_open and qr.cancel_requested_at is None
+                    and qr.expires_at is not None and qr.expires_at > timezone.now())
+
+    def get_qr(self, obj):
+        """Счёт единого QR (GoPay) или None. Ссылок на оплату и самого QR тут нет."""
+        invoice = getattr(obj, "gopay_invoice", None)
+        if invoice is None:
+            return None
+        flags = invoice.flags if isinstance(invoice.flags, dict) else {}
+
+        def iso(value):
+            return value.isoformat() if value else None
+
+        return {
+            "status": invoice.status,
+            "env": invoice.env,
+            "provider_payment_id": invoice.provider_payment_id,
+            "expires_at": iso(invoice.expires_at),
+            "committed_at": iso(invoice.committed_at),
+            "bank_op_date": iso(invoice.bank_op_date),
+            "receipt_url": invoice.receipt_url or "",
+            # Покупатель ушёл с этого QR, а GoPay его (ещё) не отменил.
+            "abandoned": bool(flags.get("abandoned")),
+            "flags": flags,
+        }
 
     def get_crypto(self, obj):
         invoice = getattr(obj, "crypto_invoice", None)

@@ -1,11 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { fetchData } from "@/tools/fetchData";
 import { adminMarkRefunded } from "@/lib/creators/adminApi";
 import ReasonDialog from "../creators/_shared/ReasonDialog";
 import { CreatorsRoleProvider } from "../creators/_shared/role";
 import { SuButton, SuCaption } from "../creators/_shared/ui";
+import { FILTERS, filterFromParams, reviewLabel } from "./filters";
 
 type CryptoInfo = {
   status: string;
@@ -19,6 +21,20 @@ type CryptoInfo = {
   flags: Record<string, unknown>;
 };
 
+/** Счёт единого QR (GoPay). Старый сервер поля не присылает — оно необязательное. */
+type QrInfo = {
+  status: string;
+  env: string;
+  provider_payment_id: string;
+  expires_at: string | null;
+  committed_at: string | null;
+  bank_op_date: string | null;
+  receipt_url: string;
+  /** покупатель ушёл от этого QR, а GoPay его ещё не закрыл */
+  abandoned: boolean;
+  flags: Record<string, unknown>;
+};
+
 type Payment = {
   id: number;
   created_at: string;
@@ -26,8 +42,10 @@ type Payment = {
   amount: number;
   currency: string;
   success: boolean;
-  /** крипта: счёт ещё живой, «неуспешно» тут означало бы неправду */
+  /** крипта и единый QR: счёт ещё живой, «неуспешно» тут означало бы неправду */
   pending?: boolean;
+  /** тестовая среда GoPay: кредиты начислены, но в выручку платёж не идёт */
+  is_test?: boolean;
   provider?: string;
   /** способ оплаты в сомах, выбранный до ухода на Freedom Pay; "" — не выбирали */
   method?: string;
@@ -35,6 +53,7 @@ type Payment = {
   description: string;
   error: string;
   crypto?: CryptoInfo | null;
+  qr?: QrInfo | null;
 };
 
 type PaymentsResponse = { count: number; results: Payment[] };
@@ -43,6 +62,7 @@ const nf = (n: number) => (n ?? 0).toLocaleString("ru-RU");
 
 const PROVIDERS: Record<string, string> = {
   freedompay: "FreedomPay",
+  gopay: "Единый QR (GoPay)",
   yookassa: "ЮKassa",
   crypto_nowpayments: "Крипта",
   telegram_stars: "Telegram Stars",
@@ -58,14 +78,18 @@ const KGS_METHODS: Record<string, string> = {
   card: "Карта",
 };
 
-const FILTERS: { key: string; label: string; query: string }[] = [
-  { key: "all", label: "Все", query: "" },
-  { key: "crypto", label: "Крипта", query: "provider=crypto_nowpayments" },
-  { key: "card", label: "Карты (сом)", query: "provider=freedompay" },
-  { key: "rub", label: "Карты (₽)", query: "provider=yookassa" },
-  { key: "unpaid", label: "Без оплаты", query: "success=0" },
-  { key: "review", label: "Нужен разбор", query: "needs_review=1" },
-];
+/** Чем закончился QR-счёт, если оплаты нет. Открытые счета идут как «Ждём оплату». */
+const QR_STATUS: Record<string, string> = {
+  failed: "Не прошёл",
+  expired: "Истёк",
+  cancelled: "Отменён",
+};
+
+/** День в банке приходит датой без времени: «2026-10-06» → «06.10.2026». */
+const fmtDay = (s: string) => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+  return m ? `${m[3]}.${m[2]}.${m[1]}` : s;
+};
 
 const fmtDate = (s: string) => {
   const d = new Date(s);
@@ -83,12 +107,26 @@ const fmtDate = (s: string) => {
  * «Отметить возврат» — денежное действие программы EsAI Creators, оно только
  * для главного администратора. Роль узнаём той же пробой, что и раздел
  * «Creators» (настройки программы открыты только ему).
+ *
+ * useSearchParams требует границы Suspense (иначе сборка не сможет
+ * пререндерить страницу).
  */
 export default function AdminPaymentsPage() {
   return (
     <CreatorsRoleProvider>
-      <PaymentsPage />
+      <Suspense fallback={<PaymentsSkeleton />}>
+        <PaymentsPage />
+      </Suspense>
     </CreatorsRoleProvider>
+  );
+}
+
+function PaymentsSkeleton() {
+  return (
+    <div className="space-y-4">
+      <div className="h-8 w-40 animate-pulse rounded-lg bg-surface-2" />
+      <div className="h-96 animate-pulse rounded-2xl bg-surface-2" />
+    </div>
   );
 }
 
@@ -103,7 +141,11 @@ function PaymentsPage() {
   const [payments, setPayments] = useState<Payment[]>([]);
   const [count, setCount] = useState(0);
   const [page, setPage] = useState(1);
-  const [filter, setFilter] = useState("all");
+  // ?unsettled=1 — ссылка «Оплачено, но не зачислено» из настроек. Читаем у
+  // роутера: адрес в самом окне браузера при переходе по <Link> на первом
+  // рендере ещё показывает прошлую страницу (см. filters.ts).
+  const searchParams = useSearchParams();
+  const [filter, setFilter] = useState(() => filterFromParams(searchParams));
   const [query, setQuery] = useState("");
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
@@ -176,18 +218,11 @@ function PaymentsPage() {
       setPayments((prev) => prev.map((p) => (p.id === id ? fresh : p)));
       return;
     }
-    if (res.ok) return; // поставили в очередь (не крипта)
+    if (res.ok) return; // поставили в очередь (не крипта и не QR)
     setError(res.data?.detail || res.error || "Не удалось перепроверить платёж");
   };
 
-  if (loading) {
-    return (
-      <div className="space-y-4">
-        <div className="h-8 w-40 animate-pulse rounded-lg bg-surface-2" />
-        <div className="h-96 animate-pulse rounded-2xl bg-surface-2" />
-      </div>
-    );
-  }
+  if (loading) return <PaymentsSkeleton />;
 
   return (
     <div className="space-y-6">
@@ -269,7 +304,11 @@ function PaymentsPage() {
               </tr>
             )}
             {payments.map((p) => {
-              const needsReview = Boolean(p.crypto?.flags?.needs_review);
+              const reviewFlag = p.crypto?.flags?.needs_review ?? p.qr?.flags?.needs_review;
+              const needsReview = Boolean(reviewFlag);
+              const qr = p.qr || null;
+              // Чек открываем только по https: адрес приходит от провайдера.
+              const receiptUrl = qr && /^https:\/\//i.test(qr.receipt_url || "") ? qr.receipt_url : "";
               return (
                 <tr
                   key={p.id}
@@ -283,6 +322,14 @@ function PaymentsPage() {
                   <td className="px-4 py-3">{p.user_email}</td>
                   <td className="whitespace-nowrap px-4 py-3 font-medium">
                     {nf(p.amount)} {p.currency}
+                    {p.is_test && (
+                      <span
+                        className="ml-2 rounded border border-status-wait/50 bg-status-wait/10 px-1.5 py-0.5 align-middle text-[10px] font-semibold tracking-wide text-status-wait"
+                        title="Тестовая среда GoPay: деньги не списывались, в выручку платёж не входит"
+                      >
+                        ТЕСТ
+                      </span>
+                    )}
                   </td>
                   <td className="whitespace-nowrap px-4 py-3 text-xs">
                     <div>
@@ -301,14 +348,46 @@ function PaymentsPage() {
                         {p.crypto.coin} · {p.crypto.network}
                       </div>
                     )}
+                    {qr && (
+                      <div
+                        className="text-muted-2"
+                        title={qr.provider_payment_id ? `GoPay: ${qr.provider_payment_id}` : undefined}
+                      >
+                        {qr.env === "test" ? "тест" : "боевой"}
+                        {qr.bank_op_date ? ` · день в банке ${fmtDay(qr.bank_op_date)}` : ""}
+                        {qr.abandoned ? " · оставлен покупателем" : ""}
+                        {receiptUrl && (
+                          <>
+                            {" · "}
+                            <a
+                              href={receiptUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-accent hover:underline"
+                            >
+                              чек
+                            </a>
+                          </>
+                        )}
+                      </div>
+                    )}
                   </td>
                   <td className="whitespace-nowrap px-4 py-3">
                     {p.success ? (
                       <span className="text-status-ok">✓ Успешно</span>
                     ) : p.pending ? (
-                      <span className="text-status-wait">⏳ Ждём перевод</span>
+                      // У крипты ждём перевод в сети, у остальных — оплату по счёту.
+                      <span className="text-status-wait">
+                        {p.crypto ? "⏳ Ждём перевод" : "⏳ Ждём оплату"}
+                      </span>
+                    ) : qr && QR_STATUS[qr.status] ? (
+                      <span className="text-status-fail">✗ {QR_STATUS[qr.status]}</span>
                     ) : (
                       <span className="text-status-fail">✗ Неуспешно</span>
+                    )}
+                    {qr && qr.status === "committed" && !p.success && (
+                      // Деньги в GoPay есть, а заказ не закрыт: либо разбор, либо отмеченный возврат.
+                      <div className="text-[11px] text-status-wait">в GoPay оплачен, кредиты не начислены</div>
                     )}
                     {p.crypto && p.crypto.credited_tokens > 0 && !p.success && (
                       <div className="text-[11px] text-muted-2">
@@ -317,7 +396,7 @@ function PaymentsPage() {
                     )}
                     {needsReview && (
                       <div className="text-[11px] text-status-wait">
-                        разбор: {String(p.crypto?.flags?.needs_review)}
+                        разбор: {reviewLabel(reviewFlag)}
                       </div>
                     )}
                   </td>
