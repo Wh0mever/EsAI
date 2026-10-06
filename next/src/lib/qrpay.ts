@@ -79,6 +79,106 @@ export function splitApps(apps: QrApp[], visible = 8): { main: QrApp[]; rest: Qr
   return { main: list.slice(0, visible), rest: list.slice(visible) };
 }
 
+/**
+ * Банки, чей значок лежит у нас: public/images/banks/<код>.webp — те же значки
+ * приложений, что отдаёт GoPay. Свой файл не зависит от чужого сервера и виден
+ * сразу: банк узнают по значку, а не по первой букве названия.
+ */
+const LOCAL_BANK_ICONS = new Set([
+  "mbank",
+  "odengi",
+  "bakaibank",
+  "optima",
+  "megapay",
+  "kompanion",
+  "elcart",
+  "demirbank",
+  "kicb",
+  "eldik",
+  "nambaone",
+  "simbank",
+]);
+
+const bankKey = (code: unknown): string => (typeof code === "string" ? code.trim().toLowerCase() : "");
+
+/** Адрес нашего значка банка; пусто — такого банка у нас нет. */
+export function localBankIcon(code: unknown): string {
+  const key = bankKey(code);
+  return LOCAL_BANK_ICONS.has(key) ? `/images/banks/${key}.webp` : "";
+}
+
+/**
+ * Откуда брать значок банка, по порядку: наш файл, затем https-адрес от
+ * сервера (банк, которого у нас ещё нет). Пустой список — рисуем букву.
+ */
+export function bankIconSources(code: unknown, remote?: unknown): string[] {
+  const out: string[] = [];
+  const local = localBankIcon(code);
+  if (local) out.push(local);
+  if (isHttpsUrl(remote)) out.push(remote);
+  return out;
+}
+
+/** Главный банк страны («есть у каждого»): его кнопка первая и крупнее прочих. */
+export const FEATURED_BANK = "mbank";
+
+/** Вынуть главный банк из списка; остальные остаются в порядке сервера. */
+export function splitFeatured(apps: QrApp[], code: string = FEATURED_BANK): { featured: QrApp | null; others: QrApp[] } {
+  const list = Array.isArray(apps) ? apps : [];
+  const index = list.findIndex((app) => bankKey(app?.code) === code);
+  if (index < 0) return { featured: null, others: list };
+  return { featured: list[index], others: [...list.slice(0, index), ...list.slice(index + 1)] };
+}
+
+/** Банк как значок с подписью — без ссылки на оплату. */
+export type BankBadge = { code: string; name: string; icon: string };
+
+/**
+ * Банки, которые в Кыргызстане знает почти каждый. По их значкам «единый QR»
+ * узнают ещё до того, как счёт создан и список банков пришёл с сервера.
+ */
+export const SHOWCASE_BANKS: BankBadge[] = [
+  { code: "mbank", name: "MBank", icon: "" },
+  { code: "odengi", name: "О!Деньги", icon: "" },
+  { code: "bakaibank", name: "Bakai", icon: "" },
+  { code: "optima", name: "Optima24", icon: "" },
+  { code: "megapay", name: "MegaPay", icon: "" },
+];
+
+/**
+ * Ряд «Работает с» под QR на компьютере: банки этого счёта, у которых есть
+ * значок (буквы в таком ряду ничего не говорят). Списка нет — известные всем.
+ * Не влезли в `max` — последнее место занимает счётчик «+N».
+ */
+export function worksWithBanks(apps: QrApp[], max = 7): { shown: BankBadge[]; more: number } {
+  const seen = new Set<string>();
+  const withIcon: BankBadge[] = [];
+  let total = 0;
+  for (const app of Array.isArray(apps) ? apps : []) {
+    const key = bankKey(app?.code);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    total += 1;
+    if (bankIconSources(key, app.icon).length === 0) continue;
+    withIcon.push({ code: key, name: typeof app.name === "string" && app.name ? app.name : key, icon: app.icon });
+  }
+  if (withIcon.length === 0) return { shown: SHOWCASE_BANKS.slice(0, Math.max(1, max)), more: 0 };
+  const limit = Math.max(1, max);
+  if (total <= limit) return { shown: withIcon, more: total - withIcon.length };
+  const shown = withIcon.slice(0, limit - 1);
+  return { shown, more: total - shown.length };
+}
+
+/**
+ * Какая доля срока QR ещё впереди (0…1) — для полоски под таймером.
+ * Срок неизвестен — null: полоску не рисуем, чем показывать выдуманную.
+ */
+export function lifetimeLeft(secondsLeftNow: number, lifetimeSeconds: number): number | null {
+  if (!Number.isFinite(lifetimeSeconds) || lifetimeSeconds <= 0) return null;
+  if (!Number.isFinite(secondsLeftNow) || secondsLeftNow <= 0) return 0;
+  return Math.min(1, secondsLeftNow / lifetimeSeconds);
+}
+
 /** Пауза до следующего опроса. Первые две минуты — самые частые: человек платит. */
 export function pollDelayMs(elapsedMs: number, failures: number, state: QrUiState): number {
   let base: number;
