@@ -2718,6 +2718,21 @@ class InvoiceHelpersTests(GoPayTestCase):
                                    "ios": None, "android": None})
         self.assertEqual(self.fake.calls, [])
 
+    def test_mbank_link_gets_the_slash_mbank_itself_uses(self):
+        # GoPay отдаёт /qr#<код>, а МБанк открывает оплату по /qr/#<код>.
+        cache.set("gopay:apps:v1:live", self.CATALOG, 600)
+        invoice = self.make_invoice(app_links={
+            "mbank": "https://app.mbank.kg/qr#000201010212PAYLOAD",
+            "megapay": "https://megapay.kg/get#000201010212PAYLOAD"})
+        apps = {a["code"]: a["url"] for a in service.apps_for(invoice)}
+        self.assertEqual(apps["mbank"], "https://app.mbank.kg/qr/#000201010212PAYLOAD")
+        # Остальные банки и уже правильная ссылка не трогаются.
+        self.assertEqual(apps["megapay"], "https://megapay.kg/get#000201010212PAYLOAD")
+        self.assertEqual(service._fix_bank_link("mbank", "https://app.mbank.kg/qr/#X"),
+                         "https://app.mbank.kg/qr/#X")
+        self.assertEqual(service._fix_bank_link("odengi", "https://app.mbank.kg/qr#X"),
+                         "https://app.mbank.kg/qr#X")
+
     def test_apps_for_falls_back_to_templates(self):
         cache.set("gopay:apps:v1:live", self.CATALOG, 600)
         invoice = self.make_invoice(app_links={})

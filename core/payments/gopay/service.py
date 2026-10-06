@@ -970,6 +970,24 @@ def cached_apps(env: str) -> list[dict]:
     return []
 
 
+_MBANK_NO_SLASH = "https://app.mbank.kg/qr#"
+
+
+def _fix_bank_link(code: str, url: str) -> str:
+    """Поправки к ссылкам GoPay для отдельных банков.
+
+    МБанк: его собственные ссылки на оплату выглядят как
+    https://app.mbank.kg/qr/#<код> — со слэшем перед решёткой (так же пишет
+    открытая библиотека ELQR, сверенная с боевыми ссылками банка). GoPay отдаёт
+    /qr#<код>, и по такой кнопке оплата в МБанке не открывалась, хотя тот же код,
+    отсканированный как QR, оплачивался (жалоба клиента 06.10.2026). МБанк стоит
+    у каждого, поэтому ссылку приводим к виду самого банка.
+    """
+    if code == "mbank" and url.startswith(_MBANK_NO_SLASH):
+        return "https://app.mbank.kg/qr/#" + url[len(_MBANK_NO_SLASH):]
+    return url
+
+
 def apps_for(invoice) -> list[dict]:
     """Кнопки банков для этого счёта: готовые ссылки GoPay, иначе — по шаблонам."""
     catalog = {a["code"]: a for a in cached_apps(invoice.env)}
@@ -991,7 +1009,7 @@ def apps_for(invoice) -> list[dict]:
         items.append((order if isinstance(order, int) else 999, {
             "code": code,
             "name": (entry or {}).get("name") or code.capitalize(),
-            "url": url,
+            "url": _fix_bank_link(code, url),
             "icon": _https((entry or {}).get("icon") or ""),
             # True / False / None. False обязан дойти до клиента: банк, которого
             # нет на iPhone, там прячут — поэтому никаких «x or None».
