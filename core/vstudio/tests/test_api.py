@@ -193,9 +193,10 @@ class ErrorShapeTests(ApiCase):
         run = views.ShotsView()
         run.request = RequestFactory().post("/")
         self.assertEqual(run.throttle_scope, "vstudio_run")
-        # quote/ — только свой scope: общий anon-лимит по IP съел бы пересчёт цены у гостей за NAT.
-        self.assertEqual(views.QuoteView.throttle_classes, [views.ScopedRateThrottle])
-        self.assertIn(views.AnonRateThrottle, views.ModelsView.throttle_classes)
+        # Гостевые адреса — только свой scope: общий anon-лимит по IP съел бы первый
+        # экран и пересчёт цены у гостей за NAT.
+        for view in (views.QuoteView, views.ModelsView, views.ShowcaseView):
+            self.assertEqual(view.throttle_classes, [views.ScopedRateThrottle])
 
 
 # ---------------------------------------------------------------- модели

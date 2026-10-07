@@ -91,7 +91,10 @@ class FunnelEvent(models.Model):
              # генераций сюда не пишутся — их источник правды таблица дублей.
              "vstudio_view", "vstudio_upload", "vstudio_mention", "vstudio_imagegen",
              "vstudio_blocked", "vstudio_run_click", "vstudio_paywall",
-             "vstudio_auth_prompt", "vstudio_condense", "vstudio_share")
+             "vstudio_auth_prompt", "vstudio_condense", "vstudio_share",
+             # Первый экран видеостудии: что человек нажал до первого запроса
+             # (meta {what: reel|template|model|tool|showcase|continue, id}).
+             "vstudio_home_pick")
 
     name = models.CharField(max_length=32, db_index=True, verbose_name="Шаг")
     user = models.ForeignKey(

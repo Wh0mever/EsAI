@@ -24,6 +24,15 @@ from rest_framework_simplejwt.authentication import JWTAuthentication
 from .models import FunnelEvent, Payment
 
 
+class _FunnelThrottle(AnonRateThrottle):
+    # Шаги шлются без токена — значит, считаются по IP, а первый экран
+    # видеостудии шлёт шаг на каждый клик. В общем анонимном лимите (30 в
+    # минуту) их делили бы со входом по почте и списком пакетов: несколько
+    # гостей за одним адресом выбрали бы его раньше, чем нажмут «Войти».
+    scope = "funnel_event"
+    rate = "120/min"
+
+
 class FunnelEventView(APIView):
     """POST — записать шаг воронки. Открыт всем: до оплаты человек ещё гость.
 
@@ -32,7 +41,7 @@ class FunnelEventView(APIView):
     """
     authentication_classes = [JWTAuthentication]
     permission_classes = [AllowAny]
-    throttle_classes = [AnonRateThrottle]
+    throttle_classes = [_FunnelThrottle]
 
     def post(self, request):
         name = str((request.data or {}).get("name") or "").strip()
@@ -255,6 +264,7 @@ def vstudio_report(since) -> list:
 
     rows = [
         ("vstudio_view", "Открыли видеостудию", counts.get("vstudio_view", 0)),
+        ("vstudio_home_pick", "Нажали на первом экране", counts.get("vstudio_home_pick", 0)),
         ("vstudio_auth_prompt", "Увидели окно входа", counts.get("vstudio_auth_prompt", 0)),
         ("registered", "Вошли после видеостудии", _registered_after(ev, "vstudio_view", since)),
         ("vstudio_upload", "Загрузили фото", upload_ok),

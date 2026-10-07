@@ -42,6 +42,8 @@ ENV_EXAMPLE = REPO_ROOT / ".env.example"
 
 PIPELINE_TASKS = ("submit_take", "poll_take", "finalize_take", "run_image_take")
 SAFETY_TASKS = ("sweep_takes", "purge_assets")
+# Не конвейер: сборка лёгкой копии для витрины не занимает слот воркера студии.
+SIDE_TASKS = ("build_showcase_clip",)
 SCOPES = {
     "vstudio_read": "120/min",
     "vstudio_write": "30/min",
@@ -153,7 +155,7 @@ class CeleryRoutingTests(SimpleTestCase):
     def test_safety_net_goes_to_general_queue(self):
         # Точное имя важнее шаблона vstudio.tasks.*: sweep не должен зависеть
         # от воркера студии.
-        for name in SAFETY_TASKS:
+        for name in SAFETY_TASKS + SIDE_TASKS:
             with self.subTest(task=name):
                 self.assertEqual(self.queue(f"vstudio.tasks.{name}"), "celery")
 
@@ -186,7 +188,7 @@ class SettingsEnvTests(SimpleTestCase):
         routes = s["routes"]
         for name in PIPELINE_TASKS:
             self.assertEqual(queue_of(routes, f"vstudio.tasks.{name}"), "vstudio")
-        for name in SAFETY_TASKS:
+        for name in SAFETY_TASKS + SIDE_TASKS:
             self.assertEqual(queue_of(routes, f"vstudio.tasks.{name}"), "celery")
         self.assertEqual(queue_of(routes, "ai.tasks.run_generation_job"), "media")
         self.assertIsNone(queue_of(routes, "mails.tasks.send_mail_task"))
@@ -229,7 +231,8 @@ class SettingsEnvTests(SimpleTestCase):
         s = load_settings(CELERY_VSTUDIO_QUEUE="")
         for name in PIPELINE_TASKS:
             self.assertEqual(queue_of(s["routes"], f"vstudio.tasks.{name}"), "media")
-        self.assertEqual(queue_of(s["routes"], "vstudio.tasks.sweep_takes"), "celery")
+        for name in SAFETY_TASKS + SIDE_TASKS:
+            self.assertEqual(queue_of(s["routes"], f"vstudio.tasks.{name}"), "celery")
 
     def test_studio_routes_exist_without_media_queue(self):
         # Раньше словарь маршрутов жил только внутри «if media»: без media

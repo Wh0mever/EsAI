@@ -48,6 +48,10 @@ urlpatterns = [
     path("generations/<int:pk>/reviewed/", generations.GenerationReviewedView.as_view(),
          name="generation-reviewed"),
     path("vstudio/report/", vstudio.VStudioReportView.as_view(), name="vstudio-report"),
+    # Витрина первого экрана видеостудии: что из готовых работ видят все.
+    path("vstudio/showcase/", vstudio.VStudioShowcaseView.as_view(), name="vstudio-showcase"),
+    path("vstudio/showcase/<int:pk>/", vstudio.VStudioShowcaseItemView.as_view(),
+         name="vstudio-showcase-item"),
     # Работы пользователей студии: отбор для рекламы и превью сцен.
     path("studio/works/", studio_works.StudioWorksView.as_view(), name="studio-works"),
     path("studio/works/<str:kind>/<int:pk>/feature/", studio_works.StudioWorkFeatureView.as_view(),

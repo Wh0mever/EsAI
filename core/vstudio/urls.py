@@ -13,6 +13,7 @@ app_name = "vstudio"
 
 urlpatterns = [
     path("models/", views.ModelsView.as_view(), name="models"),
+    path("showcase/", views.ShowcaseView.as_view(), name="showcase"),
     path("quote/", views.QuoteView.as_view(), name="quote"),
     path("projects/", views.ProjectsView.as_view(), name="projects"),
     path("projects/<str:uid>/", views.ProjectDetailView.as_view(), name="project"),

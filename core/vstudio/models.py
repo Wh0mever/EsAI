@@ -453,3 +453,59 @@ class Take(models.Model):
     @property
     def is_open(self) -> bool:
         return self.status in TAKE_OPEN
+
+
+class ShowcaseItem(models.Model):
+    """Работа в витрине первого экрана («Сделано в EsAI»).
+
+    Строка — разрешение показать результат одного готового дубля всем, включая
+    гостей; ставит её владелец в /admin-new. Своего ролика у строки нет:
+    витрина показывает сам материал дубля, поэтому результат, удалённый
+    человеком, пропадает и отсюда. Единственная копия — лёгкий ролик для лент
+    (clip): его стирают вместе со строкой и вместе с результатом. Что именно
+    уходит наружу — vstudio.showcase.
+    """
+
+    CATEGORY_FILM = "film"
+    CATEGORY_AD = "ad"
+    CATEGORY_SOCIAL = "social"
+    CATEGORY_ANIME = "anime"
+    CATEGORY_MUSIC = "music"
+    CATEGORY_OTHER = "other"
+    CATEGORY_CHOICES = [
+        (CATEGORY_FILM, "Кино"),
+        (CATEGORY_AD, "Реклама"),
+        (CATEGORY_SOCIAL, "Соцсети"),
+        (CATEGORY_ANIME, "Аниме"),
+        (CATEGORY_MUSIC, "Клипы"),
+        (CATEGORY_OTHER, "Другое"),
+    ]
+
+    # Один дубль — одна строка: второй раз ту же работу в витрину не поставить.
+    # Дубль уходит (удалили аккаунт) — уходит и строка.
+    take = models.OneToOneField(Take, on_delete=models.CASCADE, related_name="showcase",
+                                verbose_name="Дубль")
+    title = models.CharField(max_length=80, blank=True, default="", verbose_name="Название")
+    category = models.CharField(max_length=8, choices=CATEGORY_CHOICES, default=CATEGORY_OTHER,
+                                verbose_name="Раздел")
+    # Меньше — выше; при равных выше та, что добавлена позже.
+    sort = models.IntegerField(default=0, verbose_name="Порядок")
+    is_active = models.BooleanField(default=True, verbose_name="Показывать")
+    # Запрос — чужая находка: наружу только по явной галочке.
+    show_prompt = models.BooleanField(default=False, verbose_name="Показывать запрос")
+    # Первый экран сам крутит ролики в карусели и сетке, а результат дубля
+    # весит мегабайты. Копию (480 px, без звука) собирает задача
+    # build_showcase_clip; пока её нет, на сайте играет исходник.
+    clip = models.FileField(upload_to="vstudio/showcase/", blank=True,
+                            verbose_name="Ролик для ленты (лёгкий)")
+    created_by = models.ForeignKey(USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True,
+                                   related_name="+", verbose_name="Кто добавил")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Добавлена")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="Изменена")
+
+    class Meta:
+        verbose_name = "Работа в витрине"
+        verbose_name_plural = "Витрина видеостудии"
+
+    def __str__(self):
+        return self.title or f"Работа {self.take_id}"

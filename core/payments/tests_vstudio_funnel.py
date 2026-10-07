@@ -2,14 +2,17 @@
 """BE-1: шаги воронки видеостудии (спецификация §11) и строки отчёта."""
 from datetime import timedelta
 from decimal import Decimal
+from unittest import mock
 
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.test import TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APIClient
+from rest_framework.throttling import AnonRateThrottle, SimpleRateThrottle
 
-from payments.funnel import funnel_report, studio_report, vstudio_report
+from payments import funnel
+from payments.funnel import FunnelEventView, funnel_report, studio_report, vstudio_report
 from payments.models import FunnelEvent, Payment
 
 CACHES = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache",
@@ -17,7 +20,8 @@ CACHES = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"
 
 VSTUDIO_STEPS = ("vstudio_view", "vstudio_upload", "vstudio_mention", "vstudio_imagegen",
                  "vstudio_blocked", "vstudio_run_click", "vstudio_paywall",
-                 "vstudio_auth_prompt", "vstudio_condense", "vstudio_share")
+                 "vstudio_auth_prompt", "vstudio_condense", "vstudio_share",
+                 "vstudio_home_pick")
 
 
 @override_settings(CACHES=CACHES)
@@ -41,6 +45,47 @@ class FunnelEventWhitelistTests(TestCase):
     def test_unknown_vstudio_step_rejected(self):
         res = APIClient().post("/api/payments/funnel/event/", {"name": "vstudio_done"}, format="json")
         self.assertEqual(res.status_code, 400)
+
+    def test_home_pick_keeps_what_was_clicked(self):
+        meta = {"what": "template", "id": "film"}
+        res = APIClient().post("/api/payments/funnel/event/",
+                               {"name": "vstudio_home_pick", "meta": meta}, format="json",
+                               HTTP_X_DEVICE_KEY="dev-1")
+        self.assertEqual(res.status_code, 201)
+        event = FunnelEvent.objects.get(name="vstudio_home_pick")
+        self.assertEqual((event.meta, event.device_key, event.user), (meta, "dev-1", None))
+
+
+@override_settings(CACHES=CACHES)
+class FunnelThrottleTests(TestCase):
+    """Клики первого экрана не должны съедать лимит, из которого берёт вход по почте."""
+
+    URL = "/api/payments/funnel/event/"
+    EVENT = {"name": "vstudio_home_pick", "meta": {"what": "template", "id": "film"}}
+
+    def setUp(self):
+        cache.clear()
+        self.guest = APIClient()
+
+    def test_events_do_not_spend_the_shared_anon_bucket(self):
+        self.assertEqual(FunnelEventView.throttle_classes, [funnel._FunnelThrottle])
+        self.assertNotEqual(funnel._FunnelThrottle.scope, AnonRateThrottle.scope)
+        with mock.patch.dict(SimpleRateThrottle.THROTTLE_RATES, {"anon": "1/min"}):
+            for _ in range(5):
+                res = self.guest.post(self.URL, self.EVENT, format="json")
+                self.assertEqual(res.status_code, 201)
+            # Общий счётчик гостя цел: первый обычный запрос проходит, второй
+            # упирается в лимит — значит, пять шагов выше в него не попали.
+            first = self.guest.get("/api/plans/bonus-settings/")
+            second = self.guest.get("/api/plans/bonus-settings/")
+        self.assertEqual((first.status_code, second.status_code), (200, 429))
+
+    def test_own_limit_still_holds(self):
+        with mock.patch.object(funnel._FunnelThrottle, "rate", "2/min"):
+            codes = [self.guest.post(self.URL, self.EVENT, format="json").status_code
+                     for _ in range(3)]
+        self.assertEqual(codes, [201, 201, 429])
+        self.assertEqual(FunnelEvent.objects.count(), 2)
 
 
 class VstudioReportTests(TestCase):
@@ -69,6 +114,9 @@ class VstudioReportTests(TestCase):
         self._ev("vstudio_upload", "d2", ok=False, code="unsupported_image")
         self._ev("vstudio_mention", "d1", user=self.user, via="at")
         self._ev("vstudio_share", "d1", user=self.user)
+        # Первый экран: одно устройство нажало дважды — это один человек.
+        self._ev("vstudio_home_pick", "d1", what="template", id="film")
+        self._ev("vstudio_home_pick", "d1", what="model", id="bytedance/seedance-2.0")
         # Шаги мультстудии в эту воронку не попадают.
         self._ev("studio_view", "d3")
 
@@ -76,6 +124,10 @@ class VstudioReportTests(TestCase):
         self.assertEqual(rows[0]["key"], "vstudio_view")
         self.assertEqual(self._row(rows, "vstudio_view")["count"], 2)
         self.assertEqual(self._row(rows, "vstudio_view")["share"], 100)
+        # Клик на первом экране — сразу за открытием: с него путь и начинается.
+        self.assertEqual((rows[1]["key"], rows[1]["label"]),
+                         ("vstudio_home_pick", "Нажали на первом экране"))
+        self.assertEqual((rows[1]["count"], rows[1]["share"]), (1, 50))
         self.assertEqual(self._row(rows, "vstudio_auth_prompt")["count"], 1)
         self.assertEqual(self._row(rows, "registered")["count"], 1)
         self.assertEqual(self._row(rows, "vstudio_upload")["count"], 1)
