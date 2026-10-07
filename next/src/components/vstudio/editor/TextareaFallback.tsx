@@ -422,16 +422,17 @@ export default function TextareaFallback(props: VsPromptEditorProps) {
         onPaste={onPaste}
         onDrop={onDrop}
         disabled={props.disabled}
-        rows={3}
+        rows={2}
         spellCheck
         enterKeyHint="enter"
         aria-label={props.ariaLabel || placeholder}
         placeholder={placeholder}
-        className={`block w-full resize-none bg-transparent px-3 py-2.5 pr-11 text-base leading-relaxed text-foreground outline-none placeholder:text-muted-2 md:text-[15px] max-md:pr-12 ${
-          fullscreen ? "min-h-0 flex-1" : "min-h-[4.75rem]"
+        // 15 px — только с мышью: на сенсорном экране iOS приближает страницу при фокусе в поле мельче 16 px.
+        className={`block w-full resize-none bg-transparent px-1.5 py-1.5 pr-11 text-base leading-relaxed text-foreground caret-accent outline-none placeholder:text-muted-2 md:pointer-fine:text-[15px] max-md:pr-12 ${
+          fullscreen ? "min-h-0 flex-1" : "min-h-[3.25rem]"
         }`}
       />
-      <div className="px-3 pb-1 text-[11px] text-muted-2">
+      <div className="px-1.5 pb-1 text-[11px] text-muted-2">
         {tx("editor.fallbackHint", "Упрощённый редактор: пишите теги как @Image 1 — они распознаются при отправке.")}
       </div>
       <input

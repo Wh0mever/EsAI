@@ -9,6 +9,7 @@ import { useId } from "react";
 import { useTranslation } from "react-i18next";
 import { FiVolume2, FiVolumeX } from "react-icons/fi";
 import type { ModelJSON } from "@/lib/vstudio/types";
+import { VS_FOCUS } from "../ui/skin";
 import { Reason, Section, cx } from "./SettingsBits";
 import { tx } from "./settingsText";
 
@@ -26,8 +27,12 @@ export default function AudioToggle({ model, value, onChange }: AudioToggleProps
   const on = supported && value !== false;
 
   return (
-    <Section title={tx(t, "settings.audio")} icon={on ? <FiVolume2 /> : <FiVolumeX />}>
-      <div className="flex items-center gap-3">
+    // Переключатель стоит в строке заголовка: слово «Звук» одно, оно же его подпись.
+    <Section
+      id={labelId}
+      title={tx(t, "settings.audio")}
+      icon={on ? <FiVolume2 /> : <FiVolumeX />}
+      aside={
         <button
           type="button"
           role="switch"
@@ -37,22 +42,22 @@ export default function AudioToggle({ model, value, onChange }: AudioToggleProps
           disabled={!supported}
           onClick={() => supported && onChange(!on)}
           className={cx(
-            "relative inline-flex h-7 w-12 shrink-0 items-center rounded-full border transition-colors",
-            on ? "border-accent bg-accent" : "border-border bg-surface-3",
+            // before: расширяет зону нажатия до 44 px по высоте, не раздвигая строку заголовка.
+            "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-colors before:absolute before:-inset-x-2 before:-inset-y-2.5 before:content-['']",
+            VS_FOCUS,
+            on ? "border-accent bg-accent" : "border-white/15 bg-white/[0.08]",
             supported ? "cursor-pointer" : "cursor-not-allowed opacity-50",
           )}
         >
           <span
             className={cx(
-              "inline-block size-5 rounded-full shadow transition-transform duration-200",
-              on ? "translate-x-6 bg-on-accent" : "translate-x-1 bg-surface",
+              "inline-block size-[18px] rounded-full shadow transition-transform duration-200 motion-reduce:transition-none",
+              on ? "translate-x-[22px] bg-on-accent" : "translate-x-[2px] bg-foreground/80",
             )}
           />
         </button>
-        <span id={labelId} className="text-sm font-medium text-foreground">
-          {tx(t, "settings.audio")}
-        </span>
-      </div>
+      }
+    >
       <div id={hintId}>
         {!supported ? (
           <Reason>{tx(t, "settings.audioUnsupported", { model: model.name })}</Reason>

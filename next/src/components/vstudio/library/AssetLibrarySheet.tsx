@@ -33,9 +33,18 @@ import {
 } from "../composer/composerBus";
 import { hasAssetIn, trayItemFromAsset } from "../composer/composerLogic";
 import { ct, type ComposerTextKey } from "../composer/composerText";
+import { VS_BTN_GHOST, VS_FOCUS, VS_PILL, VS_PILL_ON, vx } from "../ui/skin";
 
 export const LIBRARY_PAGE = 60;
 const FILTERS: readonly LibraryFilter[] = ["all", "uploads", "generated", "frames"];
+
+/** Сетка фото: три в ряд на телефоне, пять на компьютере. Та же — у заглушки, чтобы плитки не прыгали. */
+const GRID = "grid grid-cols-3 gap-2 sm:grid-cols-4 sm:gap-2.5 md:grid-cols-5";
+/**
+ * Плашка на плитке. Вид как у VS_ON_MEDIA, но без размытия фона: плиток в
+ * сетке десятки, и столько размытых слоёв при прокрутке телефон не тянет.
+ */
+const TILE_BADGE = "rounded-full bg-black/60 px-2 py-0.5 text-[10px] font-medium leading-4 text-white";
 
 /* ------------------------------------------------------------------ */
 /* Загрузка страниц                                                    */
@@ -143,22 +152,34 @@ function Tile({
         onClick={onPick}
         disabled={failed}
         aria-label={[ct(t, "library.pick"), name, inRequest ? ct(t, "library.inRequest") : ""].filter(Boolean).join(" · ")}
-        className={`relative block aspect-square w-full overflow-hidden rounded-xl border bg-surface-2 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
-          inRequest ? "border-accent" : "border-border hover:border-border-strong"
-        } ${failed ? "cursor-not-allowed" : "cursor-pointer"}`}
+        className={vx(
+          "relative block aspect-square w-full overflow-hidden rounded-xl border bg-surface-2 transition-[border-color,box-shadow] duration-200",
+          VS_FOCUS,
+          inRequest
+            ? "border-accent/70 shadow-[0_0_0_1px_rgba(245,197,24,0.28)]"
+            : "border-white/10 hover:border-white/30",
+          failed ? "cursor-not-allowed" : "cursor-pointer",
+        )}
       >
         {src && !broken ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={src} alt="" loading="lazy" onError={() => setBroken(true)} className="size-full object-cover" />
+          <img
+            src={src}
+            alt=""
+            loading="lazy"
+            decoding="async"
+            onError={() => setBroken(true)}
+            className="size-full object-cover"
+          />
         ) : (
           <span className="grid size-full place-items-center text-2xl text-muted-2">
             <FiImage aria-hidden />
           </span>
         )}
         {pending && (
-          <span className="absolute inset-0 grid place-items-center bg-black/40 text-white">
+          <span className="absolute inset-0 grid place-items-center bg-black/50 text-white">
             <span className="flex flex-col items-center gap-1 text-[11px]">
-              <FiLoader className="size-5 animate-spin" aria-hidden />
+              <FiLoader className="size-5 motion-safe:animate-spin" aria-hidden />
               {ct(t, "library.pending")}
             </span>
           </span>
@@ -171,11 +192,12 @@ function Tile({
             </span>
           </span>
         )}
-        {name && (
-          <span className="absolute bottom-1 left-1 rounded-md bg-black/55 px-1.5 py-0.5 text-[10px] font-medium text-white">{name}</span>
-        )}
+        {name && <span className={vx(TILE_BADGE, "absolute bottom-1.5 left-1.5")}>{name}</span>}
         {inRequest && (
-          <span className="absolute right-1 top-1 grid size-6 place-items-center rounded-full bg-accent text-on-accent" title={ct(t, "library.inRequest")}>
+          <span
+            className="absolute right-1.5 top-1.5 grid size-6 place-items-center rounded-full bg-accent text-on-accent"
+            title={ct(t, "library.inRequest")}
+          >
             <FiCheck className="size-3.5" aria-hidden />
           </span>
         )}
@@ -185,7 +207,10 @@ function Tile({
         onClick={onDelete}
         aria-label={ct(t, "library.delete")}
         title={ct(t, "library.delete")}
-        className="absolute left-1 top-1 grid size-9 place-items-center rounded-lg bg-black/55 text-white transition-opacity hover:bg-status-fail focus-visible:opacity-100 md:size-8 md:opacity-0 md:group-hover:opacity-100 cursor-pointer"
+        className={vx(
+          "absolute left-1.5 top-1.5 grid size-9 cursor-pointer place-items-center rounded-full bg-black/60 text-white transition-[opacity,background-color] hover:bg-status-fail focus-visible:opacity-100 md:size-8 md:opacity-0 md:group-hover:opacity-100",
+          VS_FOCUS,
+        )}
       >
         <FiTrash2 className="size-4" aria-hidden />
       </button>
@@ -280,11 +305,7 @@ export default function AssetLibrarySheet() {
                   role="tab"
                   aria-selected={lib.filter === f}
                   onClick={() => dispatch({ type: "library/filter", filter: f })}
-                  className={`min-h-11 rounded-full border px-3.5 text-xs font-semibold transition-colors md:min-h-9 cursor-pointer ${
-                    lib.filter === f
-                      ? "border-accent bg-accent-soft text-foreground"
-                      : "border-border bg-surface-2 text-muted hover:text-foreground"
-                  }`}
+                  className={vx(VS_PILL, "max-md:h-11", lib.filter === f && VS_PILL_ON)}
                 >
                   {ct(t, `library.filter.${f}` as ComposerTextKey)}
                 </button>
@@ -295,7 +316,7 @@ export default function AssetLibrarySheet() {
                 <button
                   type="button"
                   onClick={() => fileInput.current?.click()}
-                  className="ml-auto inline-flex min-h-11 items-center gap-1.5 rounded-xl border border-border bg-surface-2 px-3 text-xs font-semibold text-foreground hover:border-border-strong md:min-h-9 cursor-pointer"
+                  className={vx(VS_BTN_GHOST, "ml-auto md:!min-h-9")}
                 >
                   <FiUpload aria-hidden />
                   {ct(t, "library.upload")}
@@ -321,29 +342,33 @@ export default function AssetLibrarySheet() {
           </div>
 
           {error && !lib.items.length ? (
-            <div className="flex flex-col items-center gap-3 py-10 text-center">
+            <div className="flex flex-col items-center gap-4 py-12 text-center">
+              <span className="vs-card grid size-12 place-items-center rounded-full text-lg text-status-wait" aria-hidden>
+                <FiAlertTriangle />
+              </span>
               <p className="text-sm text-muted">{ct(t, "library.loadError")}</p>
-              <button
-                type="button"
-                onClick={reload}
-                className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-border bg-surface-2 px-4 text-sm font-medium hover:border-border-strong cursor-pointer"
-              >
+              <button type="button" onClick={reload} className={VS_BTN_GHOST}>
                 <FiRefreshCw aria-hidden />
                 {ct(t, "library.retry")}
               </button>
             </div>
           ) : firstLoad ? (
-            <ul className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-5" aria-busy="true">
+            <ul className={GRID} aria-busy="true">
               {Array.from({ length: 10 }, (_, i) => (
-                <li key={i} className="aspect-square animate-pulse rounded-xl bg-surface-2" />
+                <li key={i} className="vs-film aspect-square rounded-xl" />
               ))}
             </ul>
           ) : lib.items.length === 0 && lib.loaded ? (
-            <p className="py-10 text-center text-sm text-muted">
-              {lib.filter === "all" ? ct(t, "library.empty") : ct(t, "library.emptyFilter")}
-            </p>
+            <div className="flex flex-col items-center gap-4 py-12 text-center">
+              <span className="vs-card grid size-12 place-items-center rounded-full text-lg text-muted" aria-hidden>
+                <FiImage />
+              </span>
+              <p className="max-w-xs text-sm leading-snug text-muted">
+                {lib.filter === "all" ? ct(t, "library.empty") : ct(t, "library.emptyFilter")}
+              </p>
+            </div>
           ) : (
-            <ul className="grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-5">
+            <ul className={GRID}>
               {lib.items.map((asset) => (
                 <Tile
                   key={asset.uid}
@@ -362,9 +387,9 @@ export default function AssetLibrarySheet() {
                 type="button"
                 onClick={loadMore}
                 disabled={lib.loading}
-                className="inline-flex min-h-11 items-center gap-2 rounded-xl border border-border bg-surface-2 px-4 text-sm font-medium hover:border-border-strong disabled:opacity-60 md:min-h-9 cursor-pointer"
+                className={VS_BTN_GHOST}
               >
-                {lib.loading && <FiLoader className="animate-spin" aria-hidden />}
+                {lib.loading && <FiLoader className="motion-safe:animate-spin" aria-hidden />}
                 {ct(t, "library.more")}
               </button>
             </div>

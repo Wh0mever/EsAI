@@ -4,6 +4,7 @@ import { memo } from "react";
 import { useTranslation } from "react-i18next";
 import { FiAlertTriangle, FiImage, FiLoader } from "react-icons/fi";
 import type { DroppedInput, ShotInputJSON, Uid } from "@/lib/vstudio/types";
+import { VS_FOCUS, vx } from "../ui/skin";
 import { inputRows, type InputRow } from "./feedLogic";
 
 export type InputsStripProps = {
@@ -44,7 +45,8 @@ function InputsStrip({ inputs, dropped, culprit }: InputsStripProps) {
 
   return (
     <ul
-      className="-mx-1 flex gap-2 overflow-x-auto px-1 pb-1"
+      // Поля со всех сторон: лента прокручивается и иначе срезала бы красное кольцо у виноватого входа.
+      className="-mx-1 -mt-1 flex gap-2.5 overflow-x-auto px-1 pb-1 pt-1"
       aria-label={t("sent.inputs", { defaultValue: "Материалы" })}
     >
       {rows.map((row) => {
@@ -61,27 +63,39 @@ function InputsStrip({ inputs, dropped, culprit }: InputsStripProps) {
           .filter(Boolean)
           .join(" · ");
         const frame = row.culprit
-          ? "border-status-fail ring-2 ring-status-fail/60"
+          ? "border-status-fail ring-2 ring-status-fail/50"
           : row.excluded
-            ? "border-dashed border-border-strong"
-            : "border-border";
+            ? "border-dashed border-white/20"
+            : "border-white/10 hover:border-white/25";
         return (
           <li key={row.key} className="flex w-[4.5rem] shrink-0 flex-col gap-1" title={aria}>
-            <div className={`relative size-[4.5rem] overflow-hidden rounded-lg border bg-surface-2 ${frame}`}>
+            <div
+              className={vx(
+                "relative size-[4.5rem] overflow-hidden rounded-xl border bg-white/[0.04] transition-colors",
+                frame,
+              )}
+            >
               {src && asset.status === "ready" ? (
-                <a href={asset.url || src} target="_blank" rel="noopener noreferrer" aria-label={aria} className="block h-full w-full">
+                <a
+                  href={asset.url || src}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-label={aria}
+                  // Кольцо фокуса внутрь: рамка миниатюры обрезает всё, что выходит за неё.
+                  className={vx("block h-full w-full cursor-zoom-in rounded-xl focus-visible:ring-inset", VS_FOCUS)}
+                >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={src}
                     alt=""
                     loading="lazy"
                     decoding="async"
-                    className={`h-full w-full object-cover ${row.excluded ? "opacity-40 grayscale" : ""}`}
+                    className={vx("h-full w-full object-cover", row.excluded && "opacity-40 grayscale")}
                   />
                 </a>
               ) : (
                 <span className="grid h-full w-full place-items-center text-muted-2" aria-label={aria} role="img">
-                  {asset.status === "pending" ? <FiLoader className="animate-spin" /> : <FiImage />}
+                  {asset.status === "pending" ? <FiLoader className="animate-spin motion-reduce:animate-none" /> : <FiImage />}
                 </span>
               )}
               {row.culprit && (
@@ -94,9 +108,10 @@ function InputsStrip({ inputs, dropped, culprit }: InputsStripProps) {
               )}
             </div>
             <span
-              className={`line-clamp-2 break-words text-[11px] font-medium leading-tight ${
-                row.culprit ? "text-status-fail" : row.excluded ? "text-muted-2 line-through" : "text-foreground"
-              }`}
+              className={vx(
+                "line-clamp-2 break-words text-[11px] font-medium leading-tight",
+                row.culprit ? "text-status-fail" : row.excluded ? "text-muted-2 line-through" : "text-foreground/85",
+              )}
               aria-hidden
             >
               {label}

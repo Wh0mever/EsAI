@@ -16,7 +16,7 @@
  */
 import { useCallback, useMemo, type Dispatch } from "react";
 import { useTranslation } from "react-i18next";
-import { FiX } from "react-icons/fi";
+import { FiInfo, FiX } from "react-icons/fi";
 import { quoteBodyFrom, quoteKey, trackVs } from "@/lib/vstudio/api";
 import type {
   ComposerState,
@@ -32,6 +32,7 @@ import type {
 } from "@/lib/vstudio/types";
 import { useVStudioOptional } from "../context";
 import { isGuest, useVStudioModels } from "../hooks/useVStudioModels";
+import { VS_ICON_BTN } from "../ui/skin";
 import AdvancedSection from "./AdvancedSection";
 import AspectPicker from "./AspectPicker";
 import AudioToggle from "./AudioToggle";
@@ -48,6 +49,14 @@ import { selectKind, selectModel, useRunSettingsSync } from "./useRunSettingsSyn
 /* ------------------------------------------------------------------ */
 /* Представление                                                       */
 /* ------------------------------------------------------------------ */
+
+/**
+ * Разделы идут один под другим через волосяную линию. shrink-0 у разделов:
+ * иначе в колонке с прокруткой flex сжимает раскрывающиеся блоки (grid-rows)
+ * и обрезает их содержимое.
+ */
+const SECTIONS =
+  "flex shrink-0 flex-col [&>*]:shrink-0 [&>*]:py-4 [&>*+*]:border-t [&>*+*]:border-border [&>*:first-child]:pt-0 [&>*:last-child]:pb-0";
 
 export type RunSettingsViewProps = {
   models: Pick<ModelsResponse, "video" | "image"> | null;
@@ -97,17 +106,19 @@ export function RunSettingsView({
 
   return (
     // h-full у колонки: прокручивается список параметров, а заголовок с «×» остаётся на месте.
+    // Своего фона у панели нет: стекло даёт тот, кто её показывает (колонка, выезжающая панель, шторка).
     <div className={cx("flex min-h-0 flex-col", variant === "panel" && "h-full", className)}>
       {variant === "panel" && (
-        <div className="flex items-center gap-2 px-4 pb-3 pt-4">
-          <h2 className="text-sm font-semibold text-foreground">{tx(t, "settings.title")}</h2>
+        // Высота как у верхней строки ленты (h-14): линии двух колонок сходятся.
+        <div className="flex h-14 shrink-0 items-center gap-2 border-b border-border pl-4 pr-2">
+          <h2 className="vs-display min-w-0 flex-1 text-base text-foreground">{tx(t, "settings.title")}</h2>
           {onClose && (
             <button
               type="button"
               onClick={onClose}
               aria-label={tx(t, "settings.hide")}
               title={tx(t, "settings.hide")}
-              className="ml-auto grid size-9 place-items-center rounded-lg text-muted hover:bg-surface-2 hover:text-foreground cursor-pointer"
+              className={VS_ICON_BTN}
             >
               <FiX className="size-4" aria-hidden />
             </button>
@@ -115,13 +126,11 @@ export function RunSettingsView({
         </div>
       )}
 
-      {/* В шторке прокручивает сама шторка (BottomSheet) и отступы — её же.
-          shrink-0 у разделов: иначе в колонке с прокруткой flex сжимает
-          раскрывающиеся блоки (grid-rows) и обрезает их содержимое. */}
+      {/* В шторке прокручивает сама шторка (BottomSheet) и отступы — её же. */}
       <div
         className={cx(
-          "flex flex-col gap-5 [&>*]:shrink-0",
-          variant === "panel" ? "min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-4" : "pb-2",
+          "flex flex-col",
+          variant === "panel" ? "min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-5 pt-4" : "pb-2 pt-1",
         )}
       >
         {showKindTabs && (
@@ -129,70 +138,76 @@ export function RunSettingsView({
             value={kind}
             onChange={onKind}
             counts={models ? { video: models.video.length, image: models.image.length } : undefined}
+            className="mb-4 shrink-0"
           />
         )}
 
-        <ModelPicker
-          kind={kind}
-          models={list}
-          value={model?.id ?? null}
-          counts={counts}
-          onSelect={onModel}
-          onLocked={onLocked}
-          loading={loading || (!models && !error)}
-          error={error}
-          onRetry={onRetry}
-        />
+        <div className={SECTIONS}>
+          <ModelPicker
+            kind={kind}
+            models={list}
+            value={model?.id ?? null}
+            counts={counts}
+            onSelect={onModel}
+            onLocked={onLocked}
+            loading={loading || (!models && !error)}
+            error={error}
+            onRetry={onRetry}
+          />
 
-        {model && (
-          <>
-            <AspectPicker
-              kind={kind}
-              model={model}
-              value={p.aspect_ratio}
-              onChange={(v) => onParams({ aspect_ratio: v })}
-              duration={forced ?? p.duration}
-              resolution={p.resolution}
-            />
+          {model && (
+            <>
+              <AspectPicker
+                kind={kind}
+                model={model}
+                value={p.aspect_ratio}
+                onChange={(v) => onParams({ aspect_ratio: v })}
+                duration={forced ?? p.duration}
+                resolution={p.resolution}
+              />
 
-            {kind === "video" && (
-              <>
-                <DurationPicker
-                  model={model}
-                  value={p.duration}
-                  onChange={(v) => onParams({ duration: v })}
-                  resolution={p.resolution}
-                  aspect={priceAspect}
-                  forced={forced}
-                />
-                <ResolutionPicker
-                  model={model}
-                  value={p.resolution}
-                  onChange={(v) => onParams({ resolution: v })}
-                  duration={forced ?? p.duration}
-                  aspect={priceAspect}
-                />
-                <AudioToggle model={model} value={p.generate_audio} onChange={(v) => onParams({ generate_audio: v })} />
-              </>
-            )}
+              {kind === "video" && (
+                <>
+                  <DurationPicker
+                    model={model}
+                    value={p.duration}
+                    onChange={(v) => onParams({ duration: v })}
+                    resolution={p.resolution}
+                    aspect={priceAspect}
+                    forced={forced}
+                  />
+                  <ResolutionPicker
+                    model={model}
+                    value={p.resolution}
+                    onChange={(v) => onParams({ resolution: v })}
+                    duration={forced ?? p.duration}
+                    aspect={priceAspect}
+                  />
+                  <AudioToggle model={model} value={p.generate_audio} onChange={(v) => onParams({ generate_audio: v })} />
+                </>
+              )}
 
-            <InputsExplainer
-              kind={kind}
-              model={model}
-              tray={composer.tray}
-              frames={composer.frames}
-              quote={quote}
-              onPickModel={openModelPicker}
-            />
+              <InputsExplainer
+                kind={kind}
+                model={model}
+                tray={composer.tray}
+                frames={composer.frames}
+                quote={quote}
+                onPickModel={openModelPicker}
+              />
 
-            <AdvancedSection key={model.id} model={model} kind={kind} params={composer.params} onChange={onParams} />
+              <AdvancedSection key={model.id} model={model} kind={kind} params={composer.params} onChange={onParams} />
 
-            <div className="flex flex-col gap-1 border-t border-border pt-3">
-              {kind === "video" && <Reason tone="muted">{tx(t, "settings.priceHint")}</Reason>}
-              <Reason tone="muted">{tx(t, "settings.exact")}</Reason>
-            </div>
-          </>
-        )}
+              <div className="flex gap-2">
+                <FiInfo className="mt-px size-3.5 shrink-0 text-muted-2" aria-hidden />
+                <div className="flex min-w-0 flex-1 flex-col gap-1.5">
+                  {kind === "video" && <Reason tone="muted">{tx(t, "settings.priceHint")}</Reason>}
+                  <Reason tone="muted">{tx(t, "settings.exact")}</Reason>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
       </div>
     </div>
   );

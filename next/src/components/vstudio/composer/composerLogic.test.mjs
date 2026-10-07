@@ -361,6 +361,22 @@ test("runView: цена не посчиталась, модель под зам�
   assert.equal(v({ fresh: quote({ balance: null }) }).kind, "run");
 });
 
+test("quoteMissing: то же число, что на кнопке «Пополнить»; 0 — хватает, гость или цены нет", () => {
+  const bal = (available) => ({ balance: available, reserved: 0, available, after: null });
+  const short = quote({ credits: 164, balance: bal(128) });
+  assert.equal(L.quoteMissing(short), 36);
+  assert.equal(L.quoteMissing(short), v({ fresh: short }).missing, "кнопка и перезапрос цены после оплаты считают одинаково");
+  // Модель под замком: на кнопке «замок», но по цене видно, что после покупки тарифа её надо спросить заново.
+  assert.equal(v({ fresh: short, model: { locked: true } }).kind, "locked");
+  assert.equal(L.quoteMissing(quote({ credits: 164, balance: bal(163.5) })), 1, "дробный остаток — вверх");
+  assert.equal(L.quoteMissing(quote({ credits: 164, balance: bal(164) })), 0);
+  assert.equal(v({ fresh: quote({ credits: 164, balance: bal(164) }) }).kind, "run");
+  assert.equal(L.quoteMissing(quote({ credits: 164, balance: bal(500) })), 0);
+  assert.equal(L.quoteMissing(quote({ balance: null })), 0);
+  assert.equal(L.quoteMissing(quote({ credits: null, balance: bal(0) })), 0);
+  assert.equal(L.quoteMissing(null), 0);
+});
+
 test("runView: пока цена считается — прошлая цена той же структуры, иначе скелетон; ошибка quote", () => {
   assert.deepEqual(v({ fresh: null, quoteStatus: "loading", lastCredits: 150 }), { kind: "quoting", credits: 150 });
   assert.deepEqual(v({ fresh: null, quoteStatus: "loading" }), { kind: "quoting", credits: null });

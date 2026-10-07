@@ -67,8 +67,9 @@ import {
 import { RefStore, VsRef } from "./vsRef";
 import { closeMention, isMentionActive, openAt, VsMention, type MentionBridge, type MentionSession } from "./suggestion";
 
-/** Стили, которых нет в Tailwind-классах: плейсхолдер, подчёркивание тегов, метка загрузки. */
+/** Стили, которых нет в Tailwind-классах: курсор, плейсхолдер, подчёркивание тегов, метка загрузки. */
 const EDITOR_CSS = `
+.vs-editor.ProseMirror { caret-color: var(--accent); }
 .vs-editor.ProseMirror p { margin: 0; }
 .vs-editor.ProseMirror p.is-editor-empty:first-child::before {
   content: attr(data-placeholder); float: left; height: 0; pointer-events: none; color: var(--muted-2);
@@ -81,7 +82,8 @@ const EDITOR_CSS = `
 }
 .vs-editor.ProseMirror .vs-pending {
   display: inline-block; margin: 0 1px; padding: 0 0.4em; border-radius: 0.375rem;
-  background: var(--surface-3); color: var(--muted); font-size: 0.92em; animation: vs-pending 1.2s ease-in-out infinite;
+  background: color-mix(in srgb, var(--foreground) 9%, transparent); color: var(--muted); font-size: 0.92em;
+  animation: vs-pending 1.2s ease-in-out infinite;
 }
 .vs-editor.ProseMirror .vs-pending:empty { display: none; }
 @keyframes vs-pending { 50% { opacity: 0.45; } }
@@ -344,8 +346,10 @@ export default function TipTapPromptEditor(props: VsPromptEditorProps) {
   const editorProps = useMemo(
     () => ({
       attributes: {
+        // Поле без своей подложки: текст лежит прямо на стекле панели запроса.
+        // 15 px — только с мышью: на сенсорном экране iOS приближает страницу при фокусе в поле мельче 16 px.
         class:
-          "vs-editor min-h-[4.75rem] px-3 py-2.5 pr-11 text-base leading-relaxed text-foreground outline-none md:text-[15px] max-md:pr-12",
+          "vs-editor min-h-[3.25rem] px-1.5 py-1.5 pr-11 text-base leading-relaxed text-foreground outline-none md:pointer-fine:text-[15px] max-md:pr-12",
         role: "textbox",
         "aria-multiline": "true",
         "aria-label":

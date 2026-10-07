@@ -29,7 +29,10 @@ import type {
   VsAction,
   VsError,
 } from "@/lib/vstudio/types";
+import { useBalanceRequote } from "../composer/useBalanceRequote";
+import { MOBILE_QUERY } from "../editor/inputHelpers";
 import { openModelPicker } from "../settings/ModelPicker";
+import { VS_BTN_GHOST, VS_BTN_GOLD, VS_FOCUS, vx } from "../ui/skin";
 import { mediaFilename, retryBlock } from "./feedLogic";
 
 /** Что карточка положила в композер — родитель может сфокусировать редактор или открыть шторку. */
@@ -101,13 +104,32 @@ function trayItem(asset: AssetJSON, slot: InputSlot): TrayItem {
   };
 }
 
+/** Кнопки строки действий мельче обычных кнопок студии, но на телефоне те же 44 px. */
+const ACT_SIZE = "!gap-1.5 !text-[13px] md:!min-h-9";
+/** Тихая кнопка: значок и подпись без рамки. Этот же вид отдаётся кнопке «Скачать». */
+const ACT_QUIET = `inline-flex min-h-11 min-w-11 cursor-pointer items-center justify-center gap-1.5 rounded-full px-3 text-[13px] font-medium text-muted transition-colors hover:bg-white/[0.08] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-muted md:min-h-9 md:min-w-0 ${VS_FOCUS}`;
+
+/**
+ * Три вида кнопок. В ленте десятки карточек, и одинаково громкие кнопки под
+ * каждой спорили бы с роликами: с рамкой — только «Повторить», золото — только
+ * там, где человек подтверждает трату, остальное — тихое.
+ */
+const ACT: Record<"ghost" | "gold" | "quiet", string> = {
+  ghost: vx(VS_BTN_GHOST, ACT_SIZE, "!px-3.5"),
+  gold: vx(VS_BTN_GOLD, ACT_SIZE, "!px-4"),
+  quiet: ACT_QUIET,
+};
+
+/** Вложенный блок карточки: подтверждение повтора, ссылки «Поделиться». */
+const INSET = "flex flex-col gap-2.5 rounded-xl border border-white/10 bg-white/[0.04] p-3";
+
 function Btn({
   onClick,
   disabled,
   busy,
   icon,
   label,
-  primary,
+  tone = "quiet",
   compact,
   title,
 }: {
@@ -116,7 +138,7 @@ function Btn({
   busy?: boolean;
   icon: ReactNode;
   label: string;
-  primary?: boolean;
+  tone?: "ghost" | "gold" | "quiet";
   /** На телефоне только значок (подпись — в aria-label и title). */
   compact?: boolean;
   title?: string;
@@ -129,14 +151,10 @@ function Btn({
       aria-busy={busy || undefined}
       aria-label={compact ? label : undefined}
       title={title || label}
-      className={`inline-flex min-h-11 min-w-11 cursor-pointer items-center justify-center gap-1.5 rounded-xl px-2.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-9 sm:min-w-0 ${
-        primary
-          ? "bg-accent text-on-accent hover:bg-accent-strong"
-          : "border border-border bg-surface text-foreground hover:border-accent/60 hover:bg-surface-2"
-      }`}
+      className={ACT[tone]}
     >
       <span className="text-sm" aria-hidden>
-        {busy ? <FiLoader className="animate-spin" /> : icon}
+        {busy ? <FiLoader className="animate-spin motion-reduce:animate-none" /> : icon}
       </span>
       <span className={compact ? "hidden sm:inline" : ""}>{label}</span>
     </button>
@@ -259,7 +277,10 @@ function ShotActions({ shot, take, takes, model, dispatch, onComposerFilled }: S
 
   const otherModel = () => {
     dispatch({ type: "composer/fill", shot });
-    dispatch({ type: "ui/panel", panel: "settings", open: true });
+    // С 768 px модель выбирают в окошке у чипа модели в панели запроса, шторка
+    // параметров нужна только телефону. Иначе на компьютере «Другая модель»
+    // заодно разворачивала бы колонку параметров и запоминала это.
+    if (window.matchMedia?.(MOBILE_QUERY).matches) dispatch({ type: "ui/panel", panel: "settings", open: true });
     // Сразу раскрыть список моделей (на телефоне ждёт, пока смонтируется шторка).
     openModelPicker();
     onComposerFilled?.("other_model");
@@ -324,11 +345,19 @@ function ShotActions({ shot, take, takes, model, dispatch, onComposerFilled }: S
       : 0;
   const retryWarnings = confirming ? (retry.quote?.warnings || []).slice(0, 2) : [];
 
+  // Остаток пришёл вместе с ценой повтора: после оплаты блок так и звал бы «Пополнить». Спрашиваем цену
+  // заново — только пока ждём подтверждения и кредитов не хватало (оплата при этом ещё не отправлялась).
+  useBalanceRequote(() => {
+    if (retry.phase === "confirm" && missing > 0) void startRetry();
+  });
+
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex flex-wrap items-center gap-1.5">
+      {/* Слева — что делать с кадром дальше, справа — забрать результат. */}
+      <div className="flex flex-wrap items-center gap-x-1 gap-y-1.5">
         {block !== "open" && !confirming && (
           <Btn
+            tone="ghost"
             onClick={() => void startRetry()}
             busy={retry.phase === "quoting"}
             disabled={block === "model"}
@@ -343,26 +372,6 @@ function ShotActions({ shot, take, takes, model, dispatch, onComposerFilled }: S
           label={t("run.actions.otherModel", { defaultValue: "Другая модель" })}
           compact
         />
-        {result?.url && (
-          <SaveMediaButton
-            url={result.url}
-            filename={mediaFilename(result)}
-            label={t("run.actions.download", { defaultValue: "Скачать" })}
-            className="inline-flex min-h-11 min-w-11 cursor-pointer items-center justify-center gap-1.5 rounded-xl border border-border bg-surface px-2.5 text-xs font-medium text-foreground transition-colors hover:border-accent/60 hover:bg-surface-2 sm:min-h-9 sm:min-w-0"
-            iconClassName="text-sm"
-          >
-            <span className="hidden sm:inline">{t("run.actions.download", { defaultValue: "Скачать" })}</span>
-          </SaveMediaButton>
-        )}
-        {result?.url && isVideo && (
-          <Btn
-            onClick={() => void startShare()}
-            busy={shareHere?.phase === "loading"}
-            icon={<FiShare2 />}
-            label={t("run.actions.share", { defaultValue: "Поделиться" })}
-            compact
-          />
-        )}
         {result && isVideo && (
           <Btn
             onClick={() => void lastFrame()}
@@ -380,40 +389,62 @@ function ShotActions({ shot, take, takes, model, dispatch, onComposerFilled }: S
             compact
           />
         )}
+        {result?.url && (
+          <div className="ml-auto flex items-center gap-1">
+            <SaveMediaButton
+              url={result.url}
+              filename={mediaFilename(result)}
+              label={t("run.actions.download", { defaultValue: "Скачать" })}
+              className={ACT_QUIET}
+              iconClassName="text-sm"
+            >
+              <span className="hidden sm:inline">{t("run.actions.download", { defaultValue: "Скачать" })}</span>
+            </SaveMediaButton>
+            {isVideo && (
+              <Btn
+                onClick={() => void startShare()}
+                busy={shareHere?.phase === "loading"}
+                icon={<FiShare2 />}
+                label={t("run.actions.share", { defaultValue: "Поделиться" })}
+                compact
+              />
+            )}
+          </div>
+        )}
       </div>
 
       {block === "model" && (
-        <p className="text-xs text-muted">
+        <p className="px-0.5 text-xs leading-snug text-muted">
           {t("run.modelGone", { defaultValue: "Этой модели больше нет в студии — нажмите «Другая модель»." })}
         </p>
       )}
 
       {confirming && (
-        <div className="flex flex-col gap-2 rounded-xl border border-border bg-surface-2 p-3" role="group" aria-label={retryLabel}>
-          {retry.note && <p className="text-xs text-status-wait">{retry.note}</p>}
+        <div className={INSET} role="group" aria-label={retryLabel}>
+          {retry.note && <p className="text-xs leading-snug text-status-wait">{retry.note}</p>}
           {retry.errors.length > 0 ? (
             <>
-              <p className="flex items-start gap-2 text-sm text-foreground">
+              <p className="flex items-start gap-2 text-sm leading-snug text-foreground">
                 <FiAlertTriangle className="mt-0.5 shrink-0 text-status-fail" aria-hidden />
                 <span>{issueText(t, retry.errors[0], "errors")}</span>
               </p>
-              <p className="text-xs text-muted">
+              <p className="text-xs leading-snug text-muted">
                 {t("run.retryBlocked", { defaultValue: "Повторить как есть нельзя — нажмите «Изменить» и поправьте запрос." })}
               </p>
             </>
           ) : retry.credits == null ? (
-            <p className="text-sm text-foreground">
+            <p className="text-sm leading-snug text-foreground">
               {t("run.retryNoPrice", { defaultValue: "Не получилось посчитать цену. Нажмите «Изменить» и проверьте параметры." })}
             </p>
           ) : (
             <>
               {retryWarnings.map((w, k) => (
-                <p key={`${w.code}-${k}`} className="flex items-start gap-2 text-xs text-status-wait">
+                <p key={`${w.code}-${k}`} className="flex items-start gap-2 text-xs leading-snug text-status-wait">
                   <FiAlertTriangle className="mt-0.5 shrink-0" aria-hidden />
                   <span>{issueText(t, w, "warnings")}</span>
                 </p>
               ))}
-              <p className="text-xs text-muted">
+              <p className="text-xs leading-snug text-muted">
                 {t("price.note", { defaultValue: "Спишется только за готовый результат" })}
                 {balance && balance.after != null && missing === 0
                   ? ` · ${tr("run.retryAfter", { defaultValue: "останется {{n}} кр", n: balance.after })}`
@@ -425,14 +456,14 @@ function ShotActions({ shot, take, takes, model, dispatch, onComposerFilled }: S
             {retry.errors.length === 0 && retry.credits != null && (
               missing > 0 ? (
                 <Btn
-                  primary
+                  tone="gold"
                   onClick={() => dispatch({ type: "ui/topup", open: true })}
                   icon={<FiPlusCircle />}
                   label={t("composer.topup", { defaultValue: "Пополнить · не хватает {{n}} кр", n: missing })}
                 />
               ) : (
                 <Btn
-                  primary
+                  tone="gold"
                   onClick={() => void confirmRetry()}
                   busy={retry.phase === "sending"}
                   icon={<FiRefreshCw />}
@@ -444,7 +475,12 @@ function ShotActions({ shot, take, takes, model, dispatch, onComposerFilled }: S
               )
             )}
             {retry.errors.length > 0 && (
-              <Btn onClick={edit} icon={<FiEdit2 />} label={t("run.actions.edit", { defaultValue: "Изменить" })} />
+              <Btn
+                tone="ghost"
+                onClick={edit}
+                icon={<FiEdit2 />}
+                label={t("run.actions.edit", { defaultValue: "Изменить" })}
+              />
             )}
             <Btn
               onClick={cancelRetry}
@@ -457,12 +493,16 @@ function ShotActions({ shot, take, takes, model, dispatch, onComposerFilled }: S
       )}
 
       {retry.phase === "error" && (
-        <p className="flex flex-wrap items-center gap-2 text-xs text-status-fail" role="alert">
+        <p className="flex flex-wrap items-center gap-1 px-0.5 text-xs leading-snug text-status-fail" role="alert">
           {retry.message}
           <button
             type="button"
             onClick={() => setRetry({ phase: "idle" })}
-            className="cursor-pointer rounded-md px-1.5 py-0.5 text-muted hover:text-foreground"
+            // Крестик мелкий, зона нажатия — 44 px; лишнюю высоту строки съедает отрицательный отступ.
+            className={vx(
+              "-my-3 grid size-11 cursor-pointer place-items-center rounded-full text-muted transition-colors hover:bg-white/[0.08] hover:text-foreground md:-my-1.5 md:size-8",
+              VS_FOCUS,
+            )}
             aria-label={t("run.actions.dismiss", { defaultValue: "Скрыть" })}
           >
             <FiX aria-hidden />
@@ -471,8 +511,8 @@ function ShotActions({ shot, take, takes, model, dispatch, onComposerFilled }: S
       )}
 
       {shareHere?.phase === "ready" && (
-        <div className="flex flex-col gap-2 rounded-xl border border-border bg-surface-2 p-3">
-          <p className="text-xs text-muted">
+        <div className={INSET}>
+          <p className="text-xs leading-snug text-muted">
             {t("share.hint", { defaultValue: "Ссылка на страницу ролика — видео откроется прямо в мессенджере" })}
           </p>
           <ShareButtons
@@ -483,7 +523,7 @@ function ShotActions({ shot, take, takes, model, dispatch, onComposerFilled }: S
         </div>
       )}
       {shareHere?.phase === "error" && (
-        <p className="text-xs text-status-fail" role="alert">
+        <p className="px-0.5 text-xs leading-snug text-status-fail" role="alert">
           {shareHere.message}
         </p>
       )}

@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { FiChevronDown, FiEdit2, FiArchive, FiMenu, FiMoreHorizontal, FiSliders, FiZap, FiLogIn } from "react-icons/fi";
 import { ConfirmationModal } from "@/components/dialog/Dialog";
 import { rememberReturnPath } from "@/tools/authNext";
 import { useVStudio } from "./context";
+import { signInReturnPath } from "./deepLink";
 import { selectModel } from "./store";
+import { VS_FOCUS, VS_ICON_BTN, VS_MENU, VS_MENU_ITEM, VS_PILL, VS_PILL_ON, vx } from "./ui/skin";
 import type { ModelJSON, ProjectJSON, ShotParams, VsKind } from "@/lib/vstudio/types";
 
 /**
@@ -16,15 +17,25 @@ import type { ModelJSON, ProjectJSON, ShotParams, VsKind } from "@/lib/vstudio/t
  * - StudioTopBar — телефон и планшет (<1024): ☰ (история и материалы
  *   шторкой), название проекта, баланс, чип параметров (§9.7).
  * - StudioHeader — компьютер (≥1024): над лентой название проекта с
- *   переименованием, вкладки «Видео | Картинка», меню «⋯» и кнопка панели
- *   параметров (§9.2).
+ *   переименованием, баланс, меню «⋯» и кнопка панели параметров (§9.2). Вид
+ *   («Видео | Картинка») выбирают в панели запроса и в параметрах.
  * - BalanceChip — баланс из useBalance и резерв «N кр ждут результата»; у
  *   гостя вместо него «Войти».
+ *
+ * Обе строки прозрачные и без своей нижней линии: линию по прокрутке ленты
+ * рисует оболочка (VStudioShell), иначе на первом экране верх отрезал бы сцену.
  */
 
 const fmt = (n: number) => Math.max(0, Math.round(n)).toLocaleString("ru-RU");
 
 type T = (key: string, options?: Record<string, unknown>) => string;
+
+/** Зона нажатия 44 px у контрола, который выглядит ниже: невидимое поле сверху и снизу. */
+const TALL_HIT = "relative before:absolute before:inset-x-0 before:-inset-y-1";
+
+/** Выпадающее меню вырастает из своего угла, а не возникает разом. */
+export const MENU_POP =
+  "origin-top-right scale-100 opacity-100 transition-[opacity,scale] duration-150 starting:scale-95 starting:opacity-0 motion-reduce:transition-none";
 
 /** «Seedance 2.0 · 9:16 · 10 с» — сводка параметров для чипа. */
 export function paramsSummary(t: T, model: ModelJSON | null, kind: VsKind, params: ShotParams): string {
@@ -44,23 +55,27 @@ export function paramsSummary(t: T, model: ModelJSON | null, kind: VsKind, param
 
 export function BalanceChip({ variant = "chip" }: { variant?: "chip" | "rail" | "compact" }) {
   const { t } = useTranslation("vstudio", { useSuspense: false });
-  const { authed, balance, reserved, actions, routeProject } = useVStudio();
+  const { state, authed, balance, reserved, actions, routeProject } = useVStudio();
 
   if (authed === false) {
-    const back = routeProject ? `/video-studio/${routeProject}` : "/video-studio";
+    // С первого экрана — обратно к тем же виду и модели, а не к модели по умолчанию.
+    const back = signInReturnPath("/video-studio", routeProject, state.composer);
+    const signin = t("top.signin", { defaultValue: "Войти" });
+    // Вход — не главное действие экрана (оно одно, «Создать»), поэтому кнопка тихая, с золотой кромкой.
     return (
       <a
         href={`/auth/signin?next=${encodeURIComponent(back)}`}
         onClick={() => rememberReturnPath(back)}
         className={
           variant === "compact"
-            ? "grid h-11 w-11 place-items-center rounded-xl bg-accent text-on-accent hover:bg-accent-strong"
-            : "inline-flex min-h-9 items-center justify-center gap-1.5 rounded-full bg-accent px-4 text-sm font-semibold text-on-accent transition-colors hover:bg-accent-strong"
+            ? vx(VS_ICON_BTN, VS_PILL_ON)
+            : vx(VS_PILL, VS_PILL_ON, "max-md:h-11 md:!h-10", variant === "rail" && "w-full justify-center")
         }
-        title={t("top.signin", { defaultValue: "Войти" })}
-        aria-label={variant === "compact" ? t("top.signin", { defaultValue: "Войти" }) : undefined}
+        title={signin}
+        aria-label={variant === "compact" ? signin : undefined}
       >
-        {variant === "compact" ? <FiLogIn className="text-lg" /> : t("top.signin", { defaultValue: "Войти" })}
+        <FiLogIn className={variant === "compact" ? "text-lg" : "shrink-0"} aria-hidden="true" />
+        {variant !== "compact" && signin}
       </a>
     );
   }
@@ -76,35 +91,45 @@ export function BalanceChip({ variant = "chip" }: { variant?: "chip" | "rail" | 
       <button
         type="button"
         onClick={actions.openTopUp}
-        className="flex w-11 flex-col items-center gap-0.5 rounded-xl py-1.5 text-muted transition-colors hover:bg-surface-2 hover:text-foreground cursor-pointer"
+        className={vx(
+          "flex w-11 cursor-pointer flex-col items-center gap-1 rounded-2xl border border-white/10 bg-white/[0.05] py-2 text-muted transition-colors hover:border-accent/45 hover:bg-white/[0.09] hover:text-foreground",
+          VS_FOCUS,
+        )}
         title={[amount, waiting, topupLabel].filter(Boolean).join(" · ")}
         aria-label={[amount, waiting, topupLabel].filter(Boolean).join(". ")}
       >
-        <FiZap className="text-accent" />
-        <span className="text-[11px] font-medium leading-none">{short}</span>
+        <FiZap className="text-accent" aria-hidden="true" />
+        <span className="text-[11px] font-medium leading-none tabular-nums">{short}</span>
       </button>
     );
   }
 
+  const rail = variant === "rail";
   return (
-    <div className={variant === "rail" ? "flex flex-col gap-1" : "flex flex-col items-end gap-0.5"}>
+    // В строке над лентой резерв стоит слева от чипа, на телефоне — под ним:
+    // вторая строка в 56 px помещается только при чипе пониже (TALL_HIT добирает зону нажатия).
+    <div className={rail ? "flex flex-col gap-1" : "flex shrink-0 flex-col items-end md:flex-row-reverse md:items-center md:gap-2.5"}>
       <button
         type="button"
         onClick={actions.openTopUp}
-        className={
-          "inline-flex min-h-9 items-center gap-1.5 rounded-full border border-border bg-surface-2 px-3 text-sm transition-colors hover:border-accent/60 cursor-pointer" +
-          (variant === "rail" ? " w-full justify-between" : "")
-        }
+        className={vx(
+          VS_PILL,
+          "hover:!border-accent/45",
+          rail ? "!h-11 w-full justify-between md:!h-10" : vx(TALL_HIT, "!h-9 md:!h-10"),
+        )}
         title={topupLabel}
       >
         <span className="inline-flex items-center gap-1.5">
-          <FiZap className="text-accent" />
-          <span className="font-medium">{amount}</span>
+          <FiZap className="shrink-0 text-accent" aria-hidden="true" />
+          <span className="font-semibold tabular-nums text-foreground">{amount}</span>
         </span>
-        {variant === "rail" && <span className="text-xs text-accent">{topupLabel}</span>}
+        {rail && <span className="text-xs font-semibold text-accent">{topupLabel}</span>}
       </button>
       {waiting && (
-        <span className="text-xs leading-tight text-muted" aria-live="polite">
+        <span
+          className={vx("whitespace-nowrap text-[11px] leading-[14px] text-muted", rail ? "px-3.5" : "md:text-xs")}
+          aria-live="polite"
+        >
           {waiting}
         </span>
       )}
@@ -146,24 +171,34 @@ export function ProjectTitle({
   }, [editing]);
 
   const untitled = t("nav.untitled", { defaultValue: "Без названия" });
-  const title = project ? project.title.trim() || untitled : t("nav.new", { defaultValue: "Новая генерация" });
 
-  if (!project || !editing) {
+  if (!project) {
+    // Проекта нет (первый экран, «не найден», гость по ссылке): переименовывать
+    // нечего — на этом месте стоит имя раздела.
+    return (
+      <span className={vx("block min-w-0 truncate px-1.5 font-semibold text-foreground", className)}>
+        {t("meta.title", { defaultValue: "Видеостудия" })}
+      </span>
+    );
+  }
+
+  if (!editing) {
     return (
       <button
         type="button"
-        disabled={!project}
         onClick={() => setEditing(true)}
-        className={
-          "group inline-flex min-w-0 items-center gap-1.5 rounded-lg px-1.5 py-1 text-left font-semibold enabled:hover:bg-surface-2 enabled:cursor-pointer disabled:cursor-default " +
-          className
-        }
-        title={project ? t("nav.rename", { defaultValue: "Переименовать" }) : undefined}
-      >
-        <span className="truncate">{title}</span>
-        {project && (
-          <FiEdit2 className="shrink-0 text-xs text-muted opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100" />
+        className={vx(
+          "group inline-flex min-h-11 min-w-0 cursor-pointer items-center gap-1.5 rounded-xl px-1.5 text-left font-semibold text-foreground transition-colors hover:bg-white/[0.06] md:min-h-9",
+          VS_FOCUS,
+          className,
         )}
+        title={t("nav.rename", { defaultValue: "Переименовать" })}
+      >
+        <span className="truncate">{project.title.trim() || untitled}</span>
+        <FiEdit2
+          className="shrink-0 text-xs text-muted opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
+          aria-hidden="true"
+        />
       </button>
     );
   }
@@ -194,10 +229,11 @@ export function ProjectTitle({
       }}
       placeholder={untitled}
       aria-label={t("nav.rename", { defaultValue: "Переименовать" })}
-      className={
-        "w-full min-w-0 rounded-lg border border-border-strong bg-surface-2 px-2 py-1 text-base font-semibold text-foreground outline-none focus:border-accent " +
-        className
-      }
+      // На телефоне шрифт поля не меньше 16 px: иначе iOS приближает страницу при фокусе.
+      className={vx(
+        "w-full min-w-0 rounded-xl border border-white/10 bg-white/[0.04] px-2.5 py-1.5 font-semibold text-foreground outline-none transition-colors placeholder:text-muted-2 focus:border-accent/60 max-sm:!text-base",
+        className,
+      )}
     />
   );
 }
@@ -219,7 +255,7 @@ export function ArchiveProjectDialog({ project, onClose }: { project: ProjectJSO
       isOpen={Boolean(project)}
       title={t("nav.archiveConfirm", { defaultValue: "Убрать проект в архив?" })}
       description={t("nav.archiveHint", {
-        defaultValue: "Он пропадёт из истории. Готовые видео и картинки останутся в «Моих материалах».",
+        defaultValue: "Он пропадёт из истории вместе со своими видео. Созданные картинки останутся в «Моих материалах».",
       })}
       confirmText={t("nav.archive", { defaultValue: "В архив" })}
       cancelText={t("nav.cancel", { defaultValue: "Отмена" })}
@@ -271,19 +307,19 @@ export function ProjectMenu({ onRename }: { onRename?: () => void }) {
   return (
     <>
       {project && (
-        <div ref={box} className="relative">
+        <div ref={box} className="relative shrink-0">
           <button
             type="button"
             onClick={() => setOpen((v) => !v)}
             aria-haspopup="menu"
             aria-expanded={open}
             aria-label={t("nav.menu", { defaultValue: "Меню проекта" })}
-            className="grid h-10 w-10 place-items-center rounded-lg text-muted transition-colors hover:bg-surface-2 hover:text-foreground cursor-pointer"
+            className={vx(VS_ICON_BTN, open && "!border-white/22 !bg-white/[0.1] !text-foreground")}
           >
-            <FiMoreHorizontal className="text-lg" />
+            <FiMoreHorizontal className="text-lg" aria-hidden="true" />
           </button>
           {open && (
-            <div role="menu" className="absolute right-0 top-full z-30 mt-1 w-52 overflow-hidden rounded-xl border border-border bg-surface py-1 shadow-xl">
+            <div role="menu" className={vx(VS_MENU, MENU_POP, "absolute right-0 top-full z-30 mt-1.5 w-52")}>
               {onRename && (
                 <button
                   type="button"
@@ -292,9 +328,9 @@ export function ProjectMenu({ onRename }: { onRename?: () => void }) {
                     setOpen(false);
                     onRename();
                   }}
-                  className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm hover:bg-surface-2 cursor-pointer"
+                  className={VS_MENU_ITEM}
                 >
-                  <FiEdit2 className="text-muted" />
+                  <FiEdit2 className="shrink-0 text-muted" aria-hidden="true" />
                   {t("nav.rename", { defaultValue: "Переименовать" })}
                 </button>
               )}
@@ -305,9 +341,9 @@ export function ProjectMenu({ onRename }: { onRename?: () => void }) {
                   setOpen(false);
                   setArchiveFor(project);
                 }}
-                className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm hover:bg-surface-2 cursor-pointer"
+                className={VS_MENU_ITEM}
               >
-                <FiArchive className="text-muted" />
+                <FiArchive className="shrink-0 text-muted" aria-hidden="true" />
                 {t("nav.archive", { defaultValue: "В архив" })}
               </button>
             </div>
@@ -331,14 +367,8 @@ export function ParamsChip({ onClick, iconOnly = false }: { onClick: () => void;
   const settingsLabel = t("mobile.params", { defaultValue: "Параметры" });
   if (iconOnly) {
     return (
-      <button
-        type="button"
-        onClick={onClick}
-        aria-label={`${settingsLabel}: ${label}`}
-        title={label}
-        className="grid h-11 w-11 shrink-0 place-items-center rounded-xl text-muted transition-colors hover:bg-surface-2 hover:text-foreground cursor-pointer"
-      >
-        <FiSliders className="text-lg" />
+      <button type="button" onClick={onClick} aria-label={`${settingsLabel}: ${label}`} title={label} className={VS_ICON_BTN}>
+        <FiSliders className="text-lg" aria-hidden="true" />
       </button>
     );
   }
@@ -347,11 +377,11 @@ export function ParamsChip({ onClick, iconOnly = false }: { onClick: () => void;
       type="button"
       onClick={onClick}
       aria-label={`${settingsLabel}: ${label}`}
-      className="inline-flex min-h-10 max-w-[16rem] items-center gap-1.5 rounded-full border border-border bg-surface-2 px-3 text-sm transition-colors hover:border-border-strong cursor-pointer"
+      className={vx(VS_PILL, "min-w-0 max-w-[16rem] !shrink md:!h-10")}
     >
-      <FiSliders className="shrink-0 text-muted" />
+      <FiSliders className="shrink-0 text-muted" aria-hidden="true" />
       <span className="truncate">{label}</span>
-      <FiChevronDown className="shrink-0 text-muted" />
+      <FiChevronDown className="shrink-0 text-muted" aria-hidden="true" />
     </button>
   );
 }
@@ -364,14 +394,9 @@ export default function StudioTopBar({ onMenu, onSettings }: { onMenu: () => voi
   const { t } = useTranslation("vstudio", { useSuspense: false });
   const { breakpoint } = useVStudio();
   return (
-    <header className="flex h-[calc(3.5rem_+_env(safe-area-inset-top,0px))] shrink-0 items-center gap-1 border-b border-border px-2 pt-[env(safe-area-inset-top,0px)] sm:px-3">
-      <button
-        type="button"
-        onClick={onMenu}
-        className="grid h-11 w-11 shrink-0 place-items-center rounded-xl text-muted transition-colors hover:bg-surface-2 hover:text-foreground cursor-pointer"
-        aria-label={t("mobile.history", { defaultValue: "История" })}
-      >
-        <FiMenu className="text-xl" />
+    <header className="flex h-[calc(3.5rem_+_env(safe-area-inset-top,0px))] shrink-0 items-center gap-1.5 px-2 pt-[env(safe-area-inset-top,0px)] sm:px-3">
+      <button type="button" onClick={onMenu} className={VS_ICON_BTN} aria-label={t("mobile.history", { defaultValue: "История" })}>
+        <FiMenu className="text-lg" aria-hidden="true" />
       </button>
       <div className="min-w-0 flex-1">
         <ProjectTitle className="max-w-full text-[15px]" />
@@ -388,24 +413,27 @@ export default function StudioTopBar({ onMenu, onSettings }: { onMenu: () => voi
 /* ------------------------------------------------------------------ */
 
 export function StudioHeader({
-  kindTabs,
   settingsOpen,
   onToggleSettings,
 }: {
-  /** Вкладки «Видео | Картинка» (KindTabs трека параметров). */
-  kindTabs?: ReactNode;
   settingsOpen: boolean;
   onToggleSettings: () => void;
 }) {
   const { t } = useTranslation("vstudio", { useSuspense: false });
+  const { state } = useVStudio();
   const [editing, setEditing] = useState(false);
   const settingsLabel = t("settings.title", { defaultValue: "Параметры запуска" });
   return (
-    <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border px-4">
+    <header className="flex h-14 shrink-0 items-center gap-2 px-4">
       <div className="min-w-0 flex-1">
-        <ProjectTitle editing={editing} onEditingChange={setEditing} className="max-w-full text-base" />
+        {/* Без проекта слева только имя раздела — тише, чем название проекта. */}
+        <ProjectTitle
+          editing={editing}
+          onEditingChange={setEditing}
+          className={state.project ? "max-w-full text-base" : "text-sm"}
+        />
       </div>
-      {kindTabs}
+      <BalanceChip />
       <ProjectMenu onRename={() => setEditing(true)} />
       <button
         type="button"
@@ -413,12 +441,9 @@ export function StudioHeader({
         aria-pressed={settingsOpen}
         aria-label={settingsLabel}
         title={settingsLabel}
-        className={
-          "grid h-10 w-10 place-items-center rounded-lg transition-colors cursor-pointer " +
-          (settingsOpen ? "bg-surface-2 text-foreground" : "text-muted hover:bg-surface-2 hover:text-foreground")
-        }
+        className={vx(VS_ICON_BTN, settingsOpen && VS_PILL_ON)}
       >
-        <FiSliders className="text-lg" />
+        <FiSliders className="text-lg" aria-hidden="true" />
       </button>
     </header>
   );

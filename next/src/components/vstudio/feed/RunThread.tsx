@@ -1,15 +1,19 @@
 "use client";
 
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type Dispatch } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type Dispatch, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { FiAlertTriangle, FiChevronUp, FiLoader, FiRefreshCw } from "react-icons/fi";
 import { listShots } from "@/lib/vstudio/api";
 import { errorText, reactionFor } from "@/lib/vstudio/errors";
 import type { ActiveTake, FeedState, Uid, VsAction, VsError, VsKind, VsState } from "@/lib/vstudio/types";
-import { useVStudioOptional, type VStudioContextValue } from "../context";
+import { useVStudio, useVStudioOptional, type VStudioContextValue } from "../context";
 import { useTakePolling } from "../hooks/useTakePolling";
+import StudioHome from "../home/StudioHome";
+import { VS_TEMPLATES, type VsStarter } from "../home/templates";
+import { AUTO } from "../settings/settingsModel";
+import { VS_BTN_GHOST, VS_CARD, vx } from "../ui/skin";
 import EmptyState from "./EmptyState";
-import { exampleDoc, type VsExample } from "./examples";
+import { exampleDoc, starterReplaceable, type VsExample } from "./examples";
 import {
   COMPOSER_FILLED_EVENT,
   exampleAspect,
@@ -63,6 +67,20 @@ export type RunThreadProps = {
   onComposerFilled?: (reason: ComposerFillReason) => void;
   /** Свой обработчик примера; по умолчанию — composer/kind, composer/doc, composer/params. */
   onExample?: (example: VsExample, text: string) => void;
+  /**
+   * Первый экран студии (StudioHome) вместо пустого состояния, пока проекта
+   * нет. Флаг ставит контейнер — тот же, по которому оболочка отдаёт ленте всю
+   * ширину; StudioHome читает стор из контекста, поэтому вне <VideoStudio> —
+   * false. У проекта без кадров остаётся EmptyState.
+   */
+  home?: boolean;
+  /**
+   * Что контейнер показывает на месте ленты, пока её нет: каркас открывающегося
+   * проекта, «Проект не найден», просьбу войти. Сама лента остаётся
+   * смонтированной: в ней единственный опрос дублей страницы, и он не должен
+   * останавливаться, пока человек ходит между проектами.
+   */
+  cover?: ReactNode;
   className?: string;
 };
 
@@ -104,18 +122,64 @@ const FOCUS_MAX_PAGES = 5;
 /** Контейнер не начал грузить первую страницу за это время — грузим сами (страховка). */
 const SELF_LOAD_FALLBACK_MS = 1500;
 
+/** Кнопки ленты («Показать раньше», «Попробовать снова») — мельче обычных, чтобы не спорить с кадрами. */
+const FEED_BTN = vx(VS_BTN_GHOST, "!text-xs");
+
+/** Заготовка карточки в том же порядке, что у настоящей: кадр, подпись, метки. */
 function FeedSkeleton() {
   return (
-    <div className="flex flex-col gap-4" aria-hidden>
+    <div className="flex flex-col gap-5" aria-hidden>
       {[0, 1].map((k) => (
-        <div key={k} className="flex flex-col gap-3 rounded-2xl border border-border bg-surface p-4">
-          <div className="h-4 w-3/4 animate-pulse rounded bg-surface-3" />
-          <div className="h-3 w-1/3 animate-pulse rounded bg-surface-3" />
-          <div className="aspect-video w-full animate-pulse rounded-xl bg-surface-2" />
+        <div key={k} className={vx(VS_CARD, "flex flex-col gap-3 p-3 sm:p-4")}>
+          <div className="vs-film aspect-video max-h-[46vh] w-full rounded-xl" />
+          <div className="vs-film h-4 w-3/4 rounded-full" />
+          <div className="flex gap-1.5">
+            <div className="vs-film h-5 w-16 rounded-full" />
+            <div className="vs-film h-5 w-24 rounded-full" />
+            <div className="vs-film h-5 w-12 rounded-full" />
+          </div>
         </div>
       ))}
     </div>
   );
+}
+
+/**
+ * Первый экран на месте ленты. Сценарий («С чего начать») ложится только в
+ * пустой запрос или поверх такой же нетронутой заготовки: свой текст человека
+ * и поднятый черновик он не затирает — как «Снять похожее» и ссылка с текстом.
+ * Текст композера читаем здесь, а не пропсом ленты: она (memo) не должна
+ * перерисовываться на каждую букву. Первый экран живёт только внутри студии.
+ */
+function HomeSlot({ onStarter }: { onStarter: (starter: VsStarter) => void }) {
+  const { t } = useTranslation("vstudio", { useSuspense: false });
+  const { state, actions } = useVStudio();
+  const kept = t("home.templates.kept", {
+    defaultValue: "В запросе уже есть ваш текст — сценарий его не заменил. Очистите запрос, чтобы взять сценарий.",
+  });
+
+  const live = useRef({ doc: state.composer.doc, toast: actions.toast, onStarter, t, kept });
+  useLayoutEffect(() => {
+    live.current = { doc: state.composer.doc, toast: actions.toast, onStarter, t, kept };
+  });
+
+  /** false — запрос не тронут: в нём свой текст. */
+  const start = useCallback((starter: VsStarter): boolean => {
+    const cur = live.current;
+    // И перевод, и русский исходник: заготовку могли взять до смены языка.
+    const starters = VS_TEMPLATES.flatMap((tpl) => [
+      tpl.prompt,
+      cur.t(`home.tpl.${tpl.id}.prompt`, { defaultValue: tpl.prompt }),
+    ]);
+    if (!starterReplaceable(cur.doc, starters)) {
+      cur.toast(cur.kept, "info");
+      return false;
+    }
+    cur.onStarter(starter);
+    return true;
+  }, []);
+
+  return <StudioHome onStarter={start} />;
 }
 
 /**
@@ -143,6 +207,8 @@ function RunThreadView({
   scrollRef,
   onComposerFilled,
   onExample,
+  home = false,
+  cover,
   className,
 }: RunThreadProps) {
   const { t } = useTranslation("vstudio", { useSuspense: false });
@@ -167,6 +233,7 @@ function RunThreadView({
   const [highlight, setHighlight] = useState<Uid | null>(null);
 
   const projectKey = projectUid || "new";
+  const covered = cover != null;
 
   const filledRef = useRef(onComposerFilled);
   useEffect(() => {
@@ -256,7 +323,8 @@ function RunThreadView({
   // Первая страница проекта. Внутри <VideoStudio> её грузит контейнер, а
   // лента подстраховывает: если за 1.5 с загрузка так и не началась — сама.
   useEffect(() => {
-    if (!projectUid || feed.loaded || feed.loading) return;
+    // Пока контейнер показывает своё (covered), первую страницу ведёт он сам.
+    if (covered || !projectUid || feed.loaded || feed.loading) return;
     const auto = autoRef.current;
     if (auto.project !== projectUid) {
       auto.project = projectUid;
@@ -276,7 +344,7 @@ function RunThreadView({
       if (projectRef.current === projectUid && !f.loaded && !f.loading) go();
     }, SELF_LOAD_FALLBACK_MS);
     return () => window.clearTimeout(id);
-  }, [projectUid, feed.loaded, feed.loading, selfLoad, loadPage]);
+  }, [covered, projectUid, feed.loaded, feed.loading, selfLoad, loadPage]);
 
   const loadOlder = useCallback(() => {
     const f = feedRef.current;
@@ -408,7 +476,25 @@ function RunThreadView({
   const openUids = useMemo(() => openTakeUids(takes.values()), [takes]);
   useTakePolling(openUids, { takes, dispatch, onSettled, enabled: polling });
 
-  /* ---------- пример ---------- */
+  /* ---------- пример и сценарий первого экрана ---------- */
+
+  // Один путь для карточки примера и для сценария первого экрана: вид → текст
+  // → пропорция → фокус в композер. Ничего не запускается и не тратится.
+  const applyStarter = useCallback(
+    (starter: VsStarter) => {
+      const sameKind = composerKind === starter.kind;
+      if (!sameKind) dispatch({ type: "composer/kind", kind: starter.kind });
+      dispatch({ type: "composer/doc", doc: exampleDoc(starter.text) });
+      // «Авто» умеет любая модель (пропорция берётся с фото), остальные — только если модель их знает.
+      const aspect =
+        starter.aspect === AUTO
+          ? AUTO
+          : exampleAspect(starter.aspect, models, starter.kind, sameKind ? composerModel : null);
+      if (aspect) dispatch({ type: "composer/params", params: { aspect_ratio: aspect } });
+      onFilled("example");
+    },
+    [composerKind, composerModel, models, dispatch, onFilled],
+  );
 
   const pickExample = useCallback(
     (example: VsExample, text: string) => {
@@ -416,14 +502,9 @@ function RunThreadView({
         onExample(example, text);
         return;
       }
-      const sameKind = composerKind === example.kind;
-      if (!sameKind) dispatch({ type: "composer/kind", kind: example.kind });
-      dispatch({ type: "composer/doc", doc: exampleDoc(text) });
-      const aspect = exampleAspect(example.params.aspect_ratio, models, example.kind, sameKind ? composerModel : null);
-      if (aspect) dispatch({ type: "composer/params", params: { aspect_ratio: aspect } });
-      onFilled("example");
+      applyStarter({ kind: example.kind, text, aspect: example.params.aspect_ratio });
     },
-    [onExample, composerKind, composerModel, models, dispatch, onFilled],
+    [onExample, applyStarter],
   );
 
   /* ---------- разметка ---------- */
@@ -441,12 +522,23 @@ function RunThreadView({
   const error = loadError && loadError.project === projectUid ? loadError.error : null;
   const firstLoading = Boolean(projectUid) && !feed.loaded && list.length === 0 && !error;
   const empty = list.length === 0 && !firstLoading && !error && (!projectUid || feed.loaded) && !feed.next;
+  // Проекта нет — первый экран; пустой проект остаётся с примерами.
+  const showHome = home && empty && !projectUid;
+
+  if (covered) {
+    return (
+      <section ref={rootRef} className={vx("w-full", className)}>
+        {cover}
+      </section>
+    );
+  }
 
   return (
     <section
       ref={rootRef}
-      aria-label={t("feed.aria", { defaultValue: "Лента генераций" })}
-      className={`mx-auto flex w-full max-w-[860px] flex-col gap-4 ${className || ""}`}
+      // Первый экран — не лента: у его секций свои заголовки, ширина и поля.
+      aria-label={showHome ? undefined : t("feed.aria", { defaultValue: "Лента генераций" })}
+      className={vx("flex w-full flex-col", !showHome && "mx-auto max-w-[920px] gap-5", className)}
     >
       {feed.next && list.length > 0 && (
         <div ref={topRef} className="flex justify-center">
@@ -454,9 +546,9 @@ function RunThreadView({
             type="button"
             onClick={loadOlder}
             disabled={feed.loading}
-            className="inline-flex min-h-10 cursor-pointer items-center gap-1.5 rounded-full border border-border bg-surface px-4 text-xs font-medium text-muted transition-colors hover:border-accent/60 hover:text-foreground disabled:cursor-wait"
+            className={vx(FEED_BTN, "disabled:!cursor-wait")}
           >
-            {feed.loading ? <FiLoader className="animate-spin" aria-hidden /> : <FiChevronUp aria-hidden />}
+            {feed.loading ? <FiLoader className="animate-spin motion-reduce:animate-none" aria-hidden /> : <FiChevronUp aria-hidden />}
             {feed.loading
               ? t("feed.loading", { defaultValue: "Загружаем…" })
               : t("feed.earlier", { defaultValue: "Показать раньше" })}
@@ -466,7 +558,7 @@ function RunThreadView({
 
       {error && (
         <div
-          className="flex flex-wrap items-center gap-2 rounded-xl border border-status-fail/40 bg-status-fail/10 p-3 text-sm text-foreground"
+          className="flex flex-wrap items-center gap-2.5 rounded-xl border border-status-fail/25 bg-status-fail/[0.07] p-3 text-sm leading-snug text-foreground"
           role="alert"
         >
           <FiAlertTriangle className="shrink-0 text-status-fail" aria-hidden />
@@ -479,7 +571,7 @@ function RunThreadView({
               if (list.length) loadOlder();
               else void loadPage(null);
             }}
-            className="inline-flex min-h-9 cursor-pointer items-center gap-1.5 rounded-lg border border-border bg-surface px-3 text-xs font-medium hover:border-accent/60"
+            className={FEED_BTN}
           >
             <FiRefreshCw aria-hidden />
             {t("feed.retry", { defaultValue: "Попробовать снова" })}
@@ -489,10 +581,10 @@ function RunThreadView({
 
       {firstLoading && <FeedSkeleton />}
 
-      {empty && <EmptyState onPick={pickExample} />}
+      {empty && (showHome ? <HomeSlot onStarter={applyStarter} /> : <EmptyState onPick={pickExample} />)}
 
       {list.length > 0 && (
-        <div role="feed" aria-busy={feed.loading} className="flex flex-col gap-4">
+        <div role="feed" aria-busy={feed.loading} className="flex flex-col gap-5">
           {list.map(({ shot, takes: shotTakeList }) => (
             <ShotCard
               key={shot.uid}
@@ -545,7 +637,7 @@ function definedOnly<T extends object>(o: T): Partial<T> {
 
 /**
  * Лента. Внутри <VideoStudio> достаточно `<RunThread />` (плюс по желанию
- * onComposerFilled и className): стор, dispatch, «показать раньше» и
+ * home, onComposerFilled и className): стор, dispatch, «показать раньше» и
  * контейнер прокрутки берутся из контекста. Вне студии (витрина, тест
  * вёрстки) все поля передаются пропсами, и лента грузит страницы сама.
  */
@@ -553,5 +645,6 @@ export default function RunThread(props: RunThreadOwnProps) {
   const ctx = useVStudioOptional();
   if (ctx) return <MemoRunThreadView {...fromContext(ctx)} {...definedOnly(props)} />;
   if (!props.shots || !props.takes || !props.order || !props.feed || !props.dispatch) return null;
-  return <MemoRunThreadView {...(props as RunThreadProps)} />;
+  // Первому экрану нужен контекст студии — без него остаётся пустое состояние.
+  return <MemoRunThreadView {...(props as RunThreadProps)} home={false} />;
 }

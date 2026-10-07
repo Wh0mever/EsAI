@@ -7,7 +7,7 @@
  * перестановка сразу перенумеровывает чипы и в лотке, и в тексте. На
  * компьютере чип перетаскивается мышью (его же можно бросить в текст — станет
  * тегом), на телефоне — «Сдвинуть влево/вправо» в меню чипа.
- * Рядом кнопки «+» (загрузить), «✨ Создать картинку» и «Мои материалы».
+ * Рядом кнопки «+ Фото» (загрузить), «✨ Картинка» (создать) и «Мои материалы».
  */
 import { useState, type DragEvent, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
@@ -15,6 +15,7 @@ import { FiFolder, FiPlus } from "react-icons/fi";
 import { IoSparklesOutline } from "react-icons/io5";
 import { copyTagFor } from "@/lib/vstudio/labels";
 import type { FrameSlot, InputSlot, RefLabels, TrayItem, Uid } from "@/lib/vstudio/types";
+import { VS_PILL, VS_PILL_ON, vx } from "../ui/skin";
 import AssetChip from "./AssetChip";
 import { ct } from "./composerText";
 
@@ -54,12 +55,16 @@ function ToolButton({
   onClick,
   icon,
   label,
+  short,
   showLabel,
   accent,
 }: {
   onClick: () => void;
   icon: ReactNode;
+  /** Полное название — подсказка и имя для экранного диктора. */
   label: string;
+  /** Короткая подпись на самой кнопке; без неё — полное название. */
+  short?: string;
   showLabel: boolean;
   accent?: boolean;
 }) {
@@ -69,14 +74,16 @@ function ToolButton({
       onClick={onClick}
       aria-label={label}
       title={label}
-      className={`inline-flex min-h-11 shrink-0 items-center justify-center gap-1.5 rounded-xl border px-3 text-xs font-semibold transition-colors cursor-pointer ${
-        accent
-          ? "border-accent/40 bg-accent-soft/50 text-foreground hover:border-accent"
-          : "border-border bg-surface-2 text-foreground hover:border-border-strong"
-      } ${showLabel ? "" : "min-w-11 px-0"}`}
+      className={vx(
+        VS_PILL,
+        // Телефон — 44 px под палец; с 768 px — 40 px, в рост чипов материалов.
+        "max-md:!h-11 md:!h-10",
+        accent && VS_PILL_ON,
+        !showLabel && "w-10 justify-center !px-0 max-md:w-11",
+      )}
     >
-      <span className={`text-base ${accent ? "text-accent-strong" : "text-muted"}`}>{icon}</span>
-      {showLabel && <span className="whitespace-nowrap">{label}</span>}
+      <span className="text-[15px]">{icon}</span>
+      {showLabel && <span className="whitespace-nowrap">{short || label}</span>}
     </button>
   );
 }
@@ -119,15 +126,33 @@ export default function AssetTray({
   };
 
   return (
-    <div className="flex min-w-0 items-center gap-2 overflow-x-auto overscroll-x-contain pb-1 [scrollbar-color:var(--border-strong)_transparent] [scrollbar-width:thin] max-md:[scrollbar-width:none]" role="group" aria-label={ct(t, "composer.materials")}>
-      <ToolButton onClick={onAdd} icon={<FiPlus />} label={ct(t, "composer.attach")} showLabel={!mobile && empty} />
+    // Поля 2 px: полоса прокручивается, и кольцо фокуса у кнопок и чипов иначе обрезалось бы.
+    <div
+      className="-m-0.5 flex min-w-0 items-center gap-1.5 overflow-x-auto overscroll-x-contain p-0.5 [scrollbar-color:var(--border-strong)_transparent] [scrollbar-width:thin] max-md:[scrollbar-width:none]"
+      role="group"
+      aria-label={ct(t, "composer.materials")}
+    >
+      <ToolButton
+        onClick={onAdd}
+        icon={<FiPlus />}
+        label={ct(t, "composer.attach")}
+        short={ct(t, "dock.photo")}
+        showLabel={!mobile && empty}
+      />
       {canGenerate && (
-        <ToolButton onClick={onGenerate} icon={<IoSparklesOutline />} label={ct(t, "composer.generate")} showLabel={!mobile} accent />
+        <ToolButton
+          onClick={onGenerate}
+          icon={<IoSparklesOutline />}
+          label={ct(t, "composer.generate")}
+          short={ct(t, "dock.image")}
+          showLabel={!mobile}
+          accent
+        />
       )}
       {!mobile && <ToolButton onClick={onLibrary} icon={<FiFolder />} label={ct(t, "composer.library")} showLabel={empty} />}
 
       {items.length > 0 && (
-        <ul className="flex items-center gap-2" aria-label={ct(t, "composer.materials")}>
+        <ul className="flex items-center gap-1.5" aria-label={ct(t, "composer.materials")}>
           {items.map((item, index) => {
             const label = item.assetUid ? labels[item.assetUid] ?? null : null;
             const loading = item.status === "uploading" || item.status === "processing";
@@ -136,7 +161,7 @@ export default function AssetTray({
             return (
               <li
                 key={item.lid}
-                className={`relative flex ${over ? (drag?.after ? "after:absolute after:-right-1.5 after:inset-y-1 after:w-0.5 after:rounded after:bg-accent" : "before:absolute before:-left-1.5 before:inset-y-1 before:w-0.5 before:rounded before:bg-accent") : ""} ${
+                className={`relative flex ${over ? (drag?.after ? "after:absolute after:-right-1 after:inset-y-1 after:w-0.5 after:rounded after:bg-accent" : "before:absolute before:-left-1 before:inset-y-1 before:w-0.5 before:rounded before:bg-accent") : ""} ${
                   drag?.lid === item.lid ? "opacity-50" : ""
                 }`}
               >

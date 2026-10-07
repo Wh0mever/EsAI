@@ -312,3 +312,258 @@ body {
   0% { background-position: 200% 0; }
   100% { background-position: -200% 0; }
 }
+
+/* ===========================================================
+   Видеостудия (/video-studio): «тёмный кинозал».
+
+   Всё ниже действует только внутри .vs-root. Класс ставит оболочка студии —
+   и на свою обёртку, и на <html> (components/vstudio/ui/VsThemeScope), чтобы
+   шторки, окна и всплывающие меню, которые рисуются порталом в <body>,
+   получили те же цвета. Студия всегда тёмная: на ней играет видео.
+   =========================================================== */
+.vs-root {
+  /* Сцена темнее остального сайта. Базовые токены переопределены, чтобы
+     привычные bg-surface / border-border внутри студии сами перешли на эту
+     палитру — без правок в каждом компоненте. */
+  --background: #08080a;
+  --surface: #111113;
+  --surface-2: #18181b;
+  --surface-3: #232327;
+  --foreground: #f1efe9;
+  --muted: #a8a59d;
+  /* Третий тон — мелкие подписи (10–11 px) в меню и шторках: на самом светлом
+     месте стекла (#28282b) он должен держать контраст 4.5:1. */
+  --muted-2: #94918a;
+  --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.17);
+  --overlay: rgba(0, 0, 0, 0.72);
+
+  --vs-gold: var(--esai-accent);
+  --vs-gold-hi: #ffe58a;
+  --vs-gold-lo: #d49a08;
+  --vs-line: rgba(255, 255, 255, 0.09);
+  --vs-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  /* Системные шрифты интерфейса вместо Arial: веб-шрифт не грузим. */
+  --vs-font: "Inter", "SF Pro Display", "Segoe UI Variable Display", "Segoe UI", system-ui,
+    -apple-system, Roboto, "Helvetica Neue", Arial, sans-serif;
+  --vs-serif: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, "Times New Roman", serif;
+
+  font-family: var(--vs-font);
+  color-scheme: dark;
+}
+.vs-root body {
+  font-family: var(--vs-font);
+}
+.vs-root ::selection {
+  background: rgba(245, 197, 24, 0.32);
+}
+/* Золотые полосы прокрутки сайта в студии спорят с видео — делаем тихими. */
+.vs-root ::-webkit-scrollbar-thumb {
+  background-color: rgba(255, 255, 255, 0.14);
+}
+.vs-root ::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(255, 255, 255, 0.26);
+}
+
+/* ---------- типографика ---------- */
+.vs-display {
+  font-family: var(--vs-font);
+  font-weight: 600;
+  letter-spacing: -0.032em;
+  line-height: 1.04;
+}
+/* Курсив с засечками — одно-два слова в заголовке, не абзацы. */
+.vs-serif {
+  font-family: var(--vs-serif);
+  font-style: italic;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+}
+.vs-gold-text {
+  background: linear-gradient(170deg, var(--vs-gold-hi) 8%, var(--vs-gold) 52%, var(--vs-gold-lo) 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* ---------- поверхности ---------- */
+/* Стекло: панель запроса, всплывающие меню, плавающие окна. */
+.vs-glass {
+  background: linear-gradient(170deg, rgba(40, 40, 43, 0.95) 6%, rgba(19, 19, 21, 0.97) 94%);
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.62), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  -webkit-backdrop-filter: blur(22px) saturate(140%);
+  backdrop-filter: blur(22px) saturate(140%);
+}
+/* То же стекло, но непрозрачное — для шторок и боковых панелей, которые
+   выезжают без размытия (оно тормозит на слабых телефонах): сквозь 95%-е
+   стекло яркий заголовок страницы проступал бы призраком. */
+.vs-solid {
+  background: linear-gradient(170deg, #28282b 6%, #131315 94%);
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.62), inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+/* Карточка: чуть светлее сцены, с кромкой света сверху. */
+.vs-card {
+  background: linear-gradient(175deg, rgba(255, 255, 255, 0.066) 0%, rgba(255, 255, 255, 0.024) 100%);
+  border: 1px solid var(--vs-line);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  transition: border-color 0.25s ease, background-color 0.25s ease, box-shadow 0.25s ease,
+    transform 0.4s var(--vs-ease);
+}
+.vs-card-hover:hover {
+  border-color: rgba(255, 255, 255, 0.24);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.58), inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+/* Вторая строка — чтобы наведение (vs-card-hover) не гасило золотую кромку выбранной карточки. */
+.vs-card-on,
+.vs-card-on.vs-card-hover:hover {
+  border-color: rgba(245, 197, 24, 0.55);
+  box-shadow: 0 0 0 1px rgba(245, 197, 24, 0.22), 0 14px 44px rgba(245, 197, 24, 0.08),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+/* Фокус с клавиатуры. Кольцо из VS_FOCUS (ui/skin.ts) рисуется тенью, а у
+   карточки и золотой кнопки тень своя и стоит вне слоёв Tailwind — под ней
+   кольца не видно. Поэтому здесь контур: у карточки вплотную к кромке, у
+   золота с тёмным зазором (золото на золоте не читается). */
+.vs-card:focus-visible {
+  outline: 2px solid rgba(245, 197, 24, 0.8);
+  outline-offset: 0;
+}
+
+/* Золотая кнопка: главное действие экрана. */
+.vs-gold {
+  background: linear-gradient(170deg, var(--vs-gold-hi) 0%, var(--vs-gold) 46%, var(--vs-gold-lo) 100%);
+  color: #141414;
+  box-shadow: 0 2px 18px rgba(245, 197, 24, 0.26), inset 0 1px 0 rgba(255, 255, 255, 0.5);
+}
+.vs-gold:hover:not(:disabled) {
+  filter: brightness(1.06);
+  box-shadow: 0 4px 28px rgba(245, 197, 24, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.55);
+}
+.vs-gold:focus-visible {
+  outline: 2px solid rgba(245, 197, 24, 0.8);
+  outline-offset: 2px;
+}
+/* Кнопка готова к запуску: расходящееся кольцо, чтобы взгляд её нашёл. Два
+   круга и стоп: тень перерисовывается каждым кадром, а готовая кнопка может
+   простоять минуты. Кольцо играет заново при каждой новой цене. */
+.vs-ready {
+  animation: vs-ring 2.4s ease-out 2;
+}
+
+/* ---------- свет и фактура ---------- */
+/* Луч проектора за первым экраном. Ставится в position:relative-родителя. */
+.vs-beam {
+  position: absolute;
+  inset: -18% -10% auto -10%;
+  height: 72%;
+  pointer-events: none;
+  background:
+    radial-gradient(58% 60% at 50% 0%, rgba(245, 197, 24, 0.17), transparent 70%),
+    radial-gradient(38% 46% at 80% 10%, rgba(245, 197, 24, 0.07), transparent 70%),
+    radial-gradient(34% 40% at 16% 16%, rgba(255, 255, 255, 0.045), transparent 70%);
+  animation: vs-breathe 9s ease-in-out infinite alternate;
+}
+/* Зерно плёнки поверх блока (родитель — position:relative). */
+.vs-grain::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: inherit;
+  opacity: 0.07;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 1  0 0 0 0 1  0 0 0 0 1  0 0 0 0.9 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
+  background-size: 180px 180px;
+}
+/* Блик, пробегающий по карточке при наведении. */
+.vs-sheen {
+  position: relative;
+  overflow: hidden;
+}
+.vs-sheen::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  background: linear-gradient(105deg, transparent 36%, rgba(255, 255, 255, 0.13) 50%, transparent 64%);
+  transform: translateX(-120%);
+  transition: transform 0.9s var(--vs-ease);
+}
+.vs-sheen:hover::before {
+  transform: translateX(120%);
+}
+/* Заглушка, пока кадр грузится: «плёнка проявляется». */
+.vs-film {
+  background: linear-gradient(110deg, #131315 30%, #1f1f23 48%, #131315 66%);
+  background-size: 220% 100%;
+  animation: vs-film 1.8s linear infinite;
+}
+/* Затемнение низа кадра под подпись. */
+.vs-shade {
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.82) 0%, rgba(0, 0, 0, 0.35) 45%, transparent 100%);
+}
+
+/* ---------- движение ---------- */
+/* Секция появляется при прокрутке: класс vs-in ставит хук useReveal. */
+.vs-reveal {
+  opacity: 0;
+  transform: translateY(18px);
+  transition: opacity 0.7s var(--vs-ease), transform 0.7s var(--vs-ease);
+  transition-delay: var(--vs-delay, 0ms);
+}
+.vs-reveal.vs-in {
+  opacity: 1;
+  transform: none;
+}
+/* Сцена для карусели с перспективой. */
+.vs-stage {
+  perspective: 1500px;
+  perspective-origin: 50% 42%;
+}
+
+/* ---------- ленты и панель запроса ---------- */
+.vs-noscroll {
+  scrollbar-width: none;
+}
+.vs-noscroll::-webkit-scrollbar {
+  display: none;
+}
+.vs-fade-x {
+  -webkit-mask-image: linear-gradient(90deg, transparent 0, #000 28px, #000 calc(100% - 28px), transparent 100%);
+  mask-image: linear-gradient(90deg, transparent 0, #000 28px, #000 calc(100% - 28px), transparent 100%);
+}
+/* Лента «уходит» под панель запроса: мягкое затухание над ней. */
+.vs-dock {
+  position: relative;
+}
+.vs-dock::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  height: 56px;
+  pointer-events: none;
+  background: linear-gradient(to bottom, transparent, var(--background));
+}
+
+@keyframes vs-breathe {
+  from { opacity: 0.72; transform: scale(1); }
+  to { opacity: 1; transform: scale(1.06); }
+}
+@keyframes vs-film {
+  from { background-position: 120% 0; }
+  to { background-position: -120% 0; }
+}
+@keyframes vs-ring {
+  0% { box-shadow: 0 2px 18px rgba(245, 197, 24, 0.26), 0 0 0 0 rgba(245, 197, 24, 0.5); }
+  70%, 100% { box-shadow: 0 2px 18px rgba(245, 197, 24, 0.26), 0 0 0 14px rgba(245, 197, 24, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .vs-beam, .vs-film, .vs-ready { animation: none; }
+  .vs-reveal { opacity: 1; transform: none; transition: none; }
+  .vs-sheen::before { display: none; }
+}

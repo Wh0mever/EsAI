@@ -334,6 +334,30 @@ test("примеры: 4 штуки, один сценарий — одна сц�
   assert.deepEqual(X.exampleDoc("a\r\nb").blocks.length, 2);
 });
 
+test("сценарий ложится в пустой запрос и поверх нетронутой заготовки, свой текст не затирает", () => {
+  const starters = ["Кино-сцена: [кто] в [где].", "Постер: [сюжет].\nВторая строка."];
+  const typed = (v) => ({ v: 1, blocks: [[{ t: "text", v }]] });
+  // Пусто (и одни пробелы) — можно.
+  assert.equal(X.starterReplaceable(null, starters), true);
+  assert.equal(X.starterReplaceable({ v: 1, blocks: [[]] }, starters), true);
+  assert.equal(X.starterReplaceable(typed("  "), starters), true);
+  // В запросе стоит заготовка, как её положил чип, — другой чип её заменит.
+  assert.equal(X.starterReplaceable(X.exampleDoc(starters[0]), starters), true);
+  assert.equal(X.starterReplaceable(X.exampleDoc(starters[1]), starters), true);
+  // Редактор мог порезать тот же текст на узлы и добавить пустой абзац в конце.
+  assert.equal(
+    X.starterReplaceable({ v: 1, blocks: [[{ t: "text", v: "Кино-сцена: " }, { t: "text", v: "[кто] в [где]." }], []] }, starters),
+    true,
+  );
+  // Заготовку поправили под себя — это уже текст человека.
+  assert.equal(X.starterReplaceable(typed("Кино-сцена: рыбак в лодке."), starters), false);
+  assert.equal(X.starterReplaceable(typed("мой сценарий"), starters), false);
+  // Тег материала — тоже своё, даже без единой буквы и рядом с заготовкой.
+  const ref = { t: "ref", asset: "0123456789abcdef0123456789abcdef" };
+  assert.equal(X.starterReplaceable({ v: 1, blocks: [[ref]] }, starters), false);
+  assert.equal(X.starterReplaceable({ v: 1, blocks: [[{ t: "text", v: starters[0] }, ref]] }, starters), false);
+});
+
 test("пример не ставит пропорцию, которой нет у модели (иначе invalid_param)", () => {
   const m = (id, aspects) => ({ id, caps: { aspect_ratios: aspects } });
   const models = {

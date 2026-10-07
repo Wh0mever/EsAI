@@ -49,6 +49,9 @@ export const COMPOSER_RU = {
   "composer.addedToRequest": "Фото добавлено в запрос",
   "composer.alreadyInRequest": "Это фото уже есть в запросе",
 
+  "dock.photo": "Фото",
+  "dock.image": "Картинка",
+
   "tray.image": "Фото {{n}}",
   "tray.firstFrame": "Первый кадр",
   "tray.lastFrame": "Последний кадр",

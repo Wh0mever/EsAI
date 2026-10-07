@@ -4,10 +4,14 @@
  * Видеостудия: композер — прилипшая к низу панель запроса (§9.2, §9.6, §9.7).
  *
  * Сверху вниз: подсказки компилятора с кнопками исправления, плашка
- * конфликта кадров и референсов, «Похоже на сценарий»; лоток материалов
- * (@Image N) и слоты кадров; поле промпта (PromptEditor, FE-2); счётчик
- * длины с «Сжать с ИИ»; кнопка «Создать · N кр». На телефоне — полоса
- * материалов, поле и строка «чип параметров · @ · Создать».
+ * конфликта кадров и референсов, «Похоже на сценарий»; дальше стеклянная
+ * панель: лоток материалов (@Image N) и слоты кадров; поле промпта
+ * (PromptEditor, FE-2); строка-разделитель со счётчиком длины и «Сжать с ИИ»;
+ * чипы параметров (SettingsPills), «@» и кнопка «Создать · N кр». На телефоне
+ * — полоса материалов, поле и строка «чип параметров · @ · Создать».
+ *
+ * Первый экран зовёт панель через composerBus: открыть выбор файла, «Создать
+ * картинку», показать слоты кадров, поставить фокус в поле.
  *
  * Деньги: цену считает только сервер (quote/, тот же компилятор, что и запуск),
  * запуск уходит с ценой из quote с тем же телом (key), client_request_id живёт
@@ -34,6 +38,7 @@ import { openLockedModel } from "../settings/RunSettingsPanel";
 import { SettingsChip } from "../settings/SettingsSheet";
 import { selectModel as selectModelChoice } from "../settings/useRunSettingsSync";
 import { selectModel } from "../store";
+import { VS_ICON_BTN, VS_PANEL, vx } from "../ui/skin";
 import AssetTray, { type ChipHandlers } from "./AssetTray";
 import { registerComposer, setLibraryTarget } from "./composerBus";
 import {
@@ -46,6 +51,7 @@ import {
   meterView,
   moveTarget,
   planFix,
+  quoteMissing,
   runClickMeta,
   runView,
   summarize,
@@ -59,9 +65,13 @@ import FrameSlots, { showFrameSlots } from "./FrameSlots";
 import ImageGenMini from "./ImageGenMini";
 import PromptMeter from "./PromptMeter";
 import RunButton, { PriceInfoButton, quietReason, runTexts } from "./RunButton";
+import SettingsPills from "./SettingsPills";
+import { useBalanceRequote } from "./useBalanceRequote";
 
 /** Сколько держим «Сейчас снимается 2…» после 409 too_many_open, если вкладка не видит этих дублей. */
 const LIMIT_HOLD_MS = 20_000;
+/** Сколько подсвечены слоты кадров, когда к ним привёл первый экран: два круга кольца vs-ready. */
+const FRAMES_PULSE_MS = 4800;
 
 type Condense = { status: "idle" } | { status: "loading" } | { status: "ready"; result: CondenseResult };
 
@@ -79,6 +89,7 @@ export default function Composer() {
   const [condense, setCondense] = useState<Condense>({ status: "idle" });
   const [imageGen, setImageGen] = useState<null | "editor" | "tray">(null);
   const [scriptDismissed, setScriptDismissed] = useState<number | null>(null);
+  const [framesPulse, setFramesPulse] = useState(false);
 
   const editor = useRef<PromptEditorHandle | null>(null);
   const boxRef = useRef<HTMLDivElement | null>(null);
@@ -87,6 +98,8 @@ export default function Composer() {
   const timers = useRef(new Set<ReturnType<typeof setTimeout>>());
   /** Запуск, оборвавшийся без ответа: следующий клик с тем же телом уйдёт с тем же id. */
   const pendingRun = useRef<{ id: string; key: string } | null>(null);
+  /** Номер последней подсветки слотов кадров: гасит её только свой таймер, а не таймер прошлого нажатия. */
+  const pulseSeq = useRef(0);
 
   const { addFiles, retry: retryUpload, cancel: cancelUpload, remove: removeItem } = useUpload();
   const quote = useQuote({ promptText, enabled: state.available && state.mode !== "off" });
@@ -174,15 +187,37 @@ export default function Composer() {
     preloadPromptEditor();
   }, []);
 
+  const focusPrompt = useCallback(() => {
+    editor.current?.focus();
+    if (mobile) boxRef.current?.scrollIntoView({ block: "end", behavior: "smooth" });
+  }, [mobile]);
+
   // Карточка ленты заполнила композер («Изменить», «Другая модель», пример) — фокус в поле.
   useEffect(() => {
-    const onFilled = () => {
-      editor.current?.focus();
-      if (mobile) boxRef.current?.scrollIntoView({ block: "end", behavior: "smooth" });
-    };
-    window.addEventListener(COMPOSER_FILLED_EVENT, onFilled);
-    return () => window.removeEventListener(COMPOSER_FILLED_EVENT, onFilled);
-  }, [mobile]);
+    window.addEventListener(COMPOSER_FILLED_EVENT, focusPrompt);
+    return () => window.removeEventListener(COMPOSER_FILLED_EVENT, focusPrompt);
+  }, [focusPrompt]);
+
+  // «Первый и последний кадр» с первого экрана: слоты в поле зрения, подсвечены, фокус на первом.
+  const focusFrames = useCallback(() => {
+    // Карточка могла только что сменить модель: слоты появятся после рендера — ждём его.
+    later(() => {
+      const slots = boxRef.current?.querySelector<HTMLElement>("[data-vs-frames]");
+      // Модель без кадров или вид «Картинка» — слотов нет, остаётся поле запроса.
+      if (!slots) {
+        focusPrompt();
+        return;
+      }
+      // На телефоне слоты стоят в конце полосы материалов — докручиваем полосу до них.
+      slots.scrollIntoView({ block: "nearest", inline: "nearest" });
+      slots.querySelector<HTMLElement>("button, [role='button']")?.focus({ preventScroll: true });
+      const seq = ++pulseSeq.current;
+      setFramesPulse(true);
+      later(() => {
+        if (pulseSeq.current === seq) setFramesPulse(false);
+      }, FRAMES_PULSE_MS);
+    }, 0);
+  }, [later, focusPrompt]);
 
   const addAsset = useCallback(
     (asset: AssetJSON, slot: InputSlot = "reference", prefix = "lib") => {
@@ -207,31 +242,22 @@ export default function Composer() {
 
   /* ---------- загрузка и библиотека ---------- */
 
-  const pickFiles = (slot: InputSlot) => {
-    if (!actions.requireAuth()) return;
-    uploadSlot.current = slot;
-    const input = fileInput.current;
-    if (!input) return;
-    input.multiple = slot === "reference";
-    input.click();
-  };
+  const pickFiles = useCallback(
+    (slot: InputSlot) => {
+      if (!actions.requireAuth()) return;
+      uploadSlot.current = slot;
+      const input = fileInput.current;
+      if (!input) return;
+      input.multiple = slot === "reference";
+      input.click();
+    },
+    [actions],
+  );
 
   const openLibrary = (slot: FrameSlot | null) => {
     setLibraryTarget(slot);
     actions.openLibrary();
   };
-
-  // Зона перетаскивания и «Мои материалы» живут вне композера — даём им свои ручки.
-  useEffect(
-    () =>
-      registerComposer({
-        upload: (files, opts) => addFiles(files, { slot: opts?.slot ?? "reference" }),
-        pick: (asset, slot) => {
-          if (!addAsset(asset, slot ?? "reference")) actions.toast(ct(t, "composer.alreadyInRequest"), "info");
-        },
-      }),
-    [addFiles, addAsset, actions, t],
-  );
 
   /* ---------- чипы ---------- */
 
@@ -315,7 +341,9 @@ export default function Composer() {
           if (plan.model) {
             selectModelChoice(dispatch, s.models, { kind: c.kind, model: c.model, params: c.params }, plan.model);
           } else {
-            dispatch({ type: "ui/panel", panel: "settings", open: true });
+            // С 768 px список моделей открывается в окошке у чипа модели (SettingsPills),
+            // на телефоне — в шторке параметров.
+            if (mobile) dispatch({ type: "ui/panel", panel: "settings", open: true });
             openModelPicker();
           }
           break;
@@ -324,7 +352,7 @@ export default function Composer() {
           break;
       }
     },
-    [dispatch, actions, runCondense],
+    [dispatch, actions, runCondense, mobile],
   );
 
   /* ---------- запуск ---------- */
@@ -457,6 +485,14 @@ export default function Composer() {
     }
   }, [actions, dispatch, startRun]);
 
+  // Баланс пополнили, а цена на кнопке несёт старый остаток: она так и звала бы «Пополнить» и снова
+  // открывала окно оплаты. Спрашиваем заново — но только если по этой цене не хватало: тот же сигнал
+  // приходит после каждого запуска, и лишний перезапрос оборвал бы цену, которую ждёт «Создать».
+  useBalanceRequote(() => {
+    const q = live.current.quote;
+    if (quoteMissing(q.fresh) > 0) q.refresh();
+  });
+
   /* ---------- «Создать картинку» ---------- */
 
   const openImageGen = useCallback(
@@ -472,6 +508,24 @@ export default function Composer() {
     addAsset(asset, "reference", "gen");
     if (from === "editor") requestAnimationFrame(() => editor.current?.insertRef(asset.uid));
   };
+
+  /* ---------- ручки для остальной студии ---------- */
+
+  // Зона перетаскивания, «Мои материалы» и карточки первого экрана живут вне композера — даём им свои ручки.
+  useEffect(
+    () =>
+      registerComposer({
+        upload: (files, opts) => addFiles(files, { slot: opts?.slot ?? "reference" }),
+        pick: (asset, slot) => {
+          if (!addAsset(asset, slot ?? "reference")) actions.toast(ct(t, "composer.alreadyInRequest"), "info");
+        },
+        openUpload: (slot) => pickFiles(slot ?? "reference"),
+        openImageGen: () => openImageGen("tray"),
+        focusFrames,
+        focusPrompt,
+      }),
+    [addFiles, addAsset, actions, t, pickFiles, openImageGen, focusFrames, focusPrompt],
+  );
 
   /* ---------- раскладка ---------- */
 
@@ -489,12 +543,57 @@ export default function Composer() {
         openLibrary(slot);
       }}
       compact={mobile}
+      pulse={framesPulse}
     />
   ) : null;
 
   const condensing = condense.status === "loading";
-  const mobileReason = mobile ? runTexts(t, view, composer.kind, labels, true).reason : null;
+  // Почему запуск закрыт — строкой в самой панели, а не под кнопкой: панель не меняет высоту, чипы не прыгают.
+  const reason = runTexts(t, view, composer.kind, labels, mobile).reason;
+  // Телефон, поле пустое: «опишите, что в кадре» уже говорит подсказка в самом поле, а строка под
+  // кнопкой только добавляла бы панели высоту на первом экране. Экранному диктору причина остаётся.
+  const reasonUnseen = mobile && emptyText && view.kind === "blocked" && view.issue.code === "prompt_empty";
   const canCondense = meter.level !== "ok" && Boolean(model) && authed !== false;
+  const priceInfo = view.kind === "run" || view.kind === "topup" || view.kind === "locked";
+
+  const tray = (
+    <AssetTray
+      items={composer.tray}
+      labels={labels}
+      flagged={flagged}
+      frameSlots={frameSlots}
+      handlers={handlers}
+      mobile={mobile}
+      onAdd={() => pickFiles("reference")}
+      onGenerate={() => openImageGen("tray")}
+      onLibrary={() => {
+        if (!actions.requireAuth()) return;
+        openLibrary(null);
+      }}
+      trailing={mobile ? frames : null}
+      canGenerate={imageModels > 0}
+    />
+  );
+  const meterLine = (
+    <PromptMeter
+      meter={meter}
+      modelName={model?.name || ""}
+      onCondense={canCondense ? () => void runCondense() : null}
+      condensing={condensing}
+      compact={!mobile}
+    />
+  );
+  const mentionButton = (
+    <button
+      type="button"
+      onClick={() => editor.current?.openPicker()}
+      aria-label={ct(t, "composer.mentionShort")}
+      title={ct(t, "composer.mentionShort")}
+      className={VS_ICON_BTN}
+    >
+      <FiAtSign aria-hidden />
+    </button>
+  );
 
   return (
     <div className="flex flex-col gap-2" data-vs-composer="">
@@ -518,90 +617,93 @@ export default function Composer() {
         </div>
       )}
 
+      {/* Стеклянная панель: на телефоне плотнее и с меньшим скруглением — полю нужна ширина. */}
       <div
         ref={boxRef}
-        className="flex flex-col gap-2 rounded-2xl border border-border bg-surface p-2 shadow-sm focus-within:border-border-strong"
+        className={vx(
+          "flex flex-col gap-2 transition-[border-color] duration-200 focus-within:!border-white/25",
+          mobile ? "vs-glass rounded-[20px] p-2" : `${VS_PANEL} p-3`,
+        )}
       >
-        <AssetTray
-          items={composer.tray}
-          labels={labels}
-          flagged={flagged}
-          frameSlots={frameSlots}
-          handlers={handlers}
-          mobile={mobile}
-          onAdd={() => pickFiles("reference")}
-          onGenerate={() => openImageGen("tray")}
-          onLibrary={() => {
-            if (!actions.requireAuth()) return;
-            openLibrary(null);
-          }}
-          trailing={mobile ? frames : null}
-          canGenerate={imageModels > 0}
-        />
-        {!mobile && frames}
+        {mobile ? (
+          tray
+        ) : (
+          // Слоты кадров — в той же строке справа: у моделей с кадрами панель не растёт на строку.
+          <div className="flex min-w-0 items-start gap-3">
+            <div className="min-w-0 flex-1">{tray}</div>
+            {frames}
+          </div>
+        )}
 
-        <div className="rounded-xl bg-surface-2/60">
-          <PromptEditor
-            doc={composer.doc}
-            onChange={(doc) => dispatch({ type: "composer/doc", doc })}
-            labels={labels}
-            pickerItems={pickerItems}
-            onPickLibrary={onPickLibrary}
-            onUpload={onEditorUpload}
-            onGenerate={() => openImageGen("editor")}
-            onSubmit={onRun}
-            fullscreen={ui.fullscreen}
-            onFullscreenChange={(open) => dispatch({ type: "ui/fullscreen", open })}
-            disabled={condensing}
-            onPromptText={setPromptText}
-            handleRef={editor}
-          />
-        </div>
+        {/* Поле без своей подложки: текст лежит прямо на стекле панели. */}
+        <PromptEditor
+          doc={composer.doc}
+          onChange={(doc) => dispatch({ type: "composer/doc", doc })}
+          labels={labels}
+          pickerItems={pickerItems}
+          onPickLibrary={onPickLibrary}
+          onUpload={onEditorUpload}
+          onGenerate={() => openImageGen("editor")}
+          onSubmit={onRun}
+          fullscreen={ui.fullscreen}
+          onFullscreenChange={(open) => dispatch({ type: "ui/fullscreen", open })}
+          disabled={condensing}
+          onPromptText={setPromptText}
+          handleRef={editor}
+        />
 
         {mobile ? (
           <div className="flex flex-col gap-1.5">
-            <div className="flex items-center gap-2">
-              <SettingsChip className="min-w-0 flex-1 justify-start" />
-              <button
-                type="button"
-                onClick={() => editor.current?.openPicker()}
-                aria-label={ct(t, "composer.mentionShort")}
-                title={ct(t, "composer.mentionShort")}
-                className="grid size-11 shrink-0 place-items-center rounded-xl border border-border bg-surface-2 text-muted hover:text-foreground cursor-pointer"
-              >
-                <FiAtSign aria-hidden />
-              </button>
+            <div className="flex items-center gap-1.5">
+              <SettingsChip className="flex-1 justify-start" />
+              {mentionButton}
               <RunButton view={view} kind={composer.kind} quote={fresh} labels={labels} onClick={onRun} compact hideReason />
             </div>
-            {mobileReason && (
-              <p className={`text-xs leading-snug ${quietReason(view) ? "text-muted" : "text-status-fail"}`} aria-live="polite">
-                {mobileReason}
+            {reason && (
+              <p
+                className={
+                  reasonUnseen
+                    ? "sr-only"
+                    : `px-1 text-xs leading-snug ${quietReason(view) ? "text-muted" : "text-status-fail"}`
+                }
+                aria-live="polite"
+              >
+                {reason}
               </p>
             )}
-            <div className="flex items-start gap-2">
-              <div className="min-w-0 flex-1">
-                <PromptMeter meter={meter} modelName={model?.name || ""} onCondense={canCondense ? () => void runCondense() : null} condensing={condensing} />
+            {(meter.chars > 0 || priceInfo) && (
+              <div className="flex items-start gap-2 px-1">
+                <div className="min-w-0 flex-1">{meterLine}</div>
+                {priceInfo && <PriceInfoButton quote={fresh} />}
               </div>
-              {(view.kind === "run" || view.kind === "topup" || view.kind === "locked") && <PriceInfoButton quote={fresh} />}
-            </div>
+            )}
           </div>
         ) : (
-          <div className="flex items-end gap-3">
-            <div className="flex min-w-0 flex-1 flex-col gap-1 pb-1">
-              <PromptMeter meter={meter} modelName={model?.name || ""} onCondense={canCondense ? () => void runCondense() : null} condensing={condensing} />
-              <div className="flex items-center gap-3 text-[11px] text-muted-2">
-                <button
-                  type="button"
-                  onClick={() => editor.current?.openPicker()}
-                  className="inline-flex min-h-8 items-center gap-1 rounded-lg px-1.5 font-medium text-muted hover:bg-surface-2 hover:text-foreground cursor-pointer"
+          <>
+            {/* Разделитель и строка состояния сразу: слева подсказка про клавиши, справа счётчик длины
+                и причина, по которой запуск закрыт (она стоит над кнопкой «Создать»). */}
+            <div className="flex min-h-4 items-center gap-3">
+              {!emptyText && <span className="hidden shrink-0 text-[11px] text-muted-2 xl:inline">{ct(t, "composer.shortcut")}</span>}
+              <span className="h-px min-w-6 flex-1 bg-white/[0.08]" aria-hidden />
+              {meterLine}
+              {reason && (
+                <p
+                  className={`max-w-[22rem] text-right text-xs leading-snug ${quietReason(view) ? "text-muted" : "text-status-fail"}`}
+                  aria-live="polite"
                 >
-                  {ct(t, "composer.mentionButton")}
-                </button>
-                <span className="hidden lg:inline">{ct(t, "composer.shortcut")}</span>
+                  {reason}
+                </p>
+              )}
+            </div>
+            <div className="flex items-center gap-3">
+              <SettingsPills className="min-w-0 flex-1" />
+              {/* Чипы могут перенестись на вторую строку (планшет) — «Создать» остаётся в нижнем углу. */}
+              <div className="flex shrink-0 items-center gap-1.5 self-end">
+                {mentionButton}
+                <RunButton view={view} kind={composer.kind} quote={fresh} labels={labels} onClick={onRun} hideReason />
               </div>
             </div>
-            <RunButton view={view} kind={composer.kind} quote={fresh} labels={labels} onClick={onRun} />
-          </div>
+          </>
         )}
       </div>
 

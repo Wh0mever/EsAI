@@ -13,14 +13,15 @@ const CHIP_BASE =
 
 /** Классы по состоянию: акцент — только у готового чипа (§9.2), выключенный — серый, беда — красный. */
 export const CHIP_STATE_CLASS: Record<RefChipState, string> = {
-  ok: "bg-accent-soft text-accent border-accent/40",
-  pending: "bg-surface-3 text-muted border-border animate-pulse",
+  ok: "bg-accent/[0.12] text-accent border-accent/40",
+  pending: "bg-white/[0.07] text-muted border-white/10 animate-pulse motion-reduce:animate-none",
   failed: "bg-status-fail/10 text-status-fail border-status-fail/50",
   deleted: "bg-status-fail/10 text-status-fail border-status-fail/50 line-through decoration-1",
-  excluded: "bg-surface-2 text-muted-2 border-dashed border-border",
+  excluded: "bg-white/[0.04] text-muted-2 border-dashed border-white/15",
   missing: "bg-status-fail/10 text-status-fail border-dashed border-status-fail/60",
 };
-const CHIP_SELECTED = "ring-2 ring-accent ring-offset-1 ring-offset-surface";
+// Без зазора вокруг кольца: поле запроса прозрачное, и зазор цвета подложки был бы виден пятном.
+const CHIP_SELECTED = "ring-2 ring-accent/80";
 
 export function chipClassName(state: RefChipState, selected = false): string {
   return `${CHIP_BASE} ${CHIP_STATE_CLASS[state] || CHIP_STATE_CLASS.missing}${selected ? ` ${CHIP_SELECTED}` : ""}`;

@@ -519,6 +519,17 @@ export function runView(i: RunViewInput): RunView {
   return { kind: "quoting", credits: i.lastCredits };
 }
 
+/**
+ * Сколько кредитов не хватает по этой цене; 0 — хватает или баланса в ответе нет (гость).
+ * Остаток приходит вместе с ценой, а тело запроса от оплаты не меняется: после пополнения
+ * его обновит только новый quote — по этому числу решаем, спрашивать ли цену заново.
+ */
+export function quoteMissing(q: Pick<QuoteJSON, "credits" | "balance"> | null | undefined): number {
+  const available = q?.balance?.available;
+  if (!q || q.credits == null || typeof available !== "number" || available >= q.credits) return 0;
+  return Math.max(1, Math.ceil(q.credits - available));
+}
+
 /** Можно ли нажать (сама кнопка; blocked нажимается, чтобы показать причину). */
 export function runClickable(v: RunView): boolean {
   return (

@@ -17,6 +17,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { FiChevronDown, FiShuffle, FiSliders, FiX } from "react-icons/fi";
 import type { ModelJSON, ShotParams, VsKind } from "@/lib/vstudio/types";
+import { VS_FOCUS, VS_ICON_BTN, VS_LABEL } from "../ui/skin";
 import { Reason, Section, cx } from "./SettingsBits";
 import { NEGATIVE_MAX, SEED_MAX } from "./settingsModel";
 import { fmtNum, tx } from "./settingsText";
@@ -124,33 +125,48 @@ export default function AdvancedSection({ model, kind, params, onChange }: Advan
     schedule({ negative_prompt: text.trim() ? text : undefined });
   };
 
+  // Вид как у VS_INPUT, но на телефоне шрифт 16 px: с меньшим iOS приближает страницу при фокусе.
   const inputCls =
-    "w-full rounded-xl border border-border bg-surface px-3 py-2 text-base text-foreground outline-none transition-colors placeholder:text-muted-2 focus:border-accent md:text-sm";
+    "w-full rounded-xl border bg-white/[0.04] px-3 py-2 text-base text-foreground outline-none transition-colors placeholder:text-muted-2 md:text-sm";
+  // Цвет рамки — отдельно: у поля с ошибкой он один во всех состояниях.
+  const inputLine = "border-white/10 hover:border-white/18 focus:border-accent/60";
 
   return (
-    <section className="flex flex-col gap-2">
+    <section className="flex min-w-0 flex-col">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
         aria-controls={bodyId}
-        className="flex min-h-10 items-center gap-1.5 text-left cursor-pointer"
+        // Отрицательные поля: зона нажатия 44 px (40 px с 768 px), а строка — высотой с заголовок раздела.
+        className={cx(
+          "-my-3 flex min-h-11 cursor-pointer items-center gap-1.5 rounded-lg text-left md:-my-2.5 md:min-h-10",
+          VS_FOCUS,
+        )}
       >
-        <FiSliders className="size-3.5 text-muted-2" aria-hidden />
-        <span className="text-[11px] font-semibold uppercase tracking-wide text-muted">{tx(t, "settings.advanced")}</span>
-        <FiChevronDown className={cx("ml-auto size-4 text-muted transition-transform duration-200", open && "rotate-180")} aria-hidden />
+        <FiSliders className="size-3.5 shrink-0 text-muted-2" aria-hidden />
+        <span className={VS_LABEL}>{tx(t, "settings.advanced")}</span>
+        <FiChevronDown
+          className={cx(
+            "ml-auto size-4 shrink-0 text-muted transition-transform duration-200 motion-reduce:transition-none",
+            open && "rotate-180",
+          )}
+          aria-hidden
+        />
       </button>
 
       <div
         className={cx(
-          "grid transition-[grid-template-rows,opacity] duration-200 ease-out",
+          "grid transition-[grid-template-rows,opacity] duration-200 ease-out motion-reduce:transition-none",
           open ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0",
         )}
       >
-        <div className="min-h-0 overflow-hidden">
-          <div id={bodyId} className="flex flex-col gap-4 pb-1" inert={!open}>
+        {/* Поля по бокам — чтобы overflow-hidden не срезал кольцо фокуса у кнопок справа. */}
+        <div className="-mx-1 min-h-0 overflow-hidden px-1">
+          {/* Отступ сверху лежит внутри тела: свёрнутый раздел не оставляет пустой полосы. */}
+          <div id={bodyId} className="flex flex-col gap-4 pb-1 pt-4" inert={!open}>
             <div className="flex flex-col gap-1.5">
-              <label htmlFor={seedId} className="text-xs font-medium text-foreground">
+              <label htmlFor={seedId} className="text-xs font-medium text-foreground/85">
                 {tx(t, "settings.seed")}
               </label>
               {seedOn ? (
@@ -170,14 +186,14 @@ export default function AdvancedSection({ model, kind, params, onChange }: Advan
                         flush();
                         if (parseSeed(seedDraft ?? "") !== "invalid") setSeedDraft(null);
                       }}
-                      className={cx(inputCls, seedParsed === "invalid" && "border-status-fail focus:border-status-fail")}
+                      className={cx(inputCls, "min-h-11 md:min-h-10", seedParsed === "invalid" ? "border-status-fail" : inputLine)}
                     />
                     <button
                       type="button"
                       onClick={() => setSeedNow(Math.floor(Math.random() * SEED_MAX))}
                       title={tx(t, "settings.seedRandom")}
                       aria-label={tx(t, "settings.seedRandom")}
-                      className="grid size-11 shrink-0 place-items-center rounded-xl border border-border text-muted hover:border-border-strong hover:text-foreground md:size-10 cursor-pointer"
+                      className={VS_ICON_BTN}
                     >
                       <FiShuffle className="size-4" aria-hidden />
                     </button>
@@ -187,7 +203,7 @@ export default function AdvancedSection({ model, kind, params, onChange }: Advan
                         onClick={() => setSeedNow(undefined)}
                         title={tx(t, "settings.seedClear")}
                         aria-label={tx(t, "settings.seedClear")}
-                        className="grid size-11 shrink-0 place-items-center rounded-xl border border-border text-muted hover:border-border-strong hover:text-foreground md:size-10 cursor-pointer"
+                        className={VS_ICON_BTN}
                       >
                         <FiX className="size-4" aria-hidden />
                       </button>
@@ -208,7 +224,7 @@ export default function AdvancedSection({ model, kind, params, onChange }: Advan
 
             <div className="flex flex-col gap-1.5">
               <div className="flex items-baseline gap-2">
-                <label htmlFor={negId} className="text-xs font-medium text-foreground">
+                <label htmlFor={negId} className="text-xs font-medium text-foreground/85">
                   {tx(t, "settings.negative")}
                 </label>
                 {negOn && (
@@ -230,7 +246,7 @@ export default function AdvancedSection({ model, kind, params, onChange }: Advan
                       flush();
                       setNegDraft(null);
                     }}
-                    className={cx(inputCls, "min-h-16 resize-y")}
+                    className={cx(inputCls, inputLine, "min-h-16 resize-y leading-snug")}
                   />
                   <Reason tone="muted">{tx(t, "settings.negativeHint")}</Reason>
                 </>

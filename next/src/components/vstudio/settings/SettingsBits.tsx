@@ -1,18 +1,30 @@
 "use client";
 
 /**
- * Мелкие кирпичи правой панели: заголовок раздела, кнопка-значение с ценой
- * под ней, строка причины. Один вид для всех пикеров, чтобы панель читалась
- * как одна вещь.
+ * Мелкие кирпичи панели параметров: заголовок раздела, кнопка-значение с ценой
+ * под ней, строка причины, метка возможности, точка вендора. Один вид для всех
+ * пикеров, чтобы параметры читались как одна вещь — в колонке, в шторке и в
+ * узком окошке у чипа панели запроса.
  *
- * Акцент (--accent) — только у выбранного значения (§9.2: «активные чипы»).
+ * Золото — только у выбранного значения (§9.2: «активные чипы»).
  * Причина выключенного значения — видимым текстом, а не только tooltip (§9.8).
  */
-import { useId, type ReactNode } from "react";
+import { useId, type CSSProperties, type ReactNode } from "react";
+import { vendorColorByOpenRouterId } from "@/lib/vendorColors";
+import { VS_LABEL, VS_TAG, VS_TAG_GOLD, vx } from "../ui/skin";
 
-export function cx(...parts: Array<string | false | null | undefined>): string {
-  return parts.filter(Boolean).join(" ");
-}
+export const cx = vx;
+
+/**
+ * Наведение на карточку в панели: рамка и фон чуть светлее, без тени. Глубокая
+ * тень vs-card-hover здесь не годится — список стоит в прокрутке и в
+ * раскрывающемся блоке, они срезали бы её в паре пикселей от карточки.
+ * «!» — потому что рамка и фон vs-card заданы вне слоёв Tailwind.
+ */
+export const CARD_HOVER = "hover:!border-white/25 hover:!bg-white/[0.04]";
+
+const TAG_WARN =
+  "inline-flex items-center gap-1 rounded-full border border-status-wait/40 bg-status-wait/[0.08] px-2 py-0.5 text-[11px] font-medium leading-4 text-status-wait";
 
 export function Section({
   title,
@@ -31,13 +43,17 @@ export function Section({
   const autoId = useId();
   const titleId = id || autoId;
   return (
-    <section className="flex flex-col gap-2" aria-labelledby={titleId}>
-      <div className="flex items-center gap-1.5">
-        {icon && <span className="text-muted-2 [&>svg]:size-3.5">{icon}</span>}
-        <h3 id={titleId} className="text-[11px] font-semibold uppercase tracking-wide text-muted">
+    <section className="flex min-w-0 flex-col gap-2.5" aria-labelledby={titleId}>
+      <div className="flex min-h-5 items-center gap-1.5">
+        {icon && (
+          <span className="shrink-0 text-muted-2 [&>svg]:size-3.5" aria-hidden>
+            {icon}
+          </span>
+        )}
+        <h3 id={titleId} className={VS_LABEL}>
           {title}
         </h3>
-        {aside && <div className="ml-auto flex items-center">{aside}</div>}
+        {aside && <div className="ml-auto flex shrink-0 items-center pl-2">{aside}</div>}
       </div>
       {children}
     </section>
@@ -75,30 +91,37 @@ export function OptionButton({
       aria-label={ariaLabel}
       title={title}
       className={cx(
-        "flex min-h-11 min-w-0 flex-col items-center justify-center gap-0.5 rounded-xl border px-2 py-1.5 text-xs font-semibold transition-colors md:min-h-10",
-        active
-          ? "border-accent bg-accent-soft text-foreground"
-          : "border-border bg-surface-2 text-muted hover:border-border-strong hover:text-foreground",
-        disabled ? "cursor-not-allowed opacity-45 hover:border-border hover:text-muted" : "cursor-pointer active:scale-[0.97]",
+        // Фокус с клавиатуры карточке (vs-card) рисует контур из app/globals.css.
+        "vs-card flex min-h-11 min-w-0 flex-col items-center justify-center gap-0.5 rounded-xl px-1.5 py-1.5 text-xs font-semibold tabular-nums md:min-h-10",
+        // Выбранное — золотая рамка и едва заметная золотая заливка; наведение только у невыбранного.
+        active ? "vs-card-on !bg-accent/[0.07] text-foreground" : "text-foreground/65",
+        disabled
+          ? "cursor-not-allowed opacity-45"
+          : cx("cursor-pointer active:scale-[0.97]", !active && CARD_HOVER, !active && "hover:text-foreground"),
         className,
       )}
     >
-      {icon && <span className="flex items-center justify-center">{icon}</span>}
+      {icon && <span className={cx("flex items-center justify-center", active && "text-accent")}>{icon}</span>}
       <span className="leading-tight">{label}</span>
       {sub != null && sub !== "" && (
-        <span className={cx("text-[10px] font-normal leading-tight", active ? "text-muted" : "text-muted-2")}>{sub}</span>
+        // Цена — в обоих состояниях text-muted: на карточке поверх стекла muted-2 не дотягивает до контраста 4.5.
+        <span className="whitespace-nowrap text-[10px] font-normal leading-tight text-muted">{sub}</span>
       )}
     </button>
   );
 }
 
-/** Видимая причина: почему значение выключено или что будет на самом деле. */
+/**
+ * Видимая причина: почему значение выключено или что будет на самом деле.
+ * w-0 + min-w-full: длинная фраза переносится по ширине раздела и не
+ * растягивает окошко, которое само подбирает ширину по содержимому.
+ */
 export function Reason({ children, tone = "warn", id }: { children: ReactNode; tone?: "warn" | "muted" | "error"; id?: string }) {
   return (
     <p
       id={id}
       className={cx(
-        "text-[11px] leading-snug",
+        "w-0 min-w-full text-[11px] leading-snug",
         tone === "warn" && "text-status-wait",
         tone === "error" && "text-status-fail",
         tone === "muted" && "text-muted-2",
@@ -109,18 +132,36 @@ export function Reason({ children, tone = "warn", id }: { children: ReactNode; t
   );
 }
 
-/** Маленький бейдж возможности модели. */
+/** Маленькая метка возможности модели. */
 export function Pill({ children, tone = "plain" }: { children: ReactNode; tone?: "plain" | "accent" | "warn" }) {
   return (
     <span
       className={cx(
-        "inline-flex items-center gap-1 whitespace-nowrap rounded-full border px-1.5 py-px text-[10px] font-medium leading-4",
-        tone === "plain" && "border-border bg-surface text-muted",
-        tone === "accent" && "border-accent/40 bg-accent-soft text-foreground",
-        tone === "warn" && "border-status-wait/40 text-status-wait",
+        "whitespace-nowrap",
+        tone === "plain" && VS_TAG,
+        tone === "accent" && VS_TAG_GOLD,
+        tone === "warn" && TAG_WARN,
       )}
     >
       {children}
     </span>
+  );
+}
+
+/**
+ * Цветная точка вендора модели: цвет — из общей карты lib/vendorColors, тот же,
+ * что в каталоге моделей. Чужих логотипов не рисуем.
+ */
+export function VendorDot({ modelId, className }: { modelId: string | null | undefined; className?: string }) {
+  const style = { "--vs-dot": vendorColorByOpenRouterId(modelId ?? undefined) } as CSSProperties;
+  return (
+    <span
+      aria-hidden
+      style={style}
+      className={cx(
+        "inline-block size-2 shrink-0 rounded-full bg-[var(--vs-dot)] [box-shadow:0_0_0_3px_color-mix(in_srgb,var(--vs-dot)_22%,transparent)]",
+        className,
+      )}
+    />
   );
 }

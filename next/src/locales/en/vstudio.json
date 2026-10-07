@@ -6,8 +6,9 @@
 		"archive": "Archive",
 		"archiveConfirm": "Move the project to the archive?",
 		"archived": "Project moved to the archive",
-		"archiveHint": "It will disappear from the history. Finished videos and images will stay in “My media”.",
+		"archiveHint": "It will disappear from the history together with its videos. Images you created will stay in “My media”.",
 		"cancel": "Cancel",
+		"cartoon": "Cartoon Studio",
 		"clearSearch": "Clear search",
 		"earlier": "Earlier",
 		"empty": "Your generations will appear here",
@@ -621,5 +622,137 @@
 		"imageDone": "Image ready",
 		"refAdded": "Image added to the request",
 		"videoDone": "Video ready"
+	},
+	"dock": {
+		"image": "Image",
+		"photo": "Photo"
+	},
+	"home": {
+		"continue": {
+			"all": "All projects",
+			"next": "Scroll forward",
+			"prev": "Scroll back",
+			"title": "Continue"
+		},
+		"hero": {
+			"accent": "in one sentence",
+			"eyebrow": "EsAI Video Studio",
+			"sub_one": "{{count}} video and image model in one window. Add your own photos with @. The price is shown before you start.",
+			"sub_other": "{{count}} video and image models in one window. Add your own photos with @. The price is shown before you start.",
+			"subPlain": "Videos and images from your description. Add your own photos with @. The price is shown before you start.",
+			"title": "Shoot a video"
+		},
+		"models": {
+			"aspects": "Aspect ratios: {{n}}",
+			"locked": "Paid plan",
+			"select": "Select",
+			"selected": "Selected",
+			"sub": "Pick a model — the settings and the price will adjust to it",
+			"tabImage": "Images · {{n}}",
+			"tabs": "Which models to show",
+			"tabVideo": "Video · {{n}}",
+			"title": "Studio models"
+		},
+		"reel": {
+			"carousel": "carousel",
+			"cartoon": "Cartoon Studio",
+			"frame": "Clip {{n}} of {{total}}",
+			"hero": "Shoot with your own character",
+			"label": "Sample clips",
+			"like": "Make a similar one",
+			"model": "Use this model",
+			"next": "Next clip",
+			"prev": "Previous clip",
+			"seconds": "{{n}} s",
+			"show": "Show: {{title}}"
+		},
+		"showcase": {
+			"all": "All",
+			"cartoon": "Cartoon Studio",
+			"more": "Show more",
+			"shown": "Showing {{shown}} of {{total}}",
+			"studio": "Video Studio",
+			"subCartoon": "EsAI Cartoon Studio scenes — recreate any of them with your own character",
+			"subMixed": "Work from the Video Studio and scenes from the Cartoon Studio",
+			"subStudio": "Work created in the EsAI Video Studio",
+			"tabsLabel": "Showcase sections",
+			"tabsNext": "Scroll sections forward",
+			"tabsPrev": "Scroll sections back",
+			"title": "Made with EsAI",
+			"untitledScene": "Cartoon Studio scene",
+			"untitledWork": "Video Studio work",
+			"useModel": "Use this model",
+			"useScene": "Recreate this scene",
+			"useSimilar": "Make a similar one"
+		},
+		"templates": {
+			"cartoon": "Cartoon",
+			"kept": "The request already has your text, so the template didn't replace it. Clear the request to use a template.",
+			"sub": "A template fills in the request — tweak it to make it yours",
+			"title": "Where to start"
+		},
+		"tools": {
+			"cartoon": {
+				"text": "150 ready-made scenes: pick a character and put together a cartoon",
+				"title": "Cartoon Studio"
+			},
+			"frames": {
+				"switched": "Switched to {{model}} — this model shoots from the frames you set",
+				"text": "Set how the clip starts and how it ends",
+				"title": "First and last frame"
+			},
+			"image": {
+				"text": "No suitable photo? Create one right here and put it in your clip",
+				"title": "An image for the shot"
+			},
+			"refs": {
+				"text": "Upload a photo of a person or a product and tag it in your request",
+				"title": "Your own characters via @"
+			},
+			"title": "Director's tools"
+		},
+		"tpl": {
+			"anime": {
+				"label": "Anime",
+				"prompt": "Anime scene: [character] stands on a rooftop at sunset, the wind blows their hair and cloak, the camera arcs around, soft shadows, detailed background."
+			},
+			"clip": {
+				"label": "Music video",
+				"prompt": "Music video: [artist] walks down a night street under neon lights, the camera moves alongside, rhythmic cuts between shots, reflections in puddles."
+			},
+			"film": {
+				"label": "Film scene",
+				"prompt": "Cinematic shot: [who] [doing what] in [where]. The camera slowly pushes in, soft backlight, light haze, shallow depth of field."
+			},
+			"logo": {
+				"label": "Logo intro",
+				"prompt": "Intro: [your logo] emerges from light and particles on a dark background, a smooth reveal, a soft glint sweeps across the letters."
+			},
+			"photo": {
+				"label": "Animate a photo",
+				"prompt": "[your photo] comes to life: slight natural movement, the person blinks and smiles a little, the camera pushes in almost imperceptibly."
+			},
+			"poster": {
+				"label": "Poster",
+				"prompt": "Poster: [subject], bold composition, dramatic lighting, space for a title at the top, cinematic color grading."
+			},
+			"product": {
+				"label": "Product ad",
+				"prompt": "Commercial: [product] in close-up on [surface]. A smooth camera orbit, studio lighting, clean background, highlights on the material."
+			},
+			"ugc": {
+				"label": "First-person review",
+				"prompt": "A person holds [product] and talks about it to a phone camera, at home, daylight from the window, slight camera shake, natural facial expressions."
+			}
+		},
+		"trust": {
+			"files": "Finished videos and images stay in your history",
+			"price": "The price is shown before you start",
+			"result": "Credits are charged only for a finished result"
+		},
+		"use": {
+			"gone": "The model used for this example isn't in the studio right now — the selected one stays.",
+			"kept": "Model and settings selected. Your request text was left untouched."
+		}
 	}
 }

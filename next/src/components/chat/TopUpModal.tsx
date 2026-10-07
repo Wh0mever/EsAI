@@ -51,6 +51,11 @@ type Pkg = {
 type Props = {
   open: boolean;
   onClose: () => void;
+  /**
+   * Куда вернуть человека со страницы банка: свой путь без «?» и «#»
+   * (иначе сервер молча заменит его профилем). Без него — профиль, как раньше.
+   */
+  returnTo?: string;
 };
 
 /**
@@ -81,7 +86,7 @@ type PurchaseAnswer = {
  * hitting the endpoint on every chat load — the fetch fires once, the
  * first time the modal is opened.
  */
-export default function TopUpModal({ open, onClose }: Props) {
+export default function TopUpModal({ open, onClose, returnTo }: Props) {
   const { t, i18n } = useTranslation("common");
   const [packages, setPackages] = useState<Pkg[]>([]);
   const [loading, setLoading] = useState(false);
@@ -274,6 +279,7 @@ export default function TopUpModal({ open, onClose }: Props) {
           package_id: pkg.id,
           pay_currency: payCurrency,
           ...(method ? { method, full_price: true } : {}),
+          ...(returnTo ? { return_to: returnTo } : {}),
         },
         true
       );

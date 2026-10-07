@@ -92,13 +92,15 @@ export default function DropOverlay() {
     <div
       ref={zoneRef}
       aria-hidden={!active}
-      className={`pointer-events-none absolute inset-2 z-30 flex items-center justify-center rounded-2xl border-2 border-dashed transition-opacity duration-150 ${
-        active && present ? "border-accent bg-background/80 opacity-100 backdrop-blur-[2px]" : "border-transparent opacity-0"
+      className={`pointer-events-none absolute inset-2 z-30 flex items-center justify-center rounded-[24px] border-2 border-dashed transition-opacity duration-150 ${
+        active && present ? "border-accent/70 bg-black/60 opacity-100 backdrop-blur-[3px]" : "border-transparent opacity-0"
       }`}
     >
       {active && present && (
-        <div className="flex flex-col items-center gap-2 px-6 text-center" role="status">
-          <FiUploadCloud className="size-10 text-accent-strong" aria-hidden />
+        <div className="vs-glass mx-4 flex flex-col items-center gap-2 rounded-2xl px-8 py-6 text-center" role="status">
+          <span className="grid size-12 place-items-center rounded-full border border-accent/35 bg-accent/[0.1] text-accent">
+            <FiUploadCloud className="size-6" aria-hidden />
+          </span>
           <div className="text-base font-semibold text-foreground">{ct(t, "tray.dropHere")}</div>
           <div className="text-xs text-muted">{ct(t, "tray.dropHint")}</div>
         </div>
