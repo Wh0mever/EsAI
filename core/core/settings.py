@@ -735,6 +735,9 @@ CELERY_TASK_ROUTES.update({
     # важнее шаблона, поэтому шаблон ниже эти две задачи не перехватит.
     "vstudio.tasks.sweep_takes": {"queue": CELERY_TASK_DEFAULT_QUEUE},
     "vstudio.tasks.purge_assets": {"queue": CELERY_TASK_DEFAULT_QUEUE},
+    # Лёгкая копия ролика для витрины — тоже в общую: ffmpeg не должен
+    # занимать слот воркера студии, в котором ждёт оплаченная генерация.
+    "vstudio.tasks.build_showcase_clip": {"queue": CELERY_TASK_DEFAULT_QUEUE},
     "vstudio.tasks.*": {
         "queue": CELERY_VSTUDIO_QUEUE or CELERY_MEDIA_QUEUE or CELERY_TASK_DEFAULT_QUEUE,
     },

@@ -9,13 +9,18 @@
 - у потерянных (lost) — действие «Довезти»: повторный опрос и выдача без
   списания (vstudio.pipeline.admin_redeliver);
 - журнал генераций живёт в /admin-new/generations — туда ведёт ссылка
-  с поиском по uid дубля (журнал хранит его в params.take).
+  с поиском по uid дубля (журнал хранит его в params.take);
+- витрину первого экрана ведут в /admin-new/vstudio-showcase: там правки
+  попадают в журнал действий. Здесь она — запасной вход, правки остаются
+  только в истории объекта. И только здесь видно, собралась ли лёгкая копия
+  ролика, и есть действие «Пересобрать».
 """
 from __future__ import annotations
 
 import json
 import logging
 
+from django import forms
 from django.contrib import admin, messages
 from django.db import transaction
 from django.db.models import Count
@@ -24,7 +29,8 @@ from django.utils import timezone
 from django.utils.html import format_html
 from django.utils.http import urlencode
 
-from .models import Asset, Project, Shot, ShotInput, Take
+from . import showcase
+from .models import Asset, Project, ShowcaseItem, Shot, ShotInput, Take
 
 logger = logging.getLogger("vstudio")
 
@@ -185,12 +191,20 @@ class AssetAdmin(PartialSaveMixin, admin.ModelAdmin):
 
     @admin.action(description="Удалить мягко (исчезнет у человека, файл сотрёт чистка через 30 дней)")
     def soft_delete(self, request, queryset):
-        n = queryset.filter(deleted_at__isnull=True).update(deleted_at=timezone.now())
+        # Номера — до правки: при «выбрать все» список задан фильтром страницы,
+        # и после неё те же строки под него уже не попадут.
+        pks = list(queryset.filter(deleted_at__isnull=True).values_list("pk", flat=True))
+        n = (Asset.objects.filter(pk__in=pks, deleted_at__isnull=True)
+             .update(deleted_at=timezone.now()))
+        # Удалённый результат пропадает и из витрины — сразу, а не когда истечёт её кэш.
+        showcase.forget_assets(pks)
         self.message_user(request, f"Удалено мягко: {n}.", messages.SUCCESS)
 
     @admin.action(description="Восстановить удалённые")
     def restore(self, request, queryset):
-        n = queryset.filter(deleted_at__isnull=False).update(deleted_at=None)
+        pks = list(queryset.filter(deleted_at__isnull=False).values_list("pk", flat=True))
+        n = Asset.objects.filter(pk__in=pks, deleted_at__isnull=False).update(deleted_at=None)
+        showcase.revive_assets(pks)
         self.message_user(request, f"Восстановлено: {n}.", messages.SUCCESS)
 
 
@@ -465,3 +479,99 @@ class TakeAdmin(admin.ModelAdmin):
             self.message_user(request, f"Пропущено {skipped}: довезти можно только потерянные "
                                        "дубли (lost).", messages.WARNING)
         return None
+
+
+# ---------------------------------------------------------------- витрина
+
+class ShowcaseItemForm(forms.ModelForm):
+    class Meta:
+        model = ShowcaseItem
+        fields = "__all__"
+
+    def clean_take(self):
+        # То же правило, что у панели: запасной вход не должен его обходить.
+        take = self.cleaned_data["take"]
+        if not showcase.can_publish(take):
+            raise forms.ValidationError("В витрину пока ставятся только работы сотрудников.")
+        return take
+
+
+@admin.register(ShowcaseItem)
+class ShowcaseItemAdmin(admin.ModelAdmin):
+    form = ShowcaseItemForm
+    list_display = ("preview", "title_or_dash", "category", "sort", "is_active", "show_prompt",
+                    "has_clip", "take_link", "author", "created_at")
+    list_display_links = ("preview", "title_or_dash")
+    list_filter = ("is_active", "category", "show_prompt")
+    search_fields = ("title", "take__uid", "take__user__email")
+    list_select_related = ("take__result_asset", "take__user")
+    ordering = ("sort", "-created_at")
+    raw_id_fields = ("take",)
+    actions = ("rebuild_clip",)
+    fields = ("preview_large", "take", "title", "category", "sort", "is_active", "show_prompt",
+              "clip_link", "created_by", "created_at", "updated_at")
+    # Лёгкую копию собирает задача — руками файл не подкладывают.
+    readonly_fields = ("preview_large", "clip_link", "created_by", "created_at", "updated_at")
+
+    def get_readonly_fields(self, request, obj=None):
+        # Работу в строке не подменить: другая работа — это другая строка.
+        return self.readonly_fields + (("take",) if obj is not None else ())
+
+    def save_model(self, request, obj, form, change):
+        if not change:
+            obj.created_by = request.user
+        super().save_model(request, obj, form, change)
+
+    @admin.display(description="Лёгкая копия", boolean=True, ordering="clip")
+    def has_clip(self, obj):
+        # У картинки копии нет и не будет — прочерк, а не «нет».
+        return bool(obj.clip) if obj.take.kind == Take.KIND_VIDEO else None
+
+    @admin.display(description="Ролик для ленты (лёгкий)")
+    def clip_link(self, obj):
+        if not obj.clip:
+            return "—"
+        return format_html('<a href="{}" target="_blank" rel="noopener">{}</a>', obj.clip.url,
+                           obj.clip.name)
+
+    @admin.action(description="Пересобрать лёгкую копию ролика (для лент первого экрана)")
+    def rebuild_clip(self, request, queryset):
+        pks = list(queryset.filter(take__kind=Take.KIND_VIDEO).values_list("pk", flat=True))
+        for pk in pks:
+            showcase.request_clip(pk)
+        skipped = queryset.count() - len(pks)
+        if pks:
+            self.message_user(request, f"Сборка поставлена в очередь: {len(pks)}. Копия появится "
+                                       "через минуту, до этого на сайте играет исходник.",
+                              messages.SUCCESS)
+        if skipped:
+            self.message_user(request, f"Пропущено {skipped}: картинкам лёгкая копия не нужна.",
+                              messages.WARNING)
+
+    @staticmethod
+    def _picture(obj) -> str:
+        asset = obj.take.result_asset
+        if asset is None:
+            return ""
+        return asset.thumb_url or (asset.url if asset.kind == Asset.KIND_IMAGE else "")
+
+    @admin.display(description="Вид")
+    def preview(self, obj):
+        return _media_preview(self._picture(obj))
+
+    @admin.display(description="Вид")
+    def preview_large(self, obj):
+        return _media_preview(self._picture(obj), height=240) if obj.pk else "—"
+
+    @admin.display(description="Название", ordering="title")
+    def title_or_dash(self, obj):
+        return obj.title or "—"
+
+    @admin.display(description="Дубль")
+    def take_link(self, obj):
+        url = reverse("admin:vstudio_take_change", args=[obj.take_id])
+        return format_html('<a href="{}">{}</a>', url, obj.take.uid[:8])
+
+    @admin.display(description="Автор", ordering="take__user__email")
+    def author(self, obj):
+        return obj.take.user

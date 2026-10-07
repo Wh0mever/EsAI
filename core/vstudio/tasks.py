@@ -2,8 +2,9 @@
 
 Имена задач — по умолчанию (vstudio.tasks.<имя>): маршруты CELERY_TASK_ROUTES
 отправляют их в очередь студии, а sweep_takes и purge_assets — в общую, чтобы
-страховка работала и при лежащем воркере студии. Поэтому ни name=, ни queue=
-здесь не задаются.
+страховка работала и при лежащем воркере студии. Туда же идёт
+build_showcase_clip: ffmpeg не должен занимать слот, в котором ждёт
+оплаченная генерация. Поэтому ни name=, ни queue= здесь не задаются.
 
 Задачи короткие: один сетевой вызов и условные UPDATE. Ожидание генерации —
 это countdown следующей poll_take, а не time.sleep в слоте воркера. Любую
@@ -63,3 +64,15 @@ def sweep_takes():
 def purge_assets():
     """Удалённые материалы старше VSTUDIO_PURGE_DAYS без ссылок (beat в 04:30, общая очередь)."""
     return pipeline.purge_assets()
+
+
+@shared_task(ignore_result=True, soft_time_limit=330, time_limit=360)
+def build_showcase_clip(item_id):
+    """Лёгкая копия ролика для витрины первого экрана (общая очередь).
+
+    Лимит — с запасом над потолком самого ffmpeg (300 с в cartoon.clips): тот
+    успеет сдаться сам, и работа останется в витрине с исходником.
+    """
+    from . import showcase
+
+    return showcase.build_clip(item_id)

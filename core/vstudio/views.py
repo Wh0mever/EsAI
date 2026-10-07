@@ -8,8 +8,9 @@
 - запуск идемпотентен по client_request_id, резерв — под замком строки
   пользователя (reserve.spend_gate), задача ставится только после коммита
   (transaction.on_commit) — воркер не увидит дубль, которого ещё нет в базе;
-- флаг VSTUDIO_MODE: off — 403 vstudio_disabled везде, кроме models/;
-  staff — генерировать может только is_staff;
+- флаг VSTUDIO_MODE: off — 403 vstudio_disabled везде, кроме models/ и
+  showcase/ (они отвечают пустыми списками); staff — генерировать может
+  только is_staff;
 - у каждого вида запросов свой throttle scope, общий лимит 120/мин не тратим.
 
 Тела отказов — всегда {"error", "error_code", …} (vstudio.errors).
@@ -30,7 +31,7 @@ from rest_framework import status as http
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import AllowAny, BasePermission, IsAuthenticated
 from rest_framework.response import Response
-from rest_framework.throttling import AnonRateThrottle, ScopedRateThrottle
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
@@ -38,7 +39,7 @@ from ai.models import GPTModels
 from plans.tiers import can_use_model, user_tier
 
 from . import caps as caps_mod
-from . import compiler, notify, pipeline, pricing, reserve
+from . import compiler, notify, pipeline, pricing, reserve, showcase
 from . import prompt_doc as pd
 from . import serializers as S
 from .assets import AssetError, from_take_last_frame, ingest_upload, single_upload
@@ -134,10 +135,15 @@ class StudioAPIView(APIView):
 
 
 class PublicStudioView(StudioAPIView):
-    """AllowAny (models/, quote/): плюс AnonRateThrottle по IP для гостей."""
+    """AllowAny (models/, quote/, showcase/): то, что видит гость.
+
+    Без AnonRateThrottle. Общий anon-счётчик (30/мин) делят все гости за одним
+    IP — NAT мобильного оператора — и все остальные анонимные запросы сайта, а
+    первый экран студии сам делает несколько запросов подряд: гость ловил бы
+    429 ещё до первого клика. Свой scope и так считает гостей по IP.
+    """
 
     permission_classes = [AllowAny]
-    throttle_classes = [ScopedRateThrottle, AnonRateThrottle]
 
 
 # ---------------------------------------------------------------- модель и компиляция
@@ -498,6 +504,21 @@ class ModelsView(PublicStudioView):
                          "video": catalog.get("video", []), "image": catalog.get("image", [])})
 
 
+class ShowcaseView(PublicStudioView):
+    """GET showcase/ — {items}: работы для первого экрана, отобранные владельцем.
+
+    Открыто всем, как и models/: первый экран показывает их гостю до входа.
+    Что именно уходит наружу — vstudio.showcase.public_json. Студия выключена
+    (off) — витрины нет.
+    """
+
+    scopes = {"GET": SCOPE_READ}
+
+    def get(self, request):
+        items = [] if studio_mode() == "off" else showcase.public_items()
+        return Response({"items": items})
+
+
 # ---------------------------------------------------------------- цена
 
 class QuoteView(PublicStudioView):
@@ -508,11 +529,9 @@ class QuoteView(PublicStudioView):
     """
 
     permission_classes = [AllowAny, StudioOpen]
-    # Без AnonRateThrottle: цена пересчитывается на каждую паузу в наборе текста
-    # (700 мс), а общий anon-счётчик 30/мин делят все гости за одним IP (NAT
-    # мобильного оператора) — гость ловил бы 429 на кнопке. vstudio_quote
-    # (90/мин) и так считает гостей по IP.
-    throttle_classes = [ScopedRateThrottle]
+    # Свой scope, а не общий anon-счётчик (см. PublicStudioView): цена
+    # пересчитывается на каждую паузу в наборе текста (700 мс) — гость ловил бы
+    # 429 на кнопке. vstudio_quote (90/мин) и так считает гостей по IP.
     scopes = {"POST": SCOPE_QUOTE}
 
     def post(self, request):
@@ -856,6 +875,8 @@ class AssetDetailView(StudioAPIView):
         if asset.deleted_at is None:
             # Условный UPDATE: повторное удаление не сдвигает дату (от неё считаются 30 дней).
             Asset.objects.filter(pk=asset.pk, deleted_at__isnull=True).update(deleted_at=timezone.now())
+            # Удалённая работа не должна ещё пять минут висеть в публичной витрине.
+            showcase.forget_assets([asset.pk])
         return Response(status=http.HTTP_204_NO_CONTENT)
 
 
@@ -882,7 +903,7 @@ class AssetFromTakeView(StudioAPIView):
 __all__ = [
     "StudioAPIView", "PublicStudioView", "StudioOpen", "studio_mode", "can_generate", "prepare",
     "Prepared", "resolve_model", "quote_json", "check_can_run", "models_catalog",
-    "ModelsView", "QuoteView", "ShotsView", "ShotRetryView", "TakesView", "ActiveTakesView",
-    "TakeDetailView", "TakeCancelView", "ProjectsView", "ProjectDetailView", "ProjectShotsView",
-    "AssetsView", "AssetDetailView", "AssetFromTakeView",
+    "ModelsView", "ShowcaseView", "QuoteView", "ShotsView", "ShotRetryView", "TakesView",
+    "ActiveTakesView", "TakeDetailView", "TakeCancelView", "ProjectsView", "ProjectDetailView",
+    "ProjectShotsView", "AssetsView", "AssetDetailView", "AssetFromTakeView",
 ]
