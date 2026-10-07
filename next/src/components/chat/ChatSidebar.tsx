@@ -24,6 +24,7 @@ import {
   FiSend,
   FiTag,
   FiFilm,
+  FiVideo,
   FiAward,
 } from "react-icons/fi";
 import Link from "next/link";
@@ -38,6 +39,10 @@ import { useBonusSettings } from "@/hooks/useBonusSettings";
 import { pushSupported, pushPermission, enablePush } from "@/tools/webPush";
 import { CREATORS_NAV } from "@/lib/creators/format";
 import { NAV_RU } from "@/lib/creators/labels";
+
+// «Видеостудия» в меню чата — по тому же правилу, что в меню сайта
+// (components/main/Nav.tsx): флаг сборки включают, когда студия открыта всем.
+const VSTUDIO_NAV = process.env.NEXT_PUBLIC_VSTUDIO_NAV === "1";
 
 export type ChatItem = { id: string; uid?: string; title: string; chat_mode?: string };
 
@@ -126,8 +131,8 @@ export default function ChatSidebar({
   useEffect(() => {
     if (!isAuthed) return;
     let on = true;
-    fetchData<any>("users/profile/", "get", null, true)
-      .then((r) => { if (on) setProfile((r?.data as any)?.user || null); })
+    fetchData<{ user?: typeof profile }>("users/profile/", "get", null, true)
+      .then((r) => { if (on) setProfile(r?.data?.user || null); })
       .catch(() => {});
     return () => { on = false; };
   }, [isAuthed]);
@@ -345,6 +350,27 @@ export default function ChatSidebar({
                   </span>
                 </Link>
               </div>
+
+              {/* «Видеостудия» — сразу под мультфильмами и в том же виде. В открытом
+                  диалоге это единственный вход в неё: меню сайта в чате нет, а
+                  карточка стартового экрана уже скрыта. */}
+              {VSTUDIO_NAV && (
+                <div className="px-3 pt-2 shrink-0">
+                  <Link
+                    href="/video-studio"
+                    onClick={onClose}
+                    className="w-full inline-flex items-center gap-2.5 rounded-xl border border-accent/40 bg-accent-soft px-3 py-2.5 text-sm font-semibold text-foreground hover:border-accent transition-colors cursor-pointer"
+                  >
+                    <FiVideo className="text-accent shrink-0" />
+                    <span className="flex-1 min-w-0 truncate">
+                      🎥 {t("chat.vstudio", { defaultValue: "Видеостудия" })}
+                    </span>
+                    <span className="shrink-0 rounded-full bg-accent px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-on-accent">
+                      {t("common.new_badge", { defaultValue: "NEW" })}
+                    </span>
+                  </Link>
+                </div>
+              )}
 
               {/* History */}
               <div className="px-3 pt-4">

@@ -719,6 +719,8 @@
 			"greeting": "How can I help?",
 			"studio_title": "Cartoon creation",
 			"studio_desc": "Come up with a story, draw the heroes and bring them to life in video — no skills needed.",
+			"vstudio_title": "Video studio",
+			"vstudio_desc": "Videos and images from your description and your own photos — several models in one window",
 			"quick": {
 				"article": "Write an article",
 				"article_prompt": "Write an article about: ",
@@ -1013,6 +1015,7 @@
 			}
 		},
 		"studio": "Cartoon creation",
+		"vstudio": "Video studio",
 		"actions": {
 			"copy": "Copy",
 			"copied": "Copied",
@@ -1817,6 +1820,8 @@
 		"reshoot_confirm": "Reshoot this scene? {{credits}} credits will be charged and the current clip will be replaced.",
 		"title": "Cartoon Studio",
 		"subtitle": "Pick a hero, pick the scenes — and the studio puts them together into a finished clip. No prompts to write.",
+		"vstudio_hint": "Need a video that isn't made from ready-made scenes?",
+		"vstudio_link": "Open the video studio",
 		"hero_delete": "Delete hero",
 		"hero_delete_confirm": "Delete “{{name}}”? Scenes you already filmed will stay.",
 		"err_load": "Could not load the scenes. Please refresh the page.",

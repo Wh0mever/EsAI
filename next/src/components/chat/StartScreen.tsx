@@ -66,6 +66,19 @@ const QUICK_PROMPTS: QuickPrompt[] = [
   { icon: "💡", labelKey: "chat.start.quick.business", labelDefault: "Придумать бизнес-идею", promptKey: "chat.start.quick.business_prompt", promptDefault: "Предложи бизнес-идею для " },
 ];
 
+// Карточка «Видеостудия» рядом с мультфильмами — по тому же правилу, что пункт
+// меню (components/main/Nav.tsx): только в сборке, где студия открыта всем.
+// Иначе посетитель попадал бы с главной на «скоро откроется».
+const VSTUDIO_NAV = process.env.NEXT_PUBLIC_VSTUDIO_NAV === "1";
+
+// Вид карточек-ссылок на студии общий: «Видеостудия» — близнец баннера мультфильмов.
+const STUDIO_CARD =
+  "group w-full flex items-center gap-3 rounded-xl border border-accent/40 bg-accent-soft px-3 py-2.5 hover:border-accent transition-colors cursor-pointer";
+const STUDIO_CARD_ICON = "grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-surface text-lg";
+const STUDIO_CARD_BADGE =
+  "shrink-0 rounded-full bg-accent px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-on-accent";
+const STUDIO_CARD_ARROW = "shrink-0 text-base text-accent transition-transform group-hover:translate-x-0.5";
+
 /**
  * StartScreen — the first screen of the chat: the chat input, quick-prompt
  * chips and the /studio banner. Shown until the first message is sent.
@@ -147,27 +160,56 @@ export default function StartScreen({ onUsePrompt, composerSlot, belowComposerSl
         {belowComposerSlot ? <div className="w-full mt-5">{belowComposerSlot}</div> : null}
 
         {/* Флагман-баннер: «Создание мультфильмов» → студия /studio. Компактная
-            карточка-ссылка (сжато по просьбе клиента — раньше была крупнее). */}
-        <Link
-          href="/studio"
-          className="group mt-4 w-full flex items-center gap-3 rounded-xl border border-accent/40 bg-accent-soft px-3 py-2.5 hover:border-accent transition-colors cursor-pointer"
-        >
-          <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-surface text-lg">
-            🎬
-          </span>
-          <span className="min-w-0 flex-1">
-            <span className="flex items-center gap-2">
-              <span className="text-sm font-bold text-foreground">
-                {t("chat.start.studio_title", { defaultValue: "Создание мультфильмов" })}
-              </span>
-              <span className="shrink-0 rounded-full bg-accent px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-on-accent">
-                {t("common.new_badge", { defaultValue: "Новинка" })}
+            карточка-ссылка (сжато по просьбе клиента — раньше была крупнее).
+            С флагом сборки рядом встаёт близнец «Видеостудия»: на телефоне
+            карточки идут друг под другом, с sm — в два столбца одной высоты. */}
+        <div className={VSTUDIO_NAV ? "mt-4 grid w-full gap-2 sm:grid-cols-2" : "mt-4 w-full"}>
+          <Link href="/studio" className={STUDIO_CARD}>
+            <span className={STUDIO_CARD_ICON}>
+              🎬
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="flex items-center gap-2">
+                <span className="text-sm font-bold text-foreground">
+                  {t("chat.start.studio_title", { defaultValue: "Создание мультфильмов" })}
+                </span>
+                <span className={STUDIO_CARD_BADGE}>
+                  {t("common.new_badge", { defaultValue: "Новинка" })}
+                </span>
               </span>
             </span>
-          </span>
-          <FiFilm className="hidden sm:block shrink-0 text-lg text-accent" />
-          <FiArrowRight className="shrink-0 text-base text-accent transition-transform group-hover:translate-x-0.5" />
-        </Link>
+            {/* В паре карточка вдвое уже: декоративный значок съедал место
+                заголовка, и «Новинка» упиралась в стрелку. */}
+            {VSTUDIO_NAV ? null : <FiFilm className="hidden sm:block shrink-0 text-lg text-accent" />}
+            <FiArrowRight className={STUDIO_CARD_ARROW} />
+          </Link>
+
+          {VSTUDIO_NAV ? (
+            <Link href="/video-studio" className={STUDIO_CARD}>
+              <span className={STUDIO_CARD_ICON} aria-hidden>
+                🎥
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="flex items-center gap-2">
+                  <span className="text-sm font-bold text-foreground">
+                    {t("chat.start.vstudio_title", { defaultValue: "Видеостудия" })}
+                  </span>
+                  <span className={STUDIO_CARD_BADGE}>
+                    {t("common.new_badge", { defaultValue: "Новинка" })}
+                  </span>
+                </span>
+                {/* Одна строка о том, чем студия отличается от мультфильмов по
+                    соседству: свой запрос и свои фото вместо готовых сцен. */}
+                <span className="mt-0.5 block text-xs leading-snug text-muted">
+                  {t("chat.start.vstudio_desc", {
+                    defaultValue: "Видео и картинки по описанию и вашим фото — несколько моделей в одном окне",
+                  })}
+                </span>
+              </span>
+              <FiArrowRight className={STUDIO_CARD_ARROW} />
+            </Link>
+          ) : null}
+        </div>
       </div>
     </div>
   );
