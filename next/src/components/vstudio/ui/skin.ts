@@ -66,8 +66,12 @@ export const VS_LABEL = "text-[11px] font-semibold uppercase tracking-[0.12em] t
 export const VS_CARD = "vs-card rounded-2xl";
 /** Карточка, на которую можно нажать. */
 export const VS_CARD_BTN = `vs-card vs-card-hover rounded-2xl cursor-pointer text-left ${VS_FOCUS}`;
-/** Панель запроса и крупные плавающие блоки. */
-export const VS_PANEL = "vs-glass rounded-[24px]";
+/**
+ * Панель запроса. Непрозрачная (vs-solid), без размытия: она стоит под лентой,
+ * а не поверх неё, размывать под ней нечего — а backdrop-filter на всегда
+ * видимом блоке заметно нагружает слабый телефон.
+ */
+export const VS_PANEL = "vs-solid rounded-[24px]";
 /** Всплывающее меню и небольшое окно. */
 export const VS_MENU = "vs-glass rounded-2xl p-1.5";
 export const VS_MENU_ITEM = `flex min-h-11 w-full cursor-pointer items-center gap-2.5 rounded-xl px-3 text-left text-sm text-foreground/85 transition-colors hover:bg-white/[0.08] hover:text-foreground md:min-h-9 ${VS_FOCUS}`;

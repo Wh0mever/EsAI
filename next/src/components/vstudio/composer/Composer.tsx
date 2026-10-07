@@ -617,12 +617,12 @@ export default function Composer() {
         </div>
       )}
 
-      {/* Стеклянная панель: на телефоне плотнее и с меньшим скруглением — полю нужна ширина. */}
+      {/* Панель запроса: на телефоне плотнее и с меньшим скруглением — полю нужна ширина. */}
       <div
         ref={boxRef}
         className={vx(
           "flex flex-col gap-2 transition-[border-color] duration-200 focus-within:!border-white/25",
-          mobile ? "vs-glass rounded-[20px] p-2" : `${VS_PANEL} p-3`,
+          mobile ? "vs-solid rounded-[20px] p-2" : `${VS_PANEL} p-3`,
         )}
       >
         {mobile ? (
