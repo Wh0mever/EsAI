@@ -29,9 +29,9 @@ export function preloadPromptEditor(): void {
 
 function EditorSkeleton() {
   return (
-    <div className="flex min-h-[4.75rem] flex-col gap-2 px-3 py-3" aria-busy="true">
-      <div className="h-3.5 w-3/4 animate-pulse rounded bg-surface-3" />
-      <div className="h-3.5 w-1/2 animate-pulse rounded bg-surface-3" />
+    <div className="flex min-h-[3.25rem] flex-col justify-center gap-2 px-1.5 py-2" aria-busy="true">
+      <div className="vs-film h-3 w-3/5 rounded-full" />
+      <div className="vs-film h-3 w-2/5 rounded-full" />
     </div>
   );
 }

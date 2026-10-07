@@ -48,7 +48,10 @@ export type FunnelStep =
   | "kgs_qr_expired"
   // Видеостудия (/video-studio): имена — в белом списке FunnelEvent.NAMES,
   // meta по шагам — VsFunnelMeta в lib/vstudio/types.ts (отправлять через trackVs).
+  // view — студия открылась и ею можно пользоваться { authed, home };
+  // home_pick — нажатие на первом экране до первого запуска { what, id }.
   | "vstudio_view"
+  | "vstudio_home_pick"
   | "vstudio_upload"
   | "vstudio_mention"
   | "vstudio_imagegen"

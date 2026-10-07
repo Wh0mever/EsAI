@@ -14,6 +14,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type Mutable
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { IoContractOutline, IoExpandOutline } from "react-icons/io5";
+import { VS_FOCUS } from "../ui/skin";
 
 type Box = { top: number; height: number };
 
@@ -129,7 +130,7 @@ export default function EditorFrame({
   const fmt = (n: number) => n.toLocaleString("ru-RU");
   const footer =
     notice || nearLimit ? (
-      <div className="flex items-start justify-between gap-3 px-3 pb-1.5 text-xs" aria-live="polite">
+      <div className="flex items-start justify-between gap-3 px-1.5 pb-1 text-xs" aria-live="polite">
         <span className={notice ? "text-status-fail" : ""}>{notice || ""}</span>
         {nearLimit && (
           <span className={`shrink-0 tabular-nums ${chars >= max ? "text-status-fail" : "text-status-wait"}`}>
@@ -151,7 +152,7 @@ export default function EditorFrame({
             type="button"
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => onFullscreenChange(true)}
-            className="absolute right-1 top-1 grid h-9 w-9 place-items-center rounded-lg text-base text-muted-2 hover:bg-surface-2 hover:text-foreground max-md:h-11 max-md:w-11"
+            className={`absolute right-0 top-0 grid size-9 cursor-pointer place-items-center rounded-full text-base text-muted-2 transition-colors hover:bg-white/[0.08] hover:text-foreground max-md:size-11 ${VS_FOCUS}`}
             aria-label={expandLabel}
             title={expandLabel}
           >
@@ -170,7 +171,7 @@ export default function EditorFrame({
             className="fixed inset-x-0 z-[950] flex flex-col bg-surface"
             style={box ? { top: box.top, height: box.height } : { top: 0, bottom: 0 }}
           >
-            <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-1.5 pt-[max(0.375rem,env(safe-area-inset-top))]">
+            <div className="flex items-center justify-between gap-2 border-b border-white/10 py-1.5 pl-4 pr-2 pt-[max(0.375rem,env(safe-area-inset-top))]">
               <span className="truncate text-xs text-muted-2">
                 {tx("composer.shortcut", "Ctrl/⌘ + Enter — создать")}
               </span>
@@ -178,15 +179,16 @@ export default function EditorFrame({
                 type="button"
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => onFullscreenChange(false)}
-                className="flex h-11 items-center gap-1.5 rounded-lg px-3 text-sm text-muted hover:bg-surface-2 hover:text-foreground"
+                className={`flex h-11 cursor-pointer items-center gap-1.5 rounded-full px-3 text-sm text-muted transition-colors hover:bg-white/[0.08] hover:text-foreground ${VS_FOCUS}`}
                 aria-label={collapseLabel}
               >
                 <IoContractOutline aria-hidden className="text-base" />
                 <span className="max-sm:hidden">{collapseLabel}</span>
               </button>
             </div>
-            <div ref={fullSlotRef} className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col" />
-            <div className="mx-auto w-full max-w-3xl pb-[env(safe-area-inset-bottom)]">{footer}</div>
+            {/* Во весь экран поля у текста свои: в панели запроса их даёт сама панель. */}
+            <div ref={fullSlotRef} className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col px-2.5 pt-2 sm:px-4" />
+            <div className="mx-auto w-full max-w-3xl px-2.5 pb-[env(safe-area-inset-bottom)] sm:px-4">{footer}</div>
           </div>,
           document.body,
         )}

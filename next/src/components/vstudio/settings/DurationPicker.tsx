@@ -14,7 +14,8 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { FiClock, FiLock } from "react-icons/fi";
 import type { ModelJSON } from "@/lib/vstudio/types";
-import { OptionButton, Reason, Section } from "./SettingsBits";
+import { VS_FOCUS } from "../ui/skin";
+import { OptionButton, Reason, Section, cx } from "./SettingsBits";
 import { priceHint, visibleDurations } from "./settingsModel";
 import { fmtNum, tx } from "./settingsText";
 
@@ -50,7 +51,11 @@ export default function DurationPicker({ model, value, onChange, resolution, asp
             type="button"
             onClick={() => setExpanded((v) => !v)}
             aria-expanded={expanded}
-            className="min-h-8 rounded-md px-1.5 text-[11px] font-medium text-muted underline-offset-2 hover:text-foreground hover:underline cursor-pointer"
+            // Отрицательные поля: зона нажатия 44 px (32 px с 768 px), а строка заголовка остаётся своей высоты.
+            className={cx(
+              "-my-3 inline-flex min-h-11 cursor-pointer items-center rounded-full px-2 text-[11px] font-medium text-muted transition-colors hover:text-foreground md:-my-1.5 md:min-h-8",
+              VS_FOCUS,
+            )}
           >
             {expanded ? tx(t, "settings.showLess") : tx(t, "settings.showAll", { n: all.length })}
           </button>

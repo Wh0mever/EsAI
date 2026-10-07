@@ -5,6 +5,7 @@ import type { ReactNode, RefObject } from "react";
 import { createPortal } from "react-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { useOverlayBehavior, usePortalReady } from "./BottomSheet";
+import { useReducedMotion } from "./ui/useAutoplayAllowed";
 
 /**
  * Выдвижная панель сбоку (§9.2, §9.7).
@@ -45,6 +46,8 @@ export default function MobileDrawer({
 }: MobileDrawerProps) {
   const panelRef = useRef<HTMLElement>(null);
   const portal = usePortalReady();
+  // «Меньше движения»: панель появляется сразу, без выезда.
+  const reduced = useReducedMotion();
   useOverlayBehavior(open, onClose, panelRef, { initialFocus });
   if (!portal) return null;
 
@@ -61,7 +64,7 @@ export default function MobileDrawer({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 0.18 }}
+            transition={{ duration: reduced ? 0 : 0.18 }}
             onClick={onClose}
             aria-hidden="true"
           />
@@ -71,9 +74,16 @@ export default function MobileDrawer({
             aria-modal="true"
             aria-label={ariaLabel}
             tabIndex={-1}
+            // Стекло с одной светлой кромкой — со стороны ленты. Тяжёлую тень
+            // заменяет мягкая: панель параметров открывается без затемнения,
+            // и чёрная полоса вдоль неё резала бы кадры. Над затемнённой лентой
+            // размытие не видно, а слабый телефон двигает такую панель рывками —
+            // там оно снято, а стекло взято непрозрачное (vs-solid): иначе сквозь него
+            // проступал бы текст страницы; без затемнения размытие нужно по той же причине.
             className={
-              "absolute inset-y-0 flex flex-col bg-surface text-foreground shadow-2xl outline-none " +
-              (left ? "left-0 border-r border-border " : "right-0 border-l border-border ") +
+              (backdrop === "dim" ? "vs-solid " : "vs-glass ") +
+              "absolute inset-y-0 flex flex-col text-foreground outline-none !border-y-0 !shadow-[0_0_44px_rgba(0,0,0,0.5)] " +
+              (left ? "left-0 rounded-r-[24px] !border-l-0 " : "right-0 rounded-l-[24px] !border-r-0 ") +
               className
             }
             style={{
@@ -85,7 +95,7 @@ export default function MobileDrawer({
             initial={{ x: hidden }}
             animate={{ x: 0 }}
             exit={{ x: hidden }}
-            transition={{ type: "tween", duration: 0.26, ease: "easeOut" }}
+            transition={{ type: "tween", duration: reduced ? 0 : 0.26, ease: "easeOut" }}
             drag="x"
             dragConstraints={{ left: 0, right: 0 }}
             dragElastic={left ? { left: 0.6, right: 0 } : { left: 0, right: 0.6 }}

@@ -8,6 +8,7 @@
  * лучше всего понятен Seedance — пусть человек с первого клика видит, как
  * писать, а не вставляет сценарий на 3000 символов.
  */
+import { isEmptyDoc, plainText, refCount } from "@/lib/vstudio/promptDoc";
 import type { PromptDoc, ShotParams, VsKind } from "@/lib/vstudio/types";
 
 export type VsExampleId = "rooftop_cat" | "morning_coffee" | "mountain_flight" | "yurt_poster";
@@ -62,4 +63,17 @@ export const VS_EXAMPLES: readonly VsExample[] = [
 export function exampleDoc(text: string): PromptDoc {
   const lines = String(text || "").replace(/\r\n?/g, "\n").split("\n");
   return { v: 1, blocks: lines.map((line) => (line ? [{ t: "text" as const, v: line }] : [])) };
+}
+
+/**
+ * Можно ли положить заготовку поверх того, что уже стоит в запросе. Да — если
+ * запрос пуст или в нём такая же нетронутая заготовка (starters — их тексты):
+ * между сценариями человек переключается свободно. Свой текст и теги @
+ * заготовка не заменяет — на телефоне затёртое не вернуть.
+ */
+export function starterReplaceable(doc: PromptDoc | null | undefined, starters: readonly string[]): boolean {
+  if (isEmptyDoc(doc)) return true;
+  if (refCount(doc) > 0) return false;
+  const text = plainText(doc).trim();
+  return starters.some((starter) => plainText(exampleDoc(starter)).trim() === text);
 }

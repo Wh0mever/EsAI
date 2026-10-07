@@ -247,7 +247,8 @@ export const CODE_SCAN = {
       { file: "src/lib/vstudio/errors.ts", name: "SUBJECT_RU", prefix: "subject." },
       { file: "src/components/vstudio/feed/CompiledDisclosure.tsx", name: "MODE_RU", prefix: "sent.mode." },
     ],
-    // Списки объектов с русскими полями: VS_EXAMPLES → empty.examples.<id>.<поле>.
+    // Списки объектов с русскими полями: VS_EXAMPLES → empty.examples.<id>.<поле>,
+    // VS_TEMPLATES (сценарии первого экрана) → home.tpl.<id>.<поле>.
     lists: [
       {
         file: "src/components/vstudio/feed/examples.ts",
@@ -255,10 +256,16 @@ export const CODE_SCAN = {
         id: "id",
         fields: { title: "empty.examples.{id}.title", prompt: "empty.examples.{id}.prompt" },
       },
+      {
+        file: "src/components/vstudio/home/templates.ts",
+        name: "VS_TEMPLATES",
+        id: "id",
+        fields: { label: "home.tpl.{id}.label", prompt: "home.tpl.{id}.prompt" },
+      },
     ],
     // Ключи, которые код собирает шаблоном (`errors.${code}`). Под этими
     // префиксами в ru бывают и коды одного бэкенда — их не зовём «лишними».
-    dynamic: ["errors.", "warnings.", "subject.", "fields.", "sent.mode.", "empty.examples.", "library.filter."],
+    dynamic: ["errors.", "warnings.", "subject.", "fields.", "sent.mode.", "empty.examples.", "home.tpl.", "library.filter."],
   },
   // EsAI Creators. Только папки программы: в них t() без ns — ключ creators.
   // Nav, Footer, сайдбар чата, профиль и поле промокода зовут creators через

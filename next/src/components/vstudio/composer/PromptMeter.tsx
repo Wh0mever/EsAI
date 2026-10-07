@@ -13,6 +13,7 @@
 import { useTranslation } from "react-i18next";
 import { IoSparklesOutline } from "react-icons/io5";
 import { FiLoader } from "react-icons/fi";
+import { VS_FOCUS, vx } from "../ui/skin";
 import type { MeterView } from "./composerLogic";
 import { fmtNum } from "./composerLogic";
 import { ct } from "./composerText";
@@ -23,14 +24,16 @@ export type PromptMeterProps = {
   /** «Сжать с ИИ» (null — нечего сжимать или гость). */
   onCondense: (() => void) | null;
   condensing?: boolean;
+  /** Строка-разделитель панели запроса на компьютере: мельче и прижата вправо. */
+  compact?: boolean;
 };
 
-export default function PromptMeter({ meter, modelName, onCondense, condensing }: PromptMeterProps) {
+export default function PromptMeter({ meter, modelName, onCondense, condensing, compact }: PromptMeterProps) {
   const { t } = useTranslation("vstudio", { useSuspense: false });
   if (meter.chars === 0) return null;
   const { level } = meter;
-  const color = level === "hard" ? "text-status-fail" : level === "soft" ? "text-status-wait" : "text-muted";
-  const bar = level === "hard" ? "bg-status-fail" : level === "soft" ? "bg-status-wait" : "bg-muted-2";
+  const color = level === "hard" ? "text-status-fail" : level === "soft" ? "text-status-wait" : compact ? "text-muted-2" : "text-muted";
+  const bar = level === "hard" ? "bg-status-fail" : level === "soft" ? "bg-status-wait" : "bg-white/35";
   const fill = Math.max(4, Math.min(100, Math.round(meter.ratio * 100)));
   const note =
     level === "hard"
@@ -39,11 +42,14 @@ export default function PromptMeter({ meter, modelName, onCondense, condensing }
         ? ct(t, "meter.soft", { model: modelName, n: fmtNum(meter.soft) })
         : "";
   return (
-    <div className={`flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs ${color}`} aria-live="polite">
+    <div
+      className={vx("flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1", compact ? "justify-end text-[11px]" : "text-xs", color)}
+      aria-live="polite"
+    >
       <span className="tabular-nums">{ct(t, "meter.chars", { n: fmtNum(meter.chars) })}</span>
       <span aria-hidden>·</span>
       <span className="tabular-nums">{ct(t, "meter.words", { n: fmtNum(meter.words) })}</span>
-      <span className="relative h-1.5 w-12 overflow-hidden rounded-full bg-surface-3" aria-hidden>
+      <span className="relative h-1 w-12 overflow-hidden rounded-full bg-white/10" aria-hidden>
         <span className={`absolute inset-y-0 left-0 rounded-full ${bar}`} style={{ width: `${fill}%` }} />
       </span>
       {note && <span className="min-w-0">{note}</span>}
@@ -52,9 +58,13 @@ export default function PromptMeter({ meter, modelName, onCondense, condensing }
           type="button"
           onClick={onCondense}
           disabled={condensing}
-          className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-current/40 px-2 font-semibold text-foreground transition-colors hover:bg-surface-2 disabled:cursor-wait disabled:opacity-70 max-md:min-h-11 cursor-pointer"
+          className={vx(
+            "inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-current/40 px-3 text-xs font-semibold text-foreground transition-colors hover:bg-white/[0.08] disabled:cursor-wait disabled:opacity-70 max-md:min-h-11",
+            compact ? "min-h-8" : "min-h-9",
+            VS_FOCUS,
+          )}
         >
-          {condensing ? <FiLoader className="animate-spin" aria-hidden /> : <IoSparklesOutline aria-hidden />}
+          {condensing ? <FiLoader className="animate-spin motion-reduce:animate-none" aria-hidden /> : <IoSparklesOutline aria-hidden />}
           {condensing ? ct(t, "assist.working") : ct(t, "meter.condense")}
         </button>
       )}

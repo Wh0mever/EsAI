@@ -808,7 +808,13 @@ export type PromptEditorProps = {
 
 /** meta для каждого шага vstudio_* (undefined — шаг без подробностей). */
 export type VsFunnelMeta = {
-  vstudio_view: undefined;
+  /** Шлётся, когда студией уже можно пользоваться. home — человек на первом экране, а не в проекте. */
+  vstudio_view: { authed: boolean; home: boolean };
+  /** Нажатие на первом экране: what — секция, id — кадр витрины, сценарий, модель, инструмент или проект. */
+  vstudio_home_pick: {
+    what: "reel" | "template" | "model" | "tool" | "showcase" | "continue";
+    id: string;
+  };
   vstudio_upload: { ok: boolean; code?: string };
   vstudio_mention: { via: MentionVia };
   vstudio_imagegen: undefined;

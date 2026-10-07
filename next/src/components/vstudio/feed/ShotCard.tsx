@@ -1,18 +1,22 @@
 "use client";
 
-import { memo, useState, type Dispatch } from "react";
+import { memo, useLayoutEffect, useRef, useState, type Dispatch, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { FiImage, FiVideo } from "react-icons/fi";
+import { FiImage, FiVideo, FiVolume2, FiVolumeX } from "react-icons/fi";
 import { cancelTake, trackVs } from "@/lib/vstudio/api";
 import { errorText, reactionFor } from "@/lib/vstudio/errors";
 import type { ModelJSON, ShotJSON, TakeLite, Uid, VsAction } from "@/lib/vstudio/types";
+import { chipClassName } from "../editor/chipStyle";
+import { VS_CARD, VS_FOCUS, VS_TAG, vx } from "../ui/skin";
+import { prefersReducedMotion } from "../ui/useAutoplayAllowed";
 import CompiledDisclosure from "./CompiledDisclosure";
 import InputsStrip from "./InputsStrip";
 import ShotActions, { type ComposerFillReason } from "./ShotActions";
 import TakeCarousel from "./TakeCarousel";
-import TakeView from "./TakeView";
+import TakeView, { TakeReceipt } from "./TakeView";
 import {
   isLongPrompt,
+  isOpenStatus,
   paramsSummary,
   pickTakeIndex,
   promptSegments,
@@ -59,7 +63,10 @@ function chipAria(t: Tr, seg: Extract<PromptSegment, { kind: "ref" }>): string {
   return [base, seg.role].filter(Boolean).join(" · ");
 }
 
-/** Промпт кадра с чипами (только чтение). Длинный — свёрнут, но разворачивается целиком. */
+/**
+ * Промпт кадра — подпись под роликом, с чипами (только чтение). Чипы выглядят
+ * как в панели запроса. Длинный текст свёрнут, но разворачивается целиком.
+ */
 function PromptView({ shot }: { shot: ShotJSON }) {
   const { t } = useTranslation("vstudio", { useSuspense: false });
   const tr = t as unknown as Tr;
@@ -68,11 +75,12 @@ function PromptView({ shot }: { shot: ShotJSON }) {
   const long = isLongPrompt(shot.prompt_text);
 
   return (
-    <div className="flex flex-col items-start gap-1">
+    <div className="flex flex-col items-start gap-1 px-0.5">
       <div
-        className={`w-full whitespace-pre-wrap break-words text-[15px] leading-relaxed text-foreground ${
-          long && !expanded ? "line-clamp-5" : ""
-        }`}
+        className={vx(
+          "w-full whitespace-pre-wrap break-words text-[15px] leading-relaxed text-foreground/90",
+          long && !expanded && "line-clamp-5",
+        )}
       >
         {blocks.map((block, bi) => (
           <span key={bi}>
@@ -86,17 +94,11 @@ function PromptView({ shot }: { shot: ShotJSON }) {
                   role="img"
                   aria-label={chipAria(tr, seg)}
                   title={chipAria(tr, seg)}
-                  className={`mx-px inline-flex translate-y-[-1px] items-center gap-1 whitespace-nowrap rounded-md px-1.5 align-baseline text-[13px] font-medium leading-6 ${
-                    seg.state === "ok"
-                      ? "bg-accent-soft text-foreground"
-                      : seg.state === "excluded"
-                        ? "bg-surface-3 text-muted-2 line-through"
-                        : "bg-status-fail/15 text-status-fail"
-                  }`}
+                  className={vx(chipClassName(seg.state), "gap-1", seg.state === "excluded" && "line-through")}
                 >
                   {seg.thumb && seg.state !== "missing" && (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={seg.thumb} alt="" className="size-4 rounded-sm object-cover" loading="lazy" />
+                    <img src={seg.thumb} alt="" className="size-3.5 rounded-[3px] object-cover" loading="lazy" />
                   )}
                   {chipText(tr, seg)}
                 </span>
@@ -110,7 +112,11 @@ function PromptView({ shot }: { shot: ShotJSON }) {
           type="button"
           onClick={() => setExpanded((v) => !v)}
           aria-expanded={expanded}
-          className="cursor-pointer rounded-md py-1 text-xs font-medium text-muted underline-offset-2 hover:text-foreground hover:underline"
+          // Зона нажатия 44 px на телефоне, а строка остаётся тонкой: лишнюю высоту съедает отрицательный отступ.
+          className={vx(
+            "-my-2.5 inline-flex min-h-11 cursor-pointer items-center rounded-md text-xs font-medium text-muted underline-offset-4 transition-colors hover:text-foreground hover:underline md:my-0 md:min-h-7",
+            VS_FOCUS,
+          )}
         >
           {expanded
             ? t("run.actions.showLess", { defaultValue: "Свернуть" })
@@ -138,13 +144,38 @@ function formatWhen(iso: string, lang: string): string {
   }
 }
 
+/** Кадр только что создан кнопкой «Создать»: один идущий дубль, которому пара секунд. */
+function isFresh(takes: TakeLite[]): boolean {
+  return takes.length === 1 && isOpenStatus(takes[0].status) && (takes[0].elapsed_s || 0) < 3;
+}
+
+type MetaTag = { key: string; text: string; icon?: ReactNode; gone?: boolean };
+
 /**
- * Карточка кадра в ленте (§9.2, §9.6): промпт с чипами, сводка параметров
- * «Seedance 2.0 · 9:16 · 10 с · 720p», миниатюры входов с «не учтено»,
- * карусель дублей, действия и «Что ушло модели».
+ * Карточка кадра в ленте (§9.2, §9.6). Сначала результат — карусель дублей с
+ * роликом или картинкой, под ним промпт как подпись, строка меток «Видео ·
+ * Seedance 2.0 · 9:16 · 10 с · 720p», миниатюры входов с «не учтено», действия
+ * и «Что ушло модели».
  */
 function ShotCard({ shot, takes, model, focusTake, highlighted, dispatch, onComposerFilled }: ShotCardProps) {
   const { t, i18n } = useTranslation("vstudio", { useSuspense: false });
+  const rootRef = useRef<HTMLElement | null>(null);
+
+  // Новый кадр мягко поднимается на своё место — один раз, при появлении. Кадры
+  // из истории и догруженные «раньше» стоят сразу: лента при прокрутке не мигает.
+  const [fresh] = useState(() => isFresh(takes));
+  useLayoutEffect(() => {
+    const el = rootRef.current;
+    if (!fresh || !el || typeof el.animate !== "function" || prefersReducedMotion()) return;
+    const rise = el.animate(
+      [
+        { opacity: 0, transform: "translateY(14px)" },
+        { opacity: 1, transform: "none" },
+      ],
+      { duration: 520, easing: "cubic-bezier(0.16, 1, 0.3, 1)" },
+    );
+    return () => rise.cancel();
+  }, [fresh]);
 
   // Выбор в карусели: null — всегда последний (новый дубль после «Повторить» сразу виден).
   const [selected, setSelected] = useState<Uid | null>(null);
@@ -165,16 +196,32 @@ function ShotCard({ shot, takes, model, focusTake, highlighted, dispatch, onComp
   const summary = paramsSummary(shot, take);
   const video = shot.kind === "video";
 
-  const parts: string[] = [];
-  if (summary.model) parts.push(summary.model);
-  else parts.push(t("shot.modelGone", { defaultValue: "Модель удалена" }));
+  const tags: MetaTag[] = [
+    {
+      key: "kind",
+      icon: video ? <FiVideo aria-hidden /> : <FiImage aria-hidden />,
+      text: video ? t("kind.video", { defaultValue: "Видео" }) : t("kind.image", { defaultValue: "Картинка" }),
+    },
+    summary.model
+      ? { key: "model", text: summary.model }
+      : { key: "model", text: t("shot.modelGone", { defaultValue: "Модель удалена" }), gone: true },
+  ];
   if (summary.aspect) {
-    parts.push(summary.aspect === "auto" ? t("shot.aspectAuto", { defaultValue: "Авто" }) : summary.aspect);
+    tags.push({
+      key: "aspect",
+      text: summary.aspect === "auto" ? t("shot.aspectAuto", { defaultValue: "Авто" }) : summary.aspect,
+    });
   }
-  if (summary.duration != null) parts.push(t("shot.seconds", { defaultValue: "{{n}} с", n: summary.duration }));
-  if (summary.resolution) parts.push(summary.resolution);
-  if (summary.audio === true) parts.push(t("shot.audio", { defaultValue: "со звуком" }));
-  if (summary.audio === false) parts.push(t("shot.noAudio", { defaultValue: "без звука" }));
+  if (summary.duration != null) {
+    tags.push({ key: "duration", text: t("shot.seconds", { defaultValue: "{{n}} с", n: summary.duration }) });
+  }
+  if (summary.resolution) tags.push({ key: "resolution", text: summary.resolution });
+  if (summary.audio === true) {
+    tags.push({ key: "audio", icon: <FiVolume2 aria-hidden />, text: t("shot.audio", { defaultValue: "со звуком" }) });
+  }
+  if (summary.audio === false) {
+    tags.push({ key: "audio", icon: <FiVolumeX aria-hidden />, text: t("shot.noAudio", { defaultValue: "без звука" }) });
+  }
 
   const cancel = async (uid: Uid) => {
     if (canceling) return;
@@ -206,28 +253,12 @@ function ShotCard({ shot, takes, model, focusTake, highlighted, dispatch, onComp
 
   return (
     <article
+      ref={rootRef}
       id={shotDomId(shot.uid)}
       data-shot={shot.uid}
       aria-label={t("shot.aria", { defaultValue: "Запрос от {{when}}", when: formatWhen(shot.created_at, i18n.language) })}
-      className={`flex scroll-mt-4 flex-col gap-3 rounded-2xl border bg-surface p-3 transition-shadow duration-500 sm:p-4 ${
-        highlighted ? "border-accent shadow-[0_0_0_3px_var(--accent-soft)]" : "border-border"
-      }`}
+      className={vx(VS_CARD, "flex scroll-mt-4 flex-col gap-3 p-3 sm:p-4", highlighted && "vs-card-on")}
     >
-      <PromptView shot={shot} />
-
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
-        <span className="inline-flex items-center gap-1 rounded-full bg-surface-2 px-2 py-0.5 text-foreground">
-          {video ? <FiVideo aria-hidden /> : <FiImage aria-hidden />}
-          {video ? t("kind.video", { defaultValue: "Видео" }) : t("kind.image", { defaultValue: "Картинка" })}
-        </span>
-        <span>{parts.join(" · ")}</span>
-        <time dateTime={shot.created_at} className="ml-auto text-muted-2">
-          {formatWhen(shot.created_at, i18n.language)}
-        </time>
-      </div>
-
-      <InputsStrip inputs={shot.inputs} dropped={take?.dropped} culprit={take?.error?.input ?? null} />
-
       {take ? (
         <TakeCarousel takes={takes} index={index} onSelect={setSelected}>
           <TakeView
@@ -238,6 +269,31 @@ function ShotCard({ shot, takes, model, focusTake, highlighted, dispatch, onComp
           />
         </TakeCarousel>
       ) : null}
+
+      <PromptView shot={shot} />
+
+      <div className="flex flex-wrap items-center gap-1.5">
+        {tags.map((tag) => (
+          <span
+            key={tag.key}
+            className={vx(
+              VS_TAG,
+              "max-w-full",
+              tag.key === "model" && !tag.gone && "!text-foreground",
+              tag.gone && "!border-dashed !text-muted",
+            )}
+          >
+            {tag.icon}
+            <span className="truncate">{tag.text}</span>
+          </span>
+        ))}
+        {take && <TakeReceipt take={take} />}
+        <time dateTime={shot.created_at} className="ml-auto pl-1 text-[11px] tabular-nums text-muted">
+          {formatWhen(shot.created_at, i18n.language)}
+        </time>
+      </div>
+
+      <InputsStrip inputs={shot.inputs} dropped={take?.dropped} culprit={take?.error?.input ?? null} />
 
       <ShotActions
         shot={shot}

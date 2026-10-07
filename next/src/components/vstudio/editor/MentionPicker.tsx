@@ -18,6 +18,7 @@ import { IoClose, IoCloudUploadOutline, IoImageOutline, IoSparklesOutline } from
 import { BACKEND } from "@/tools/fetchData";
 import { filterPickerItems } from "@/lib/vstudio/labels";
 import type { PickerItem, RefLabels } from "@/lib/vstudio/types";
+import { VS_FOCUS, VS_LABEL, VS_MENU } from "../ui/skin";
 import { chipClassName } from "./chipStyle";
 
 export type PickerAction = "upload" | "generate";
@@ -57,6 +58,13 @@ type Row =
 
 /** id списка: на него ссылается поле ввода (aria-controls), пункты — `${id}-${n}`. */
 const PICKER_LIST_ID = "vs-mention-list";
+
+/**
+ * Строка списка — та же форма, что у пунктов меню студии (VS_MENU_ITEM), но
+ * подсветка не по наведению, а по выбранному пункту: его двигают ↑↓ из текста.
+ */
+const ROW = "flex cursor-pointer items-center gap-2.5 rounded-xl px-2 text-sm text-foreground/85 transition-colors";
+const ROW_ACTIVE = "bg-white/[0.08] text-foreground";
 
 const abs = (url: string | null | undefined) => (url && url.startsWith("/") ? `${BACKEND}${url}` : url || "");
 
@@ -257,7 +265,7 @@ export default function MentionPicker({
   const keepFocus = (e: React.PointerEvent | React.MouseEvent) => e.preventDefault();
 
   const sectionTitle = (text: string) => (
-    <div className="px-3 pt-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-2">{text}</div>
+    <div className={`px-2.5 pt-2 pb-1 ${VS_LABEL}`}>{text}</div>
   );
 
   const actionMeta: Record<PickerAction, { icon: React.ReactNode; text: string }> = {
@@ -289,7 +297,7 @@ export default function MentionPicker({
           onMouseDown={keepFocus}
           onClick={() => activate(row)}
           className={`relative aspect-square overflow-hidden rounded-xl border bg-surface-3 ${
-            i === active ? "border-accent" : "border-border"
+            i === active ? "border-accent/70" : "border-white/10"
           }`}
         >
           {row.item.thumb ? (
@@ -315,7 +323,7 @@ export default function MentionPicker({
         ref={boxRef}
         role="dialog"
         aria-label={tx("picker.title", "Материалы")}
-        className="fixed inset-x-0 z-[1050] flex max-h-[min(55dvh,26rem)] flex-col rounded-t-2xl border border-border bg-surface shadow-2xl"
+        className="vs-glass fixed inset-x-0 z-[1050] flex max-h-[min(55dvh,26rem)] flex-col rounded-t-[24px] !border-x-0 !border-b-0"
         style={{ bottom: inset, paddingBottom: inset ? 0 : "env(safe-area-inset-bottom)" }}
         onPointerDown={keepFocus}
       >
@@ -324,7 +332,7 @@ export default function MentionPicker({
           <button
             type="button"
             onClick={onClose}
-            className="grid h-11 w-11 place-items-center rounded-full text-xl text-muted hover:text-foreground"
+            className={`grid size-11 place-items-center rounded-full text-xl text-muted transition-colors hover:bg-white/[0.08] hover:text-foreground ${VS_FOCUS}`}
             aria-label={tx("mobile.close", "Закрыть")}
           >
             <IoClose aria-hidden />
@@ -342,11 +350,11 @@ export default function MentionPicker({
                 onPointerDown={keepFocus}
                 onMouseDown={keepFocus}
                 onClick={() => activate(row)}
-                className={`flex min-h-11 items-center justify-center gap-2 rounded-xl border px-3 text-sm font-medium text-foreground ${
-                  i === active ? "border-accent bg-surface-3" : "border-border bg-surface-2"
+                className={`flex min-h-11 items-center justify-center gap-2 rounded-xl border px-2.5 text-[13px] font-medium leading-tight text-foreground ${
+                  i === active ? "border-accent/60 bg-white/[0.09]" : "border-white/10 bg-white/[0.05]"
                 }`}
               >
-                <span className="text-lg">{actionMeta[a].icon}</span>
+                <span className="text-lg text-accent">{actionMeta[a].icon}</span>
                 {actionMeta[a].text}
               </button>
             );
@@ -386,9 +394,9 @@ export default function MentionPicker({
         onMouseDown={keepFocus}
         onMouseEnter={() => setActive(i)}
         onClick={() => activate(row)}
-        className={`flex cursor-pointer items-center gap-2.5 rounded-lg px-2 py-1.5 ${i === active ? "bg-surface-3" : ""}`}
+        className={`${ROW} py-1.5 ${i === active ? ROW_ACTIVE : ""}`}
       >
-        <span className="grid h-9 w-9 shrink-0 place-items-center overflow-hidden rounded-md bg-surface-3 text-lg text-muted-2">
+        <span className="grid size-9 shrink-0 place-items-center overflow-hidden rounded-lg border border-white/10 bg-surface-3 text-lg text-muted-2">
           {row.item.thumb ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={abs(row.item.thumb)} alt="" className="h-full w-full object-cover" loading="lazy" draggable={false} />
@@ -424,11 +432,9 @@ export default function MentionPicker({
         onMouseDown={keepFocus}
         onMouseEnter={() => setActive(i)}
         onClick={() => activate(row)}
-        className={`flex cursor-pointer items-center gap-2.5 rounded-lg px-2 py-2 text-sm text-foreground ${
-          i === active ? "bg-surface-3" : ""
-        }`}
+        className={`${ROW} py-1.5 ${i === active ? ROW_ACTIVE : ""}`}
       >
-        <span className="grid h-9 w-9 shrink-0 place-items-center rounded-md bg-surface-2 text-lg text-accent">
+        <span className="grid size-9 shrink-0 place-items-center rounded-lg border border-accent/25 bg-accent/[0.08] text-lg text-accent">
           {actionMeta[row.action].icon}
         </span>
         {actionMeta[row.action].text}
@@ -446,7 +452,7 @@ export default function MentionPicker({
       id={listId}
       role="listbox"
       aria-label={tx("picker.title", "Материалы")}
-      className="fixed left-0 top-0 z-[1050] w-[19rem] max-w-[calc(100vw-1rem)] overflow-y-auto overscroll-contain rounded-xl border border-border bg-surface p-1 shadow-2xl"
+      className={`${VS_MENU} fixed left-0 top-0 z-[1050] w-[19rem] max-w-[calc(100vw-1rem)] overflow-y-auto overscroll-contain`}
       style={{ visibility: "hidden", maxHeight: 380 }}
       onMouseDown={keepFocus}
     >
@@ -462,12 +468,12 @@ export default function MentionPicker({
           {libRows.map(itemRow)}
         </>
       )}
-      {noMatches && <div className="px-3 py-2 text-sm text-muted">{tx("picker.empty", "Ничего не найдено")}</div>}
-      <div className={inReqRows.length + libRows.length > 0 || noMatches ? "mt-1 border-t border-border pt-1" : ""}>
+      {noMatches && <div className="px-2.5 py-2 text-sm text-muted">{tx("picker.empty", "Ничего не найдено")}</div>}
+      <div className={inReqRows.length + libRows.length > 0 || noMatches ? "mt-1 border-t border-white/10 pt-1" : ""}>
         {actRows.map(actionRow)}
       </div>
       {!query && inReqRows.length + libRows.length > 0 && (
-        <div className="px-3 pb-1.5 pt-1 text-[11px] text-muted-2">
+        <div className="px-2.5 pb-1 pt-1.5 text-[11px] text-muted-2">
           {tx("picker.filterHint", "Печатайте после @, чтобы найти: @фо, @im, @2")}
         </div>
       )}

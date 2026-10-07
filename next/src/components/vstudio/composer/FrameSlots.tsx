@@ -13,8 +13,9 @@
  */
 import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { FiFolder, FiPlus, FiUpload } from "react-icons/fi";
+import { FiFolder, FiSkipBack, FiSkipForward, FiUpload } from "react-icons/fi";
 import type { ComposerFrames, FrameSlot, ModelJSON, RefLabels, Uid } from "@/lib/vstudio/types";
+import { VS_FOCUS, VS_MENU_ITEM, vx } from "../ui/skin";
 import AssetChip from "./AssetChip";
 import type { ChipHandlers } from "./AssetTray";
 import { ct } from "./composerText";
@@ -30,8 +31,10 @@ export type FrameSlotsProps = {
   handlers: ChipHandlers;
   onUpload: (slot: FrameSlot) => void;
   onLibrary: (slot: FrameSlot) => void;
-  /** Телефон: без подписи «Кадры», слоты в полосе лотка. */
+  /** Телефон: слоты в полосе лотка, причина — в подсказках компилятора. */
   compact?: boolean;
+  /** Подсветить пустые слоты: сюда привела карточка «Первый и последний кадр». */
+  pulse?: boolean;
 };
 
 /** Показывать ли слоты вообще. */
@@ -44,12 +47,14 @@ function EmptySlot({
   slot,
   supported,
   compact,
+  pulse,
   onUpload,
   onLibrary,
 }: {
   slot: FrameSlot;
   supported: boolean;
   compact?: boolean;
+  pulse?: boolean;
   onUpload: () => void;
   onLibrary: () => void;
 }) {
@@ -57,6 +62,7 @@ function EmptySlot({
   const [open, setOpen] = useState(false);
   const anchor = useRef<HTMLButtonElement | null>(null);
   const name = slot === "first_frame" ? ct(t, "tray.firstFrame") : ct(t, "tray.lastFrame");
+  const Icon = slot === "first_frame" ? FiSkipBack : FiSkipForward;
   if (!supported) return null;
   return (
     <>
@@ -66,14 +72,18 @@ function EmptySlot({
         onClick={() => setOpen((o) => !o)}
         aria-haspopup="menu"
         aria-expanded={open}
-        className={`inline-flex min-h-11 shrink-0 items-center gap-1.5 rounded-xl border border-dashed border-border-strong px-3 text-xs font-medium text-muted transition-colors hover:border-accent hover:text-foreground cursor-pointer ${
-          compact ? "px-2.5" : ""
-        }`}
+        className={vx(
+          "inline-flex min-h-11 shrink-0 cursor-pointer items-center gap-1.5 rounded-xl border border-dashed text-xs font-medium transition-colors hover:border-accent/60 hover:text-foreground md:min-h-10",
+          VS_FOCUS,
+          compact ? "px-2.5" : "px-3",
+          // Кольцо vs-ready расходится от слота, пока подсветка включена; без анимации остаётся золотая кромка.
+          pulse ? "vs-ready border-accent/70 text-foreground" : open ? "border-white/30 text-foreground" : "border-white/15 text-muted",
+        )}
       >
-        <FiPlus aria-hidden className="shrink-0" />
+        <Icon aria-hidden className="size-3.5 shrink-0" />
         <span className="whitespace-nowrap">{name}</span>
       </button>
-      <AnchoredPopover anchor={anchor} open={open} onClose={() => setOpen(false)} role="menu" ariaLabel={name} autoFocus>
+      <AnchoredPopover anchor={anchor} open={open} onClose={() => setOpen(false)} role="menu" ariaLabel={name} autoFocus closeOnTabOut>
         <div className="flex w-56 flex-col p-1.5">
           <button
             type="button"
@@ -82,9 +92,9 @@ function EmptySlot({
               setOpen(false);
               onUpload();
             }}
-            className="flex min-h-11 items-center gap-2.5 rounded-lg px-2.5 text-left text-sm hover:bg-surface-2 focus-visible:bg-surface-2 focus-visible:outline-none md:min-h-9 cursor-pointer"
+            className={VS_MENU_ITEM}
           >
-            <FiUpload className="size-4 text-muted" aria-hidden />
+            <FiUpload className="size-4 shrink-0 text-muted" aria-hidden />
             {ct(t, "tray.upload")}
           </button>
           <button
@@ -94,9 +104,9 @@ function EmptySlot({
               setOpen(false);
               onLibrary();
             }}
-            className="flex min-h-11 items-center gap-2.5 rounded-lg px-2.5 text-left text-sm hover:bg-surface-2 focus-visible:bg-surface-2 focus-visible:outline-none md:min-h-9 cursor-pointer"
+            className={VS_MENU_ITEM}
           >
-            <FiFolder className="size-4 text-muted" aria-hidden />
+            <FiFolder className="size-4 shrink-0 text-muted" aria-hidden />
             {ct(t, "tray.fromLibrary")}
           </button>
         </div>
@@ -105,7 +115,7 @@ function EmptySlot({
   );
 }
 
-export default function FrameSlots({ frames, model, labels, flagged, handlers, onUpload, onLibrary, compact }: FrameSlotsProps) {
+export default function FrameSlots({ frames, model, labels, flagged, handlers, onUpload, onLibrary, compact, pulse }: FrameSlotsProps) {
   const { t } = useTranslation("vstudio", { useSuspense: false });
   const caps = model?.caps.frames || [];
   const modelName = model?.name || "";
@@ -122,7 +132,7 @@ export default function FrameSlots({ frames, model, labels, flagged, handlers, o
           key={slot}
           item={item}
           label={label}
-          compact={compact}
+          compact
           flagged={Boolean((item.assetUid && flagged.has(item.assetUid)) || (model && !caps.includes(slot)))}
           retryable={item.status === "failed" && !item.assetUid}
           onRetry={() => handlers.retry(item.lid)}
@@ -140,24 +150,30 @@ export default function FrameSlots({ frames, model, labels, flagged, handlers, o
         slot={slot}
         supported={caps.includes(slot)}
         compact={compact}
+        pulse={pulse}
         onUpload={() => onUpload(slot)}
         onLibrary={() => onLibrary(slot)}
       />
     );
   });
 
+  // data-vs-frames — по нему композер находит слоты, когда к ним ведёт первый экран (composerBus.focusFrames).
   if (compact) {
     return (
-      <div className="flex shrink-0 items-center gap-2 border-l border-border pl-2" role="group" aria-label={ct(t, "composer.frames")}>
+      <div
+        className="flex shrink-0 items-center gap-1.5 border-l border-white/10 pl-2"
+        role="group"
+        aria-label={ct(t, "composer.frames")}
+        data-vs-frames=""
+      >
         {slots}
       </div>
     );
   }
   return (
-    <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1" role="group" aria-label={ct(t, "composer.frames")}>
-      <span className="text-[11px] font-semibold uppercase tracking-wide text-muted">{ct(t, "composer.frames")}</span>
-      {slots}
-      {reasons.length > 0 && <span className="min-w-0 text-[11px] leading-snug text-muted-2">{reasons[0]}</span>}
+    <div className="flex shrink-0 flex-col items-end gap-1" role="group" aria-label={ct(t, "composer.frames")} data-vs-frames="">
+      <div className="flex items-center gap-1.5">{slots}</div>
+      {reasons.length > 0 && <span className="max-w-[20rem] text-right text-[11px] leading-snug text-muted-2">{reasons[0]}</span>}
     </div>
   );
 }

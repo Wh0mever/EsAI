@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTranslation } from "react-i18next";
-import { FiAlertTriangle, FiFilm, FiLogIn, FiPlus, FiRefreshCw, FiWifiOff, FiX } from "react-icons/fi";
+import { FiAlertTriangle, FiCheck, FiFilm, FiLogIn, FiPlus, FiRefreshCw, FiWifiOff, FiX } from "react-icons/fi";
+import EsaiLogo from "@/components/brand/EsaiLogo";
 import PaywallModal from "@/components/chat/PaywallModal";
 import TopUpModal from "@/components/chat/TopUpModal";
 import { StudioAuthDialog } from "@/components/studio/StudioDialogs";
@@ -38,8 +39,9 @@ import type {
   VsError,
   VsState,
 } from "@/lib/vstudio/types";
-import { VStudioContext, useVStudio } from "./context";
+import { VStudioContext } from "./context";
 import type { HandleErrorOptions, VStudioActions, VStudioContextValue } from "./context";
+import { applyDeepLink, parseDeepLink, signInReturnPath, stripDeepLink } from "./deepLink";
 import { createInitialState, parseStudioPath, reducer, reservedNow, studioReserved } from "./store";
 import type { BalanceSnapshot } from "./store";
 import VStudioShell, { useVsBreakpoint } from "./VStudioShell";
@@ -55,8 +57,8 @@ import DropOverlay from "./composer/DropOverlay";
 import AssetLibrarySheet from "./library/AssetLibrarySheet";
 import RunSettingsPanel from "./settings/RunSettingsPanel";
 import SettingsSheet from "./settings/SettingsSheet";
-import KindTabs from "./settings/KindTabs";
-import { selectKind, useRunSettingsSync } from "./settings/useRunSettingsSync";
+import { useRunSettingsSync } from "./settings/useRunSettingsSync";
+import { VS_BTN_GHOST, VS_BTN_GOLD, VS_CARD, VS_FOCUS, VS_H2, VS_SUB, vx } from "./ui/skin";
 
 /**
  * Видеостудия: контейнер страницы (§9.3).
@@ -138,18 +140,23 @@ async function checkAuth(): Promise<boolean> {
   }
 }
 
+/**
+ * Колонка параметров (≥1280) по умолчанию свёрнута: модель, формат и длина
+ * стоят чипами в панели запроса. Раскрыл сам — запоминаем «0». Раньше
+ * раскрытую колонку отмечало отсутствие ключа, поэтому «ключа нет» теперь
+ * читается как «не выбирал».
+ */
 function readCollapsed(): boolean {
   try {
-    return window.localStorage.getItem(SETTINGS_COLLAPSED_KEY) === "1";
+    return window.localStorage.getItem(SETTINGS_COLLAPSED_KEY) !== "0";
   } catch {
-    return false;
+    return true;
   }
 }
 
 function writeCollapsed(v: boolean) {
   try {
-    if (v) window.localStorage.setItem(SETTINGS_COLLAPSED_KEY, "1");
-    else window.localStorage.removeItem(SETTINGS_COLLAPSED_KEY);
+    window.localStorage.setItem(SETTINGS_COLLAPSED_KEY, v ? "1" : "0");
   } catch {
     /* хранилище недоступно — просто не запомним */
   }
@@ -178,7 +185,7 @@ export default function VideoStudio({ projectUid }: VideoStudioProps) {
   const [reloadKey, setReloadKey] = useState(0);
   /** Проект или его лента не загрузились (не 404): кнопка «Попробовать снова» вместо ленты. */
   const [feedError, setFeedError] = useState<{ uid: Uid; error: VsError } | null>(null);
-  const [collapsed, setCollapsed] = useState<boolean>(() => (typeof window === "undefined" ? false : readCollapsed()));
+  const [collapsed, setCollapsed] = useState<boolean>(() => (typeof window === "undefined" ? true : readCollapsed()));
   const [railSearch, setRailSearch] = useState(false);
   /** Баланс из последнего quote/запуска и сумма резерва дублей в этот момент (для поправки). */
   const [balSnap, setBalSnap] = useState<BalanceSnapshot | null>(null);
@@ -232,7 +239,9 @@ export default function VideoStudio({ projectUid }: VideoStudioProps) {
   );
 
   const flushDraft = useCallback(() => {
-    if (authedRef.current !== false) return;
+    // Гость — всегда; вошедший — только пока открыто пополнение: оплата картой
+    // уводит на страницу банка всей вкладкой, и запрос должен её пережить.
+    if (authedRef.current !== false && !latest.current.ui.topup) return;
     const c = latest.current.composer;
     saveDraft({ kind: c.kind, model: c.model, params: c.params, doc: c.doc });
   }, []);
@@ -253,9 +262,22 @@ export default function VideoStudio({ projectUid }: VideoStudioProps) {
             flushDraft();
           }
           break;
+        case "ui/topup":
+          // Вошедший уходит платить: запрос кладём в черновик сразу (телефон
+          // может выгрузить вкладку, пока открыто приложение банка, — pagehide
+          // тогда не придёт). Окно закрыли, оставшись на странице, — черновик
+          // стираем: текст и так в композере, а забытая копия всплыла бы в
+          // другой раз в чужом проекте.
+          if (authedRef.current === true && action.open !== prev.ui.topup) {
+            const c = next.composer;
+            if (action.open) saveDraft({ kind: c.kind, model: c.model, params: c.params, doc: c.doc });
+            else clearDraft();
+          }
+          break;
         case "ui/panel":
-          // «Другая модель» из карточки открывает параметры: на ≥1280 колонка
-          // могла быть свёрнута человеком — разворачиваем её (и запоминаем).
+          // Параметры открыли явно: на ≥1280 колонка могла быть свёрнута
+          // человеком — разворачиваем её (и запоминаем). «Другая модель» из
+          // карточки сюда с 768 px не приходит: она открывает окошко у чипа модели.
           if (action.panel === "settings" && action.open === true && breakpointRef.current === "desktop") {
             setCollapsed(false);
             writeCollapsed(false);
@@ -363,6 +385,8 @@ export default function VideoStudio({ projectUid }: VideoStudioProps) {
     dispatch({ type: "composer/reset" });
     dispatch({ type: "ui/panel", panel: "rail", open: false });
     if (latest.current.ui.page === "not_found") setPage(latest.current.models ? "ready" : "loading");
+    // «Новая генерация» с середины первого экрана — снова к его началу.
+    if (feedScrollRef.current) feedScrollRef.current.scrollTop = 0;
     const r = routeRef.current;
     if (r.uid || r.invalid) {
       try {
@@ -491,14 +515,6 @@ export default function VideoStudio({ projectUid }: VideoStudioProps) {
     };
   }, []);
 
-  /* ---------- первый шаг воронки ---------- */
-
-  useEffect(() => {
-    if (viewTracked.current) return;
-    viewTracked.current = true;
-    trackVs("vstudio_view");
-  }, []);
-
   /* ---------- модели и режим студии ---------- */
 
   useEffect(() => {
@@ -532,6 +548,27 @@ export default function VideoStudio({ projectUid }: VideoStudioProps) {
   }, [authed, reloadKey, dispatch, setPage]);
 
   const canUse = state.mode !== null && state.mode !== "off" && state.available;
+  // Студия на экране: режим известен, она открыта этому человеку, тексты
+  // загружены. До этого — скелетон, при отказе — «скоро откроется».
+  const usable = ready && canUse && state.ui.page !== "disabled";
+  // Первый экран (§2.1): проекта нет ни в адресе, ни в сторе. По этому флагу
+  // оболочка отдаёт ленте всю ширину, а лента показывает StudioHome.
+  const home = usable && state.ui.page !== "not_found" && !route.uid && !route.invalid && state.project === null;
+
+  /* ---------- первый шаг воронки ---------- */
+
+  // Считаем тех, кому студия действительно открылась: посетители страниц
+  // «скоро откроется» и «не удалось загрузить» в основание воронки не попадают.
+  useEffect(() => {
+    if (viewTracked.current || !usable || authed === null) return;
+    viewTracked.current = true;
+    trackVs("vstudio_view", { authed, home });
+  }, [usable, authed, home]);
+
+  // Первый экран всегда открывается с начала: до него лента стояла внизу, у композера.
+  useLayoutEffect(() => {
+    if (home && feedScrollRef.current) feedScrollRef.current.scrollTop = 0;
+  }, [home]);
 
   // Выбор модели и параметров, Project.settings (PATCH) — трек параметров. На
   // телефоне панель живёт в закрытой шторке, поэтому хук зовёт и контейнер.
@@ -737,6 +774,24 @@ export default function VideoStudio({ projectUid }: VideoStudioProps) {
     return () => window.removeEventListener("pagehide", onHide);
   }, [flushDraft]);
 
+  /* ---------- ссылка с выбором: ?model=&kind=&prompt= ---------- */
+
+  const modelsReady = state.models !== null;
+  useEffect(() => {
+    // Ждём первого экрана, моделей и ответа о входе. Черновик гостя поднимает
+    // эффект выше — он срабатывает раньше, и его текст ссылка не затрёт.
+    if (!home || !modelsReady || authed === null) return;
+    const link = parseDeepLink(window.location.search);
+    if (!link) return;
+    applyDeepLink(link, () => latest.current, dispatch);
+    // Параметры своё отслужили: обновление страницы не должно применять их заново.
+    try {
+      window.history.replaceState(null, "", `${BASE}${stripDeepLink(window.location.search)}${window.location.hash}`);
+    } catch {
+      /* без смены адреса студия работает так же */
+    }
+  }, [home, modelsReady, authed, dispatch]);
+
   /* ---------- сеть ---------- */
 
   useEffect(() => {
@@ -799,6 +854,8 @@ export default function VideoStudio({ projectUid }: VideoStudioProps) {
   const desktop = breakpoint === "desktop";
   const settingsTitle = t("settings.title", { defaultValue: "Параметры запуска" });
   const currentPath = route.uid ? `${BASE}/${route.uid}` : BASE;
+  // После входа с первого экрана — к тем же виду и модели (их несёт адрес, текст — черновик).
+  const signInPath = signInReturnPath(BASE, route.uid, state.composer);
   const guestProject = authed === false && Boolean(route.uid);
   const page = state.ui.page;
   const routeError = feedError && feedError.uid === route.uid ? feedError.error : null;
@@ -824,15 +881,17 @@ export default function VideoStudio({ projectUid }: VideoStudioProps) {
   // Пока не пришёл models/, режим студии неизвестен: «Проект не найден» по
   // кривой ссылке не показываем раньше, чем узнаем, не закрыта ли студия вовсе.
   if (!ready || (!state.models && (page === "loading" || page === "not_found"))) {
-    body = <PageSkeleton />;
+    body = <PageSkeleton home={!route.uid && !route.invalid} />;
   } else if (page === "disabled") {
     body = <DisabledPage guest={authed === false} returnTo={currentPath} />;
   } else if ((page === "offline" || page === "error") && !state.models) {
     body = <LoadErrorPage offline={page === "offline"} onRetry={() => setReloadKey((k) => k + 1)} />;
   } else {
-    let feed: ReactNode;
+    // Что стоит на месте ленты, пока её нет. Сама лента (FeedSlot) остаётся
+    // смонтированной при любом исходе: в ней единственный опрос дублей страницы.
+    let cover: ReactNode = null;
     if (page === "not_found") {
-      feed = (
+      cover = (
         <CenterMessage
           icon={<FiFilm />}
           title={t("page.notFound", { defaultValue: "Проект не найден" })}
@@ -846,7 +905,7 @@ export default function VideoStudio({ projectUid }: VideoStudioProps) {
         />
       );
     } else if (guestProject) {
-      feed = (
+      cover = (
         <CenterMessage
           icon={<FiLogIn />}
           title={t("auth.project", { defaultValue: "Войдите, чтобы открыть этот проект" })}
@@ -864,7 +923,7 @@ export default function VideoStudio({ projectUid }: VideoStudioProps) {
         />
       );
     } else if (routeError) {
-      feed = (
+      cover = (
         <CenterMessage
           icon={<FiAlertTriangle />}
           title={errorText(t, routeError)}
@@ -885,9 +944,7 @@ export default function VideoStudio({ projectUid }: VideoStudioProps) {
         />
       );
     } else if (routePending) {
-      feed = <FeedSkeleton />;
-    } else {
-      feed = <FeedSlot />;
+      cover = <FeedSkeleton />;
     }
 
     const hideComposer = page === "not_found" || guestProject;
@@ -895,6 +952,7 @@ export default function VideoStudio({ projectUid }: VideoStudioProps) {
     body = (
       <VStudioShell
         breakpoint={breakpoint}
+        home={home}
         rail={(variant) =>
           variant === "compact" ? (
             <ProjectRail
@@ -919,7 +977,6 @@ export default function VideoStudio({ projectUid }: VideoStudioProps) {
         }}
         header={
           <StudioHeader
-            kindTabs={<KindTabsSlot />}
             settingsOpen={desktop ? !collapsed : state.ui.panels.settings}
             onToggleSettings={toggleSettings}
           />
@@ -931,15 +988,14 @@ export default function VideoStudio({ projectUid }: VideoStudioProps) {
           />
         }
         banner={!online ? <OfflineBanner /> : null}
-        feed={feed}
+        feed={<FeedSlot home={home} cover={cover} />}
         composer={hideComposer ? null : <ComposerSlot />}
         settings={
           <RunSettingsPanel
             state={state}
             dispatch={dispatch}
             variant="panel"
-            // Вкладки «Видео | Картинка» на ≥1024 стоят в строке над лентой.
-            showKindTabs={breakpoint === "tablet"}
+            // Вкладки «Видео | Картинка» — в панели на любой ширине: строки с ними над лентой больше нет.
             onClose={
               desktop
                 ? () => {
@@ -1003,11 +1059,13 @@ export default function VideoStudio({ projectUid }: VideoStudioProps) {
           dispatch({ type: "ui/topup", open: false });
           actions.refreshBalance();
         }}
+        // Со страницы банка — обратно в студию, в тот же проект, а не в профиль.
+        returnTo={currentPath}
       />
       <StudioAuthDialog
         open={state.ui.auth}
         onClose={() => dispatch({ type: "ui/auth", open: false })}
-        returnTo={currentPath}
+        returnTo={signInPath}
         title={t("auth.title", { defaultValue: "Войдите, чтобы создать видео" })}
         note={t("auth.body", { defaultValue: "Черновик сохранится" })}
         onSignIn={flushDraft}
@@ -1019,13 +1077,17 @@ export default function VideoStudio({ projectUid }: VideoStudioProps) {
 /* ------------------------------------------------------------------ */
 /* Части других треков. Подключаются здесь, в одном месте.              */
 /* Лента — feed/RunThread (FE-5), композер — composer/Composer (FE-3),  */
-/* параметры — settings/RunSettingsPanel и KindTabs (FE-4), библиотека — */
+/* параметры — settings/RunSettingsPanel (FE-4), библиотека —          */
 /* library/AssetLibrarySheet (FE-3). Все они читают стор через           */
 /* useVStudio() из ./context.                                          */
 /* ------------------------------------------------------------------ */
 
-function FeedSlot() {
-  return <RunThread />;
+/**
+ * Лента; пока проекта нет (home) — первый экран студии на её месте, а пока
+ * проект открывается или не открылся (cover) — каркас или сообщение.
+ */
+function FeedSlot({ home, cover }: { home: boolean; cover: ReactNode }) {
+  return <RunThread home={home} cover={cover} />;
 }
 
 function ComposerSlot() {
@@ -1037,30 +1099,16 @@ function LibrarySlot() {
   return <AssetLibrarySheet />;
 }
 
-/** Вкладки «Видео | Картинка» в строке над лентой (≥1024). */
-function KindTabsSlot() {
-  const { state, dispatch } = useVStudio();
-  const { composer, models } = state;
-  return (
-    <KindTabs
-      value={composer.kind}
-      onChange={(kind) =>
-        selectKind(dispatch, models, { kind: composer.kind, model: composer.model, params: composer.params }, kind)
-      }
-      counts={models ? { video: models.video.length, image: models.image.length } : undefined}
-      className="w-60 shrink-0"
-    />
-  );
-}
-
 /* ------------------------------------------------------------------ */
 /* Состояния страницы                                                   */
 /* ------------------------------------------------------------------ */
 
-const PRIMARY_BTN =
-  "inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-accent px-5 text-sm font-semibold text-on-accent transition-colors hover:bg-accent-strong cursor-pointer";
-const SECONDARY_BTN =
-  "inline-flex min-h-11 items-center justify-center gap-2 rounded-xl border border-border bg-surface-2 px-5 text-sm font-medium transition-colors hover:border-border-strong cursor-pointer";
+// Вид кнопок — общий для студии (ui/skin): золотая — главное действие, остальные тихие.
+const PRIMARY_BTN = VS_BTN_GOLD;
+const SECONDARY_BTN = VS_BTN_GHOST;
+
+/** Строка-заглушка. Неподвижная: в скелетоне «проявляются» только крупные блоки (vs-film). */
+const SKELETON_LINE = "rounded-full bg-white/[0.06]";
 
 function CenterMessage({
   icon,
@@ -1074,25 +1122,35 @@ function CenterMessage({
   action?: ReactNode;
 }) {
   return (
-    <div className="flex min-h-[50vh] flex-col items-center justify-center gap-3 px-4 text-center">
-      {icon && <div className="grid h-12 w-12 place-items-center rounded-full bg-surface-2 text-xl text-muted">{icon}</div>}
-      <h2 className="text-lg font-semibold">{title}</h2>
-      {hint && <p className="max-w-sm text-sm text-muted">{hint}</p>}
-      {action && <div className="mt-2">{action}</div>}
+    <div className="flex min-h-[50dvh] flex-col items-center justify-center px-4 py-8 text-center">
+      {icon && (
+        <div className="vs-card mb-5 grid size-14 place-items-center rounded-full text-[22px] text-accent" aria-hidden="true">
+          {icon}
+        </div>
+      )}
+      {/* Заголовок бывает в две строки («Нет сети — результаты не пропадут»): плотный интерлиньяж vs-display их склеил бы. */}
+      <h2 className={vx(VS_H2, "max-w-md text-balance !leading-[1.15]")}>{title}</h2>
+      {hint && <p className={vx(VS_SUB, "mt-2.5 max-w-sm")}>{hint}</p>}
+      {action && <div className="mt-6">{action}</div>}
     </div>
   );
 }
 
 function FullPage({ children }: { children: ReactNode }) {
   return (
-    <div className="flex flex-col bg-background text-foreground" style={{ minHeight: "var(--vvh, 100dvh)" }}>
-      <header className="flex h-14 shrink-0 items-center px-4 pt-[env(safe-area-inset-top,0px)]">
-        <Link href="/" aria-label="EsAI" className="flex items-center">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/esai-logo.svg" alt="EsAI" className="h-6 w-auto" />
+    // Тот же свет и зерно, что на первом экране: «скоро откроется» и «не
+    // загрузилось» — тоже студия, а не чужая страница.
+    <div
+      className="vs-grain relative flex flex-col overflow-hidden bg-background text-foreground"
+      style={{ minHeight: "var(--vvh, 100dvh)" }}
+    >
+      <div className="vs-beam" aria-hidden="true" />
+      <header className="relative flex h-[calc(3.5rem_+_env(safe-area-inset-top,0px))] shrink-0 items-center px-4 pt-[env(safe-area-inset-top,0px)] sm:px-6">
+        <Link href="/" aria-label="EsAI" className={vx("flex items-center rounded-md", VS_FOCUS)}>
+          <EsaiLogo className="h-6 w-auto" />
         </Link>
       </header>
-      <div className="flex flex-1 items-center justify-center p-4">{children}</div>
+      <div className="relative flex flex-1 items-center justify-center p-4">{children}</div>
     </div>
   );
 }
@@ -1164,56 +1222,101 @@ function OfflineBanner() {
   return (
     <div
       role="status"
-      className="flex shrink-0 items-center justify-center gap-2 border-b border-border bg-surface-2 px-3 py-2 text-sm text-muted"
+      className="flex shrink-0 items-center justify-center gap-2 border-b border-border bg-white/[0.04] px-3 py-2 text-[13px] text-muted"
     >
-      <FiWifiOff className="shrink-0 text-status-wait" />
+      <FiWifiOff className="shrink-0 text-status-wait" aria-hidden="true" />
       {t("page.offline", { defaultValue: "Нет сети — результаты не пропадут" })}
     </div>
   );
 }
 
-function PageSkeleton() {
+/**
+ * Каркас студии, пока грузятся тексты и модели. Геометрия — как у оболочки
+ * (история 64 / 248 px, колонки параметров нет: она по умолчанию свёрнута),
+ * иначе экран дёрнулся бы, когда придут данные.
+ */
+function PageSkeleton({ home }: { home: boolean }) {
   const { t } = useTranslation("vstudio", { useSuspense: false });
   return (
     <div
-      className="grid w-full grid-cols-1 bg-background lg:grid-cols-[64px_minmax(0,1fr)] xl:grid-cols-[240px_minmax(0,1fr)_340px]"
+      className="grid w-full grid-cols-1 overflow-hidden bg-background lg:grid-cols-[64px_minmax(0,1fr)] xl:grid-cols-[248px_minmax(0,1fr)]"
       style={{ height: "var(--vvh, 100dvh)" }}
       aria-busy="true"
     >
       <span className="sr-only" role="status">
         {t("page.loading", { defaultValue: "Загружаем…" })}
       </span>
-      <div className="hidden border-r border-border bg-surface p-3 lg:block">
-        <div className="h-6 w-24 animate-pulse rounded bg-surface-2 max-xl:w-8" />
-        <div className="mt-4 h-11 animate-pulse rounded-xl bg-surface-2" />
-      </div>
-      <div className="flex min-h-0 flex-col">
-        <div className="h-14 shrink-0 border-b border-border" />
-        <div className="mx-auto w-full max-w-[860px] flex-1 overflow-hidden px-3 py-4 sm:px-4">
-          <FeedSkeleton />
+      <div
+        className="hidden border-r border-border bg-surface/60 lg:flex lg:flex-col lg:items-center xl:items-stretch xl:px-3"
+        aria-hidden="true"
+      >
+        <div className="flex h-14 shrink-0 items-center xl:px-1">
+          <div className={vx(SKELETON_LINE, "size-7 xl:h-6 xl:w-16")} />
         </div>
-        <div className="shrink-0 border-t border-border p-3">
-          <div className="mx-auto h-24 w-full max-w-[860px] animate-pulse rounded-2xl bg-surface-2" />
+        <div className="vs-film size-10 shrink-0 rounded-full xl:w-full" />
+        <div className="mt-2.5 hidden h-10 shrink-0 rounded-xl bg-white/[0.04] xl:block" />
+        <div className="mt-7 hidden flex-col gap-5 px-1 xl:flex">
+          {["w-3/4", "w-1/2", "w-5/6", "w-2/3"].map((w) => (
+            <div key={w} className="flex items-center gap-2.5">
+              <div className="h-[25px] w-11 shrink-0 rounded-md bg-white/[0.06]" />
+              <div className={vx(SKELETON_LINE, "h-2.5", w)} />
+            </div>
+          ))}
         </div>
       </div>
-      <div className="hidden border-l border-border bg-surface p-4 xl:block">
-        <div className="h-5 w-40 animate-pulse rounded bg-surface-2" />
-        <div className="mt-4 h-16 animate-pulse rounded-xl bg-surface-2" />
-        <div className="mt-3 h-10 animate-pulse rounded-xl bg-surface-2" />
-        <div className="mt-3 h-10 animate-pulse rounded-xl bg-surface-2" />
+      <div className="flex min-h-0 min-w-0 flex-col" aria-hidden="true">
+        <div className="h-[calc(3.5rem_+_env(safe-area-inset-top,0px))] shrink-0 lg:h-14" />
+        <div className="min-h-0 flex-1 overflow-hidden">
+          {home ? (
+            <HomeSkeleton />
+          ) : (
+            <div className="mx-auto w-full max-w-[920px] px-3 pt-4 sm:px-4">
+              <FeedSkeleton />
+            </div>
+          )}
+        </div>
+        <div className="vs-dock shrink-0 bg-background">
+          <div className="mx-auto w-full max-w-[920px] px-3 pb-[max(0.5rem,env(safe-area-inset-bottom))] pt-2 sm:px-4">
+            {/* Высота настоящей панели запроса (174 px на телефоне, 202 px с 768 px) — иначе лента дёрнется, когда каркас сменится студией. */}
+            <div className="vs-film h-[174px] rounded-[20px] md:h-[202px] md:rounded-[24px]" />
+          </div>
+        </div>
       </div>
     </div>
   );
 }
 
+/** Первый экран в каркасе: строка заголовка, широкий кадр карусели, ряд сценариев. */
+function HomeSkeleton() {
+  return (
+    <div className="mx-auto flex w-full max-w-[1240px] flex-col items-center px-4 pt-8 sm:px-6 sm:pt-12">
+      <div className={vx(SKELETON_LINE, "h-6 w-44")} />
+      <div className="vs-film mt-5 h-9 w-[min(80%,30rem)] rounded-xl sm:h-12 lg:h-14" />
+      <div className={vx(SKELETON_LINE, "mt-4 h-3.5 w-[min(72%,24rem)]")} />
+      <div className="vs-film mt-8 aspect-video w-[84vw] max-w-[420px] rounded-2xl md:w-[min(58vw,760px)] md:max-w-full" />
+      <div className="mt-8 flex w-full gap-2 overflow-hidden md:justify-center">
+        {["w-32", "w-36", "w-44", "w-28", "w-40"].map((w) => (
+          <div key={w} className={vx("h-10 shrink-0 rounded-full bg-white/[0.05] md:h-9", w)} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Две карточки ленты: сначала кадр, под ним подпись и строка меток — как у настоящих. */
 function FeedSkeleton() {
   return (
-    <div className="flex flex-col gap-4" aria-hidden="true">
+    <div className="flex flex-col gap-5" aria-hidden="true">
       {[0, 1].map((i) => (
-        <div key={i} className="rounded-2xl border border-border bg-surface p-4">
-          <div className="h-3 w-3/4 animate-pulse rounded bg-surface-2" />
-          <div className="mt-2 h-3 w-1/2 animate-pulse rounded bg-surface-2" />
-          <div className="mt-4 aspect-video w-full animate-pulse rounded-xl bg-surface-2" />
+        <div key={i} className={vx(VS_CARD, "p-3 sm:p-4")}>
+          <div className="vs-film aspect-video w-full rounded-xl" />
+          <div className={vx(SKELETON_LINE, "mt-4 h-3 w-3/4")} />
+          <div className={vx(SKELETON_LINE, "mt-2 h-3 w-1/2")} />
+          <div className="mt-4 flex gap-1.5">
+            {["w-14", "w-24", "w-12"].map((w) => (
+              <div key={w} className={vx(SKELETON_LINE, "h-5", w)} />
+            ))}
+          </div>
         </div>
       ))}
     </div>
@@ -1225,6 +1328,10 @@ function FeedSkeleton() {
 /* ------------------------------------------------------------------ */
 
 const TOAST_MS: Record<Toast["tone"], number> = { info: 6000, ok: 6000, error: 9000 };
+
+/** Сообщение опускается на место, а не возникает разом; при «меньше движения» — без перехода. */
+const TOAST_IN =
+  "translate-y-0 opacity-100 transition-[opacity,translate] duration-300 starting:-translate-y-2 starting:opacity-0 motion-reduce:transition-none";
 
 function ToastStack({
   toasts,
@@ -1240,9 +1347,13 @@ function ToastStack({
   return (
     <div
       aria-live="polite"
+      // Стопка висит под верхней строкой: баланс и кнопка параметров в её
+      // правом углу остаются доступными, пока сообщение на экране.
       className={
         "pointer-events-none fixed z-[1050] flex flex-col gap-2 " +
-        (mobile ? "inset-x-3 top-[calc(4rem_+_env(safe-area-inset-top,0px))]" : "right-4 top-4 w-[min(360px,calc(100vw-2rem))]")
+        (mobile
+          ? "inset-x-3 top-[calc(4rem_+_env(safe-area-inset-top,0px))]"
+          : "right-4 top-[4.25rem] w-[min(380px,calc(100vw-2rem))]")
       }
     >
       {toasts.map((toastItem) => (
@@ -1269,34 +1380,44 @@ function ToastItem({
     return () => window.clearTimeout(id);
   }, [paused, toast.id, toast.tone, onDismiss]);
 
-  const tone =
-    toast.tone === "error"
-      ? "border-status-fail/40"
-      : toast.tone === "ok"
-        ? "border-status-ok/40"
-        : "border-border-strong";
+  // Кромку стекла (vs-glass) цвет состояния перекрывает только с «!»: её задаёт обычный CSS, а не утилита.
+  const tone = toast.tone === "error" ? "!border-status-fail/45" : toast.tone === "ok" ? "!border-status-ok/45" : "";
   const clickable = Boolean(toast.take);
   return (
     <div
       role={toast.tone === "error" ? "alert" : "status"}
       onMouseEnter={() => setPaused(true)}
       onMouseLeave={() => setPaused(false)}
-      className={"pointer-events-auto flex items-start gap-2 rounded-xl border bg-surface px-3 py-2.5 text-sm shadow-xl " + tone}
+      className={vx(
+        "vs-glass pointer-events-auto flex items-start gap-2.5 rounded-2xl py-2 pl-3.5 pr-2 text-sm leading-snug text-foreground",
+        TOAST_IN,
+        tone,
+      )}
     >
+      {toast.tone === "error" && <FiAlertTriangle className="mt-2 shrink-0 text-status-fail" aria-hidden="true" />}
+      {toast.tone === "ok" && <FiCheck className="mt-2 shrink-0 text-status-ok" aria-hidden="true" />}
       {clickable ? (
-        <button type="button" onClick={() => onOpen(toast)} className="min-w-0 flex-1 text-left hover:underline cursor-pointer">
+        <button
+          type="button"
+          onClick={() => onOpen(toast)}
+          className={vx("min-w-0 flex-1 cursor-pointer rounded-md py-1.5 text-left hover:underline", VS_FOCUS)}
+        >
           {toast.text}
         </button>
       ) : (
-        <span className="min-w-0 flex-1">{toast.text}</span>
+        <span className="min-w-0 flex-1 py-1.5">{toast.text}</span>
       )}
+      {/* Крестик выглядит на 32 px, а нажимается на 44: поле вокруг добирает before. */}
       <button
         type="button"
         onClick={() => onDismiss(toast.id)}
-        className="-m-1 grid h-8 w-8 shrink-0 place-items-center rounded-lg text-muted hover:text-foreground cursor-pointer"
+        className={vx(
+          "relative grid size-8 shrink-0 cursor-pointer place-items-center rounded-full text-muted transition-colors before:absolute before:-inset-1.5 hover:bg-white/[0.08] hover:text-foreground",
+          VS_FOCUS,
+        )}
         aria-label={t("mobile.close", { defaultValue: "Закрыть" })}
       >
-        <FiX />
+        <FiX aria-hidden="true" />
       </button>
     </div>
   );

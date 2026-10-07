@@ -28,9 +28,12 @@ import { useLocalQuote } from "../hooks/useQuote";
 import { openLockedModel } from "../settings/RunSettingsPanel";
 import { useIsMobile } from "../settings/SettingsSheet";
 import { defaultModel } from "../store";
+import { VS_BTN_GOLD, VS_FOCUS, VS_LABEL, vx } from "../ui/skin";
 import { OPEN_LIMIT, countOpen, fmtNum, nextRefNumber } from "./composerLogic";
 import { ct } from "./composerText";
+import { DOCK_FIELD } from "./dockSkin";
 import AnchoredPopover from "./Popover";
+import { useBalanceRequote } from "./useBalanceRequote";
 
 const PROMPT_MAX = 4000;
 
@@ -52,6 +55,10 @@ export type ImageGenMiniProps = {
 
 type Problem = { text: string; tone: "error" | "info" } | null;
 
+/** Список выбора: подложка непрозрачная — выпадающая часть у браузера берёт цвет отсюда. */
+const SELECT =
+  "min-h-11 w-full min-w-0 cursor-pointer rounded-xl border border-white/10 bg-surface-2 px-2.5 text-base text-foreground outline-none transition-colors hover:border-white/18 focus:border-accent/60 md:min-h-10 md:text-sm";
+
 export default function ImageGenMini({ open, onClose, anchor, onCreated }: ImageGenMiniProps) {
   const mobile = useIsMobile();
   const { t } = useTranslation("vstudio", { useSuspense: false });
@@ -67,19 +74,22 @@ export default function ImageGenMini({ open, onClose, anchor, onCreated }: Image
   return (
     <AnchoredPopover anchor={anchor} open={open} onClose={onClose} role="dialog" ariaLabel={title} autoFocus>
       <div className="flex w-[min(24rem,calc(100vw-2rem))] flex-col">
-        <div className="flex items-center gap-2 border-b border-border px-3 py-2">
-          <IoSparklesOutline className="text-accent-strong" aria-hidden />
-          <h2 className="flex-1 text-sm font-semibold">{title}</h2>
+        <div className="flex items-center gap-2 border-b border-white/10 py-2 pl-4 pr-2">
+          <IoSparklesOutline className="text-accent" aria-hidden />
+          <h2 className="flex-1 text-sm font-semibold text-foreground">{title}</h2>
           <button
             type="button"
             onClick={onClose}
-            className="grid size-8 place-items-center rounded-lg text-muted hover:bg-surface-2 hover:text-foreground cursor-pointer"
+            className={vx(
+              "grid size-9 cursor-pointer place-items-center rounded-full text-muted transition-colors hover:bg-white/[0.08] hover:text-foreground",
+              VS_FOCUS,
+            )}
             aria-label={ct(t, "imagegen.close")}
           >
             <FiX aria-hidden />
           </button>
         </div>
-        <div className="p-3">{body}</div>
+        <div className="p-4">{body}</div>
       </div>
     </AnchoredPopover>
   );
@@ -124,6 +134,12 @@ function ImageGenForm({ onClose, onCreated }: { onClose: () => void; onCreated: 
   const missing = typeof available === "number" && credits != null && available < credits ? Math.ceil(credits - available) : 0;
   const mainSending = state.run.status === "sending";
   const n = nextRefNumber(composer.tray);
+
+  // Баланс пополнили, пока форма открыта (шторка остаётся под окном оплаты): цена несёт старый
+  // остаток, и кнопка так и звала бы «Пополнить». Спрашиваем заново, только если не хватало.
+  useBalanceRequote(() => {
+    if (missing > 0) q.refresh();
+  });
 
   const submit = async () => {
     if (sending || mainSending || !model || !body) return;
@@ -217,15 +233,15 @@ function ImageGenForm({ onClose, onCreated }: { onClose: () => void; onCreated: 
         maxLength={PROMPT_MAX}
         placeholder={ct(t, "imagegen.placeholder")}
         aria-label={ct(t, "imagegen.title")}
-        className="min-h-[5.5rem] w-full resize-y rounded-xl border border-border bg-surface-2 px-3 py-2 text-base leading-relaxed text-foreground outline-none placeholder:text-muted-2 focus:border-accent md:text-sm"
+        className={`${DOCK_FIELD} min-h-[5.5rem] resize-y px-3 py-2 leading-relaxed caret-accent`}
       />
       <div className="grid grid-cols-2 gap-2">
-        <label className="flex min-w-0 flex-col gap-1">
-          <span className="text-[11px] font-semibold uppercase tracking-wide text-muted">{ct(t, "imagegen.model")}</span>
+        <label className="flex min-w-0 flex-col gap-1.5">
+          <span className={VS_LABEL}>{ct(t, "imagegen.model")}</span>
           <select
             value={modelId ?? ""}
             onChange={(e) => setModelId(e.target.value)}
-            className="min-h-11 w-full min-w-0 rounded-xl border border-border bg-surface-2 px-2 text-sm text-foreground outline-none focus:border-accent md:min-h-9"
+            className={SELECT}
           >
             {models.map((m) => (
               <option key={m.id} value={m.id}>
@@ -238,12 +254,12 @@ function ImageGenForm({ onClose, onCreated }: { onClose: () => void; onCreated: 
             ))}
           </select>
         </label>
-        <label className="flex min-w-0 flex-col gap-1">
-          <span className="text-[11px] font-semibold uppercase tracking-wide text-muted">{ct(t, "imagegen.aspect")}</span>
+        <label className="flex min-w-0 flex-col gap-1.5">
+          <span className={VS_LABEL}>{ct(t, "imagegen.aspect")}</span>
           <select
             value={aspect}
             onChange={(e) => setAspect(e.target.value)}
-            className="min-h-11 w-full min-w-0 rounded-xl border border-border bg-surface-2 px-2 text-sm text-foreground outline-none focus:border-accent md:min-h-9"
+            className={SELECT}
           >
             <option value="auto">{ct(t, "imagegen.aspectAuto")}</option>
             {aspects.map((a) => (
@@ -281,10 +297,10 @@ function ImageGenForm({ onClose, onCreated }: { onClose: () => void; onCreated: 
         type="submit"
         disabled={disabled}
         aria-busy={sending || q.loading || undefined}
-        className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-accent px-4 text-sm font-semibold text-on-accent transition-colors hover:bg-accent-strong disabled:cursor-not-allowed disabled:bg-surface-3 disabled:text-muted cursor-pointer"
+        className={`${VS_BTN_GOLD} w-full md:!min-h-11`}
       >
         {sending ? (
-          <FiLoader className="animate-spin" aria-hidden />
+          <FiLoader className="animate-spin motion-reduce:animate-none" aria-hidden />
         ) : model?.locked ? (
           <FiLock aria-hidden />
         ) : (

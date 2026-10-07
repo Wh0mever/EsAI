@@ -53,22 +53,22 @@ export default function PriceBreakdown({ quote }: PriceBreakdownProps) {
   const credits = quote.credits ?? 0;
   const missing = b && b.available < credits ? Math.ceil(credits - b.available) : 0;
   return (
-    <div className="flex w-[min(20rem,calc(100vw-2rem))] flex-col gap-2 p-3 text-sm">
+    <div className="flex w-[min(20rem,calc(100vw-2rem))] flex-col gap-2.5 p-4 text-sm">
       {lines.length > 0 && (
-        <ul className="flex flex-col gap-1">
+        <ul className="flex flex-col gap-1.5">
           {lines.map((line, i) => (
-            <li key={`${line.key}:${i}`} className="text-foreground">
+            <li key={`${line.key}:${i}`} className="leading-snug text-foreground/85 tabular-nums">
               {priceLineText(t, line)}
             </li>
           ))}
         </ul>
       )}
-      <div className="border-t border-border pt-2">
-        <div className="font-semibold text-foreground">{ct(t, "price.total", { credits: fmtNum(credits) })}</div>
-        <div className="text-xs text-muted">{ct(t, "price.note")}</div>
+      <div className={lines.length > 0 ? "border-t border-white/10 pt-2.5" : ""}>
+        <div className="text-[15px] font-semibold text-foreground tabular-nums">{ct(t, "price.total", { credits: fmtNum(credits) })}</div>
+        <div className="mt-0.5 text-xs text-accent">{ct(t, "price.note")}</div>
       </div>
       {b && (
-        <div className="text-xs leading-snug text-muted">
+        <div className="text-xs leading-snug text-muted tabular-nums">
           {ct(t, "price.balance", { balance: fmtNum(b.balance) })}
           {b.reserved > 0 && ` (${ct(t, "price.reserved", { reserved: fmtNum(b.reserved) })})`}
           {typeof b.after === "number" && b.after >= 0 && ` → ${ct(t, "price.after", { after: fmtNum(b.after) })}`}

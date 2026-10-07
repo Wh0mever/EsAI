@@ -6,20 +6,33 @@
  * Что на кнопке, решает composerLogic.runView: цена из свежего quote,
  * «Пополнить · не хватает N кр», «Войти и создать», «Ждём @Image 3…»,
  * «Загружаем фото…», спиннер отправки, «Запущено». Если запуск невозможен —
- * причина словами под кнопкой, а не только серый цвет (§9.8). Наведение (или
- * ⓘ на телефоне) показывает раскладку цены.
+ * причина словами под кнопкой, а не только серый цвет (§9.8). Раскладку цены
+ * показывает наведение или фокус с клавиатуры; где есть сенсорный экран
+ * (планшет, ноутбук с тачскрином) — кнопка ⓘ рядом, на телефоне —
+ * PriceInfoButton в строке счётчика. Экранный диктор читает раскладку как
+ * описание самой кнопки.
+ *
+ * Вид: золото — нажатие ведёт дальше (запуск, вход, пополнение); тусклое
+ * золото — ждём или поле пустое; серая — запуск закрыт, причина рядом словами.
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { FiCheck, FiInfo, FiLoader, FiLock, FiLogIn, FiPlusCircle } from "react-icons/fi";
+import { IoPlay, IoSparkles } from "react-icons/io5";
 import { errorText, issueText } from "@/lib/vstudio/errors";
 import type { QuoteJSON, RefLabels, VsKind } from "@/lib/vstudio/types";
+import { VS_BTN_GOLD, VS_FOCUS, vx } from "../ui/skin";
 import { fmtNum, runClickable, type RunView } from "./composerLogic";
 import { ct } from "./composerText";
-import PriceBreakdown from "./PriceBreakdown";
+import PriceBreakdown, { priceLineText } from "./PriceBreakdown";
 import AnchoredPopover from "./Popover";
 
 type T = ReturnType<typeof useTranslation>["t"];
+
+/** Золотая кнопка запуска: 44 px на любой ширине — главное действие панели. */
+const RUN_GOLD = `${VS_BTN_GOLD} whitespace-nowrap md:!min-h-11`;
+/** Запуск закрыт (ошибка, лимит, нет цены): та же форма без золота; причина — словами рядом. */
+const RUN_OFF = `inline-flex min-h-11 items-center justify-center gap-2 whitespace-nowrap rounded-full border border-white/10 bg-white/[0.06] px-5 text-sm font-semibold tracking-[0.01em] text-muted transition-colors ${VS_FOCUS}`;
 
 export type RunButtonProps = {
   view: RunView;
@@ -40,6 +53,15 @@ function subjectOf(t: T, labels: RefLabels, uid: string | undefined, slot: strin
   if (slot === "first_frame") return `@${ct(t, "tray.firstFrame")}`;
   if (slot === "last_frame") return `@${ct(t, "tray.lastFrame")}`;
   return label?.text || "@Image …";
+}
+
+/** Фокус пришёл с клавиатуры. Старый браузер без :focus-visible бросает ошибку на таком селекторе — считаем, что нет. */
+function keyboardFocus(target: EventTarget): boolean {
+  try {
+    return target instanceof HTMLElement && target.matches(":focus-visible");
+  } catch {
+    return false;
+  }
 }
 
 /** Причина серым, а не красным: модель под замком или просто пустое поле. */
@@ -93,7 +115,11 @@ export function runTexts(
     case "locked":
       return { label: price(view.credits), reason: ct(t, "composer.locked") };
     case "topup":
-      return { label: ct(t, "composer.topup", { n: fmtNum(view.missing) }), reason: null };
+      // Телефон: «Пополнить · не хватает 164 кр» не помещается в строку с чипом параметров и «@» —
+      // на кнопке остаётся действие, а сколько не хватает, говорит строка под ней.
+      return compact
+        ? { label: ct(t, "fix.topup"), reason: ct(t, "price.missing", { n: fmtNum(view.missing) }) }
+        : { label: ct(t, "composer.topup", { n: fmtNum(view.missing) }), reason: null };
     case "quoting":
       return { label: view.credits != null ? price(view.credits) : ct(t, "composer.runNoPrice"), reason: null };
     case "run":
@@ -111,6 +137,7 @@ export default function RunButton({ view, kind, quote, labels, onClick, compact,
   const [info, setInfo] = useState(false);
   const hover = useRef<ReturnType<typeof setTimeout> | null>(null);
   const groupRef = useRef<HTMLDivElement | null>(null);
+  const priceId = useId();
   useEffect(
     () => () => {
       if (hover.current) clearTimeout(hover.current);
@@ -122,10 +149,15 @@ export default function RunButton({ view, kind, quote, labels, onClick, compact,
   const accent = view.kind === "run" || view.kind === "topup" || view.kind === "signin" || view.kind === "started";
   const muted = view.kind === "blocked" || view.kind === "limit" || view.kind === "failed_upload" || view.kind === "no_price";
   const busy = view.kind === "sending" || view.kind === "uploading" || view.kind === "waiting" || view.kind === "no_model";
+  // Пустое поле — не отказ: кнопка остаётся золотой, только тусклой, пока создавать нечего.
+  const idle = view.kind === "blocked" && view.issue.code === "prompt_empty";
+  // Пока цена пересчитывается, кнопка не гаснет: иначе она мигала бы на каждой букве.
+  const gold = accent || view.kind === "quoting";
+  const look = gold ? RUN_GOLD : muted && !idle ? RUN_OFF : `${RUN_GOLD} !opacity-60`;
 
   const icon =
     view.kind === "sending" || view.kind === "uploading" || view.kind === "waiting" ? (
-      <FiLoader className="animate-spin" aria-hidden />
+      <FiLoader className="animate-spin motion-reduce:animate-none" aria-hidden />
     ) : view.kind === "signin" ? (
       <FiLogIn aria-hidden />
     ) : view.kind === "locked" ? (
@@ -134,6 +166,13 @@ export default function RunButton({ view, kind, quote, labels, onClick, compact,
       <FiPlusCircle aria-hidden />
     ) : view.kind === "started" ? (
       <FiCheck aria-hidden />
+    ) : !compact && (view.kind === "run" || view.kind === "quoting" || idle) ? (
+      // Значок действия: «мотор!» у видео, искра у картинки.
+      kind === "image" ? (
+        <IoSparkles className="size-3.5 shrink-0" aria-hidden />
+      ) : (
+        <IoPlay className="size-3.5 shrink-0" aria-hidden />
+      )
     ) : null;
 
   const openSoon = () => {
@@ -147,25 +186,38 @@ export default function RunButton({ view, kind, quote, labels, onClick, compact,
   };
 
   return (
-    <div className={`flex min-w-0 flex-col items-end gap-1 ${compact ? "" : "max-w-[22rem]"}`}>
+    // Телефон: кнопка не шире места, которое оставляют чип параметров и «@», — длинная подпись
+    // («Ждём @Последний кадр…») обрезается многоточием, а не выталкивает строку за край панели.
+    <div className={vx("flex min-w-0 flex-col items-end gap-1", !compact && "max-w-[22rem]")}>
       <div
         ref={groupRef}
-        className="flex items-center gap-1"
+        className={vx("flex items-center gap-0.5", compact && "min-w-0 max-w-full")}
         onPointerEnter={(e) => {
           if (e.pointerType === "mouse") openSoon();
         }}
         onPointerLeave={(e) => {
           if (e.pointerType === "mouse") closeSoon();
         }}
+        // С клавиатуры раскладку открывает фокус на кнопке: навести нечем, а ⓘ там, где только мышь, скрыта.
+        onFocus={(e) => {
+          if (keyboardFocus(e.target)) openSoon();
+        }}
+        onBlur={closeSoon}
       >
         {priced && !compact && (
+          // Где только мышь, раскладка открывается наведением, и ⓘ лишь отнимала бы место у чипов
+          // параметров. Есть сенсорный экран (планшет, ноутбук с тачскрином) — кнопка видна: пальцем
+          // не навести, а нажатие на «Создать» сразу запускает платную генерацию.
           <button
             type="button"
             onClick={() => setInfo((v) => !v)}
             aria-expanded={info}
             aria-label={ct(t, "composer.priceInfo")}
             title={ct(t, "composer.priceInfo")}
-            className="grid size-11 shrink-0 place-items-center rounded-xl text-muted transition-colors hover:bg-surface-2 hover:text-foreground md:size-9 cursor-pointer"
+            className={vx(
+              "grid size-11 shrink-0 cursor-pointer place-items-center rounded-full text-muted transition-colors hover:bg-white/[0.08] hover:text-foreground md:size-9 [@media(hover:hover)_and_(not_(any-pointer:coarse))]:hidden",
+              VS_FOCUS,
+            )}
           >
             <FiInfo aria-hidden />
           </button>
@@ -178,27 +230,38 @@ export default function RunButton({ view, kind, quote, labels, onClick, compact,
           disabled={busy}
           aria-disabled={!clickable || muted || undefined}
           aria-busy={busy || view.kind === "quoting" || undefined}
-          className={`inline-flex min-h-11 items-center justify-center gap-2 whitespace-nowrap rounded-xl px-4 text-sm font-semibold transition-colors ${
-            accent
-              ? "bg-accent text-on-accent hover:bg-accent-strong"
-              : muted
-                ? "bg-surface-3 text-muted"
-                : "bg-accent/70 text-on-accent"
-          } ${busy ? "cursor-wait" : clickable ? "cursor-pointer" : "cursor-not-allowed"} ${compact ? "px-3.5" : "min-w-[9.5rem]"}`}
+          aria-describedby={priced ? priceId : undefined}
+          className={vx(
+            look,
+            // Кольцо «готово» — только когда цена свежая и запуск уйдёт по этому нажатию.
+            view.kind === "run" && "vs-ready",
+            busy ? "!cursor-wait" : clickable ? "cursor-pointer" : "!cursor-not-allowed",
+            // Ширина с запасом под цену: «Создать» и «Создать · 1 200 кр» занимают одно место, чипы слева не прыгают.
+            compact ? "min-w-0 max-w-full !px-4 [&>svg]:shrink-0" : "min-w-[12rem]",
+          )}
         >
           {icon}
           {view.kind === "quoting" && view.credits == null ? (
             <span className="inline-flex items-center gap-1.5">
               {ct(t, "composer.runNoPrice")}
               <span aria-hidden>·</span>
-              <span className="inline-block h-3 w-9 animate-pulse rounded bg-on-accent/25" aria-hidden />
+              <span className="inline-block h-3 w-9 animate-pulse rounded bg-on-accent/25 motion-reduce:animate-none" aria-hidden />
               <span className="sr-only">{ct(t, "composer.quoting")}</span>
             </span>
           ) : (
-            <span className={view.kind === "quoting" ? "opacity-70" : ""}>{label}</span>
+            <span className={vx(compact && "min-w-0 truncate", view.kind === "quoting" && "opacity-70")}>{label}</span>
           )}
         </button>
       </div>
+      {priced && quote && (
+        <span id={priceId} className="sr-only">
+          {[
+            ...(quote.breakdown || []).map((line) => priceLineText(t, line)),
+            ct(t, "price.total", { credits: fmtNum(quote.credits ?? 0) }),
+            ct(t, "price.note"),
+          ].join(". ")}
+        </span>
+      )}
       {reason && !hideReason && (
         <p
           className={`text-right text-xs leading-snug ${quietReason(view) ? "text-muted" : "text-status-fail"} ${
@@ -250,7 +313,11 @@ export function PriceInfoButton({ quote }: { quote: QuoteJSON | null }) {
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        className="inline-flex min-h-9 shrink-0 items-center gap-1 rounded-lg px-1.5 text-xs text-muted hover:text-foreground cursor-pointer"
+        className={vx(
+          // На телефоне зона нажатия 44 px, а строка счётчика остаётся низкой (отрицательные поля).
+          "inline-flex min-h-9 shrink-0 cursor-pointer items-center gap-1 rounded-full px-2 text-xs text-muted transition-colors hover:text-foreground max-md:-my-1.5 max-md:min-h-11",
+          VS_FOCUS,
+        )}
       >
         <FiInfo aria-hidden />
         {ct(t, "composer.priceInfoShort", { credits: fmtNum(quote.credits) })}

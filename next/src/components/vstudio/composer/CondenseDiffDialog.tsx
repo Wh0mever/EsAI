@@ -13,6 +13,7 @@ import { Modal } from "@/components/dialog/Dialog";
 import { missingLabel } from "@/lib/vstudio/labels";
 import type { PromptDoc, RefLabels, TextStats } from "@/lib/vstudio/types";
 import { RefChip } from "../editor/RefChip";
+import { VS_BTN_GHOST, VS_BTN_GOLD, VS_LABEL, vx } from "../ui/skin";
 import { fmtNum } from "./composerLogic";
 import { ct } from "./composerText";
 
@@ -48,9 +49,9 @@ function DocView({ doc, labels }: { doc: PromptDoc; labels: RefLabels }) {
 function Column({ title, stats, doc, labels, accent }: { title: string; stats: TextStats; doc: PromptDoc; labels: RefLabels; accent?: boolean }) {
   const { t } = useTranslation("vstudio", { useSuspense: false });
   return (
-    <section className={`flex min-w-0 flex-1 flex-col gap-2 rounded-xl border p-3 ${accent ? "border-accent/50 bg-accent-soft/30" : "border-border bg-surface-2"}`}>
+    <section className={vx("vs-card flex min-w-0 flex-1 flex-col gap-2 rounded-2xl p-3.5", accent && "vs-card-on")}>
       <header className="flex items-baseline justify-between gap-2">
-        <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">{title}</h3>
+        <h3 className={vx(VS_LABEL, accent && "!text-accent")}>{title}</h3>
         <span className="text-xs tabular-nums text-muted">
           {ct(t, "assist.stats", { chars: fmtNum(stats.chars), words: fmtNum(stats.words) })}
         </span>
@@ -77,14 +78,14 @@ export default function CondenseDiffDialog({ open, result, labels, onAccept, onK
           <button
             type="button"
             onClick={onKeep}
-            className="inline-flex min-h-11 items-center justify-center rounded-xl border border-border bg-surface-2 px-4 text-sm font-medium text-foreground hover:border-border-strong cursor-pointer"
+            className={VS_BTN_GHOST}
           >
             {ct(t, "assist.keep")}
           </button>
           <button
             type="button"
             onClick={onAccept}
-            className="inline-flex min-h-11 items-center justify-center rounded-xl bg-accent px-5 text-sm font-semibold text-on-accent hover:bg-accent-strong cursor-pointer"
+            className={VS_BTN_GOLD}
           >
             {ct(t, "assist.accept")}
           </button>

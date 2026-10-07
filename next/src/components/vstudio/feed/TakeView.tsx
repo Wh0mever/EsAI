@@ -1,14 +1,17 @@
 "use client";
 
-import { memo, useRef, useState, type CSSProperties } from "react";
+import { memo, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { useTranslation } from "react-i18next";
-import { FiAlertTriangle, FiCheckCircle, FiImage, FiSlash } from "react-icons/fi";
+import { FiAlertTriangle, FiCheckCircle, FiImage, FiMaximize2, FiSlash } from "react-icons/fi";
 import VideoPlayer from "@/components/video/VideoPlayer";
 import { errorText } from "@/lib/vstudio/errors";
 import type { AssetJSON, ShotInputJSON, TakeLite } from "@/lib/vstudio/types";
+import { VS_FOCUS, VS_MEDIA, VS_ON_MEDIA, VS_TAG, vx } from "../ui/skin";
+import { prefersReducedMotion } from "../ui/useAutoplayAllowed";
 import { formatClock, isOpenStatus, labelNumber, mediaRatio, statusPhrase } from "./feedLogic";
-import TakeStatus from "./TakeStatus";
+import TakeStatus, { TakeProgress } from "./TakeStatus";
+import { useInView } from "./useInView";
 
 /**
  * Рамка кадра: ширина по колонке, но высота не больше 70vh — вертикальное
@@ -21,6 +24,39 @@ function frameStyle(ratio: number): CSSProperties {
     width: "100%",
     maxWidth: `min(100%, calc(70vh * ${r.toFixed(4)}))`,
   };
+}
+
+/** Кадр с пропорцией меньше этой не достаёт до краёв карточки: по бокам нужна подложка. */
+const BACKDROP_BELOW_RATIO = 1.5;
+
+/** Рамка кадра в ленте: та же, что у плеера, чтобы подмена постера на плеер была незаметна. */
+const FRAME = vx(VS_MEDIA, "border border-border");
+/** Кольцо фокуса внутрь: сцена обрезает всё, что выходит за кадр. */
+const FRAME_FOCUS = vx(VS_FOCUS, "focus-visible:ring-inset");
+
+/**
+ * Сцена под кадр: он стоит по центру, а по бокам — его же размытая копия.
+ * Без неё вертикальный ролик в широкой карточке висит в пустоте. Копия — уже
+ * загруженный постер (второго запроса нет). На телефоне кадр и так во всю
+ * ширину, у широкого кадра боков почти нет — там её не рисуем.
+ */
+function Stage({ backdrop, ratio, children }: { backdrop: string | null; ratio: number; children: ReactNode }) {
+  return (
+    <div className="relative isolate overflow-hidden rounded-xl">
+      {backdrop && ratio < BACKDROP_BELOW_RATIO && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={backdrop}
+          alt=""
+          aria-hidden
+          loading="lazy"
+          decoding="async"
+          className="pointer-events-none absolute inset-0 -z-10 hidden h-full w-full scale-125 object-cover opacity-40 blur-2xl sm:block"
+        />
+      )}
+      {children}
+    </div>
+  );
 }
 
 /**
@@ -52,45 +88,48 @@ function ResultVideo({
   };
 
   return (
-    <div ref={boxRef} style={frameStyle(ratio)} className="relative mx-auto">
-      {active && asset.url ? (
-        <VideoPlayer
-          src={asset.url}
-          poster={asset.thumb_url || undefined}
-          className="h-full w-full"
-          playLabel={playLabel}
-        />
-      ) : (
-        <button
-          type="button"
-          onClick={start}
-          disabled={!asset.url}
-          aria-label={playLabel}
-          title={playLabel}
-          className="group relative block h-full w-full cursor-pointer overflow-hidden rounded-xl border border-border bg-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent disabled:cursor-default"
-        >
-          {asset.thumb_url && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={asset.thumb_url} alt="" loading="lazy" decoding="async" className="h-full w-full object-contain" />
-          )}
-          <span className="absolute inset-0 grid place-items-center" aria-hidden>
-            <svg
-              viewBox="0 0 72 50"
-              className="h-auto w-[68px] transition-transform duration-200 group-hover:scale-110 group-active:scale-95"
-              style={{ filter: "drop-shadow(0 4px 14px rgba(0,0,0,.45))" }}
-            >
-              <rect x="0" y="0" width="72" height="50" rx="13" fill="var(--accent, #f5c518)" />
-              <path d="M29 15.5 L47 25 L29 34.5 Z" fill="var(--on-accent, #1a1a1a)" />
-            </svg>
-          </span>
-          {durationText && (
-            <span className="absolute bottom-2 right-2 rounded-md bg-black/65 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-white">
-              {durationText}
+    <Stage backdrop={asset.thumb_url || null} ratio={ratio}>
+      <div ref={boxRef} style={frameStyle(ratio)} className="relative mx-auto">
+        {active && asset.url ? (
+          <VideoPlayer
+            src={asset.url}
+            poster={asset.thumb_url || undefined}
+            className="h-full w-full"
+            playLabel={playLabel}
+          />
+        ) : (
+          <button
+            type="button"
+            onClick={start}
+            disabled={!asset.url}
+            aria-label={playLabel}
+            title={playLabel}
+            className={vx(
+              FRAME,
+              FRAME_FOCUS,
+              "vs-sheen group block h-full w-full cursor-pointer transition-colors hover:border-white/25 disabled:cursor-default",
+            )}
+          >
+            {asset.thumb_url && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={asset.thumb_url} alt="" loading="lazy" decoding="async" className="h-full w-full object-contain" />
+            )}
+            <span className="absolute inset-0 grid place-items-center" aria-hidden>
+              <svg
+                viewBox="0 0 72 50"
+                className="h-auto w-[68px] drop-shadow-[0_4px_14px_rgba(0,0,0,0.45)] transition-transform duration-200 group-hover:scale-110 group-active:scale-95 motion-reduce:transform-none"
+              >
+                <rect x="0" y="0" width="72" height="50" rx="13" fill="var(--accent)" />
+                <path d="M29 15.5 L47 25 L29 34.5 Z" fill="var(--on-accent)" />
+              </svg>
             </span>
-          )}
-        </button>
-      )}
-    </div>
+            {durationText && (
+              <span className={vx(VS_ON_MEDIA, "absolute bottom-2.5 right-2.5 tabular-nums")}>{durationText}</span>
+            )}
+          </button>
+        )}
+      </div>
+    </Stage>
   );
 }
 
@@ -98,18 +137,110 @@ function ResultImage({ asset, ratio, alt }: { asset: AssetJSON; ratio: number; a
   const src = asset.url || asset.thumb_url;
   if (!src) return null;
   return (
-    <a
-      href={asset.url || src}
-      target="_blank"
-      rel="noopener noreferrer"
-      style={frameStyle(ratio)}
-      className="relative mx-auto block cursor-zoom-in overflow-hidden rounded-xl border border-border bg-surface-2"
-    >
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={src} alt={alt} loading="lazy" decoding="async" className="h-full w-full object-contain" />
-    </a>
+    <Stage backdrop={asset.thumb_url || src} ratio={ratio}>
+      <a
+        href={asset.url || src}
+        target="_blank"
+        rel="noopener noreferrer"
+        style={frameStyle(ratio)}
+        className={vx(
+          FRAME,
+          FRAME_FOCUS,
+          "group mx-auto block cursor-zoom-in transition-colors hover:border-white/25",
+        )}
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={src} alt={alt} loading="lazy" decoding="async" className="h-full w-full object-contain" />
+        <span
+          className="pointer-events-none absolute right-2.5 top-2.5 grid size-8 place-items-center rounded-full bg-black/55 text-sm text-white opacity-0 backdrop-blur-sm transition-opacity duration-200 group-hover:opacity-100 group-focus-visible:opacity-100"
+          aria-hidden
+        >
+          <FiMaximize2 />
+        </span>
+      </a>
+    </Stage>
   );
 }
+
+/** Уголки видоискателя: по одному на каждый угол рамки. */
+const FINDER_CORNERS = [
+  "left-0 top-0 rounded-tl-[3px] border-l border-t",
+  "right-0 top-0 rounded-tr-[3px] border-r border-t",
+  "bottom-0 left-0 rounded-bl-[3px] border-b border-l",
+  "bottom-0 right-0 rounded-br-[3px] border-b border-r",
+];
+
+/**
+ * Рамка видоискателя в пропорции будущего кадра: пока идёт съёмка, видно,
+ * что получится — вертикаль 9:16 или широкий 16:9. Высота одна и та же,
+ * меняется только ширина, поэтому блок дубля не растёт вместе с кадром.
+ */
+function Viewfinder({ ratio }: { ratio: number }) {
+  const r = Math.min(2.4, Math.max(0.5, Number.isFinite(ratio) && ratio > 0 ? ratio : 16 / 9));
+  return (
+    <span className="relative block h-16 max-w-full sm:h-24" style={{ aspectRatio: `${r}` }}>
+      <span className="absolute inset-0 rounded-[3px] border border-white/[0.07]" />
+      {FINDER_CORNERS.map((corner) => (
+        <span key={corner} className={vx("absolute size-3 border-accent/70", corner)} />
+      ))}
+      <span className="absolute left-1/2 top-1/2 h-px w-2.5 -translate-x-1/2 -translate-y-1/2 bg-white/25" />
+      <span className="absolute left-1/2 top-1/2 h-2.5 w-px -translate-x-1/2 -translate-y-1/2 bg-white/25" />
+    </span>
+  );
+}
+
+/** За экраном «плёнка» и кольцо загрузки стоят: класс гасит анимацию у блока и у всего внутри. */
+const OFFSCREEN = "[animation-play-state:paused] [&_*]:[animation-play-state:paused]";
+
+/**
+ * Идущий дубль — «плёнка проявляется»: полоса во всю ширину карточки с
+ * видоискателем, статусом и шкалой по нижней кромке. Не рамка в размер кадра:
+ * в узкой 9:16 статус и кнопки переносились бы по словам, а два видео и четыре
+ * картинки в работе растянули бы ленту на несколько экранов.
+ */
+function OpenTake({
+  take,
+  ratio,
+  label,
+  onCancel,
+  canceling,
+}: {
+  take: TakeLite;
+  ratio: number;
+  label: string;
+  onCancel?: () => void;
+  canceling?: boolean;
+}) {
+  const [ref, inView] = useInView<HTMLDivElement>();
+  return (
+    <div
+      ref={ref}
+      className={vx(
+        "vs-film vs-grain relative isolate overflow-hidden rounded-xl border border-white/10",
+        !inView && OFFSCREEN,
+      )}
+    >
+      <span
+        className="pointer-events-none absolute inset-0 bg-[radial-gradient(60%_85%_at_50%_0%,var(--accent-soft),transparent_72%)]"
+        aria-hidden
+      />
+      <div className="relative flex min-h-40 flex-col sm:min-h-52">
+        <div className="grid flex-1 place-items-center px-4 pt-5 sm:pt-6" aria-hidden>
+          <Viewfinder ratio={ratio} />
+        </div>
+        <div className="p-3 sm:p-4">
+          <TakeStatus take={take} onCancel={onCancel} canceling={canceling} />
+        </div>
+      </div>
+      <TakeProgress take={take} label={label} />
+    </div>
+  );
+}
+
+/** Блок закрытого дубля без результата: цвет статуса — только в тонкой рамке и лёгкой заливке. */
+const NOTE_BOX = "flex items-start gap-2.5 rounded-xl border p-3 text-sm leading-snug";
+const NOTE_ICON = "grid size-7 shrink-0 place-items-center rounded-full text-sm";
+const NOTE_NEUTRAL = "border-white/10 bg-white/[0.03] text-muted";
 
 type Tr = (key: string, options?: Record<string, unknown>) => string;
 
@@ -128,6 +259,33 @@ function inputLabel(t: Tr, input: ShotInputJSON | undefined): string {
   return n ? `@Image ${n}` : t("subject.excluded", { defaultValue: "Выключенное фото" });
 }
 
+/**
+ * Чем готовый дубль закончился для кошелька: «Списано N кр» или «Бесплатно —
+ * за наш счёт». Метка в строке параметров карточки — рядом с моделью и
+ * длительностью, а не между роликом и его подписью.
+ */
+export const TakeReceipt = memo(function TakeReceipt({
+  take,
+}: {
+  take: Pick<TakeLite, "status" | "credits" | "charge_state">;
+}) {
+  const { t } = useTranslation("vstudio", { useSuspense: false });
+  if (take.status !== "done") return null;
+  const text =
+    take.credits?.charged > 0
+      ? t("run.charged", { defaultValue: "Списано {{n}} кр", n: take.credits.charged })
+      : take.charge_state === "released"
+        ? t("run.free", { defaultValue: "Бесплатно — за наш счёт" })
+        : "";
+  if (!text) return null;
+  return (
+    <span className={VS_TAG}>
+      <FiCheckCircle className="shrink-0 text-status-ok" aria-hidden />
+      {text}
+    </span>
+  );
+});
+
 export type TakeViewProps = {
   take: TakeLite;
   /** Входы кадра: виноватый вход (error.input) называем по его метке. */
@@ -137,9 +295,10 @@ export type TakeViewProps = {
 };
 
 /**
- * Один дубль (§9.6): идущий — статус с секундомером и полосой по ETA;
- * готовый — плеер или картинка; неудачный — причина по error_code, виноватый
- * вход и «Кредиты не списаны»; отменённый и потерянный — своя строка.
+ * Один дубль (§9.6): идущий — «плёнка» со статусом, секундомером и шкалой по
+ * ETA; готовый — плеер или картинка на сцене; неудачный — причина по
+ * error_code, виноватый вход и «Кредиты не списаны»; отменённый и потерянный —
+ * своя строка. Что списано за готовый дубль, показывает TakeReceipt в карточке.
  */
 function TakeView({ take, inputs, onCancel, canceling }: TakeViewProps) {
   const { t } = useTranslation("vstudio", { useSuspense: false });
@@ -166,87 +325,97 @@ function TakeView({ take, inputs, onCancel, canceling }: TakeViewProps) {
   // Живой регион переживает смену статуса — поэтому диктор скажет «Видео готово».
   const announce = take.status === "failed" ? `${statusText}. ${failure}` : statusText;
 
+  // Дубль досняли на глазах у человека — кадр «проявляется» один раз. Готовые
+  // кадры из истории и дубли, на которые перелистнули карусель, стоят сразу.
+  const resultRef = useRef<HTMLDivElement | null>(null);
+  const seen = useRef({ uid: take.uid, open });
+  useLayoutEffect(() => {
+    const before = seen.current;
+    seen.current = { uid: take.uid, open };
+    const el = resultRef.current;
+    if (!el || before.uid !== take.uid || !before.open || take.status !== "done") return;
+    if (typeof el.animate !== "function" || prefersReducedMotion()) return;
+    // За экраном проявлять не для кого.
+    const box = el.getBoundingClientRect();
+    if (box.bottom < 0 || box.top > window.innerHeight) return;
+    const develop = el.animate(
+      [
+        { opacity: 0, transform: "scale(0.985)", filter: "brightness(1.35)" },
+        { opacity: 1, transform: "none", filter: "none" },
+      ],
+      { duration: 700, easing: "cubic-bezier(0.16, 1, 0.3, 1)" },
+    );
+    return () => develop.cancel();
+  }, [take.uid, take.status, open]);
+
+  // Рядом с отказом или отменой: человеку важно сразу увидеть, что денег не взяли.
+  const noChargeNote =
+    !open && take.status !== "done" && take.status !== "lost" && noCharge ? (
+      <span className="inline-flex items-center gap-1.5 text-xs text-muted">
+        <FiCheckCircle className="shrink-0 text-status-ok" aria-hidden />
+        {t("run.noCharge", { defaultValue: "Кредиты не списаны" })}
+      </span>
+    ) : null;
+
   return (
     <div className="flex w-full flex-col gap-2" data-take={take.uid}>
       <span className="sr-only" role="status" aria-live="polite">
         {announce}
       </span>
 
-      {/* Идущий дубль — компактная плашка во всю ширину карточки: в узкой
-          рамке 9:16 статус и кнопки переносились бы по словам, а два видео
-          и четыре картинки в работе растянули бы ленту на несколько экранов. */}
-      {open && (
-        <div className="relative overflow-hidden rounded-xl border border-border bg-surface-2">
-          <div className="pointer-events-none absolute inset-0 animate-pulse bg-gradient-to-br from-accent/10 via-transparent to-status-progress/10" />
-          <div className="relative flex min-h-28 items-end p-3 sm:min-h-32 sm:p-4">
-            <TakeStatus take={take} onCancel={onCancel} canceling={canceling} />
-          </div>
+      {open && <OpenTake take={take} ratio={ratio} label={statusText} onCancel={onCancel} canceling={canceling} />}
+
+      {take.status === "done" && (
+        <div ref={resultRef}>
+          {take.result && (take.result.url || take.result.thumb_url) ? (
+            take.kind === "video" || take.result.kind === "video" ? (
+              <ResultVideo
+                // У каждого дубля свой постер: перелистнули карусель — плеер прошлого дубля не остаётся.
+                key={take.uid}
+                asset={take.result}
+                ratio={ratio}
+                playLabel={t("run.actions.play", { defaultValue: "Смотреть" })}
+                durationText={durationOf(take)}
+              />
+            ) : (
+              <ResultImage asset={take.result} ratio={ratio} alt={statusText} />
+            )
+          ) : (
+            <div className={vx(NOTE_BOX, NOTE_NEUTRAL, "items-center")}>
+              <FiImage className="shrink-0" aria-hidden />
+              {statusText}
+            </div>
+          )}
         </div>
       )}
 
-      {take.status === "done" &&
-        (take.result && (take.result.url || take.result.thumb_url) ? (
-          take.kind === "video" || take.result.kind === "video" ? (
-            <ResultVideo
-              asset={take.result}
-              ratio={ratio}
-              playLabel={t("run.actions.play", { defaultValue: "Смотреть" })}
-              durationText={durationOf(take)}
-            />
-          ) : (
-            <ResultImage asset={take.result} ratio={ratio} alt={statusText} />
-          )
-        ) : (
-          <div className="flex items-center gap-2 rounded-xl border border-border bg-surface-2 p-3 text-sm text-muted">
-            <FiImage aria-hidden />
-            {statusText}
-          </div>
-        ))}
-
       {take.status === "failed" && (
-        <div className="flex flex-col gap-1.5 rounded-xl border border-status-fail/40 bg-status-fail/10 p-3">
-          <p className="flex items-start gap-2 text-sm text-foreground">
-            <FiAlertTriangle className="mt-0.5 shrink-0 text-status-fail" aria-hidden />
-            <span>{failure}</span>
-          </p>
-          {culpritText && <p className="pl-6 text-xs font-medium text-status-fail">{culpritText}</p>}
+        <div className={vx(NOTE_BOX, "border-status-fail/25 bg-status-fail/[0.07]")}>
+          <span className={vx(NOTE_ICON, "bg-status-fail/15 text-status-fail")} aria-hidden>
+            <FiAlertTriangle />
+          </span>
+          <div className="flex min-w-0 flex-1 flex-col gap-1.5 pt-0.5">
+            <p className="text-foreground">{failure}</p>
+            {culpritText && <p className="text-xs font-medium text-status-fail">{culpritText}</p>}
+            {noChargeNote}
+          </div>
         </div>
       )}
 
       {take.status === "lost" && (
-        <div className="flex items-start gap-2 rounded-xl border border-status-wait/40 bg-status-wait/10 p-3 text-sm text-foreground">
-          <FiAlertTriangle className="mt-0.5 shrink-0 text-status-wait" aria-hidden />
-          <span>{statusText}</span>
+        <div className={vx(NOTE_BOX, "border-status-wait/25 bg-status-wait/[0.07]")}>
+          <span className={vx(NOTE_ICON, "bg-status-wait/15 text-status-wait")} aria-hidden>
+            <FiAlertTriangle />
+          </span>
+          <p className="min-w-0 flex-1 pt-0.5 text-foreground">{statusText}</p>
         </div>
       )}
 
       {take.status === "canceled" && (
-        <div className="flex items-center gap-2 rounded-xl border border-border bg-surface-2 p-3 text-sm text-muted">
+        <div className={vx(NOTE_BOX, NOTE_NEUTRAL, "flex-wrap items-center")}>
           <FiSlash className="shrink-0" aria-hidden />
           <span>{statusText}</span>
-        </div>
-      )}
-
-      {!open && (
-        <div className="flex flex-wrap items-center gap-2 text-xs">
-          {take.status === "done" && take.credits?.charged > 0 && (
-            <span className="inline-flex items-center gap-1 text-muted">
-              <FiCheckCircle className="text-status-ok" aria-hidden />
-              {t("run.charged", { defaultValue: "Списано {{n}} кр", n: take.credits.charged })}
-            </span>
-          )}
-          {take.status === "done" && !take.credits?.charged && take.charge_state === "released" && (
-            <span className="inline-flex items-center gap-1 text-muted">
-              <FiCheckCircle className="text-status-ok" aria-hidden />
-              {t("run.free", { defaultValue: "Бесплатно — за наш счёт" })}
-            </span>
-          )}
-          {take.status !== "done" && take.status !== "lost" && noCharge && (
-            <span className="inline-flex items-center gap-1 rounded-full bg-surface-2 px-2 py-0.5 text-muted">
-              <FiCheckCircle className="text-status-ok" aria-hidden />
-              {t("run.noCharge", { defaultValue: "Кредиты не списаны" })}
-            </span>
-          )}
+          {noChargeNote && <span className="ml-auto">{noChargeNote}</span>}
         </div>
       )}
     </div>

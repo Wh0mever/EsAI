@@ -15,8 +15,10 @@ import { FiAlertCircle, FiAlertTriangle, FiChevronDown, FiChevronUp, FiFilm } fr
 import Link from "next/link";
 import { issueFixes, issueText } from "@/lib/vstudio/errors";
 import type { IssueFix } from "@/lib/vstudio/types";
+import { VS_FOCUS, vx } from "../ui/skin";
 import { HINTS_VISIBLE, fixLabelKey, type HintItem } from "./composerLogic";
 import { ct } from "./composerText";
+import { HINT_BTN, HINT_BTN_PRIMARY, HINT_BTN_QUIET } from "./dockSkin";
 
 type T = ReturnType<typeof useTranslation>["t"];
 
@@ -36,11 +38,7 @@ export function FixButton({ fix, onFix, primary }: { fix: IssueFix; onFix: (fix:
     <button
       type="button"
       onClick={() => onFix(fix)}
-      className={`inline-flex min-h-9 shrink-0 items-center rounded-lg px-2.5 text-xs font-semibold transition-colors max-md:min-h-11 cursor-pointer ${
-        primary
-          ? "bg-foreground text-background hover:opacity-90"
-          : "border border-border bg-surface text-foreground hover:border-border-strong"
-      }`}
+      className={vx(HINT_BTN, primary ? HINT_BTN_PRIMARY : HINT_BTN_QUIET)}
     >
       {fixLabel(t, fix)}
     </button>
@@ -54,10 +52,10 @@ function HintRow({ item, onFix }: { item: HintItem; onFix: (fix: IssueFix) => vo
   const fixes = issueFixes(issue);
   const Icon = tone === "error" ? FiAlertCircle : FiAlertTriangle;
   return (
-    <li className="flex items-start gap-2 py-1.5">
+    <li className="flex items-start gap-2.5 py-2">
       <Icon className={`mt-0.5 size-4 shrink-0 ${tone === "error" ? "text-status-fail" : "text-status-wait"}`} aria-hidden />
-      <div className="flex min-w-0 flex-1 flex-col gap-1.5 sm:flex-row sm:items-start sm:gap-3">
-        <span className={`min-w-0 flex-1 text-xs leading-snug ${tone === "error" ? "text-foreground" : "text-muted"}`}>{text}</span>
+      <div className="flex min-w-0 flex-1 flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-3">
+        <span className={`min-w-0 flex-1 text-[13px] leading-snug ${tone === "error" ? "text-foreground" : "text-muted"}`}>{text}</span>
         {fixes.length > 0 && (
           <span className="flex shrink-0 flex-wrap gap-1.5">
             {fixes.map((fix, i) => (
@@ -83,12 +81,13 @@ export default function ComposerHints({ items, onFix }: ComposerHintsProps) {
   const shown = expanded ? items : items.slice(0, HINTS_VISIBLE);
   const rest = items.length - shown.length;
   return (
+    // Кромка — цвет статуса: красная, пока что-то мешает запуску, жёлтая — только предупреждения.
     <div
-      className={`rounded-xl border px-3 py-1 ${hasErrors ? "border-status-fail/40 bg-status-fail/5" : "border-status-wait/40 bg-status-wait/5"}`}
+      className={vx("vs-card shrink-0 rounded-2xl px-3.5 py-0.5", hasErrors ? "!border-status-fail/40" : "!border-status-wait/35")}
       aria-live="polite"
     >
       {hasErrors && <h3 className="sr-only">{ct(t, "composer.errorsTitle")}</h3>}
-      <ul className="flex flex-col divide-y divide-border/60">
+      <ul className="flex flex-col divide-y divide-white/[0.07]">
         {shown.map((item, i) => (
           <HintRow key={`${item.issue.code}:${i}`} item={item} onFix={onFix} />
         ))}
@@ -97,7 +96,10 @@ export default function ComposerHints({ items, onFix }: ComposerHintsProps) {
         <button
           type="button"
           onClick={() => setExpanded((v) => !v)}
-          className="flex min-h-9 items-center gap-1 text-xs font-medium text-muted hover:text-foreground cursor-pointer"
+          className={vx(
+            "flex min-h-9 cursor-pointer items-center gap-1 rounded-full text-xs font-medium text-muted transition-colors hover:text-foreground max-md:min-h-11",
+            VS_FOCUS,
+          )}
           aria-expanded={expanded}
         >
           {expanded ? <FiChevronUp aria-hidden /> : <FiChevronDown aria-hidden />}
@@ -115,8 +117,8 @@ export default function ComposerHints({ items, onFix }: ComposerHintsProps) {
 export function ScriptBanner({ onDismiss }: { onDismiss: () => void }) {
   const { t } = useTranslation("vstudio", { useSuspense: false });
   return (
-    <div className="flex flex-col gap-2 rounded-xl border border-border bg-surface-2 px-3 py-2.5 sm:flex-row sm:items-center" role="note">
-      <FiFilm className="hidden size-4 shrink-0 text-accent-strong sm:block" aria-hidden />
+    <div className="vs-card flex shrink-0 flex-col gap-2 rounded-2xl px-3.5 py-2.5 sm:flex-row sm:items-center sm:gap-3" role="note">
+      <FiFilm className="hidden size-4 shrink-0 text-accent sm:block" aria-hidden />
       <div className="min-w-0 flex-1">
         <div className="text-sm font-semibold text-foreground">{ct(t, "meter.script.title")}</div>
         <div className="text-xs leading-snug text-muted">{ct(t, "meter.script.body")}</div>
@@ -124,14 +126,14 @@ export function ScriptBanner({ onDismiss }: { onDismiss: () => void }) {
       <div className="flex shrink-0 flex-wrap gap-2">
         <Link
           href="/studio"
-          className="inline-flex min-h-11 items-center rounded-xl bg-foreground px-3 text-xs font-semibold text-background hover:opacity-90 md:min-h-9"
+          className={vx(HINT_BTN, HINT_BTN_PRIMARY)}
         >
           {ct(t, "meter.script.cartoon")}
         </Link>
         <button
           type="button"
           onClick={onDismiss}
-          className="inline-flex min-h-11 items-center rounded-xl border border-border bg-surface px-3 text-xs font-semibold text-foreground hover:border-border-strong md:min-h-9 cursor-pointer"
+          className={vx(HINT_BTN, HINT_BTN_QUIET)}
         >
           {ct(t, "meter.script.anyway")}
         </button>

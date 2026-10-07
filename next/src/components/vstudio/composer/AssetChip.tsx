@@ -30,6 +30,7 @@ import type { FrameSlot, InputSlot, RefLabel, TrayItem } from "@/lib/vstudio/typ
 import BottomSheet from "../BottomSheet";
 import { useIsMobile } from "../settings/SettingsSheet";
 import { MAX_ROLE_CHARS } from "../store";
+import { VS_FOCUS, VS_INPUT, VS_MENU_ITEM, vx } from "../ui/skin";
 import { ct } from "./composerText";
 import AnchoredPopover from "./Popover";
 
@@ -63,6 +64,11 @@ export type AssetChipProps = ChipActions & {
 };
 
 const LONG_PRESS_MS = 480;
+
+/** «Влево» / «Вправо» в меню чипа: две половинки одной строки. */
+const MOVE_BTN = `flex min-h-11 flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-xl text-sm text-foreground/85 transition-colors hover:bg-white/[0.08] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 md:min-h-9 ${VS_FOCUS}`;
+/** Маленькая кнопка внутри чипа: отменить загрузку, повторить, учитывать снова. */
+const CHIP_BTN = `grid size-8 shrink-0 cursor-pointer place-items-center rounded-full transition-colors ${VS_FOCUS}`;
 
 function frameName(t: ReturnType<typeof useTranslation>["t"], slot: InputSlot): string {
   return slot === "first_frame" ? ct(t, "tray.firstFrame") : slot === "last_frame" ? ct(t, "tray.lastFrame") : "";
@@ -101,12 +107,13 @@ function chipSub(t: ReturnType<typeof useTranslation>["t"], item: TrayItem): { t
 function Thumb({ item, compact }: { item: TrayItem; compact?: boolean }) {
   const [broken, setBroken] = useState<string | null>(null);
   const src = item.preview && broken !== item.preview ? item.preview : null;
-  const size = compact ? "size-9" : "size-10";
+  // С 768 px чип — 40 px, в рост кнопок лотка: строка материалов не прыгает, когда появляется первое фото.
+  const size = compact ? "size-9 md:size-[1.875rem]" : "size-10 md:size-[1.875rem]";
   const grey = !item.included || item.status === "deleted";
   const busy = item.status === "processing" || item.status === "pending";
   const pct = Math.max(0, Math.min(100, item.progress || 0));
   return (
-    <span className={`relative ${size} shrink-0 overflow-hidden rounded-lg border border-border bg-surface-3`}>
+    <span className={`relative ${size} shrink-0 overflow-hidden rounded-lg border border-white/10 bg-surface-3`}>
       {src ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
@@ -139,7 +146,7 @@ function Thumb({ item, compact }: { item: TrayItem; compact?: boolean }) {
       )}
       {busy && (
         <span className="absolute inset-0 grid place-items-center bg-black/35 text-white">
-          <FiLoader className="animate-spin" aria-hidden />
+          <FiLoader className="animate-spin motion-reduce:animate-none" aria-hidden />
         </span>
       )}
       {(item.status === "failed" || item.status === "deleted") && (
@@ -170,11 +177,9 @@ function MenuItem({
       role="menuitem"
       disabled={disabled}
       onClick={onClick}
-      className={`flex min-h-11 w-full items-center gap-2.5 rounded-lg px-2.5 text-left text-sm transition-colors hover:bg-surface-2 focus-visible:bg-surface-2 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-50 md:min-h-9 cursor-pointer ${
-        tone === "fail" ? "text-status-fail" : "text-foreground"
-      }`}
+      className={vx(VS_MENU_ITEM, "disabled:cursor-not-allowed disabled:opacity-50", tone === "fail" && "!text-status-fail")}
     >
-      <span className="shrink-0 text-muted [&>svg]:size-4">{icon}</span>
+      <span className={`shrink-0 [&>svg]:size-4 ${tone === "fail" ? "" : "text-muted"}`}>{icon}</span>
       <span className="min-w-0 flex-1">{children}</span>
     </button>
   );
@@ -188,7 +193,7 @@ function RoleField({ value, onSave }: { value: string; onSave: (role: string) =>
     if (next !== value) onSave(next);
   };
   return (
-    <label className="flex flex-col gap-1 px-2.5 pb-2 pt-1">
+    <label className="flex flex-col gap-1.5 px-3 pb-2 pt-1">
       <span className="text-xs font-medium text-muted">{ct(t, "tray.role")}</span>
       <span className="flex items-center gap-1.5">
         <input
@@ -204,7 +209,8 @@ function RoleField({ value, onSave }: { value: string; onSave: (role: string) =>
           }}
           placeholder={ct(t, "tray.rolePlaceholder")}
           enterKeyHint="done"
-          className="min-h-10 min-w-0 flex-1 rounded-lg border border-border bg-surface-2 px-2.5 text-base text-foreground outline-none placeholder:text-muted-2 focus:border-accent md:text-sm"
+          // На телефоне шрифт 16 px: мельче — и iOS приближает страницу при фокусе.
+          className={`${VS_INPUT} min-w-0 flex-1 max-md:!text-base`}
         />
       </span>
     </label>
@@ -225,8 +231,8 @@ function ChipMenuBody(props: AssetChipProps & { close: () => void; header?: bool
   const sub = chipSub(t, item);
   return (
     <div className={`flex flex-col p-1.5 ${header ? "w-[min(19rem,calc(100vw-2rem))]" : "w-full"}`}>
-      <div className="px-2.5 pb-1.5 pt-1">
-        {header && <div className="text-sm font-semibold">{label?.aria || chipTitle(t, item, label)}</div>}
+      <div className="px-3 pb-1.5 pt-1.5">
+        {header && <div className="text-sm font-semibold text-foreground">{label?.aria || chipTitle(t, item, label)}</div>}
         {(item.status === "failed" || item.status === "deleted" || !item.included) && (
           <div className={`mt-0.5 text-xs ${sub.tone === "fail" ? "text-status-fail" : "text-muted"}`}>{sub.text}</div>
         )}
@@ -266,7 +272,7 @@ function ChipMenuBody(props: AssetChipProps & { close: () => void; header?: bool
             disabled={!props.canMoveLeft}
             onClick={run(() => props.onMove?.(-1))}
             aria-label={ct(t, "tray.moveLeft")}
-            className="flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-lg text-sm text-foreground hover:bg-surface-2 focus-visible:bg-surface-2 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-40 md:min-h-9 cursor-pointer"
+            className={MOVE_BTN}
           >
             <FiChevronLeft className="size-4 text-muted" aria-hidden />
             {ct(t, "tray.left")}
@@ -277,7 +283,7 @@ function ChipMenuBody(props: AssetChipProps & { close: () => void; header?: bool
             disabled={!props.canMoveRight}
             onClick={run(() => props.onMove?.(1))}
             aria-label={ct(t, "tray.moveRight")}
-            className="flex min-h-11 flex-1 items-center justify-center gap-1.5 rounded-lg text-sm text-foreground hover:bg-surface-2 focus-visible:bg-surface-2 focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-40 md:min-h-9 cursor-pointer"
+            className={MOVE_BTN}
           >
             {ct(t, "tray.right")}
             <FiChevronRight className="size-4 text-muted" aria-hidden />
@@ -335,14 +341,15 @@ function AssetChip(props: AssetChipProps) {
   const excluded = !item.included && item.status !== "deleted";
   const aria = [label?.aria || title, sub.text].filter(Boolean).join(" · ");
 
+  // Основа — vs-card; состояние меняет только кромку и подложку (через !: у vs-card они свои).
   const tone =
     item.status === "failed" || item.status === "deleted" || flagged
-      ? "border-status-fail/60 bg-status-fail/10"
+      ? "!border-status-fail/60 !bg-status-fail/10"
       : excluded
-        ? "border-dashed border-border bg-surface-2/60"
+        ? "!border-dashed !border-white/15 hover:!border-white/30"
         : item.status === "ready" && item.included
-          ? "border-accent/40 bg-accent-soft/60"
-          : "border-border bg-surface-2";
+          ? "!border-accent/40 !bg-accent/[0.07] hover:!border-accent/70"
+          : "hover:!border-white/25";
 
   const close = () => setOpen(false);
   const cancelPress = () => {
@@ -395,9 +402,13 @@ function AssetChip(props: AssetChipProps) {
         }}
         onPointerUp={cancelPress}
         onPointerCancel={cancelPress}
-        className={`group flex min-h-11 select-none items-center gap-2 rounded-xl border py-1 pl-1 pr-1.5 text-left transition-colors hover:border-border-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent cursor-pointer ${tone} ${
-          flagged ? "ring-1 ring-status-fail/60" : ""
-        } ${compact ? "max-w-[10rem]" : "max-w-[13rem]"}`}
+        className={vx(
+          "vs-card group flex min-h-11 cursor-pointer select-none items-center gap-2 rounded-xl py-1 pl-1 pr-2 text-left md:min-h-10",
+          VS_FOCUS,
+          tone,
+          flagged && "!ring-1 ring-status-fail/60",
+          compact ? "max-w-[10rem]" : "max-w-[13rem]",
+        )}
       >
         <Thumb item={item} compact={compact} />
         <span className="flex min-w-0 flex-col leading-tight">
@@ -426,7 +437,7 @@ function AssetChip(props: AssetChipProps) {
               e.stopPropagation();
               props.onCancel?.();
             }}
-            className="grid size-8 shrink-0 place-items-center rounded-lg text-muted hover:bg-surface-3 hover:text-foreground cursor-pointer"
+            className={`${CHIP_BTN} text-muted hover:bg-white/[0.1] hover:text-foreground`}
             aria-label={ct(t, "tray.cancel")}
             title={ct(t, "tray.cancel")}
           >
@@ -440,7 +451,7 @@ function AssetChip(props: AssetChipProps) {
               e.stopPropagation();
               props.onRetry?.();
             }}
-            className="grid size-8 shrink-0 place-items-center rounded-lg text-status-fail hover:bg-status-fail/10 cursor-pointer"
+            className={`${CHIP_BTN} text-status-fail hover:bg-status-fail/15`}
             aria-label={ct(t, "tray.retry")}
             title={ct(t, "tray.retry")}
           >
@@ -454,7 +465,7 @@ function AssetChip(props: AssetChipProps) {
               e.stopPropagation();
               props.onInclude(true);
             }}
-            className="grid size-8 shrink-0 place-items-center rounded-lg text-muted hover:bg-surface-3 hover:text-foreground cursor-pointer"
+            className={`${CHIP_BTN} text-muted hover:bg-white/[0.1] hover:text-foreground`}
             aria-label={ct(t, "tray.include")}
             title={ct(t, "tray.include")}
           >
@@ -475,6 +486,7 @@ function AssetChip(props: AssetChipProps) {
           role="menu"
           ariaLabel={ct(t, "tray.menu")}
           autoFocus
+          closeOnTabOut
         >
           <ChipMenuBody {...props} close={close} />
         </AnchoredPopover>

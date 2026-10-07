@@ -18,6 +18,7 @@ import { useTranslation } from "react-i18next";
 import { FiChevronDown, FiSliders } from "react-icons/fi";
 import type { ModelJSON, ShotParams, VsAction, VsKind, VsState } from "@/lib/vstudio/types";
 import BottomSheet from "../BottomSheet";
+import { VS_PILL } from "../ui/skin";
 import RunSettingsPanel, { useStudioStore } from "./RunSettingsPanel";
 import { cx } from "./SettingsBits";
 import { AUTO, chipParts, findModel } from "./settingsModel";
@@ -86,17 +87,21 @@ export function SettingsChip({ state, dispatch, onClick, className }: SettingsCh
       aria-expanded={open}
       aria-label={tx(t, "settings.chipAria", { summary: summary || tx(t, "mobile.params") })}
       className={cx(
-        "inline-flex min-h-11 max-w-full items-center gap-1.5 rounded-full border border-border bg-surface-2 px-3 text-xs font-semibold text-foreground transition-colors hover:border-border-strong cursor-pointer",
+        VS_PILL,
+        // Телефон: чип во всю свободную ширину строки и не ниже 44 px; длинная сводка обрезается, а не раздвигает строку.
+        // Нижняя граница ширины — два значка: когда длинная подпись «Создать» забирает строку, чип остаётся
+        // кнопкой, а его шеврон не выезжает поверх соседней «@» (лишнее режет overflow-hidden).
+        "min-w-14 max-w-full justify-start overflow-hidden max-md:min-h-11 max-md:w-full max-md:shrink",
         className,
       )}
     >
-      <FiSliders className="size-3.5 shrink-0 text-muted" aria-hidden />
+      <FiSliders className="size-3.5 shrink-0 opacity-70" aria-hidden />
       {summary ? (
         <span className="min-w-0 truncate">{summary}</span>
       ) : (
-        <span className="h-3 w-24 animate-pulse rounded bg-surface-3" aria-hidden />
+        <span className="vs-film h-2.5 w-28 rounded-full" aria-hidden />
       )}
-      <FiChevronDown className="size-3.5 shrink-0 text-muted" aria-hidden />
+      <FiChevronDown className="ml-auto size-3.5 shrink-0 opacity-70" aria-hidden />
     </button>
   );
 }

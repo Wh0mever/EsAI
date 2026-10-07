@@ -319,12 +319,17 @@ test("client_request_id и isUid", () => {
 
 test("воронка: trackVs шлёт шаг в payments/funnel/event/", async () => {
   api.trackVs("vstudio_blocked", { code: "prompt_too_long" });
-  api.trackVs("vstudio_view");
+  api.trackVs("vstudio_view", { authed: false, home: true });
+  api.trackVs("vstudio_home_pick", { what: "template", id: "film" });
+  // Шаг без подробностей уходит с пустым meta.
+  api.trackVs("vstudio_share");
   await new Promise((r) => setTimeout(r, 0));
   const events = calls.filter((c) => c.url === "/api/payments/funnel/event/");
   assert.deepEqual(events.map((c) => c.body), [
     { name: "vstudio_blocked", meta: { code: "prompt_too_long" } },
-    { name: "vstudio_view", meta: {} },
+    { name: "vstudio_view", meta: { authed: false, home: true } },
+    { name: "vstudio_home_pick", meta: { what: "template", id: "film" } },
+    { name: "vstudio_share", meta: {} },
   ]);
 });
 
@@ -436,7 +441,7 @@ test("режим фикстур: сеть не трогаем, мок отвеч
   const up = await api.uploadAsset(photo());
   assert.equal(up.ok, true);
   assert.equal(up.status, 201);
-  api.trackVs("vstudio_view");
+  api.trackVs("vstudio_view", { authed: true, home: true });
   assert.equal(calls.length, 0);
   fx.resetMockBackend(null);
 });

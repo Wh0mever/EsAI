@@ -14,6 +14,7 @@ import { useTranslation } from "react-i18next";
 import { FiImage, FiInfo } from "react-icons/fi";
 import { SUBJECT_RU } from "@/lib/vstudio/errors";
 import type { ComposerFrames, ModelJSON, QuoteJSON, TrayItem, VsKind } from "@/lib/vstudio/types";
+import { VS_FOCUS } from "../ui/skin";
 import { Pill, Reason, Section, cx } from "./SettingsBits";
 import { countInputs, explainRows, localMode, modeText, modelFacts, type ExplainRow, type LocalMode } from "./settingsModel";
 import { tx, txRef, type Translate } from "./settingsText";
@@ -52,8 +53,8 @@ export default function InputsExplainer({ kind, model, tray, frames, quote, onPi
     <Section title={tx(t, "settings.howRefsUsed")} icon={<FiImage />}>
       <div
         className={cx(
-          "flex gap-2 rounded-xl border px-3 py-2.5 text-xs leading-snug",
-          trouble ? "border-status-wait/40 text-foreground" : "border-border bg-surface-2/60 text-muted",
+          "flex gap-2 rounded-xl px-3 py-2.5 text-xs leading-relaxed",
+          trouble ? "border border-status-wait/40 bg-status-wait/[0.06] text-foreground" : "vs-card text-muted",
         )}
         aria-live="polite"
       >
@@ -64,7 +65,11 @@ export default function InputsExplainer({ kind, model, tray, frames, quote, onPi
             <button
               type="button"
               onClick={onPickModel}
-              className="self-start min-h-8 text-xs font-semibold text-foreground underline underline-offset-2 hover:text-accent cursor-pointer"
+              // Отрицательные поля: на телефоне зона нажатия 44 px, а строка остаётся высотой 32 px.
+              className={cx(
+                "-my-1.5 inline-flex min-h-11 cursor-pointer items-center self-start rounded-md text-xs font-semibold text-foreground underline underline-offset-2 transition-colors hover:text-accent md:my-0 md:min-h-8",
+                VS_FOCUS,
+              )}
             >
               {tx(t, "settings.pickOther")}
             </button>
@@ -73,10 +78,10 @@ export default function InputsExplainer({ kind, model, tray, frames, quote, onPi
       </div>
 
       {rows.length > 0 && (
-        <ul className="flex flex-col gap-1.5">
+        <ul className="flex flex-col gap-2">
           {rows.map((row) => (
             <li key={row.lid} className={cx("flex items-center gap-2", row.tone === "muted" && "opacity-70")}>
-              <span className="relative size-9 shrink-0 overflow-hidden rounded-lg border border-border bg-surface-2">
+              <span className="relative size-9 shrink-0 overflow-hidden rounded-lg border border-white/10 bg-white/[0.05]">
                 {row.preview && (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={row.preview} alt="" className={cx("size-full object-cover", row.tone === "muted" && "grayscale")} />

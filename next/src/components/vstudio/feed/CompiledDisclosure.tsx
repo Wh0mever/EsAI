@@ -6,6 +6,7 @@ import { FiCheck, FiChevronDown, FiCopy, FiLoader } from "react-icons/fi";
 import { getTake } from "@/lib/vstudio/api";
 import { errorText, issueText } from "@/lib/vstudio/errors";
 import type { ShotInputJSON, TakeJSON, TakeLite, Uid, VsError } from "@/lib/vstudio/types";
+import { VS_FOCUS, VS_LABEL, vx } from "../ui/skin";
 import { inputRows } from "./feedLogic";
 
 /**
@@ -25,6 +26,11 @@ function remember(take: TakeJSON) {
 }
 
 type Tr = (k: string, o?: Record<string, unknown>) => string;
+
+/** Тихая кнопка-строка: раскрытие блока, «Копировать». На телефоне зона нажатия 44 px. */
+const QUIET_BTN = `inline-flex min-h-11 cursor-pointer items-center gap-1.5 rounded-full px-2.5 text-xs font-medium text-muted transition-colors hover:bg-white/[0.07] hover:text-foreground md:min-h-8 ${VS_FOCUS}`;
+/** Текст «как есть»: промпт и тело запроса. */
+const CODE_BOX = "overflow-auto rounded-lg border border-white/[0.08] bg-black/30 p-3";
 
 function paramRows(t: Tr, take: TakeLite): Array<[string, string]> {
   const e = take.effective || {};
@@ -66,7 +72,8 @@ function CopyButton({ text, label, done }: { text: string; label: string; done: 
     <button
       type="button"
       onClick={() => void copy()}
-      className="inline-flex min-h-8 cursor-pointer items-center gap-1 rounded-md px-2 text-xs text-muted transition-colors hover:bg-surface-3 hover:text-foreground"
+      // На телефоне кнопка выше строки заголовка: лишнее съедает отрицательный отступ.
+      className={vx(QUIET_BTN, "-my-2 shrink-0 md:my-0")}
     >
       {copied ? <FiCheck className="text-status-ok" aria-hidden /> : <FiCopy aria-hidden />}
       {copied ? done : label}
@@ -133,21 +140,28 @@ function CompiledDisclosure({ take, inputs }: CompiledDisclosureProps) {
           : "@Image —";
 
   return (
-    <div className="flex flex-col">
+    // Подвал карточки: тонкая черта отделяет «как это было сделано» от самого кадра.
+    <div className="-mx-3 -mb-2 flex flex-col border-t border-white/[0.07] px-3 pt-1 sm:-mx-4 sm:-mb-1.5 sm:px-4">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
         aria-controls={panelId}
-        className="inline-flex min-h-9 w-fit cursor-pointer items-center gap-1.5 rounded-lg px-2 text-xs font-medium text-muted transition-colors hover:bg-surface-2 hover:text-foreground"
+        className={vx(QUIET_BTN, "-ml-2 w-fit")}
       >
-        <FiChevronDown className={`transition-transform ${open ? "rotate-180" : ""}`} aria-hidden />
+        <FiChevronDown
+          className={vx("transition-transform duration-200 motion-reduce:transition-none", open && "rotate-180")}
+          aria-hidden
+        />
         {t("run.actions.sent", { defaultValue: "Что ушло модели" })}
       </button>
 
       {open && (
-        <div id={panelId} className="mt-1 flex flex-col gap-3 rounded-xl border border-border bg-surface-2 p-3 text-sm">
-          <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs">
+        <div
+          id={panelId}
+          className="mb-2 mt-1 flex flex-col gap-4 rounded-xl border border-white/[0.08] bg-black/25 p-3 text-sm sm:mb-1.5 sm:p-4"
+        >
+          <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-xs">
             <dt className="text-muted">{t("sent.modeTitle", { defaultValue: "Режим" })}</dt>
             <dd className="text-foreground">
               {t(`sent.mode.${mode}`, { defaultValue: MODE_RU[mode] || mode })}
@@ -157,12 +171,12 @@ function CompiledDisclosure({ take, inputs }: CompiledDisclosureProps) {
             ))}
           </dl>
 
-          <section className="flex flex-col gap-1">
+          <section className="flex flex-col gap-2">
             <div className="flex items-center justify-between gap-2">
-              <h4 className="text-xs font-medium text-muted">
+              <h4 className={VS_LABEL}>
                 {t("sent.prompt", { defaultValue: "Текст, который получила модель" })}
                 {shown && (
-                  <span className="ml-1.5 font-normal text-muted-2">
+                  <span className="ml-1.5 whitespace-nowrap font-normal normal-case tracking-normal">
                     {t("sent.chars", { defaultValue: "{{n}} симв.", n: shown.serialized_prompt.length })}
                   </span>
                 )}
@@ -177,31 +191,29 @@ function CompiledDisclosure({ take, inputs }: CompiledDisclosureProps) {
             </div>
             {loading && !shown ? (
               <p className="flex items-center gap-2 text-xs text-muted">
-                <FiLoader className="animate-spin" aria-hidden />
+                <FiLoader className="animate-spin motion-reduce:animate-none" aria-hidden />
                 {t("sent.loading", { defaultValue: "Загружаем…" })}
               </p>
             ) : error && !shown ? (
               <p className="flex flex-wrap items-center gap-2 text-xs text-status-fail">
                 {errorText(t, error)}
-                <button
-                  type="button"
-                  onClick={retry}
-                  className="cursor-pointer rounded-md px-2 py-1 text-foreground underline-offset-2 hover:underline"
-                >
+                <button type="button" onClick={retry} className={vx(QUIET_BTN, "!text-foreground")}>
                   {t("feed.retry", { defaultValue: "Попробовать снова" })}
                 </button>
               </p>
             ) : shown ? (
-              <pre className="max-h-80 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-surface p-2.5 font-sans text-[13px] leading-relaxed text-foreground">
+              <pre
+                className={vx(CODE_BOX, "max-h-80 whitespace-pre-wrap break-words font-sans text-[13px] leading-relaxed text-foreground/90")}
+              >
                 {shown.serialized_prompt || "—"}
               </pre>
             ) : null}
           </section>
 
-          <section className="flex flex-col gap-1">
-            <h4 className="text-xs font-medium text-muted">{t("sent.inputs", { defaultValue: "Материалы" })}</h4>
+          <section className="flex flex-col gap-2">
+            <h4 className={VS_LABEL}>{t("sent.inputs", { defaultValue: "Материалы" })}</h4>
             {used.length ? (
-              <ul className="flex flex-col gap-0.5 text-xs text-foreground">
+              <ul className="flex flex-col gap-1 text-xs text-foreground/90">
                 {used.map((r) => (
                   <li key={r.key}>
                     {rowLabel(r.input.slot, r.n)}
@@ -210,14 +222,12 @@ function CompiledDisclosure({ take, inputs }: CompiledDisclosureProps) {
                 ))}
               </ul>
             ) : (
-              <p className="text-xs text-muted-2">{t("sent.noInputs", { defaultValue: "Без фото — только текст" })}</p>
+              <p className="text-xs text-muted">{t("sent.noInputs", { defaultValue: "Без фото — только текст" })}</p>
             )}
             {excluded.length > 0 && (
               <>
-                <h5 className="mt-1 text-xs font-medium text-muted">
-                  {t("sent.excluded", { defaultValue: "Не учтено" })}
-                </h5>
-                <ul className="flex flex-col gap-0.5 text-xs text-muted">
+                <h5 className={vx(VS_LABEL, "mt-1.5")}>{t("sent.excluded", { defaultValue: "Не учтено" })}</h5>
+                <ul className="flex flex-col gap-1 text-xs text-muted">
                   {excluded.map((r) => (
                     <li key={r.key}>
                       {rowLabel(r.input.slot, null)} —{" "}
@@ -234,9 +244,9 @@ function CompiledDisclosure({ take, inputs }: CompiledDisclosureProps) {
           </section>
 
           {take.warnings?.length > 0 && (
-            <section className="flex flex-col gap-1">
-              <h4 className="text-xs font-medium text-muted">{t("sent.warnings", { defaultValue: "Предупреждения" })}</h4>
-              <ul className="flex list-disc flex-col gap-0.5 pl-4 text-xs text-status-wait">
+            <section className="flex flex-col gap-2">
+              <h4 className={VS_LABEL}>{t("sent.warnings", { defaultValue: "Предупреждения" })}</h4>
+              <ul className="flex list-disc flex-col gap-1 pl-4 text-xs text-status-wait">
                 {take.warnings.map((w, k) => (
                   <li key={`${w.code}-${k}`}>{issueText(t, w, "warnings")}</li>
                 ))}
@@ -246,10 +256,15 @@ function CompiledDisclosure({ take, inputs }: CompiledDisclosureProps) {
 
           {shown && shown.request_body && Object.keys(shown.request_body).length > 0 && (
             <details className="group text-xs">
-              <summary className="cursor-pointer select-none text-muted hover:text-foreground">
+              <summary
+                className={vx(
+                  "w-fit cursor-pointer select-none rounded-md py-1 text-muted transition-colors hover:text-foreground",
+                  VS_FOCUS,
+                )}
+              >
                 {t("sent.body", { defaultValue: "Технические подробности (тело запроса)" })}
               </summary>
-              <pre className="mt-1 max-h-72 overflow-auto rounded-lg border border-border bg-surface p-2.5 font-mono text-[11px] leading-snug text-muted">
+              <pre className={vx(CODE_BOX, "mt-1.5 max-h-72 font-mono text-[11px] leading-snug text-muted")}>
                 {JSON.stringify(shown.request_body, null, 2)}
               </pre>
             </details>

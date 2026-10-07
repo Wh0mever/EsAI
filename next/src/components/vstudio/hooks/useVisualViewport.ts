@@ -27,10 +27,14 @@ function read(): VisualViewportState | null {
   const vv = window.visualViewport;
   const innerH = window.innerHeight || 0;
   if (!vv) return { height: innerH, width: window.innerWidth || 0, offsetTop: 0, keyboard: 0 };
-  const height = Math.round(vv.height);
+  // Приближение жестом (масштаб не запрещён) уменьшает visualViewport так же,
+  // как клавиатура. Возвращаем высоту к масштабу 1: иначе оболочка сжималась
+  // бы до приближенного куска, а шторки принимали бы зум за клавиатуру.
+  const visible = vv.height * Math.max(1, vv.scale || 1);
+  const height = Math.round(visible);
   const offsetTop = Math.round(vv.offsetTop);
   // Меньше 40 px — это не клавиатура, а панель адреса браузера: её не считаем.
-  const gap = Math.max(0, Math.round(innerH - vv.height - vv.offsetTop));
+  const gap = Math.max(0, Math.round(innerH - visible - vv.offsetTop));
   return { height, width: Math.round(vv.width), offsetTop, keyboard: gap < 40 ? 0 : gap };
 }
 

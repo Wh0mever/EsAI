@@ -6,6 +6,8 @@ import { createPortal } from "react-dom";
 import { AnimatePresence, motion, useDragControls } from "framer-motion";
 import { FiX } from "react-icons/fi";
 import { useTranslation } from "react-i18next";
+import { VS_ICON_BTN } from "./ui/skin";
+import { useReducedMotion } from "./ui/useAutoplayAllowed";
 
 /**
  * Нижняя шторка студии (§9.7): выбор материалов, параметры, библиотека.
@@ -35,8 +37,10 @@ const FOCUSABLE =
 /** Tab не выходит из открытой шторки. */
 function trapTab(e: KeyboardEvent, container: HTMLElement | null) {
   if (e.key !== "Tab" || !container) return;
+  // inert: свёрнутый блок («Дополнительно») остаётся в раскладке, но фокус не
+  // берёт. Счесть его поле последним — Tab с настоящего последнего уйдёт из шторки.
   const items = Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
-    (el) => !el.hasAttribute("disabled") && el.offsetParent !== null,
+    (el) => !el.hasAttribute("disabled") && el.offsetParent !== null && !el.closest("[inert]"),
   );
   if (!items.length) {
     e.preventDefault();
@@ -46,7 +50,8 @@ function trapTab(e: KeyboardEvent, container: HTMLElement | null) {
   const first = items[0];
   const last = items[items.length - 1];
   const active = document.activeElement as HTMLElement | null;
-  if (e.shiftKey && (active === first || !container.contains(active))) {
+  // active === container: сразу после открытия фокус стоит на самой шторке.
+  if (e.shiftKey && (active === first || active === container || !container.contains(active))) {
     e.preventDefault();
     last.focus();
   } else if (!e.shiftKey && (active === last || !container.contains(active))) {
@@ -184,6 +189,8 @@ export default function BottomSheet({
   const titleId = useId();
   const controls = useDragControls();
   const portal = usePortalReady();
+  // «Меньше движения»: шторка появляется сразу, без выезда.
+  const reduced = useReducedMotion();
   const close = () => {
     if (dismissible) onClose();
   };
@@ -209,7 +216,7 @@ export default function BottomSheet({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            transition={{ duration: 0.18 }}
+            transition={{ duration: reduced ? 0 : 0.18 }}
             onClick={close}
             aria-hidden="true"
           />
@@ -220,15 +227,18 @@ export default function BottomSheet({
             aria-labelledby={title ? titleId : undefined}
             aria-label={title ? undefined : ariaLabel}
             tabIndex={-1}
+            // Большую панель с backdrop-filter слабый телефон двигает рывками,
+            // поэтому шторка без размытия и непрозрачная (vs-solid): сквозь
+            // обычное стекло проступал бы текст страницы.
             className={
-              "absolute inset-x-0 mx-auto flex w-full max-w-[680px] flex-col rounded-t-2xl border border-b-0 border-border bg-surface text-foreground shadow-2xl outline-none " +
+              "vs-solid absolute inset-x-0 mx-auto flex w-full max-w-[680px] flex-col rounded-t-[24px] !border-b-0 text-foreground outline-none " +
               className
             }
             style={style}
             initial={{ y: "100%" }}
             animate={{ y: 0 }}
             exit={{ y: "100%" }}
-            transition={{ type: "tween", duration: 0.24, ease: "easeOut" }}
+            transition={{ type: "tween", duration: reduced ? 0 : 0.24, ease: "easeOut" }}
             drag={dismissible ? "y" : false}
             dragListener={false}
             dragControls={controls}
@@ -246,10 +256,10 @@ export default function BottomSheet({
                 if (dismissible) controls.start(e);
               }}
             >
-              <div className="mx-auto mb-2 h-1.5 w-10 rounded-full bg-border-strong" aria-hidden="true" />
+              <div className="mx-auto mb-2 h-1 w-10 rounded-full bg-white/20" aria-hidden="true" />
               {(title || showClose) && (
-                <div className="flex min-h-11 items-center gap-2 pb-2">
-                  <div id={titleId} className="min-w-0 flex-1 truncate text-base font-semibold">
+                <div className="flex min-h-11 items-center gap-2 pb-2.5">
+                  <div id={titleId} className="vs-display min-w-0 flex-1 truncate py-1 text-[17px] text-foreground">
                     {title}
                   </div>
                   {showClose && (
@@ -257,17 +267,17 @@ export default function BottomSheet({
                       type="button"
                       onClick={onClose}
                       onPointerDown={(e) => e.stopPropagation()}
-                      className="grid h-11 w-11 shrink-0 place-items-center rounded-xl text-muted transition-colors hover:bg-surface-2 hover:text-foreground cursor-pointer"
+                      className={VS_ICON_BTN}
                       aria-label={t("mobile.close", { defaultValue: "Закрыть" })}
                     >
-                      <FiX className="text-xl" />
+                      <FiX className="text-lg" aria-hidden="true" />
                     </button>
                   )}
                 </div>
               )}
             </div>
             <div className={"min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-4 " + bodyClassName}>{children}</div>
-            {footer && <div className="shrink-0 border-t border-border px-4 py-3">{footer}</div>}
+            {footer && <div className="shrink-0 border-t border-white/10 px-4 py-3">{footer}</div>}
           </motion.div>
         </div>
       )}

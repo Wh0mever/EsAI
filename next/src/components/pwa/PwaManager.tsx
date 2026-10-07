@@ -19,7 +19,7 @@ function isStandalone(): boolean {
   return (
     window.matchMedia?.("(display-mode: standalone)").matches ||
     // iOS Safari
-    (window.navigator as any).standalone === true
+    (window.navigator as Navigator & { standalone?: boolean }).standalone === true
   );
 }
 
@@ -54,6 +54,15 @@ function isInAppBrowser(): boolean {
 function isChatPath(pathname: string | null): boolean {
   if (!pathname) return false;
   return pathname === "/" || pathname.startsWith("/dashboard");
+}
+
+/**
+ * Видеостудия занимает весь экран: внизу баннер закрывал панель запроса с
+ * кнопкой «Создать», вверху — заголовок первого экрана. Там его не показываем;
+ * человек увидит предложение на любой другой странице.
+ */
+function isStudioPath(pathname: string | null): boolean {
+  return Boolean(pathname && pathname.startsWith("/video-studio"));
 }
 
 /**
@@ -175,7 +184,7 @@ export default function PwaManager() {
     }
   }, [deferred]);
 
-  if (!showBanner && !showIosHint) return null;
+  if ((!showBanner && !showIosHint) || isStudioPath(pathname)) return null;
 
   // На страницах чата баннер внизу закрывал поле ввода (особенно iOS-подсказка,
   // которая всплывает сама через 3.5 с) — там показываем его сверху, под шапкой.
