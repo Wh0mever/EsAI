@@ -976,6 +976,7 @@ export const SEO_MODELS_EXTRA: SeoModel[] = [
     name: "Veo 3.1",
     vendor: "Google",
     openrouter_id: "google/veo-3.1",
+    video: true,
     metaDescription:
       "Veo 3.1 онлайн в EsAI — генерация видео до 4K со звуком по текстовому описанию. Без VPN, оплата в сомах.",
     intro:
@@ -1009,6 +1010,7 @@ export const SEO_MODELS_EXTRA: SeoModel[] = [
     name: "Veo 3.1 Lite",
     vendor: "Google",
     openrouter_id: "google/veo-3.1-lite",
+    video: true,
     metaDescription:
       "Veo 3.1 Lite онлайн в EsAI — экономичная видео-модель Google: 1080p со звуком, 4–8 секунд. Без VPN.",
     intro:
@@ -1039,6 +1041,7 @@ export const SEO_MODELS_EXTRA: SeoModel[] = [
     name: "Sora 2 Pro",
     vendor: "OpenAI",
     openrouter_id: "openai/sora-2-pro",
+    // Без video: в видеостудии Sora нет (core/vstudio/caps.py) — кнопка открыла бы другую модель.
     metaDescription:
       "Sora 2 Pro онлайн в EsAI — видео до 20 секунд со звуком и достоверной физикой движения. Без VPN, оплата в сомах.",
     intro:
@@ -1072,6 +1075,7 @@ export const SEO_MODELS_EXTRA: SeoModel[] = [
     name: "Kling 3.0",
     vendor: "Kuaishou",
     openrouter_id: "kwaivgi/kling-v3.0-std",
+    video: true,
     metaDescription:
       "Kling 3.0 онлайн в EsAI — реалистичное видео до 15 секунд со звуком, контроль первого и последнего кадра.",
     intro:
@@ -1102,6 +1106,7 @@ export const SEO_MODELS_EXTRA: SeoModel[] = [
     name: "Hailuo 2.3",
     vendor: "MiniMax",
     openrouter_id: "minimax/hailuo-2.3",
+    video: true,
     metaDescription:
       "Hailuo 2.3 онлайн в EsAI — видео 1080p на 6 или 10 секунд по самой низкой цене за секунду. Без VPN.",
     intro:
@@ -1135,6 +1140,7 @@ export const SEO_MODELS_EXTRA: SeoModel[] = [
     name: "Seedance 2.0",
     vendor: "ByteDance",
     openrouter_id: "bytedance/seedance-2.0",
+    video: true,
     metaDescription:
       "Seedance 2.0 онлайн в EsAI — видео до 15 секунд, вплоть до 4K, семь пропорций кадра и звук. Без VPN.",
     intro:
@@ -1165,6 +1171,7 @@ export const SEO_MODELS_EXTRA: SeoModel[] = [
     name: "Seedance 2.5",
     vendor: "ByteDance",
     openrouter_id: "bytedance/seedance-2.5",
+    video: true,
     metaDescription:
       "Seedance 2.5 онлайн в EsAI — видео до 30 секунд со звуком, продление роликов и склейка сцен. Без VPN.",
     intro:
@@ -1198,6 +1205,7 @@ export const SEO_MODELS_EXTRA: SeoModel[] = [
     name: "Wan 2.7",
     vendor: "Alibaba",
     openrouter_id: "alibaba/wan-2.7",
+    video: true,
     metaDescription:
       "Wan 2.7 онлайн в EsAI — видео 1080p со звуком, от 2 до 10 секунд, пять пропорций кадра. Без VPN.",
     intro:
@@ -1228,6 +1236,7 @@ export const SEO_MODELS_EXTRA: SeoModel[] = [
     name: "Grok Video",
     vendor: "xAI",
     openrouter_id: "x-ai/grok-imagine-video",
+    video: true,
     metaDescription:
       "Grok Video онлайн в EsAI — короткие ролики 1–15 секунд, семь пропорций кадра, быстрая генерация. Без VPN.",
     intro:

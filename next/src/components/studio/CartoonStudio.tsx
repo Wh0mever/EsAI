@@ -1,6 +1,7 @@
 "use client";
 
 import { useTranslation } from "react-i18next";
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FiChevronDown, FiFilm, FiLoader, FiMic, FiPlay, FiPlus, FiUser, FiZap } from "react-icons/fi";
 import { fetchData } from "@/tools/fetchData";
@@ -90,6 +91,10 @@ type ApiRefusal = { detail?: string; required?: number; balance?: number } | nul
 
 /** Сколько сцен показываем за раз. Шесть — просьба клиента, ради медленного интернета. */
 const PAGE_SIZE = 6;
+
+// Ссылка на видеостудию — по тому же правилу, что пункт меню сайта
+// (components/main/Nav.tsx): только в сборке, где студия открыта всем.
+const VSTUDIO_NAV = process.env.NEXT_PUBLIC_VSTUDIO_NAV === "1";
 
 export default function CartoonStudio() {
   const { t, i18n } = useTranslation("common");
@@ -1131,6 +1136,20 @@ export default function CartoonStudio() {
         <p className="mt-1 text-sm text-muted">
           {t("studio_ui.subtitle")}
         </p>
+        {/* Студия собирает ролик из готовых сцен. Кому нужен свой сюжет по
+            описанию — тому в видеостудию, а отсюда о ней было не узнать. */}
+        {VSTUDIO_NAV && (
+          <p className="mt-2 text-sm text-muted">
+            {t("studio_ui.vstudio_hint", { defaultValue: "Нужно видео не из готовых сцен?" })}{" "}
+            <Link
+              href="/video-studio"
+              className="font-semibold text-accent-strong underline-offset-4 hover:underline"
+            >
+              {t("studio_ui.vstudio_link", { defaultValue: "Откройте видеостудию" })}
+              <span aria-hidden> →</span>
+            </Link>
+          </p>
+        )}
       </header>
 
       {/* Формат будущего ролика. Клиент: в Reels горизонтальное видео

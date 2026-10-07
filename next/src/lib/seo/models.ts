@@ -15,6 +15,12 @@ export type SeoModel = {
   vendor: string;
   /** OpenRouter identifier used to preselect the model in chat. */
   openrouter_id: string;
+  /**
+   * Видео-модель: на её странице есть вторая кнопка — «Открыть в видеостудии»
+   * (/video-studio?model=<openrouter_id>). Отмечается у самой записи, чтобы
+   * новая видео-модель не осталась без кнопки из-за забытого списка слагов.
+   */
+  video?: boolean;
   /** Short meta description (<= ~160 chars). */
   metaDescription: string;
   /** Lead paragraph under the H1. */

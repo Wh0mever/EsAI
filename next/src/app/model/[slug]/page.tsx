@@ -8,6 +8,15 @@ import { SEO_MODELS, getModel, getRelatedModels } from "@/lib/seo/models";
 
 type Params = { slug: string };
 
+// Кнопка «Открыть в видеостудии» у видео-моделей — по тому же правилу, что пункт
+// меню (components/main/Nav.tsx): только в сборке, где студия открыта всем.
+// Страницы статические, флаг вшивается при сборке вместе с ними.
+const VSTUDIO_NAV = process.env.NEXT_PUBLIC_VSTUDIO_NAV === "1";
+
+// Вторая кнопка рядом с золотой «в чате»: контурная, чтобы главная оставалась одна.
+const CTA_SECONDARY =
+  "inline-flex items-center rounded-full border border-border bg-surface text-foreground font-semibold px-6 py-3 hover:border-accent/60 transition-colors";
+
 // Только слаги из SEO_MODELS валидны; любой другой (напр. удалённый /model/mistral)
 // → настоящий 404, а не 200 (важно для SEO: не плодить пустые страницы).
 export const dynamicParams = false;
@@ -50,6 +59,10 @@ export default async function ModelPage({ params }: { params: Promise<Params> })
 
   const related = getRelatedModels(slug);
   const chatHref = `/?model=${encodeURIComponent(model.openrouter_id)}`;
+  // Студия по этой ссылке открывается уже с этой моделью в панели запроса;
+  // если модели в студии нет, параметр молча пропускается (vstudio/deepLink.ts).
+  const studioHref =
+    VSTUDIO_NAV && model.video ? `/video-studio?model=${encodeURIComponent(model.openrouter_id)}` : null;
 
   const breadcrumb = breadcrumbJsonLd([
     { name: "Главная", url: "/" },
@@ -87,13 +100,18 @@ export default async function ModelPage({ params }: { params: Promise<Params> })
             {model.name} онлайн в {SITE_NAME}
           </h1>
           <p className="mt-4 text-base sm:text-lg text-muted leading-relaxed">{model.intro}</p>
-          <div className="mt-6">
+          <div className={studioHref ? "mt-6 flex flex-wrap gap-3" : "mt-6"}>
             <Link
               href={chatHref}
               className="inline-flex items-center rounded-full bg-accent text-on-accent font-semibold px-6 py-3 hover:bg-accent-strong transition-colors"
             >
               Открыть {model.name} в чате
             </Link>
+            {studioHref && (
+              <Link href={studioHref} className={CTA_SECONDARY}>
+                Открыть в видеостудии
+              </Link>
+            )}
           </div>
         </header>
 
@@ -151,12 +169,19 @@ export default async function ModelPage({ params }: { params: Promise<Params> })
           <p className="text-sm text-muted mb-4">
             Без VPN, на русском и кыргызском, оплата в сомах. Начните бесплатно.
           </p>
-          <Link
-            href={chatHref}
-            className="inline-flex items-center rounded-full bg-accent text-on-accent font-semibold px-6 py-3 hover:bg-accent-strong transition-colors"
-          >
-            Открыть в чате
-          </Link>
+          <div className={studioHref ? "flex flex-wrap justify-center gap-3" : undefined}>
+            <Link
+              href={chatHref}
+              className="inline-flex items-center rounded-full bg-accent text-on-accent font-semibold px-6 py-3 hover:bg-accent-strong transition-colors"
+            >
+              Открыть в чате
+            </Link>
+            {studioHref && (
+              <Link href={studioHref} className={CTA_SECONDARY}>
+                Открыть в видеостудии
+              </Link>
+            )}
+          </div>
         </section>
 
         {related.length > 0 && (
