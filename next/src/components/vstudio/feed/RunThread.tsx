@@ -3,13 +3,16 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type Dispatch, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { FiAlertTriangle, FiChevronUp, FiLoader, FiRefreshCw } from "react-icons/fi";
+import { apiLang } from "@/lib/apiLang";
 import { listShots } from "@/lib/vstudio/api";
 import { errorText, reactionFor } from "@/lib/vstudio/errors";
 import type { ActiveTake, FeedState, Uid, VsAction, VsError, VsKind, VsState } from "@/lib/vstudio/types";
 import { useVStudio, useVStudioOptional, type VStudioContextValue } from "../context";
 import { useTakePolling } from "../hooks/useTakePolling";
+import { homeStarters } from "../home/starters";
 import StudioHome from "../home/StudioHome";
-import { VS_TEMPLATES, type VsStarter } from "../home/templates";
+import type { VsStarter } from "../home/templates";
+import { peekShowreel } from "../home/useShowreel";
 import { AUTO } from "../settings/settingsModel";
 import { VS_BTN_GHOST, VS_CARD, vx } from "../ui/skin";
 import EmptyState from "./EmptyState";
@@ -146,31 +149,30 @@ function FeedSkeleton() {
 
 /**
  * Первый экран на месте ленты. Сценарий («С чего начать») ложится только в
- * пустой запрос или поверх такой же нетронутой заготовки: свой текст человека
- * и поднятый черновик он не затирает — как «Снять похожее» и ссылка с текстом.
+ * пустой запрос или поверх нетронутой заготовки — такого же сценария или
+ * запроса ролика из карусели: свой текст человека и поднятый черновик он не
+ * затирает — как «Снять похожее» и ссылка с текстом.
  * Текст композера читаем здесь, а не пропсом ленты: она (memo) не должна
  * перерисовываться на каждую букву. Первый экран живёт только внутри студии.
  */
 function HomeSlot({ onStarter }: { onStarter: (starter: VsStarter) => void }) {
-  const { t } = useTranslation("vstudio", { useSuspense: false });
+  const { t, i18n } = useTranslation("vstudio", { useSuspense: false });
   const { state, actions } = useVStudio();
   const kept = t("home.templates.kept", {
     defaultValue: "В запросе уже есть ваш текст — сценарий его не заменил. Очистите запрос, чтобы взять сценарий.",
   });
+  const lang = apiLang(i18n.language);
 
-  const live = useRef({ doc: state.composer.doc, toast: actions.toast, onStarter, t, kept });
+  const live = useRef({ doc: state.composer.doc, toast: actions.toast, onStarter, t, kept, lang });
   useLayoutEffect(() => {
-    live.current = { doc: state.composer.doc, toast: actions.toast, onStarter, t, kept };
+    live.current = { doc: state.composer.doc, toast: actions.toast, onStarter, t, kept, lang };
   });
 
   /** false — запрос не тронут: в нём свой текст. */
   const start = useCallback((starter: VsStarter): boolean => {
     const cur = live.current;
-    // И перевод, и русский исходник: заготовку могли взять до смены языка.
-    const starters = VS_TEMPLATES.flatMap((tpl) => [
-      tpl.prompt,
-      cur.t(`home.tpl.${tpl.id}.prompt`, { defaultValue: tpl.prompt }),
-    ]);
+    // Карусель берём из кэша витрины (запроса нет): сам хук живёт в StudioHome.
+    const starters = homeStarters(cur.t, peekShowreel(cur.lang).reel);
     if (!starterReplaceable(cur.doc, starters)) {
       cur.toast(cur.kept, "info");
       return false;

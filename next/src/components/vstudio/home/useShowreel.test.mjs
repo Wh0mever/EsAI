@@ -68,22 +68,32 @@ afterEach(() => {
   Date.now = realNow;
 });
 
-test("до ответа — загрузка; после — карусель и галерея, повторный вызов берёт из кэша", async () => {
+test("до ответа — загрузка; после — карусель, повторный вызов берёт из кэша", async () => {
   assert.equal(R.peekShowreel("ru").loading, true);
   assert.deepEqual(R.peekShowreel("ru").reel, []);
+  assert.equal(R.peekShowreel("ru").source, null);
   await R.loadShowreel("ru");
   const view = R.peekShowreel("ru");
   assert.equal(view.loading, false);
-  assert.equal(view.hasStudio, true);
-  assert.deepEqual(view.reel.slice(0, 2).map((i) => i.id), ["vs:1", "vs:2"]);
-  assert.equal(view.reel.length, 8);
-  assert.equal(view.all.length, 8);
-  assert.deepEqual(view.categories, [{ slug: "tales", title: "Сказки", count: 6 }]);
+  // Двух роликов студии на карусель мало — она целиком у мультстудии.
+  assert.equal(view.source, "cartoon");
+  assert.deepEqual(view.reel.map((i) => i.id), [1, 2, 3, 4, 5, 6].map((n) => `ct:scene-${n}`));
+  assert.equal(view.cartoonPoster, "/media/cartoon/1.jpg");
   assert.deepEqual(calls, ["/api/vstudio/showcase/", "/api/cartoon/presets/?lang=ru"]);
 
   await R.loadShowreel("ru");
   assert.equal(calls.length, 2, "свежий кэш — без запросов");
   assert.equal(R.peekShowreel("ru"), view, "тот же объект — подписчики не перерисовываются");
+});
+
+test("роликов студии хватает — карусель из них, сцены мультстудии в неё не попадают", async () => {
+  routes["vstudio/showcase/"] = () => json(200, showcaseBody([1, 2, 3, 4, 5]));
+  await R.loadShowreel("ru");
+  const view = R.peekShowreel("ru");
+  assert.equal(view.source, "vstudio");
+  assert.deepEqual(view.reel.map((i) => i.id), ["vs:1", "vs:2", "vs:3", "vs:4", "vs:5"]);
+  // Постер для карточки «Мультстудия» при этом всё равно есть.
+  assert.equal(view.cartoonPoster, "/media/cartoon/1.jpg");
 });
 
 test("параллельные вызовы делят один запрос", async () => {
@@ -99,7 +109,7 @@ test("витрина студии не ответила (404) — первый �
   await R.loadShowreel("ru");
   let view = R.peekShowreel("ru");
   assert.equal(view.loading, false);
-  assert.equal(view.hasStudio, false);
+  assert.equal(view.source, "cartoon");
   assert.equal(view.reel.length, 6);
   assert.ok(view.reel.every((i) => i.source === "cartoon"));
 
@@ -109,21 +119,23 @@ test("витрина студии не ответила (404) — первый �
   await R.loadShowreel("ru");
   view = R.peekShowreel("ru");
   assert.equal(view.loading, false);
-  assert.deepEqual(view.all.map((i) => i.id), ["vs:7"]);
-  assert.deepEqual(view.categories, []);
+  // Сцен нет вовсе — единственный ролик студии лучше пустого экрана.
+  assert.equal(view.source, "vstudio");
+  assert.deepEqual(view.reel.map((i) => i.id), ["vs:7"]);
+  assert.equal(view.cartoonPoster, null);
 });
 
 test("оба источника молчат — пустая витрина, а не вечная загрузка; ответ не JSON — тоже", async () => {
   routes["vstudio/showcase/"] = "offline";
   routes["cartoon/presets/"] = "offline";
   await R.loadShowreel("ru");
-  assert.deepEqual(R.peekShowreel("ru"), { reel: [], all: [], categories: [], hasStudio: false, loading: false });
+  assert.deepEqual(R.peekShowreel("ru"), { reel: [], source: null, cartoonPoster: null, loading: false });
 
   R.resetShowreelCache();
   routes["vstudio/showcase/"] = () => new Response("<html>502</html>", { status: 200, headers: { "content-type": "text/html" } });
   routes["cartoon/presets/"] = () => json(200, ["не тот вид"]);
   await R.loadShowreel("ru");
-  assert.deepEqual(R.peekShowreel("ru").all, []);
+  assert.deepEqual(R.peekShowreel("ru").reel, []);
   assert.equal(R.peekShowreel("ru").loading, false);
 });
 
@@ -150,21 +162,26 @@ test("кэш живёт 10 минут; неудачный ответ — 30 се
   await R.loadShowreel("ru");
   assert.equal(calls.length, 4);
   now += 2;
-  routes["vstudio/showcase/"] = () => json(200, showcaseBody([1, 2, 3]));
+  routes["vstudio/showcase/"] = () => json(200, showcaseBody([1, 2, 3, 4, 5]));
   routes["cartoon/presets/"] = () => json(200, presetsBody("ru"));
   await R.loadShowreel("ru");
   assert.equal(calls.length, 6);
-  assert.equal(R.peekShowreel("ru").all.length, 9);
+  // За это время владелец добрал пять роликов — карусель перешла к студии.
+  assert.equal(first.source, "cartoon");
+  assert.equal(R.peekShowreel("ru").source, "vstudio");
+  assert.equal(R.peekShowreel("ru").reel.length, 5);
 });
 
 test("вернулась сеть: неудачный ответ перезапрашиваем сразу, удачный — нет", async () => {
   routes["cartoon/presets/"] = () => json(404, {});
   await R.loadShowreel("ru");
   assert.equal(calls.length, 2);
+  assert.deepEqual(R.peekShowreel("ru").reel.map((i) => i.id), ["vs:1", "vs:2"]);
   routes["cartoon/presets/"] = () => json(200, presetsBody("ru"));
   await R.loadShowreel("ru", true);
   assert.equal(calls.length, 4);
-  assert.equal(R.peekShowreel("ru").all.length, 8);
+  assert.equal(R.peekShowreel("ru").source, "cartoon");
+  assert.equal(R.peekShowreel("ru").reel.length, 6);
   await R.loadShowreel("ru", true);
   assert.equal(calls.length, 4);
 });
@@ -188,11 +205,10 @@ test("язык: своя витрина на каждый; пока новая �
   const again = R.loadShowreel("ru");
   await R.loadShowreel("en");
   const en = R.peekShowreel("en");
-  assert.equal(en.categories[0].title, "Tales");
-  assert.ok(en.all.some((i) => i.title === "en:1"));
+  assert.equal(en.reel[0].title, "en:1");
   releaseRu();
   await again;
   assert.equal(R.peekShowreel("en"), en);
-  assert.equal(R.peekShowreel("ru").categories[0].title, "Сказки");
+  assert.equal(R.peekShowreel("ru").reel[0].title, "ru:1");
   assert.ok(calls.includes("/api/cartoon/presets/?lang=en"));
 });

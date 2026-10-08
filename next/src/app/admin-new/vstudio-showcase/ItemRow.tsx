@@ -1,17 +1,25 @@
 "use client";
 
 import { FiChevronDown, FiChevronUp, FiTrash2 } from "react-icons/fi";
-import { Badge, CARD, INPUT, Preview, Switch, btn, fmtDate, mediaFacts, type Tone } from "./parts";
-import { TITLE_MAX, type Category, type ItemChanges, type ShowcaseItem } from "./showcaseAdmin";
+import { REEL_MIN, REEL_SIZE } from "@/components/vstudio/home/showreelData";
+import { Badge, CARD, INPUT, Preview, StartFrame, Switch, btn, fmtDate, mediaFacts, type Tone } from "./parts";
+import { TITLE_MAX, type Category, type ItemChanges, type Place, type ShowcaseItem } from "./showcaseAdmin";
 
-/** Где работа сейчас на сайте. */
-export type Place = "reel" | "gallery" | "hidden" | "over" | "nofile";
-
-const PLACE: Record<Exclude<Place, "gallery">, { tone: Tone; label: string; title: string }> = {
+const PLACE: Record<Place, { tone: Tone; label: string; title: string }> = {
   reel: {
     tone: "accent",
     label: "В карусели",
-    title: "Одна из первых работ: идёт в карусели первого экрана и в блоке «Сделано в EsAI»",
+    title: "Идёт в карусели первого экрана видеостудии",
+  },
+  wait: {
+    tone: "wait",
+    label: "Ждёт карусели",
+    title: `Карусель покажет ролики студии, когда их станет не меньше ${REEL_MIN}, — пока в ней сцены мультстудии`,
+  },
+  out: {
+    tone: "wait",
+    label: "Вне карусели",
+    title: `Посетители её сейчас не видят: в карусели ${REEL_SIZE} роликов — верхний из каждого сценария, затем остальные по порядку; картинки в неё не идут`,
   },
   hidden: {
     tone: "muted",
@@ -21,7 +29,7 @@ const PLACE: Record<Exclude<Place, "gallery">, { tone: Tone; label: string; titl
   over: {
     tone: "wait",
     label: "Не поместилась",
-    title: "Посетителям уходят только первые видимые работы — поднимите эту выше или скройте лишние",
+    title: "Сайту уходят только первые видимые работы — поднимите эту выше или скройте лишние",
   },
   nofile: {
     tone: "fail",
@@ -60,7 +68,7 @@ export default function ItemRow({
   onMove,
   onRemove,
 }: Props) {
-  const badge = place === "gallery" ? null : PLACE[place];
+  const badge = PLACE[place];
 
   const commitTitle = (field: HTMLInputElement) => {
     const value = field.value.trim();
@@ -119,13 +127,11 @@ export default function ItemRow({
         >
           <FiChevronDown className="h-4 w-4" aria-hidden />
         </button>
-        {badge && (
-          <span className="ml-2 sm:hidden">
-            <Badge tone={badge.tone} title={badge.title}>
-              {badge.label}
-            </Badge>
-          </span>
-        )}
+        <span className="ml-2 sm:hidden">
+          <Badge tone={badge.tone} title={badge.title}>
+            {badge.label}
+          </Badge>
+        </span>
       </div>
 
       <Preview
@@ -156,7 +162,8 @@ export default function ItemRow({
           <select
             value={item.category}
             disabled={busy}
-            aria-label="Категория"
+            aria-label="Сценарий"
+            title="Сценарий — под этим названием ролик стоит в карусели"
             onChange={(e) => onPatch(item, { category: e.target.value })}
             className={`${INPUT} cursor-pointer`}
           >
@@ -172,13 +179,11 @@ export default function ItemRow({
         </div>
 
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-2">
-          {badge && (
-            <span className="hidden sm:inline-flex">
-              <Badge tone={badge.tone} title={badge.title}>
-                {badge.label}
-              </Badge>
-            </span>
-          )}
+          <span className="hidden sm:inline-flex">
+            <Badge tone={badge.tone} title={badge.title}>
+              {badge.label}
+            </Badge>
+          </span>
           <span className="min-w-0 truncate">
             {item.modelName ? `${item.modelName} · ` : ""}
             {mediaFacts(item)}
@@ -202,17 +207,21 @@ export default function ItemRow({
             disabled={busy}
             onChange={(visible) => onPatch(item, { visible })}
           />
-          <Switch
-            on={item.showPrompt}
-            label="Показывать промпт"
-            title={
-              item.prompt
-                ? "Посетитель увидит кнопку «Снять похожее»: текст запроса и параметры подставятся в его студию"
-                : "У этого дубля нет текста запроса"
-            }
-            disabled={busy || (!item.prompt && !item.showPrompt)}
-            onChange={(showPrompt) => onPatch(item, { showPrompt })}
-          />
+          {/* Первый кадр — рядом с переключателем, который делает его видимым: проверить до включения. */}
+          <span className="inline-flex items-center gap-2">
+            <Switch
+              on={item.showPrompt}
+              label="Показывать запрос"
+              title={
+                item.prompt
+                  ? "По запросу работает кнопка «Снять похожее»: текст и параметры подставятся в студию посетителя. У работ с первым кадром станет виден и он"
+                  : "У этого дубля нет текста запроса"
+              }
+              disabled={busy || (!item.prompt && !item.showPrompt)}
+              onChange={(showPrompt) => onPatch(item, { showPrompt })}
+            />
+            {item.startFrame && <StartFrame src={item.startFrame} shown={item.showPrompt} />}
+          </span>
           <button type="button" onClick={() => onRemove(item)} disabled={busy} className={`${btn("danger")} ml-auto`}>
             <FiTrash2 className="h-3.5 w-3.5" aria-hidden />
             Убрать

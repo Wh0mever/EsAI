@@ -1,10 +1,12 @@
-// Первый экран видеостудии: сценарии (home/templates.ts) и сборка витрины (home/showreelData.ts).
+// Первый экран видеостудии: заготовки (home/templates.ts), сценарии карусели (home/scenarios.ts),
+// её кадры (home/showreelData.ts) и «Снять похожее» (home/applyItem.ts).
 // Запуск (Node 22.6+):  node --experimental-strip-types --test src/components/vstudio/home/*.test.mjs
 import "../../../lib/vstudio/nodeTsHooks.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
 const T = await import("./templates.ts");
+const C = await import("./scenarios.ts");
 const S = await import("./showreelData.ts");
 
 /* ---------- сценарии ---------- */
@@ -42,7 +44,41 @@ test("сценарии: в заготовке нет @ — ни в коде, н�
   }
 });
 
-/* ---------- витрина ---------- */
+/* ---------- сценарии карусели ---------- */
+
+test("сценарии карусели: 12 ключей в порядке показа, «Другое» — не сценарий", () => {
+  assert.deepEqual(C.SCENARIOS, ["film", "ad", "person", "car", "action", "scifi", "fashion", "music", "i2v", "anim", "real", "vertical"]);
+  // Ключ — значение ShowcaseItem.category: у сервера на него 8 знаков.
+  for (const key of C.SCENARIOS) assert.ok(key.length <= 8 && C.isScenario(key), key);
+  for (const not of ["other", "social", "anime", "", "Film", "constructor", null, undefined, 7]) {
+    assert.equal(C.isScenario(not), false, String(not));
+  }
+});
+
+test("название сценария: перевод по ключу home.scenario.<ключ>, без перевода — русское", () => {
+  const calls = [];
+  const t = (key, options) => {
+    calls.push([key, options]);
+    return key === "home.scenario.ad" ? "Product ad" : options.defaultValue;
+  };
+  assert.equal(C.scenarioLabel(t, "ad"), "Product ad");
+  assert.equal(C.scenarioLabel(t, "i2v"), "Image → Video");
+  assert.equal(C.scenarioLabel(t, "other"), "Другое");
+  assert.deepEqual(calls[0], ["home.scenario.ad", { ns: "vstudio", defaultValue: "Реклама товара" }]);
+  // i18next без готового перевода может вернуть не строку — подпись всё равно есть.
+  assert.equal(C.scenarioLabel(() => undefined, "film"), "Киносцена");
+
+  // Незнакомый ключ и «без сценария» — пустая строка: подпись берут у самой работы.
+  calls.length = 0;
+  for (const none of [null, undefined, "", "social", "toString"]) assert.equal(C.scenarioLabel(t, none), "");
+  assert.deepEqual(calls, []);
+
+  const names = C.SCENARIOS.map((key) => C.scenarioLabel(t, key));
+  assert.equal(new Set(names).size, 12);
+  for (const name of names) assert.ok(name && name.length <= 20, name);
+});
+
+/* ---------- кадры карусели ---------- */
 
 const showcase = (over = {}) => ({
   id: 12,
@@ -59,6 +95,8 @@ const showcase = (over = {}) => ({
   poster_url: "/media/vstudio/a.jpg",
   prompt: "Ночной город под дождём",
   params: { duration: 5, resolution: "720p", aspect_ratio: "16:9" },
+  needs_photo: false,
+  start_frame_url: null,
   ...over,
 });
 
@@ -78,7 +116,15 @@ const preset = (n, over = {}) => ({
   ...over,
 });
 
-test("работа видеостудии → карточка: модель, запрос и параметры на месте", () => {
+/** n работ студии; over(i) — что у i-й по счёту (с нуля) своё. */
+const works = (n, over = () => ({})) =>
+  S.studioItems({ items: Array.from({ length: n }, (_, i) => showcase({ id: i + 1, ...over(i) })) });
+/** n сцен мультстудии, первые picks — выбор редакции. */
+const scenes = (n, picks = n) =>
+  S.cartoonItems({ presets: Array.from({ length: n }, (_, i) => preset(i + 1, { is_pick: i < picks })) });
+const ids = (items) => items.map((i) => i.id);
+
+test("работа видеостудии → карточка: сценарий, модель, запрос и параметры на месте", () => {
   const [item] = S.studioItems({ items: [showcase()] });
   assert.deepEqual(item, {
     id: "vs:12",
@@ -86,6 +132,7 @@ test("работа видеостудии → карточка: модель, з
     kind: "video",
     title: "Ночной город",
     subtitle: "Seedance 2.0",
+    scenario: "film",
     category: "film",
     video: "/media/vstudio/a.mp4",
     poster: "/media/vstudio/a.jpg",
@@ -95,8 +142,43 @@ test("работа видеостудии → карточка: модель, з
     modelId: "bytedance/seedance-2.0",
     prompt: "Ночной город под дождём",
     params: { duration: 5, resolution: "720p", aspect_ratio: "16:9" },
+    needsPhoto: false,
+    startFrame: null,
     pick: false,
   });
+});
+
+test("сценарий работы: ключ из списка; старые ключи сервера переводятся; остальное — без сценария", () => {
+  const scenario = (category) => S.studioItems({ items: [showcase({ category })] })[0].scenario;
+  for (const key of C.SCENARIOS) assert.equal(scenario(key), key);
+  // Сервер прежней версии: social и anime.
+  assert.equal(scenario("social"), "vertical");
+  assert.equal(scenario("anime"), "anim");
+  for (const none of ["other", "", null, undefined, 3, "FILM", "cartoon", "constructor"]) {
+    assert.equal(scenario(none), null, String(none));
+  }
+});
+
+test("работа, снятая с фото: флаг и первый кадр; сервер прежней версии их не присылает", () => {
+  const one = (over) => S.studioItems({ items: [showcase(over)] })[0];
+  const i2v = one({ needs_photo: true, start_frame_url: "/media/vstudio/thumbs/f.jpg" });
+  assert.equal(i2v.needsPhoto, true);
+  assert.equal(i2v.startFrame, "/media/vstudio/thumbs/f.jpg");
+  // Снято с фото-референсами: фото нужно, а первого кадра нет.
+  const refs = one({ needs_photo: true, start_frame_url: null });
+  assert.deepEqual([refs.needsPhoto, refs.startFrame], [true, null]);
+
+  const old = one({ needs_photo: undefined, start_frame_url: undefined });
+  assert.deepEqual([old.needsPhoto, old.startFrame], [false, null]);
+  for (const junk of [{ needs_photo: 1 }, { needs_photo: "true" }, { start_frame_url: "" }, { start_frame_url: 5 }, { start_frame_url: "  " }]) {
+    const item = one(junk);
+    assert.deepEqual([item.needsPhoto, item.startFrame], [false, null], JSON.stringify(junk));
+  }
+  // Первый кадр есть, а флаг не дошёл — фото всё равно нужно.
+  assert.equal(one({ needs_photo: undefined, start_frame_url: "/media/f.jpg" }).needsPhoto, true);
+  // У картинки первого кадра не бывает.
+  const image = one({ kind: "image", video_url: null, image_url: "/media/p.png", needs_photo: true, start_frame_url: "/media/f.jpg" });
+  assert.deepEqual([image.needsPhoto, image.startFrame], [true, null]);
 });
 
 test("работа без показа запроса и картинка: prompt/params пустые, постер — сама картинка", () => {
@@ -129,19 +211,20 @@ test("кривой ответ витрины не роняет первый эк
       showcase({ id: 3, model: null, category: "", aspect_ratio: null, duration_s: "5", params: { duration: -1, resolution: 720 } }),
     ],
   });
-  assert.deepEqual(items.map((i) => i.id), ["vs:1", "vs:3"]);
+  assert.deepEqual(ids(items), ["vs:1", "vs:3"]);
   const loose = items[1];
   assert.equal(loose.modelId, null);
   assert.equal(loose.subtitle, "");
   assert.equal(loose.category, "other");
+  assert.equal(loose.scenario, null);
   assert.equal(loose.aspect, "16:9");
   assert.equal(loose.duration, null);
   assert.equal(loose.params, null);
 });
 
 test("сцена мультстудии → карточка-ссылка в /studio; без кадра не берём", () => {
-  const { items, titles } = S.cartoonItems({
-    categories: [{ slug: "tales", title: "Сказки", emoji: "🧚" }, { slug: "", title: "Без адреса" }, { slug: "x" }],
+  const items = S.cartoonItems({
+    categories: [{ slug: "tales", title: "Сказки", emoji: "🧚" }],
     presets: [
       preset(1, { is_pick: true }),
       preset(2, { preview_poster: "" }),
@@ -152,13 +235,14 @@ test("сцена мультстудии → карточка-ссылка в /st
     ],
     popular: [],
   });
-  assert.deepEqual(items.map((i) => i.id), ["ct:scene-1", "ct:scene-2", "ct:5"]);
+  assert.deepEqual(ids(items), ["ct:scene-1", "ct:scene-2", "ct:5"]);
   assert.deepEqual(items[0], {
     id: "ct:scene-1",
     source: "cartoon",
     kind: "video",
     title: "Сцена 1",
     subtitle: "Герой идёт по лесу",
+    scenario: null,
     category: "tales",
     video: "/media/cartoon/previews/clips/1.mp4",
     poster: "/media/cartoon/posters/thumbs/1.jpg",
@@ -168,40 +252,90 @@ test("сцена мультстудии → карточка-ссылка в /st
     modelId: null,
     prompt: null,
     params: null,
+    needsPhoto: false,
+    startFrame: null,
     pick: true,
   });
   assert.equal(items[1].poster, null);
   assert.equal(items[2].category, "");
-  assert.deepEqual([...titles], [["tales", "Сказки"]]);
-  for (const bad of [null, "x", [], { presets: {} }]) assert.deepEqual(S.cartoonItems(bad).items, []);
+  for (const bad of [null, "x", [], { presets: {} }]) assert.deepEqual(S.cartoonItems(bad), []);
 });
 
-test("карусель: работы студии, затем выбор редакции — не больше 12", () => {
-  const studio = S.studioItems({ items: Array.from({ length: 3 }, (_, i) => showcase({ id: i + 1 })) });
-  const cartoon = S.cartoonItems({ presets: Array.from({ length: 30 }, (_, i) => preset(i + 1, { is_pick: i % 2 === 0 })) }).items;
-  const view = S.buildShowreel(studio, cartoon);
-  assert.equal(view.reel.length, S.REEL_SIZE);
-  assert.deepEqual(view.reel.slice(0, 3).map((i) => i.id), ["vs:1", "vs:2", "vs:3"]);
-  assert.ok(view.reel.slice(3).every((i) => i.source === "cartoon" && i.pick));
-  assert.equal(view.all.length, 33);
-  assert.deepEqual(view.all.slice(0, 3), studio);
-  assert.equal(view.hasStudio, true);
-
-  const many = S.studioItems({ items: Array.from({ length: 20 }, (_, i) => showcase({ id: i + 1 })) });
-  const full = S.buildShowreel(many, cartoon);
-  assert.equal(full.reel.length, 12);
-  assert.ok(full.reel.every((i) => i.source === "vstudio"));
+test("карусель: роликов студии нет или меньше пяти — только сцены мультстудии", () => {
+  const cartoon = scenes(30, 14);
+  for (const n of [0, 3, 4]) {
+    const view = S.buildShowreel(works(n), cartoon);
+    assert.equal(view.source, "cartoon", `студия: ${n}`);
+    assert.equal(view.reel.length, S.REEL_SIZE);
+    assert.ok(view.reel.every((i) => i.source === "cartoon" && i.pick), `студия: ${n}`);
+  }
 });
 
-test("карусель: отмеченных сцен хватает — обычные не добавляются", () => {
-  const cartoon = S.cartoonItems({ presets: Array.from({ length: 20 }, (_, i) => preset(i + 1, { is_pick: i < 6 })) }).items;
-  const view = S.buildShowreel([], cartoon);
+test("карусель: пять роликов студии — только они, ни одной сцены мультстудии", () => {
+  const view = S.buildShowreel(works(5), scenes(30));
+  assert.equal(view.source, "vstudio");
+  assert.deepEqual(ids(view.reel), ["vs:1", "vs:2", "vs:3", "vs:4", "vs:5"]);
+});
+
+test("карусель: 12 сценариев встают в порядке списка, как бы их ни прислал сервер", () => {
+  const order = ["vertical", "music", "other", "film", "real", "anim", "i2v", "fashion", "scifi", "action", "car", "person", "ad"];
+  const view = S.buildShowreel(works(13, (i) => ({ category: order[i] })), scenes(30));
+  assert.equal(view.source, "vstudio");
+  assert.deepEqual(view.reel.map((i) => i.scenario), [...C.SCENARIOS]);
+  // «Другое» сценарием не считается — на него места не хватило.
+  assert.ok(!ids(view.reel).includes("vs:3"));
+});
+
+test("карусель: первый ролик каждого сценария, затем остальные — как расставил владелец", () => {
+  // Шесть «Киносцен», потом реклама, работа без сценария, ещё реклама и автомобиль.
+  const order = ["film", "film", "film", "film", "film", "film", "ad", "other", "ad", "car"];
+  const view = S.buildShowreel(works(10, (i) => ({ category: order[i] })), []);
+  assert.deepEqual(ids(view.reel), ["vs:1", "vs:7", "vs:10", "vs:2", "vs:3", "vs:4", "vs:5", "vs:6", "vs:8", "vs:9"]);
+
+  // Двадцать роликов одного сценария: первые двенадцать в порядке сервера.
+  const many = S.buildShowreel(works(20), scenes(30));
+  assert.equal(many.source, "vstudio");
+  assert.deepEqual(ids(many.reel), Array.from({ length: 12 }, (_, i) => `vs:${i + 1}`));
+});
+
+test("карусель: старые ключи сервера встают на места своих сценариев", () => {
+  const order = ["social", "anime", "music", "ad", "film"];
+  const view = S.buildShowreel(works(5, (i) => ({ category: order[i] })), []);
+  assert.deepEqual(view.reel.map((i) => i.scenario), ["film", "ad", "music", "anim", "vertical"]);
+});
+
+test("карусель: картинки студии в неё не идут и до пяти роликов не досчитываются", () => {
+  const image = (i) => ({ kind: "image", video_url: null, image_url: `/media/vstudio/${i}.png`, poster_url: null });
+  // Четыре ролика и три картинки — роликов мало, карусель у мультстудии.
+  const few = S.buildShowreel(works(7, (i) => (i < 3 ? image(i) : {})), scenes(8));
+  assert.equal(few.source, "cartoon");
+  assert.ok(few.reel.every((i) => i.source === "cartoon"));
+  // Пять роликов и картинки между ними — в карусели только ролики.
+  const enough = S.buildShowreel(works(8, (i) => (i % 3 === 0 ? image(i) : {})), scenes(8));
+  assert.equal(enough.source, "vstudio");
+  assert.deepEqual(ids(enough.reel), ["vs:2", "vs:3", "vs:5", "vs:6", "vs:8"]);
+});
+
+test("карусель: сцен мультстудии нет — показываем и два своих ролика, а не пустой экран", () => {
+  const view = S.buildShowreel(works(2), []);
+  assert.equal(view.source, "vstudio");
+  assert.deepEqual(ids(view.reel), ["vs:1", "vs:2"]);
+  assert.equal(view.cartoonPoster, null);
+  // Нет ни роликов, ни сцен (или у студии одни картинки) — карусели нет.
+  assert.deepEqual(S.buildShowreel([], []), S.EMPTY_SHOWREEL);
+  assert.deepEqual(S.EMPTY_SHOWREEL, { reel: [], source: null, cartoonPoster: null });
+  const images = works(3, (i) => ({ kind: "image", video_url: null, image_url: `/media/vstudio/${i}.png` }));
+  assert.deepEqual(S.buildShowreel(images, []), S.EMPTY_SHOWREEL);
+});
+
+test("карусель мультстудии: отмеченных сцен хватает — обычные не добавляются", () => {
+  const view = S.buildShowreel([], scenes(20, 6));
+  assert.equal(view.source, "cartoon");
   assert.equal(view.reel.length, 6);
   assert.ok(view.reel.every((i) => i.pick));
-  assert.equal(view.hasStudio, false);
 });
 
-test("карусель: отмеченных мало — добираем до пяти, сначала из других разделов и только с постером", () => {
+test("карусель мультстудии: отмеченных мало — добираем до пяти, сначала из других разделов и только с постером", () => {
   const cartoon = S.cartoonItems({
     presets: [
       preset(1, { is_pick: true, category: "tales" }),
@@ -212,39 +346,33 @@ test("карусель: отмеченных мало — добираем до 
       preset(6, { category: "sea" }),
       preset(7, { category: "sea" }),
     ],
-  }).items;
+  });
   const view = S.buildShowreel([], cartoon);
-  assert.deepEqual(view.reel.map((i) => i.id), ["ct:scene-1", "ct:scene-5", "ct:scene-6", "ct:scene-2", "ct:scene-3"]);
-  assert.equal(new Set(view.reel.map((i) => i.id)).size, S.REEL_MIN);
+  assert.deepEqual(ids(view.reel), ["ct:scene-1", "ct:scene-5", "ct:scene-6", "ct:scene-2", "ct:scene-3"]);
+  assert.equal(new Set(ids(view.reel)).size, S.REEL_MIN);
 
   // Сцен всего три — карусель из трёх, без повторов и без падения.
   const few = S.buildShowreel([], cartoon.slice(0, 3));
   assert.equal(few.reel.length, 3);
-  assert.deepEqual(S.buildShowreel([], []), S.EMPTY_SHOWREEL);
 });
 
-test("разделы: только с названием, от самых полных, порядок сервера при равенстве", () => {
-  const { items, titles } = S.cartoonItems({
-    categories: [
-      { slug: "tales", title: "Сказки" },
-      { slug: "space", title: "Космос" },
-      { slug: "sea", title: "Море" },
-    ],
+test("постер для карточки «Мультстудия»: из карусели, если она мультстудии, иначе — первой сцены с постером", () => {
+  const cartoon = S.cartoonItems({
     presets: [
-      preset(1, { category: "tales" }),
-      preset(2, { category: "space" }),
-      preset(3, { category: "space" }),
-      preset(4, { category: "sea" }),
-      preset(5, { category: "ghost" }), // раздела нет в списке — вкладки не будет
-      preset(6, { category: "" }),
+      preset(1, { preview_poster: "" }),
+      preset(2),
+      ...Array.from({ length: 6 }, (_, i) => preset(i + 3, { is_pick: true, ...(i === 0 ? { preview_poster: "" } : {}) })),
     ],
   });
-  assert.deepEqual(S.buildShowreel([], items, titles).categories, [
-    { slug: "space", title: "Космос", count: 2 },
-    { slug: "tales", title: "Сказки", count: 1 },
-    { slug: "sea", title: "Море", count: 1 },
-  ]);
-  assert.deepEqual(S.buildShowreel([], items).categories, []);
+  // Карусель у мультстудии: постер сцены, которая в ней уже стоит (первая отмеченная — без постера).
+  assert.equal(S.buildShowreel(works(2), cartoon).cartoonPoster, "/media/cartoon/posters/thumbs/4.jpg");
+  // Карусель у студии: сцен на экране нет — первая сцена с постером.
+  const own = S.buildShowreel(works(5), cartoon);
+  assert.equal(own.source, "vstudio");
+  assert.equal(own.cartoonPoster, "/media/cartoon/posters/thumbs/2.jpg");
+  // Постеров нет ни у одной сцены.
+  const bare = S.cartoonItems({ presets: [preset(1, { preview_poster: "" })] });
+  assert.equal(S.buildShowreel(works(5), bare).cartoonPoster, null);
 });
 
 /* ---------- «Снять похожее» на настоящем редьюсере ---------- */
@@ -277,12 +405,13 @@ function studio(setup = []) {
     get composer() {
       return state.composer;
     },
-    apply: (item) => A.applyReelItem(item, state, dispatch),
+    // starters — заготовки первого экрана (starters.homeStarters); без них заменяется только пустой запрос.
+    apply: (item, starters) => A.applyReelItem(item, state, dispatch, starters),
     // Как в StudioHome: что применилось и что об этом сказать — по состоянию до нажатия.
-    use: (item) => {
-      const models = state.models;
-      const outcome = A.applyReelItem(item, state, dispatch);
-      return [outcome, A.applyNotice(item, models, outcome)];
+    use: (item, starters) => {
+      const { models, composer } = state;
+      const outcome = A.applyReelItem(item, state, dispatch, starters);
+      return [outcome, A.applyNotice(item, models, outcome, composer.kind)];
     },
   };
 }
@@ -328,6 +457,106 @@ test("снять похожее: свой текст человека не за�
   assert.ok(!s.log.includes("composer/doc"));
 });
 
+/* ---------- пример за примером ---------- */
+
+const St = await import("./starters.ts");
+const { exampleDoc, starterReplaceable } = await import("../feed/examples.ts");
+
+const ruT = (key, options) => options.defaultValue;
+const NIGHT = work();
+const LATTE = work({
+  id: 13,
+  model: { id: SEEDANCE, name: "Seedance 2.0" },
+  prompt: "Бариста наливает матча-латте в высокий стакан",
+  params: { duration: 5, resolution: "720p", aspect_ratio: "9:16" },
+});
+/** Заготовки первого экрана при карусели из двух роликов. */
+const STARTERS = St.homeStarters(ruT, [NIGHT, LATTE]);
+
+test("заготовки первого экрана: сценарии — исходник и перевод — и запросы роликов карусели", () => {
+  const film = T.VS_TEMPLATES.find((t) => t.id === "film").prompt;
+  assert.ok(STARTERS.includes(film));
+  assert.ok(STARTERS.includes(NIGHT.prompt) && STARTERS.includes(LATTE.prompt));
+  assert.equal(STARTERS.length, T.VS_TEMPLATES.length + 2, "перевод, равный исходнику, второй раз не кладём");
+
+  // Заготовку могли взять до смены языка: в списке и русский исходник, и перевод.
+  const calls = [];
+  const enT = (key, options) => {
+    calls.push(key);
+    return key === "home.tpl.film.prompt" ? "Cinematic shot: [who] [does what] in [where]." : options.defaultValue;
+  };
+  const en = St.homeStarters(enT, []);
+  assert.ok(en.includes(film) && en.includes("Cinematic shot: [who] [does what] in [where]."));
+  assert.deepEqual(calls, T.VS_TEMPLATES.map((t) => `home.tpl.${t.id}.prompt`));
+  // i18next без готового перевода может вернуть не строку — исходник всё равно в списке.
+  assert.deepEqual(St.homeStarters(() => undefined, []), T.VS_TEMPLATES.map((t) => t.prompt));
+
+  // Запрос скрыт владельцем, сцена мультстудии — подставлять было нечего, заменять тоже.
+  const hidden = work({ id: 14, prompt: null });
+  const [scene] = scenes(1);
+  assert.equal(St.homeStarters(ruT, [hidden, scene]).length, T.VS_TEMPLATES.length);
+});
+
+test("пример за примером: текст прошлого примера заменяется новым вместе с моделью", () => {
+  const s = studio();
+  assert.equal(s.apply(NIGHT, STARTERS), "filled");
+  assert.equal(s.composer.model, VEO);
+  // Второй пример: модель, длительность и текст — все его, а не «его модель с чужим текстом».
+  assert.deepEqual(s.use(LATTE, STARTERS), ["filled", null]);
+  assert.equal(s.composer.model, SEEDANCE);
+  assert.equal(s.composer.params.duration, 5);
+  assert.equal(plainText(s.composer.doc), LATTE.prompt);
+  // Повторное нажатие на тот же пример — то же самое, без «текст запроса не тронули».
+  assert.deepEqual(s.use(LATTE, STARTERS), ["filled", null]);
+  assert.equal(plainText(s.composer.doc), LATTE.prompt);
+
+  // Без списка заготовок заменяется только пустой запрос — как раньше.
+  assert.deepEqual(s.use(NIGHT), ["kept", "kept"]);
+  assert.equal(plainText(s.composer.doc), LATTE.prompt);
+  // Ролик ушёл из карусели, пока его текст стоял в запросе, — чей он, уже не узнать: не трогаем.
+  assert.equal(s.apply(NIGHT, St.homeStarters(ruT, [NIGHT])), "kept");
+});
+
+test("пример за примером: поправленный текст примера и текст с отметкой @ — уже свои", () => {
+  const edited = studio([{ type: "composer/doc", doc: exampleDoc(`${NIGHT.prompt} И туман.`) }]);
+  assert.deepEqual(edited.use(LATTE, STARTERS), ["kept", "kept"]);
+  assert.equal(plainText(edited.composer.doc), `${NIGHT.prompt} И туман.`);
+  assert.ok(!edited.log.includes("composer/doc"));
+
+  // Текст примера тот же, но человек отметил в нём своё фото.
+  const tagged = { v: 1, blocks: [[{ t: "text", v: NIGHT.prompt }, { t: "ref", asset: "asset-1" }]] };
+  const withRef = studio([{ type: "composer/doc", doc: tagged }]);
+  assert.equal(plainText(withRef.composer.doc), NIGHT.prompt);
+  assert.equal(withRef.apply(LATTE, STARTERS), "kept");
+  assert.deepEqual(withRef.composer.doc, tagged);
+
+  // Свой текст с нуля — тем более.
+  assert.equal(studio([{ type: "composer/doc", doc: exampleDoc("мой сценарий") }]).apply(LATTE, STARTERS), "kept");
+});
+
+test("пример и сценарий «С чего начать» заменяют друг друга, пока текст не тронут", () => {
+  // Чип после примера: запрос ролика карусели — такая же заготовка.
+  const s = studio();
+  s.apply(NIGHT, STARTERS);
+  assert.equal(starterReplaceable(s.composer.doc, STARTERS), true);
+  assert.equal(starterReplaceable(s.composer.doc, St.homeStarters(ruT, [])), false, "без роликов карусели чип бы отказал");
+
+  // Пример после чипа: заготовка сценария в запросе — не свой текст.
+  const poster = T.VS_TEMPLATES.find((t) => t.id === "poster");
+  const fromChip = studio([
+    { type: "composer/kind", kind: "image" },
+    { type: "composer/model", model: FLUX },
+    { type: "composer/doc", doc: exampleDoc(poster.prompt) },
+  ]);
+  assert.deepEqual(fromChip.use(LATTE, STARTERS), ["filled", null]);
+  assert.equal(fromChip.composer.kind, "video");
+  assert.equal(plainText(fromChip.composer.doc), LATTE.prompt);
+
+  // Скобки в заготовке заполнили — это уже свой текст.
+  const filled = studio([{ type: "composer/doc", doc: exampleDoc(poster.prompt.replace("[сюжет]", "юрта в горах")) }]);
+  assert.equal(filled.apply(LATTE, STARTERS), "kept");
+});
+
 test("работа без запроса: выбирается только модель — исход set", () => {
   const s = studio();
   assert.equal(s.apply(work({ prompt: null, params: null })), "set");
@@ -335,7 +564,7 @@ test("работа без запроса: выбирается только мо
   assert.equal(plainText(s.composer.doc), "");
 });
 
-test("картинка из витрины при выбранном видео: вид и модель переключаются", () => {
+test("картинка студии при выбранном видео: вид и модель переключаются", () => {
   const s = studio();
   const poster = work({ kind: "image", video_url: null, image_url: "/media/vstudio/p.png", poster_url: null, model: { id: FLUX, name: "FLUX.2 Flex" }, params: { aspect_ratio: "3:4" } });
   assert.equal(s.apply(poster), "filled");
@@ -349,16 +578,87 @@ test("картинка из витрины при выбранном видео:
   assert.equal(s.composer.model, VEO);
 });
 
-test("модель под замком: ничего не меняется — исход locked", () => {
+const LOCKED = { id: KLING_LOCKED, name: "Kling v3" };
+const RETIRED = { id: "retired/model", name: "Старая" };
+const MINE = { type: "composer/doc", doc: { v: 1, blocks: [[{ t: "text", v: "мой сценарий" }]] } };
+/** Замок не должен вести ни к пэйволлу, ни к окну входа, ни к смене модели. */
+const quiet = (log) => !log.some((type) => type.startsWith("ui/") || type === "composer/model" || type === "composer/kind");
+
+test("модель под замком: пример всё равно применяется — на своей модели", () => {
   const s = studio();
-  assert.equal(s.apply(work({ model: { id: KLING_LOCKED, name: "Kling v3" } })), "locked");
-  assert.deepEqual(s.log, []);
+  // 10 секунд, 720p и 1:1 умеет и Seedance, на которой человек остаётся.
+  const outcome = s.apply(work({ model: LOCKED, params: { duration: 10, resolution: "720P", aspect_ratio: "1:1" } }));
+  assert.equal(outcome, "filled_locked");
   assert.equal(s.composer.model, SEEDANCE);
+  assert.equal(s.composer.params.duration, 10);
+  assert.equal(s.composer.params.resolution, "720p");
+  assert.equal(s.composer.params.aspect_ratio, "1:1");
+  assert.equal(plainText(s.composer.doc), "Ночной город под дождём");
+  assert.deepEqual(s.log, ["composer/params", "composer/doc"]);
+});
+
+test("модель под замком: параметры — только те, что умеет своя модель", () => {
+  const s = studio([{ type: "composer/model", model: VEO }]);
+  const before = { ...s.composer.params };
+  // Veo не снимает 5 секунд и 1:1 — эти значения остаются её собственными.
+  assert.equal(s.apply(work({ model: LOCKED, params: { duration: 5, resolution: "720p", aspect_ratio: "1:1" } })), "filled_locked");
+  assert.equal(s.composer.model, VEO);
+  assert.equal(s.composer.params.duration, before.duration);
+  assert.equal(s.composer.params.aspect_ratio, before.aspect_ratio);
+  assert.equal(s.composer.params.resolution, "720p");
+  assert.ok(quiet(s.log), s.log.join(","));
+});
+
+test("модель под замком: свой текст не затирается, а без запроса и параметров стор не тронут", () => {
+  const mine = studio([MINE]);
+  assert.equal(mine.apply(work({ model: LOCKED, params: { aspect_ratio: "1:1" } })), "locked");
+  assert.equal(mine.composer.model, SEEDANCE);
+  assert.equal(mine.composer.params.aspect_ratio, "1:1");
+  assert.equal(plainText(mine.composer.doc), "мой сценарий");
+  assert.deepEqual(mine.log, ["composer/params"]);
+
+  // Запрос скрыт, кнопка — «Выбрать эту модель»: выбрать её нельзя, менять нечего.
+  const hidden = studio();
+  assert.equal(hidden.apply(work({ model: LOCKED, prompt: null, params: null })), "locked");
+  assert.deepEqual(hidden.log, []);
+  assert.equal(hidden.composer.model, SEEDANCE);
+});
+
+test("модель под замком, а в панели картинка: вид меняется, модель видео — своя", () => {
+  const onImage = [
+    { type: "composer/kind", kind: "image" },
+    { type: "composer/model", model: FLUX },
+  ];
+  const s = studio(onImage);
+  // «Модель осталась ваша» здесь неправда: вид и модель сменились — говорим о переключении.
+  assert.deepEqual(s.use(work({ model: LOCKED })), ["filled_locked", "locked_switched"]);
+  assert.equal(s.composer.kind, "video");
+  assert.equal(s.composer.model, SEEDANCE, "первая доступная, а не модель под замком");
+  assert.equal(plainText(s.composer.doc), "Ночной город под дождём");
+  assert.ok(!s.log.some((type) => type.startsWith("ui/")), s.log.join(","));
+
+  // В панели свой текст: он остался, а вид и модель всё равно сменились.
+  const mine = studio([...onImage, MINE]);
+  assert.deepEqual(mine.use(work({ model: LOCKED })), ["locked", "locked_switched_kept"]);
+  assert.equal(mine.composer.kind, "video");
+  assert.equal(mine.composer.model, SEEDANCE);
+  assert.equal(plainText(mine.composer.doc), "мой сценарий");
+
+  // Запрос работы скрыт: подставлять нечего, о своём тексте речи нет — с ним или без него.
+  const bare = work({ model: LOCKED, prompt: null, params: null });
+  assert.deepEqual(studio(onImage).use(bare), ["locked", "locked_switched"]);
+  assert.deepEqual(studio([...onImage, MINE]).use(bare), ["locked", "locked_switched"]);
+
+  // Вид до нажатия не назвали — считаем, что он тот же: слова прежние.
+  assert.equal(A.applyNotice(work({ model: LOCKED }), FIXTURE_MODELS, "filled_locked"), "locked_filled");
+  assert.equal(A.applyNotice(work({ model: LOCKED }), FIXTURE_MODELS, "locked", "video"), "locked_kept");
+  // Замка нет — смена вида видна и так, отдельных слов для неё нет.
+  assert.deepEqual(studio(onImage).use(work()), ["filled", null]);
 });
 
 test("модели работы уже нет: остаёмся на своей, берём подходящие параметры и текст", () => {
   const s = studio();
-  assert.equal(s.apply(work({ model: { id: "retired/model", name: "Старая" }, params: { duration: 10, resolution: "480p", aspect_ratio: "1:1" } })), "filled");
+  assert.equal(s.apply(work({ model: RETIRED, params: { duration: 10, resolution: "480p", aspect_ratio: "1:1" } })), "filled");
   assert.equal(s.composer.model, SEEDANCE);
   assert.equal(s.composer.params.duration, 10);
   assert.equal(s.composer.params.resolution, "480p");
@@ -370,15 +670,38 @@ test("модели работы уже нет: остаёмся на своей,
   assert.deepEqual(idle.log, []);
 });
 
-const RETIRED = { id: "retired/model", name: "Старая" };
-const MINE = { type: "composer/doc", doc: { v: 1, blocks: [[{ t: "text", v: "мой сценарий" }]] } };
-
 test("что сказать после нажатия: о выбранной модели — только если её правда выбрали", () => {
   // Обычные исходы: свой текст сохранён — говорим; текст лёг или выбрана модель — видно и так.
   assert.deepEqual(studio([MINE]).use(work()), ["kept", "kept"]);
   assert.deepEqual(studio().use(work()), ["filled", null]);
   assert.deepEqual(studio().use(work({ prompt: null, params: null })), ["set", null]);
-  assert.deepEqual(studio().use(work({ model: { id: KLING_LOCKED, name: "Kling v3" } })), ["locked", null]);
+});
+
+test("модель под замком: о платной модели говорим всегда — и что стало с запросом", () => {
+  // Текст работы лёг в пустую панель; модель осталась своя.
+  assert.deepEqual(studio().use(work({ model: LOCKED })), ["filled_locked", "locked_filled"]);
+  // В панели свой текст — он и остался.
+  assert.deepEqual(studio([MINE]).use(work({ model: LOCKED })), ["locked", "locked_kept"]);
+  // Запрос работы скрыт — подставлять было нечего.
+  assert.deepEqual(studio().use(work({ model: LOCKED, prompt: null, params: null })), ["locked", "locked"]);
+  assert.deepEqual(studio([MINE]).use(work({ model: LOCKED, prompt: null })), ["locked", "locked"]);
+});
+
+test("модель под замком: повторное нажатие на тот же пример говорит то же самое", () => {
+  const paid = work({ model: LOCKED });
+  const starters = St.homeStarters(ruT, [paid]);
+  const s = studio();
+  // Раньше второе нажатие называло текст самого примера «вашим» — две подсказки спорили друг с другом.
+  assert.deepEqual(s.use(paid, starters), ["filled_locked", "locked_filled"]);
+  assert.deepEqual(s.use(paid, starters), ["filled_locked", "locked_filled"]);
+  assert.equal(s.composer.model, SEEDANCE);
+  assert.equal(plainText(s.composer.doc), paid.prompt);
+});
+
+test("название модели в подсказке: как в списке моделей студии, иначе — как подписана работа", () => {
+  assert.equal(A.reelModelName(work({ model: LOCKED }), FIXTURE_MODELS), "Kling v3 Standard");
+  assert.equal(A.reelModelName(work({ model: LOCKED }), null), "Kling v3");
+  assert.equal(A.reelModelName(work({ model: RETIRED }), FIXTURE_MODELS), "Старая");
 });
 
 test("модели работы уже нет: кнопка не молчит и не говорит, что модель выбрана", () => {
@@ -419,6 +742,54 @@ test("модели ещё не пришли: текст всё равно лож
   const dispatch = (action) => {
     state = Store.reducer(state, action);
   };
-  assert.equal(A.applyReelItem(work(), state, dispatch), "filled");
+  // О замке без списка моделей тоже судить рано: пример ложится как обычный.
+  assert.equal(A.applyReelItem(work({ model: LOCKED }), state, dispatch), "filled");
   assert.equal(plainText(state.composer.doc), "Ночной город под дождём");
+});
+
+/* ---------- пример, снятый по фото ---------- */
+
+const PHOTO = { needs_photo: true, start_frame_url: "/media/vstudio/thumbs/f.jpg" };
+const chip = (over = {}) => ({
+  lid: "c1",
+  assetUid: "asset-1",
+  slot: "first_frame",
+  role: "",
+  included: true,
+  status: "ready",
+  progress: 100,
+  preview: null,
+  ...over,
+});
+const withChip = (over) => studio([{ type: "tray/add", item: chip(over) }]).composer;
+
+test("пример снят по фото: просим своё, пока фото в запросе нет", () => {
+  const photo = work(PHOTO);
+  assert.equal(A.wantsPhoto(photo, studio().composer), true);
+  assert.equal(A.wantsPhoto(work(), studio().composer), false, "обычный пример фото не просит");
+  // Кадр или включённый референс уже в запросе — просить нечего.
+  assert.equal(A.wantsPhoto(photo, withChip()), false);
+  assert.equal(A.wantsPhoto(photo, withChip({ slot: "last_frame" })), false);
+  assert.equal(A.wantsPhoto(photo, withChip({ slot: "reference" })), false);
+  // Выключенное и не загрузившееся фото в запрос не уйдёт — просим.
+  assert.equal(A.wantsPhoto(photo, withChip({ slot: "reference", included: false })), true);
+  assert.equal(A.wantsPhoto(photo, withChip({ status: "failed" })), true);
+});
+
+test("пример снят по фото: применяется как обычный, чужое фото в запрос не попадает", () => {
+  const s = studio();
+  const photo = work(PHOTO);
+  assert.deepEqual(s.use(photo), ["filled", null]);
+  assert.equal(s.composer.model, VEO);
+  assert.deepEqual(s.composer.tray, []);
+  assert.deepEqual(s.composer.frames, { first_frame: null, last_frame: null });
+  assert.ok(!s.log.some((type) => type.startsWith("tray/") || type.startsWith("ui/")), s.log.join(","));
+  // Фото всё ещё нужно: подсказку и слоты кадров показывает StudioHome.
+  assert.equal(A.wantsPhoto(photo, s.composer), true);
+
+  // То же с моделью под замком: и про модель скажем, и фото попросим.
+  const locked = studio();
+  const paid = work({ ...PHOTO, model: LOCKED });
+  assert.deepEqual(locked.use(paid), ["filled_locked", "locked_filled"]);
+  assert.equal(A.wantsPhoto(paid, locked.composer), true);
 });

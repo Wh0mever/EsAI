@@ -1,20 +1,20 @@
 "use client";
 
-import { memo, useCallback, useLayoutEffect, useMemo, useRef } from "react";
+import { memo, useCallback, useLayoutEffect, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useVStudio } from "../context";
-import { COMPOSER_FILLED_EVENT } from "../feed/feedLogic";
-import { openLockedModel } from "../settings/RunSettingsPanel";
-import { applyNotice, applyReelItem } from "./applyItem";
+import { applyNotice, applyReelItem, reelModelName, wantsPhoto, type ApplyNotice } from "./applyItem";
 import ContinueStrip from "./ContinueStrip";
 import HomeHero from "./HomeHero";
 import { trackHomePick } from "./homePick";
 import ModelStrip from "./ModelStrip";
 import ReelCoverflow from "./ReelCoverflow";
-import ShowcaseGallery from "./ShowcaseGallery";
+import { homeStarters } from "./starters";
 import TemplateChips from "./TemplateChips";
 import type { VsStarter, VsTemplate } from "./templates";
 import ToolCards from "./ToolCards";
+import { focusComposer } from "./tools/dock";
+import { useFramesFocus } from "./tools/useFramesFocus";
 import TrustStrip from "./TrustStrip";
 import { useShowreel, type ReelItem } from "./useShowreel";
 
@@ -24,58 +24,88 @@ export type StudioHomeProps = {
   disabled?: boolean;
 };
 
-/** Композер слушает это событие сам: фокус в редактор, на телефоне — показать панель запроса. */
-function focusComposer() {
-  try {
-    window.dispatchEvent(new CustomEvent(COMPOSER_FILLED_EVENT, { detail: { reason: "example" } }));
-  } catch {
-    /* старый браузер без CustomEvent — композер просто не возьмёт фокус */
-  }
-}
-
 /**
  * Первый экран студии (§2.2): пока проекта нет, лента показывает его вместо
  * пустого состояния. Секции независимы и каждая рисует себя сама; здесь —
- * только их порядок, общие данные витрины и то, что происходит по нажатию
- * «Снять похожее» и по выбору сценария. Ничего не запускается и не тратится:
- * любое нажатие лишь готовит панель запроса.
+ * только их порядок, кадры карусели и то, что происходит по нажатию на пример
+ * в ней и по выбору сценария. Ничего не запускается и не тратится: любое
+ * нажатие лишь готовит панель запроса.
  */
 function StudioHome({ onStarter, disabled }: StudioHomeProps) {
   const { t } = useTranslation("vstudio", { useSuspense: false });
   const { state, dispatch, actions } = useVStudio();
   const show = useShowreel();
+  const showFramesSoon = useFramesFocus();
 
-  const notices = {
-    kept: t("home.use.kept", { defaultValue: "Модель и параметры выбраны. Текст запроса не тронули." }),
-    gone: t("home.use.gone", { defaultValue: "Модели этой работы сейчас нет в студии — осталась выбранная." }),
+  const say = (notice: NonNullable<ApplyNotice>, model: string): string => {
+    switch (notice) {
+      case "kept":
+        return t("home.use.kept", { defaultValue: "Модель и параметры выбраны. Текст запроса не тронули." });
+      case "gone":
+        return t("home.use.gone", { defaultValue: "Модели этой работы сейчас нет в студии — осталась выбранная." });
+      case "locked_filled":
+        return t("home.use.lockedFilled", {
+          defaultValue:
+            "Пример снят на {{model}} — она доступна на платном тарифе. Запрос подставили, модель осталась ваша.",
+          model,
+        });
+      case "locked_kept":
+        return t("home.use.lockedKept", {
+          defaultValue:
+            "Пример снят на {{model}} — она доступна на платном тарифе. Модель и текст запроса остались ваши.",
+          model,
+        });
+      case "locked":
+        return t("home.use.locked", {
+          defaultValue: "Пример снят на {{model}} — она доступна на платном тарифе. Модель осталась ваша.",
+          model,
+        });
+      // В карусели только ролики, поэтому вид меняется всегда на видео.
+      case "locked_switched":
+        return t("home.use.lockedSwitched", {
+          defaultValue:
+            "Пример снят на {{model}} — она доступна на платном тарифе. Переключили на видео с доступной вам моделью.",
+          model,
+        });
+      case "locked_switched_kept":
+        return t("home.use.lockedSwitchedKept", {
+          defaultValue:
+            "Пример снят на {{model}} — она доступна на платном тарифе. Переключили на видео с доступной вам моделью. Текст запроса не тронули.",
+          model,
+        });
+    }
   };
+  const photoTip = t("home.use.photo", { defaultValue: "Добавьте своё фото — пример снят по картинке." });
 
   // Обработчики отдаём секциям неизменными (карусель тяжёлая, перерисовывать
   // её на каждую букву в запросе незачем), а свежее состояние читаем отсюда.
-  const live = useRef({ state, dispatch, actions, onStarter, disabled, notices });
+  const live = useRef({ state, dispatch, actions, onStarter, disabled, say, photoTip, t, reel: show.reel });
   useLayoutEffect(() => {
-    live.current = { state, dispatch, actions, onStarter, disabled, notices };
+    live.current = { state, dispatch, actions, onStarter, disabled, say, photoTip, t, reel: show.reel };
   });
 
-  const applyItem = useCallback((item: ReelItem, what: "reel" | "showcase") => {
-    trackHomePick(what, item.id);
-    // Сцена мультстудии — ссылка в /studio: переход делает сама карточка.
-    if (item.source !== "vstudio") return;
-    const cur = live.current;
-    if (cur.disabled) return;
-    const outcome = applyReelItem(item, cur.state, cur.dispatch);
-    if (outcome === "locked") {
-      // Тот же путь, что у замка в панели параметров: вход или пэйволл, модель не меняется.
-      openLockedModel(cur.dispatch, { requireAuth: cur.actions.requireAuth });
-      return;
-    }
-    const notice = applyNotice(item, cur.state.models, outcome);
-    if (notice) cur.actions.toast(cur.notices[notice], "info");
-    focusComposer();
-  }, []);
-
-  const onReelUse = useCallback((item: ReelItem) => applyItem(item, "reel"), [applyItem]);
-  const onShowcaseUse = useCallback((item: ReelItem) => applyItem(item, "showcase"), [applyItem]);
+  const onReelUse = useCallback(
+    (item: ReelItem) => {
+      trackHomePick("reel", item.id);
+      // Сцена мультстудии — ссылка в /studio: переход делает сама карточка.
+      if (item.source !== "vstudio") return;
+      const cur = live.current;
+      if (cur.disabled) return;
+      // Текст прошлого примера или сценария новый пример заменяет, свой текст человека — нет.
+      const outcome = applyReelItem(item, cur.state, cur.dispatch, homeStarters(cur.t, cur.reel));
+      const notice = applyNotice(item, cur.state.models, outcome, cur.state.composer.kind);
+      if (notice) cur.actions.toast(cur.say(notice, reelModelName(item, cur.state.models)), "info");
+      if (!wantsPhoto(item, cur.state.composer)) {
+        focusComposer();
+        return;
+      }
+      // Пример снят по фото, а оно чужое — в запрос его не подставить. Просим своё и
+      // ведём к слотам кадров, как карточка «Первый и последний кадр».
+      cur.actions.toast(cur.photoTip, "info");
+      showFramesSoon();
+    },
+    [showFramesSoon],
+  );
 
   const onTemplate = useCallback((template: VsTemplate, text: string) => {
     trackHomePick("template", template.id);
@@ -83,10 +113,6 @@ function StudioHome({ onStarter, disabled }: StudioHomeProps) {
   }, []);
 
   const modelCount = state.models ? state.models.video.length + state.models.image.length : 0;
-  const cartoonPoster = useMemo(() => {
-    const withPoster = (item: ReelItem) => item.source === "cartoon" && item.poster !== null;
-    return (show.reel.find(withPoster) ?? show.all.find(withPoster))?.poster ?? null;
-  }, [show.reel, show.all]);
 
   return (
     <div className="flex w-full flex-col pb-6">
@@ -105,14 +131,7 @@ function StudioHome({ onStarter, disabled }: StudioHomeProps) {
       <ContinueStrip />
       <TemplateChips onPick={onTemplate} disabled={disabled} />
       <ModelStrip />
-      <ToolCards cartoonPoster={cartoonPoster} />
-      <ShowcaseGallery
-        items={show.all}
-        categories={show.categories}
-        hasStudio={show.hasStudio}
-        loading={show.loading}
-        onUse={onShowcaseUse}
-      />
+      <ToolCards cartoonPoster={show.cartoonPoster} />
       <TrustStrip />
     </div>
   );

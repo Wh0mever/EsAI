@@ -2,16 +2,18 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { FiExternalLink, FiRefreshCw } from "react-icons/fi";
-import { REEL_SIZE } from "@/components/vstudio/home/showreelData";
+import { REEL_MIN, REEL_SIZE } from "@/components/vstudio/home/showreelData";
 import { fetchData } from "@/tools/fetchData";
 import AddDialog from "./AddDialog";
 import CandidateCard from "./CandidateCard";
-import ItemRow, { type Place } from "./ItemRow";
+import ItemRow from "./ItemRow";
+import ScenarioBoard from "./ScenarioBoard";
 import { CARD, INPUT, Notices, Skeleton, btn, chip, useNotices } from "./parts";
 import {
   SHOWCASE_PATH,
   addBody,
   applyMove,
+  carousel,
   errorText,
   insertItem,
   itemPath,
@@ -20,9 +22,9 @@ import {
   parseItem,
   parseList,
   patchBody,
+  placesOf,
   planMove,
   previousOf,
-  publicOrder,
   sortForNew,
   type AddForm,
   type Candidate,
@@ -34,13 +36,14 @@ import {
 /**
  * Витрина видеостудии.
  *
- * Первый экран /video-studio показывает настоящие работы студии: первые идут в
- * карусель, все — в блок «Сделано в EsAI». Что увидят посетители, решает
- * владелец здесь: сверху сама витрина (название, категория, порядок, показ
- * промпта), ниже — готовые дубли, которые в неё можно поставить. По умолчанию
- * кандидаты — работы сотрудников: их снимают для витрины, и вопроса о согласии
- * автора нет. Работу пользователя сервер в витрину пока не примет: в адресе её
- * файла виден номер аккаунта автора.
+ * Первый экран /video-studio показывает карусель настоящих роликов студии — по
+ * одному на сценарий («Киносцена», «Реклама товара»…). Что увидят посетители,
+ * решает владелец здесь: сверху — какие сценарии уже заняты, под ними сама
+ * витрина (название, сценарий, порядок, показ запроса), ниже — готовые дубли,
+ * которые в неё можно поставить. По умолчанию кандидаты — работы сотрудников:
+ * их снимают для витрины, и вопроса о согласии автора нет. Работу пользователя
+ * сервер в витрину пока не примет: в адресе её файла виден номер аккаунта
+ * автора.
  */
 
 type Board = { items: ShowcaseItem[]; categories: Category[]; publicLimit: number };
@@ -55,13 +58,6 @@ type Candidates = {
 };
 
 const NO_CANDIDATES: Candidates = { key: null, rows: [], count: 0, pageSize: 50, error: null };
-
-function placeOf(item: ShowcaseItem, rank: number | undefined): Place {
-  if (!item.available) return "nofile";
-  if (!item.visible) return "hidden";
-  if (rank === undefined) return "over";
-  return rank < REEL_SIZE ? "reel" : "gallery";
-}
 
 export default function AdminVStudioShowcasePage() {
   const [staffOnly, setStaffOnly] = useState(true);
@@ -109,13 +105,13 @@ export default function AdminVStudioShowcasePage() {
     return () => document.removeEventListener("play", onPlay, true);
   }, []);
 
-  const places = useMemo(() => {
-    const out = new Map<number, Place>();
-    if (!board) return out;
-    const rank = new Map(publicOrder(board.items, board.publicLimit).map((id, i) => [id, i]));
-    for (const item of board.items) out.set(item.id, placeOf(item, rank.get(item.id)));
-    return out;
-  }, [board]);
+  // Карусель считаем здесь тем же правилом, что сайт: сервер знает только,
+  // отдана ли работа, а кто из отданных попал в двенадцать — решает первый экран.
+  const reel = useMemo(
+    () => carousel(board?.items ?? [], { limit: board?.publicLimit ?? 0, size: REEL_SIZE, min: REEL_MIN }),
+    [board],
+  );
+  const places = useMemo(() => placesOf(board?.items ?? [], board?.publicLimit ?? 0, reel), [board, reel]);
 
   const loading = list.key !== key;
   const reload = () => setTick((value) => value + 1);
@@ -206,7 +202,7 @@ export default function AdminVStudioShowcasePage() {
     });
     // 200 вместо 201 — дубль успел поставить кто-то другой: его строка осталась как была.
     if (res.status !== 201) {
-      notify("ok", "Этот дубль уже стоит в витрине — название и категория остались прежними.");
+      notify("ok", "Этот дубль уже стоит в витрине — название и сценарий остались прежними.");
       return null;
     }
     const place = saved ? insertItem(board?.items ?? [], saved).findIndex((x) => x.id === saved.id) + 1 : 0;
@@ -238,10 +234,7 @@ export default function AdminVStudioShowcasePage() {
   };
 
   const items = board?.items ?? [];
-  const live = items.filter((item) => {
-    const place = places.get(item.id);
-    return place === "reel" || place === "gallery";
-  });
+  const shown = items.filter((item) => places.get(item.id) === "reel");
 
   return (
     <div className="flex flex-col gap-6">
@@ -249,9 +242,9 @@ export default function AdminVStudioShowcasePage() {
         <div className="min-w-0 max-w-3xl">
           <h1 className="text-xl font-bold">Витрина видеостудии</h1>
           <p className="mt-1 text-sm text-muted-2">
-            Работы, которые видит каждый посетитель на первом экране видеостудии: первые {REEL_SIZE} идут в
-            карусели, все — в блоке «Сделано в EsAI». Ставьте сюда удачные дубли из кандидатов ниже. Новые
-            посетители видят изменения сразу, в уже открытой вкладке студии — в течение 10 минут.
+            Ролики карусели на первом экране видеостудии. В ней {REEL_SIZE} мест: верхний ролик каждого
+            сценария, на свободные — остальные по порядку списка. Ставьте сюда удачные дубли из кандидатов
+            ниже. Новые посетители видят изменения сразу, в уже открытой вкладке студии — в течение 10 минут.
           </p>
         </div>
         <a
@@ -267,6 +260,7 @@ export default function AdminVStudioShowcasePage() {
 
       {!board && loading && (
         <div className="flex flex-col gap-4" aria-busy="true">
+          <Skeleton className="h-64" />
           <div className="grid grid-cols-3 gap-3">
             {[0, 1, 2].map((i) => (
               <Skeleton key={i} className="h-20" />
@@ -289,16 +283,18 @@ export default function AdminVStudioShowcasePage() {
 
       {board && (
         <>
+          <ScenarioBoard carousel={reel} min={REEL_MIN} />
+
           <div className="grid grid-cols-3 gap-3">
             <Stat label="В витрине" value={items.length} />
-            <Stat label="На сайте" value={live.length} hint={`из ${board.publicLimit}`} />
-            <Stat label="С промптом" value={live.filter((item) => item.showPrompt && item.prompt).length} />
+            <Stat label="В карусели" value={shown.length} hint={`из ${REEL_SIZE}`} />
+            <Stat label="С запросом" value={shown.filter((item) => item.showPrompt && item.prompt).length} />
           </div>
 
           <section className="flex flex-col gap-3">
             <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
               <h2 className="text-base font-semibold">В витрине</h2>
-              <span className="text-xs text-muted-2">Порядок в списке — порядок на сайте.</span>
+              <span className="text-xs text-muted-2">Из роликов одного сценария в карусель идёт верхний.</span>
               {ordering && (
                 <span role="status" className="text-xs text-status-wait">
                   Сохраняю порядок…
@@ -318,7 +314,7 @@ export default function AdminVStudioShowcasePage() {
                     item={item}
                     index={index}
                     total={items.length}
-                    place={places.get(item.id) ?? "gallery"}
+                    place={places.get(item.id) ?? "out"}
                     categories={board.categories}
                     busy={busy.has(item.id)}
                     orderLocked={ordering}

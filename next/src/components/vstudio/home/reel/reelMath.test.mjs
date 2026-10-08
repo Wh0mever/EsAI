@@ -1,4 +1,5 @@
-// Карусель первого экрана: позы кадров, счёт позиции, перетаскивание, ширина кадра (home/reel/reelMath.ts).
+// Карусель первого экрана: позы кадров, счёт позиции, перетаскивание, ширина кадра, «туман» светлой сцены,
+// имена кадров и ряд названий (home/reel/reelMath.ts).
 // Запуск (Node 22.6+):  node --experimental-strip-types --test src/components/vstudio/home/reel/*.test.mjs
 import "../../../../lib/vstudio/nodeTsHooks.mjs";
 import { test } from "node:test";
@@ -56,14 +57,14 @@ test("между местами поза меняется плавно: за п�
   assert.ok(near(M.poseAt(0.5).x, 31) && near(M.poseAt(0.5).scale, 0.89));
 });
 
-test("светлая сцена: дальний кадр растворяется быстрее, активный и соседи — как в тёмной", () => {
+test("светлая сцена: дальний кадр бледнее, активный и соседи — как в тёмной", () => {
   // Видимые целиком кадры и невидимая стоянка в обеих темах одинаковы.
   assert.equal(M.paperOpacity(M.slotLook(0).opacity), 1);
   assert.equal(M.paperOpacity(M.slotLook(1).opacity), 1);
   assert.equal(M.paperOpacity(M.slotLook(3).opacity), 0);
-  // Дальний кадр (в тёмной теме 0.7) на «бумаге» — едва заметный след, а не серая плита.
+  // Дальний кадр (в тёмной теме 0.7) на «бумаге» вдвое бледнее; серой плитой ему не дают встать ещё и «туман».
   const far = M.paperOpacity(M.slotLook(2).opacity);
-  assert.ok(far > 0.1 && far < 0.25, String(far));
+  assert.ok(far > 0.25 && far < 0.45, String(far));
   // Между местами — без скачков и без возврата: кадр, уходящий к краю, только бледнеет.
   let prev = 1;
   for (let d = 1; d <= 3.0001; d += 0.05) {
@@ -74,6 +75,64 @@ test("светлая сцена: дальний кадр растворяетс�
   }
   assert.equal(M.paperOpacity(1.4), 1);
   assert.equal(M.paperOpacity(-0.2), 0);
+});
+
+test("«туман» светлой сцены: активный и соседи чистые, дальний кадр и стоянка — в нём целиком", () => {
+  assert.deepEqual([0, 1, -1, 0.4, -0.99].map(M.paperFog), [0, 0, 0, 0, 0]);
+  assert.deepEqual([2, -2, 3, -5].map(M.paperFog), [1, 1, 1, 1]);
+  assert.equal(M.paperFog(1.5), 0.5);
+  assert.equal(M.paperFog(-1.25), 0.25);
+  // За пальцем — без скачков и только гуще к краю.
+  let prev = 0;
+  for (let d = 0; d <= 3.0001; d += 0.05) {
+    const cur = M.paperFog(d);
+    assert.ok(cur >= prev - 1e-9 && cur - prev <= 0.05 + 1e-9, `fog @ ${d}`);
+    prev = cur;
+  }
+});
+
+// Где на экране окажется точка дальнего кадра (|d| = 2) на доле f его ширины от ближнего края.
+const farPoint = (w, f) => {
+  const turn = (40 * Math.PI) / 180;
+  const flat = (1.04 - 0.5 + 0.62 * Math.cos(turn) * f) * w;
+  const depth = 0.62 * Math.sin(turn) * f * w;
+  return (flat * 1500) / (1500 - depth);
+};
+
+test("«туман» дальнего кадра: начинается у края соседа и кончается раньше края колонки", () => {
+  // Край соседа — тот самый, по которому считается ширина кадра.
+  for (const stage of [768, 1192, 1672]) {
+    assert.ok(near(M.sideEdge(M.fanWidth(stage)), stage / 2 - 16, 1e-6), String(stage));
+  }
+  // Обычный экран: между соседом и краем колонки 16 px — от дальнего кадра остаётся кромка,
+  // и за 8 px до края колонки его уже нет.
+  for (const column of [768, 1036, 1192]) {
+    const w = M.fanWidth(column);
+    const band = M.fogBand(w, column);
+    assert.ok(band.from > 40 && band.from < band.to && band.to < 75, JSON.stringify(band));
+    const end = farPoint(w, band.to / 100);
+    assert.ok(Math.abs(end - (column / 2 - 8)) < 1.5, `${column}: ${end}`);
+    // У края соседа «туман» уже лежит, но кадр под ним ещё виден.
+    const at = farPoint(w, band.from / 100);
+    assert.ok(at < column / 2 - 16 && at > column / 2 - 16 - 6, `${column}: ${at}`);
+  }
+  // Широкий экран (1920, колонка 1672, кадр 760): места 88 px — кадр растворяется на 80.
+  const wide = M.fogBand(760, 1672);
+  assert.ok(Math.abs(farPoint(760, wide.to / 100) - (1672 / 2 - 8)) < 1.5, JSON.stringify(wide));
+  assert.ok(wide.to - wide.from > 15, JSON.stringify(wide));
+  // Очень широкий: растворяется на 96 px и не дальше — до края колонки далеко.
+  const huge = M.fogBand(760, 2400);
+  assert.ok(Math.abs(farPoint(760, huge.to / 100) - (M.sideEdge(760) + 96)) < 1.5, JSON.stringify(huge));
+  assert.ok(huge.to < 100);
+  // Ширина колонки неизвестна — как на самом тесном экране.
+  assert.deepEqual(M.fogBand(620, null), M.fogBand(620, 2 * (M.sideEdge(620) + 16)));
+  // Колонка уже самих соседей (окно сжали быстрее замера): дальний кадр закрыт сразу за краем соседа.
+  const tight = M.fogBand(620, 900);
+  assert.equal(tight.from, tight.to);
+  assert.ok(Math.abs(farPoint(620, tight.to / 100) - M.sideEdge(620)) < 1.5, JSON.stringify(tight));
+  // Кадра ещё нет — вуали нет.
+  assert.deepEqual(M.fogBand(0, 1192), { from: 100, to: 100 });
+  assert.deepEqual(M.fogBand(-5, null), { from: 100, to: 100 });
 });
 
 /* ---------- позиция ---------- */
@@ -234,4 +293,99 @@ test("ширина кадра: макет, колонка и место над �
   assert.ok(tablet <= 0.58 * 768 && tablet > 380, String(tablet));
   // Совсем узко — не меньше разумного минимума.
   assert.equal(M.fitWidth(300, 300, null), 240);
+});
+
+/* ---------- названия кадров и их ряд ---------- */
+
+const RU = { film: "Киносцена", ad: "Реклама товара", i2v: "Image → Video" };
+const ruName = (key) => RU[key] ?? "";
+const clip = (scenario, title = "", subtitle = "Seedance 2.0") => ({ scenario, title, subtitle });
+
+test("имя кадра: сценарий, без него — название работы, иначе модель", () => {
+  assert.deepEqual(
+    M.reelNames([clip("film", "Ночной переулок"), clip("ad"), clip(null, "Свой ролик"), clip(null), clip(null, "", "")], ruName),
+    ["Киносцена", "Реклама товара", "Свой ролик", "Seedance 2.0", ""],
+  );
+  // Сцены мультстудии сценария не имеют — подписаны своим названием, как раньше.
+  assert.deepEqual(M.reelNames([clip(null, "Космос", "Приключение")], ruName), ["Космос"]);
+  // Ключ, которого нет в переводах (сервер новее), — как без сценария.
+  assert.deepEqual(M.reelNames([clip("drone", "С дрона")], ruName), ["С дрона"]);
+  assert.deepEqual(M.reelNames([], ruName), []);
+});
+
+test("второй ролик того же сценария называется по-своему — двух одинаковых чипов рядом нет", () => {
+  const names = M.reelNames(
+    [clip("film", "Ночной переулок"), clip("ad"), clip("film", "Погоня"), clip("film", "Киносцена"), clip("film")],
+    ruName,
+  );
+  // Своего названия нет или оно то же, что у сценария, — остаётся имя сценария.
+  assert.deepEqual(names, ["Киносцена", "Реклама товара", "Погоня", "Киносцена", "Киносцена"]);
+  // Порядок важен: сценарием называется первый, даже если у него есть своё название.
+  assert.equal(M.reelNames([clip("i2v", "Юрта у озера")], ruName)[0], "Image → Video");
+});
+
+test("название, которое работе поставил сервер, — не своё: на другом языке русское имя сценария не всплывает", async () => {
+  // Панель и команда съёмки подписывают работу русским именем сценария. На английском оно не
+  // равно переводу — и второй ролик сценария выходил с чипом «Киносцена» среди английских.
+  const EN = { film: "Cinematic scene", ad: "Product ad" };
+  const enName = (key) => EN[key] ?? "";
+  const reel = [clip("film", "Киносцена"), clip("ad", "Реклама товара"), clip("film", "Киносцена"), clip("film", "Погоня")];
+  assert.deepEqual(M.reelNames(reel, enName, ruName), ["Cinematic scene", "Product ad", "Cinematic scene", "Погоня"]);
+  // Без имён сервера — как раньше (так видно, что сверка идёт именно с ними).
+  assert.deepEqual(M.reelNames(reel, enName), ["Cinematic scene", "Product ad", "Киносцена", "Погоня"]);
+  // Чужое имя сценария — уже своё название: «Реклама товара» у киносцены владелец набрал сам.
+  assert.deepEqual(M.reelNames([clip("film"), clip("film", "Реклама товара")], enName, ruName), ["Cinematic scene", "Реклама товара"]);
+  // По-русски оба имени совпадают — ничего не меняется.
+  assert.deepEqual(M.reelNames(reel, ruName, ruName), ["Киносцена", "Реклама товара", "Киносцена", "Погоня"]);
+
+  // Имена сервера карусель берёт из scenarios.ts — у каждого сценария оно есть и равно русскому названию.
+  const C = await import("../scenarios.ts");
+  const t = (key, options) => options.defaultValue;
+  for (const key of C.SCENARIOS) assert.equal(C.scenarioDefault(key), C.scenarioLabel(t, key), key);
+  assert.equal(C.scenarioDefault("film"), "Киносцена");
+  // «Другое» и незнакомый ключ своего имени для подписи не дают.
+  for (const none of ["other", "social", "", null, undefined, "toString"]) assert.equal(C.scenarioDefault(none), "", String(none));
+});
+
+test("лента телефона: пока она едет к выбранному кадру, часы карусели ждут именно его", () => {
+  // Нажали чип десятого ролика, активный — первый: ждём десятый.
+  const target = M.jumpTarget(9, 0);
+  assert.equal(target, 9);
+  // Лента в начале пути ещё раз встала на прежний кадр, потом задержалась на соседнем — часы стоят.
+  assert.equal(M.jumpDone(target, 0), false);
+  assert.equal(M.jumpDone(target, 1), false);
+  assert.equal(M.jumpDone(target, 9), true);
+  // Нажали чип кадра, который и так в центре: ехать некуда, часы не трогаем.
+  assert.equal(M.jumpTarget(3, 3), null);
+  assert.equal(M.jumpDone(null, 3), false);
+  // С последнего кадра карусель сама возвращается к первому — это тоже переход.
+  assert.equal(M.jumpTarget(0, 11), 0);
+  assert.equal(M.jumpDone(0, 0), true);
+  // Запасной срок длиннее самой долгой прокрутки, но заметно короче интервала карусели.
+  assert.ok(M.JUMP_MS >= 1000 && M.JUMP_MS < M.REEL_INTERVAL_MS / 2);
+});
+
+test("ряд названий: активный чип — посередине, у краёв ряд упирается", () => {
+  // Ряд 1300 в окне 400: чип 500…600 встаёт по центру.
+  assert.equal(M.railScroll(500, 100, 400, 1300), 350);
+  // Первый чип: левее начала ряд не уходит.
+  assert.equal(M.railScroll(16, 90, 400, 1300), 0);
+  // Последний: правее конца — тоже.
+  assert.equal(M.railScroll(1190, 94, 400, 1300), 900);
+  // Всё помещается — ряд стоит.
+  assert.equal(M.railScroll(700, 120, 1400, 1300), 0);
+  assert.equal(M.railScroll(700, 120, 1300, 1300), 0);
+  // Дробные размеры (масштаб страницы) — целое число пикселей.
+  assert.equal(M.railScroll(500.4, 99.3, 399.5, 1300.2), 350);
+});
+
+test("вертикальный ролик узнаём по записи пропорций", () => {
+  assert.equal(M.isPortrait("9:16"), true);
+  assert.equal(M.isPortrait("3:4"), true);
+  assert.equal(M.isPortrait(" 2 : 3 "), true);
+  assert.equal(M.isPortrait("16:9"), false);
+  assert.equal(M.isPortrait("1:1"), false);
+  assert.equal(M.isPortrait("21/9"), false);
+  // Что не разобрать — не вертикальное: кадр заполнит рамку, как раньше.
+  for (const odd of ["", "auto", "9x16", "0:16", "16:", "portrait"]) assert.equal(M.isPortrait(odd), false, odd);
 });

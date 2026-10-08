@@ -1,16 +1,19 @@
 /**
- * Витрина первого экрана: из двух публичных ответов сервера — один список.
+ * Карусель первого экрана: из двух публичных ответов сервера — один ряд кадров.
  *
  * Источники (§0.6): работы самой видеостудии (GET vstudio/showcase/, их
  * отбирает владелец в админке) и превью сцен мультстудии (GET cartoon/presets/).
- * Чужого и постановочного здесь нет: каждая карточка честно подписана своим
- * источником, а сцены мультстудии ведут в /studio.
+ * В карусели они не смешиваются: либо ролики студии — по одному на сценарий
+ * (scenarios.ts), либо, пока их меньше пяти, сцены мультстудии со своей
+ * подписью и дорогой в /studio. Чужого и постановочного здесь нет.
  *
  * Ответы разбираем как «чужие руки»: поле не того типа или карточка без
  * единого кадра не должны уронить первый экран — такая запись просто
- * пропускается. Модуль чистый (без React и сети): его проверяет node-тест
- * home.test.mjs.
+ * пропускается. Сервер может быть и прежней версии: без needs_photo и
+ * start_frame_url, со старыми ключами сценариев. Модуль чистый (без React и
+ * сети): его проверяет node-тест home.test.mjs.
  */
+import { SCENARIOS, isScenario, type ScenarioKey } from "./scenarios";
 
 export type ReelItem = {
   /** "vs:12" — работа видеостудии, "ct:<slug>" — сцена мультстудии. */
@@ -20,7 +23,9 @@ export type ReelItem = {
   title: string;
   /** Видеостудия — название модели; мультстудия — подзаголовок сцены. */
   subtitle: string;
-  /** Видеостудия: film | ad | social | anime | music | other; мультстудия — slug раздела. */
+  /** Сценарий карусели; null — «Другое», незнакомое значение и сцены мультстудии. */
+  scenario: ScenarioKey | null;
+  /** Мультстудия — slug раздела; видеостудия — значение сервера как есть (для подписи и порядка есть scenario). */
   category: string;
   /** Лёгкий ролик для ленты; у картинок — null. */
   video: string | null;
@@ -33,20 +38,21 @@ export type ReelItem = {
   /** Текст запроса — только если владелец разрешил его показывать. */
   prompt: string | null;
   params: { duration?: number; resolution?: string; aspect_ratio?: string } | null;
+  /** Работа снята со своими картинками: чтобы снять похожее, человеку нужно добавить своё фото. */
+  needsPhoto: boolean;
+  /** Фото, с которого начинался ролик (Image → Video); приходит вместе с запросом. */
+  startFrame: string | null;
   /** Выбор редакции мультстудии. */
   pick: boolean;
 };
 
-export type ReelCategory = { slug: string; title: string; count: number };
-
 export type ShowreelData = {
-  /** Карусель: до REEL_SIZE кадров. */
+  /** Карусель: до REEL_SIZE кадров одного источника. */
   reel: ReelItem[];
-  /** Галерея: работы видеостудии, затем все сцены мультстудии. */
-  all: ReelItem[];
-  /** Разделы мультстудии, в которых есть сцены, — от самых полных. */
-  categories: ReelCategory[];
-  hasStudio: boolean;
+  /** Чьи кадры в карусели; null — показать нечего. */
+  source: ReelItem["source"] | null;
+  /** Постер сцены мультстудии — для карточки «Мультстудия» в инструментах. */
+  cartoonPoster: string | null;
 };
 
 export const REEL_SIZE = 12;
@@ -54,7 +60,13 @@ export const REEL_SIZE = 12;
 export const REEL_MIN = 5;
 export const CARTOON_HREF = "/studio";
 
-export const EMPTY_SHOWREEL: ShowreelData = { reel: [], all: [], categories: [], hasStudio: false };
+export const EMPTY_SHOWREEL: ShowreelData = { reel: [], source: null, cartoonPoster: null };
+
+/** Ключи сценариев, которые отдаёт сервер прежней версии. */
+const LEGACY_SCENARIOS: ReadonlyMap<string, ScenarioKey> = new Map([
+  ["social", "vertical"],
+  ["anime", "anim"],
+]);
 
 type Row = Record<string, unknown>;
 
@@ -75,6 +87,10 @@ function showcaseParams(v: unknown): ReelItem["params"] {
   return Object.keys(out).length ? out : null;
 }
 
+function scenarioOf(category: string): ScenarioKey | null {
+  return isScenario(category) ? category : (LEGACY_SCENARIOS.get(category) ?? null);
+}
+
 /** Ответ GET vstudio/showcase/ → карточки. Всё непонятное пропускаем. */
 export function studioItems(payload: unknown): ReelItem[] {
   const out: ReelItem[] = [];
@@ -89,6 +105,8 @@ export function studioItems(payload: unknown): ReelItem[] {
     if (!video && !poster) continue;
     const model = isRow(row.model) ? row.model : null;
     const params = showcaseParams(row.params);
+    const category = text(row.category) || "other";
+    const startFrame = kind === "video" ? url(row.start_frame_url) : null;
     seen.add(id);
     out.push({
       id,
@@ -96,7 +114,8 @@ export function studioItems(payload: unknown): ReelItem[] {
       kind,
       title: text(row.title),
       subtitle: text(model?.name),
-      category: text(row.category) || "other",
+      scenario: scenarioOf(category),
+      category,
       video,
       poster,
       aspect: text(row.aspect_ratio) || params?.aspect_ratio || "16:9",
@@ -105,23 +124,20 @@ export function studioItems(payload: unknown): ReelItem[] {
       modelId: text(model?.id) || null,
       prompt: text(row.prompt) || null,
       params,
+      // Первый кадр сервер отдаёт только у работы, снятой с фото, — флаг мог и не дойти.
+      needsPhoto: row.needs_photo === true || startFrame !== null,
+      startFrame,
       pick: false,
     });
   }
   return out;
 }
 
-/** Ответ GET cartoon/presets/ → карточки сцен и названия разделов (в порядке сервера). */
-export function cartoonItems(payload: unknown): { items: ReelItem[]; titles: Map<string, string> } {
-  const data = isRow(payload) ? payload : {};
-  const titles = new Map<string, string>();
-  for (const c of rows(data.categories)) {
-    const slug = text(c.slug);
-    if (slug && text(c.title)) titles.set(slug, text(c.title));
-  }
+/** Ответ GET cartoon/presets/ → карточки сцен (в порядке сервера). */
+export function cartoonItems(payload: unknown): ReelItem[] {
   const items: ReelItem[] = [];
   const seen = new Set<string>();
-  for (const row of rows(data.presets)) {
+  for (const row of rows(isRow(payload) ? payload.presets : null)) {
     const key = text(row.slug) || (typeof row.id === "number" ? String(row.id) : "");
     const id = `ct:${key}`;
     if (!key || seen.has(id)) continue;
@@ -135,6 +151,7 @@ export function cartoonItems(payload: unknown): { items: ReelItem[]; titles: Map
       kind: "video",
       title: text(row.title),
       subtitle: text(row.subtitle),
+      scenario: null,
       category: text(row.category),
       video,
       poster,
@@ -144,24 +161,38 @@ export function cartoonItems(payload: unknown): { items: ReelItem[]; titles: Map
       modelId: null,
       prompt: null,
       params: null,
+      needsPhoto: false,
+      startFrame: null,
       pick: row.is_pick === true,
     });
   }
-  return { items, titles };
+  return items;
 }
 
 /**
- * Карусель: работы видеостудии, за ними выбор редакции мультстудии — пока не
- * наберётся REEL_SIZE. Если отмеченных сцен мало и карусель вышла бы без
- * «крыльев», добираем до REEL_MIN обычными сценами: сначала из разделов,
- * которых в карусели ещё нет, — чтобы рядом не стояли пять похожих кадров.
+ * Ролики студии для карусели: сначала по одному на сценарий, в порядке списка
+ * сценариев, затем остальные — как их расставил владелец. Картинки в карусель
+ * не идут: она про видео.
  */
-function pickReel(studio: ReelItem[], cartoon: ReelItem[]): ReelItem[] {
-  const reel = studio.slice(0, REEL_SIZE);
-  for (const item of cartoon) {
-    if (reel.length >= REEL_SIZE) break;
-    if (item.pick) reel.push(item);
+function studioReel(studio: ReelItem[]): ReelItem[] {
+  const videos = studio.filter((item) => item.kind === "video");
+  const lead = new Map<ScenarioKey, ReelItem>();
+  for (const item of videos) {
+    if (item.scenario && !lead.has(item.scenario)) lead.set(item.scenario, item);
   }
+  const first = SCENARIOS.flatMap((key) => lead.get(key) ?? []);
+  const taken = new Set(first);
+  return [...first, ...videos.filter((item) => !taken.has(item))].slice(0, REEL_SIZE);
+}
+
+/**
+ * Сцены мультстудии для карусели: выбор редакции, не больше REEL_SIZE. Если
+ * отмеченных сцен мало и карусель вышла бы без «крыльев», добираем до REEL_MIN
+ * обычными сценами: сначала из разделов, которых в карусели ещё нет, — чтобы
+ * рядом не стояли пять похожих кадров.
+ */
+function cartoonReel(cartoon: ReelItem[]): ReelItem[] {
+  const reel = cartoon.filter((item) => item.pick).slice(0, REEL_SIZE);
   if (reel.length >= REEL_MIN) return reel;
 
   // В карусели соседи показывают только постер — сцены без него не берём.
@@ -178,25 +209,21 @@ function pickReel(studio: ReelItem[], cartoon: ReelItem[]): ReelItem[] {
   return reel;
 }
 
-export function buildShowreel(
-  studio: ReelItem[],
-  cartoon: ReelItem[],
-  titles: ReadonlyMap<string, string> = new Map(),
-): ShowreelData {
-  const counts = new Map<string, number>();
-  for (const item of cartoon) {
-    if (item.category) counts.set(item.category, (counts.get(item.category) ?? 0) + 1);
-  }
-  // Раздел без названия вкладкой не станет — показать на ней нечего.
-  const categories: ReelCategory[] = [...counts]
-    .filter(([slug]) => titles.has(slug))
-    .map(([slug, count]) => ({ slug, title: titles.get(slug) ?? slug, count }))
-    .sort((a, b) => b.count - a.count);
+export function buildShowreel(studio: ReelItem[], cartoon: ReelItem[]): ShowreelData {
+  const own = studioReel(studio);
+  const scenes = cartoonReel(cartoon);
+  // Роликов студии мало — карусель целиком отдаём мультстудии. Но если сцен
+  // нет вовсе (их запрос не ответил), два своих ролика лучше пустого экрана.
+  const ownReel = own.length >= REEL_MIN || (own.length > 0 && scenes.length === 0);
+  const reel = ownReel ? own : scenes;
+
+  // Постер берём из карусели, когда она мультстудии: он там уже загружен.
+  const withPoster = (item: ReelItem) => item.poster !== null;
+  const scene = (ownReel ? undefined : scenes.find(withPoster)) ?? cartoon.find(withPoster);
 
   return {
-    reel: pickReel(studio, cartoon),
-    all: [...studio, ...cartoon],
-    categories,
-    hasStudio: studio.length > 0,
+    reel,
+    source: reel.length === 0 ? null : ownReel ? "vstudio" : "cartoon",
+    cartoonPoster: scene?.poster ?? null,
   };
 }

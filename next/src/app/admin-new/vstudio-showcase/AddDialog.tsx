@@ -2,12 +2,19 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { INPUT_LG, Preview, btn, chip, mediaFacts } from "./parts";
-import { TITLE_MAX, type AddForm, type Candidate, type Category } from "./showcaseAdmin";
+import { INPUT_LG, Preview, StartFrame, btn, chip, mediaFacts } from "./parts";
+import {
+  TITLE_MAX,
+  addDefaults,
+  titleForScenario,
+  type AddForm,
+  type Candidate,
+  type Category,
+} from "./showcaseAdmin";
 
 /**
- * «В витрину»: как работа будет называться, в какой она категории и можно ли
- * показывать её промпт.
+ * «В витрину»: какой сценарий карусели работа показывает, как она называется
+ * и можно ли показывать её запрос.
  *
  * Окно своё, а не Modal из components/dialog: тот рисуется в document.body,
  * мимо обёртки data-theme="dark" панели, и при светлой теме сайта вышел бы
@@ -22,11 +29,7 @@ type Props = {
 };
 
 export default function AddDialog({ candidate, categories, onSubmit, onClose }: Props) {
-  const [title, setTitle] = useState("");
-  const [category, setCategory] = useState("");
-  // Промпт сотрудника — рабочий материал студии, его предлагаем показать сразу.
-  // Промпт пользователя — его находка: галочку ставит только сам владелец.
-  const [showPrompt, setShowPrompt] = useState(candidate.staff && candidate.prompt !== "");
+  const [{ title, category, showPrompt }, setForm] = useState(() => addDefaults(candidate));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -117,23 +120,34 @@ export default function AddDialog({ candidate, categories, onSubmit, onClose }: 
               <input
                 type="text"
                 value={title}
-                onChange={(e) => setTitle(e.target.value)}
+                onChange={(e) => {
+                  const typed = e.target.value;
+                  setForm((prev) => ({ ...prev, title: typed }));
+                }}
                 maxLength={TITLE_MAX}
                 placeholder="Например: Ночной город"
                 className={`${INPUT_LG} mt-1.5 w-full`}
               />
-              <span className="mt-1 block text-xs text-muted-2">Посетители увидят его под роликом.</span>
+              <span className="mt-1 block text-xs text-muted-2">
+                Пустое поле заполнится названием сценария: им ролик и подписан в карусели.
+              </span>
             </label>
 
             <div className="text-sm">
-              <span className="text-muted">Категория *</span>
-              <div role="group" aria-label="Категория" className="mt-1.5 flex flex-wrap gap-2">
+              <span className="text-muted">Сценарий *</span>
+              <div role="group" aria-label="Сценарий" className="mt-1.5 flex flex-wrap gap-2">
                 {categories.map((option) => (
                   <button
                     key={option.key}
                     type="button"
                     aria-pressed={category === option.key}
-                    onClick={() => setCategory(option.key)}
+                    onClick={() =>
+                      setForm((prev) => ({
+                        ...prev,
+                        category: option.key,
+                        title: titleForScenario(prev.title, option.key, categories),
+                      }))
+                    }
                     className={chip(category === option.key)}
                   >
                     {option.label}
@@ -149,13 +163,16 @@ export default function AddDialog({ candidate, categories, onSubmit, onClose }: 
                   className="mt-0.5 h-4 w-4 shrink-0 accent-accent"
                   checked={showPrompt}
                   disabled={candidate.prompt === ""}
-                  onChange={(e) => setShowPrompt(e.target.checked)}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setForm((prev) => ({ ...prev, showPrompt: checked }));
+                  }}
                 />
                 <span>
-                  Показывать промпт
+                  Показывать запрос
                   <span className="mt-0.5 block text-xs text-muted-2">
                     {candidate.prompt
-                      ? "Посетитель сможет нажать «Снять похожее»: этот текст и параметры подставятся в его студию. Без галочки кнопка только выберет модель."
+                      ? "По запросу работает кнопка «Снять похожее». У работ с первым кадром станет виден и он."
                       : "У этого дубля нет текста запроса — показывать нечего."}
                   </span>
                 </span>
@@ -164,6 +181,14 @@ export default function AddDialog({ candidate, categories, onSubmit, onClose }: 
                 <p className="mt-2 max-h-28 overflow-y-auto whitespace-pre-wrap break-words border-t border-border pt-2 text-xs text-muted">
                   {candidate.prompt}
                 </p>
+              )}
+              {candidate.startFrame && (
+                <div className="mt-2 flex items-center gap-3 border-t border-border pt-2">
+                  <StartFrame src={candidate.startFrame} shown={showPrompt} size="lg" />
+                  <p className="text-xs text-muted-2">
+                    Первый кадр этого ролика. С галочкой «Показывать запрос» его увидят все посетители.
+                  </p>
+                </div>
               )}
             </div>
 

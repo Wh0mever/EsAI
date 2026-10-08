@@ -28,8 +28,18 @@ function keyboardUp(): boolean {
   return typing && typeof window.matchMedia === "function" && window.matchMedia("(pointer: coarse)").matches;
 }
 
-export function useReelFit<T extends HTMLElement>(): { frame: RefCallback<T>; width: number | null } {
-  const [width, setWidth] = useState<number | null>(null);
+export type ReelFit<T extends HTMLElement> = {
+  frame: RefCallback<T>;
+  /** Ширина кадра; null — ещё не измерена. */
+  width: number | null;
+  /** Ширина колонки, в которой стоит карусель: её краями обрезаны дальние кадры. */
+  column: number | null;
+};
+
+type Fit = { width: number; column: number };
+
+export function useReelFit<T extends HTMLElement>(): ReelFit<T> {
+  const [fit, setFit] = useState<Fit | null>(null);
 
   const frame = useCallback((el: T | null) => {
     if (!el) return;
@@ -42,7 +52,9 @@ export function useReelFit<T extends HTMLElement>(): { frame: RefCallback<T>; wi
       // Верх блока в содержимом ленты — от прокрутки не зависит.
       const top = feed ? el.getBoundingClientRect().top - feed.getBoundingClientRect().top + feed.scrollTop : 0;
       const room = feed ? feed.clientHeight - top - REEL_FOOT : null;
-      setWidth(fitWidth(viewport, column, room));
+      const width = fitWidth(viewport, column, room);
+      const next = { width, column };
+      setFit((cur) => (cur && cur.width === next.width && cur.column === next.column ? cur : next));
     };
     measure();
     // Высота блока меняется вместе с самим кадром — на неё не откликаемся, только на ширину.
@@ -64,5 +76,5 @@ export function useReelFit<T extends HTMLElement>(): { frame: RefCallback<T>; wi
     };
   }, []);
 
-  return { frame, width };
+  return { frame, width: fit?.width ?? null, column: fit?.column ?? null };
 }
