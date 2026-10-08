@@ -35,10 +35,10 @@ export default function TrustStrip() {
 
   return (
     <footer ref={reveal} className={vx(VS_SECTION, VS_SECTION_GAP, "vs-reveal")}>
-      <ul className="flex flex-col gap-3 border-t border-white/10 pt-6 text-[13px] leading-snug text-muted sm:flex-row sm:flex-wrap sm:justify-center sm:gap-x-10">
+      <ul className="flex flex-col gap-3 border-t border-vs-ink/10 pt-6 text-[13px] leading-snug text-muted sm:flex-row sm:flex-wrap sm:justify-center sm:gap-x-10">
         {facts.map(({ id, Icon, text }) => (
           <li key={id} className="flex items-start gap-2.5">
-            <Icon aria-hidden className="mt-0.5 shrink-0 text-sm text-accent/70" />
+            <Icon aria-hidden className="mt-0.5 shrink-0 text-sm text-vs-accent/70" />
             {text}
           </li>
         ))}

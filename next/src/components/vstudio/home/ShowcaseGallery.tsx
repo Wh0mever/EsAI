@@ -141,7 +141,8 @@ export default function ShowcaseGallery({ items, categories, hasStudio, loading,
       {busy ? (
         <>
           <div aria-hidden className="mt-1.5 flex h-5 items-center">
-            <span className="h-3 w-64 max-w-full rounded-full bg-white/[0.05]" />
+            {/* На светлой сцене та же доля «чернил» почти не видна — там полоска чуть плотнее. */}
+            <span className="h-3 w-64 max-w-full rounded-full bg-vs-ink/[0.07] dark:bg-vs-ink/[0.05]" />
           </div>
           <GallerySkeleton count={pageLimit(cols, 0)} />
         </>

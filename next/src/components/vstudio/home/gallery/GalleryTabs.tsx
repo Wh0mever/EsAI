@@ -39,7 +39,7 @@ export type GalleryTabsProps = {
 
 export const tabDomId = (idBase: string, index: number) => `${idBase}-tab-${index}`;
 
-// Те же 28 px, что у vs-fade-x, но с одной стороны.
+// Те же 28 px, что у vs-fade-x, но с одной стороны. black здесь — непрозрачность маски, а не цвет: от темы не зависит.
 const FADE_START =
   "[-webkit-mask-image:linear-gradient(90deg,transparent,black_28px)] [mask-image:linear-gradient(90deg,transparent,black_28px)]";
 const FADE_END =
@@ -48,7 +48,9 @@ const FADE_END =
 // Чип на телефоне 40 px высотой — добираем зону нажатия до 44 невидимым полем.
 const TAB = "relative whitespace-nowrap before:absolute before:inset-x-0 before:-inset-y-0.5";
 
-const ARROW = `absolute top-1/2 grid size-8 -translate-y-1/2 cursor-pointer place-items-center rounded-full border border-white/12 bg-surface-2 text-muted shadow-lg shadow-black/50 transition-colors hover:border-white/25 hover:text-foreground ${VS_FOCUS}`;
+// Стрелка лежит поверх ленты, поэтому непрозрачная. На светлой сцене она белая с мягкой тёплой тенью: серый кружок
+// почти сливался бы с «бумагой», а чёрная тень легла бы на неё пятном.
+const ARROW = `absolute top-1/2 grid size-8 -translate-y-1/2 cursor-pointer place-items-center rounded-full border border-vs-ink/12 bg-surface text-muted shadow-lg shadow-vs-ink/15 transition-colors hover:border-vs-ink/25 hover:text-foreground dark:bg-surface-2 dark:shadow-black/50 ${VS_FOCUS}`;
 
 const scrollMode = (): ScrollBehavior => (prefersReducedMotion() ? "auto" : "smooth");
 

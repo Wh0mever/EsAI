@@ -6,7 +6,7 @@ import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { useVStudio } from "../context";
 import { openLockedModel } from "../settings/RunSettingsPanel";
-import { VS_SECTION, VS_SECTION_GAP, vx } from "../ui/skin";
+import { VS_SECTION, VS_SECTION_GAP, VS_SHEEN_ON_MEDIA, vx } from "../ui/skin";
 import { useReveal } from "../ui/useReveal";
 import { trackHomePick } from "./homePick";
 import { HOME_CARD, HOME_CELLS, HOME_CELL_IN, staggerStyle } from "./tools/cardSkin";
@@ -144,7 +144,8 @@ export default function ToolCards({ cartoonPoster }: ToolCardsProps) {
   cards.push({
     id: "cartoon",
     node: (
-      <Link href="/studio" onClick={() => trackHomePick("tool", "cartoon")} className={CARD}>
+      // Шапка этой карточки — настоящий кадр: блик по нему идёт тихий (VS_SHEEN_ON_MEDIA).
+      <Link href="/studio" onClick={() => trackHomePick("tool", "cartoon")} className={vx(CARD, VS_SHEEN_ON_MEDIA)}>
         <CartoonArt poster={cartoonPoster} />
         <CardText
           title={t("home.tools.cartoon.title", { defaultValue: "Мультстудия" })}

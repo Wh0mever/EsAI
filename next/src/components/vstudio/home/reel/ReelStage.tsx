@@ -1,7 +1,12 @@
 "use client";
 
 import { memo, useCallback, useRef, useState } from "react";
-import type { KeyboardEvent, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from "react";
+import type {
+  CSSProperties,
+  KeyboardEvent,
+  MouseEvent as ReactMouseEvent,
+  PointerEvent as ReactPointerEvent,
+} from "react";
 import { useTranslation } from "react-i18next";
 import { FiChevronLeft, FiChevronRight } from "react-icons/fi";
 import LazyClip from "../../ui/LazyClip";
@@ -12,7 +17,17 @@ import { useReveal } from "../../ui/useReveal";
 import type { ReelItem } from "../showreelData";
 import ReelCaption from "./ReelCaption";
 import { REEL_ENTER, type ReelLayoutProps } from "./reelLayout";
-import { INTENT_PX, REEL_INTERVAL_MS, dragShift, dragSteps, isLoop, slotLook, slotsAround, stepPx } from "./reelMath";
+import {
+  INTENT_PX,
+  REEL_INTERVAL_MS,
+  dragShift,
+  dragSteps,
+  isLoop,
+  paperOpacity,
+  slotLook,
+  slotsAround,
+  stepPx,
+} from "./reelMath";
 import { useReelFit } from "./useReelFit";
 import { useReelAuto, useReelPause } from "./useReelPause";
 import { useReelTrack } from "./useReelTrack";
@@ -31,6 +46,11 @@ import { useSettled } from "./useSettled";
  * лежат в одной ячейке сетки: высоту сцены задаёт сам кадр, а место каждому —
  * transform. Он, прозрачность и тени меняются CSS-переходом, поэтому любое
  * новое нажатие просто даёт кадрам новую цель — с того места, где их застало.
+ *
+ * Две темы. Сам кадр и всё, что лежит на нём (чёрная вуаль соседа, подпись,
+ * подсветка под курсором), одинаковы: видео тёмное в любой теме. От темы
+ * зависит то, чем кадр касается сцены: тень, волосяная кромка, стрелки и то,
+ * как дальний кадр уходит из виду — в темноту зала или в «бумагу».
  */
 
 type Gesture = { id: number; x: number; y: number; live: boolean };
@@ -40,11 +60,28 @@ const SLOT = "relative col-start-1 row-start-1 aspect-video max-w-full overflow-
 const SLOT_WIDTH = "w-[min(58vw,760px)]";
 const SLOT_MOVE =
   "[transition:transform_600ms_var(--vs-ease),opacity_400ms_ease,box-shadow_400ms_ease] motion-reduce:[transition:none]";
+/**
+ * Прозрачность места приходит двумя переменными (их ставит Slot), а не готовым
+ * opacity: в тёмной теме дальний кадр гаснет по таблице макета, на светлой
+ * сцене — быстрее (reelMath.paperOpacity), иначе притемнённый кадр стоял бы у
+ * края серой плитой.
+ */
+const SLOT_FADE = "opacity-[var(--vs-o-paper)] dark:opacity-[var(--vs-o)]";
+// Тени — из палитры темы: на «бумаге» чёрная тень легла бы грязным пятном. В
+// тёмной теме значения прежние, вплоть до второй, ближней тени активного кадра.
 const SLOT_ON =
-  "shadow-[0_40px_90px_rgba(0,0,0,0.75),0_10px_28px_rgba(0,0,0,0.5)] group-focus-visible/reel:outline-2 group-focus-visible/reel:outline-offset-4 group-focus-visible/reel:outline-accent/80";
-const SLOT_SIDE = "shadow-[0_22px_50px_rgba(0,0,0,0.6)]";
+  "shadow-[var(--vs-shadow-float)] dark:shadow-[var(--vs-shadow-float),0_10px_28px_rgba(0,0,0,0.5)] group-focus-visible/reel:outline-2 group-focus-visible/reel:outline-offset-4 group-focus-visible/reel:outline-vs-accent/80";
+const SLOT_SIDE = "shadow-[var(--vs-shadow-soft)] dark:shadow-[0_22px_50px_rgba(0,0,0,0.6)]";
 const DIM_MOVE = "transition-opacity duration-[400ms] motion-reduce:transition-none";
-const ARROW = `${VS_ICON_BTN} absolute top-1/2 z-20 -translate-y-1/2 !border-white/15 !bg-black/55 !text-white backdrop-blur-md hover:!bg-black/75 aria-disabled:cursor-default aria-disabled:opacity-40`;
+/**
+ * Стрелки стоят у края сцены: обычно над соседним кадром, а у короткой карусели
+ * на первом и последнем кадре — над самой сценой. В тёмной теме это тёмное
+ * стекло с белым значком, в светлой — белая плашка с тёмным: и на кадре, и на
+ * «бумаге» она читается, а чёрный круг на светлой странице был бы чужим.
+ * Цвет значка — не vs-ink: в браузерах без color-mix() эти чернила
+ * полупрозрачные (globals.css), и значок бы пропал.
+ */
+const ARROW = `${VS_ICON_BTN} absolute top-1/2 z-20 -translate-y-1/2 !border-vs-ink/15 !bg-surface/90 !text-foreground shadow-md dark:!text-white backdrop-blur-md hover:!bg-surface dark:!bg-black/55 dark:shadow-none dark:hover:!bg-black/75 aria-disabled:cursor-default aria-disabled:opacity-40`;
 /** Расстановка заглушек: активный кадр и по соседу с каждой стороны. */
 const SKELETON = [-1, 0, 1];
 /** Кадр на стоянке или на пути к ней: его не видно, и отзываться ему не на что. */
@@ -90,6 +127,13 @@ const Slot = memo(function Slot({
 }: SlotProps) {
   const look = slotLook(d);
   const parked = Math.abs(d) > PARKED_FROM;
+  const pose = {
+    width: width ?? undefined,
+    transform: look.transform,
+    zIndex: look.zIndex,
+    "--vs-o": look.opacity,
+    "--vs-o-paper": paperOpacity(look.opacity),
+  } as CSSProperties;
 
   // На стоянку кадр попадает невидимым и выезжает переходом. Но после далёкого
   // прыжка (сегмент, сосед через одного) он рождается сразу на виду. Важно,
@@ -116,13 +160,14 @@ const Slot = memo(function Slot({
       inert={parked}
       className={vx(
         SLOT,
+        SLOT_FADE,
         "bg-black",
         width === null && SLOT_WIDTH,
         eased && SLOT_MOVE,
         active ? SLOT_ON : SLOT_SIDE,
         parked && "pointer-events-none",
       )}
-      style={{ width: width ?? undefined, transform: look.transform, opacity: look.opacity, zIndex: look.zIndex }}
+      style={pose}
     >
       <LazyClip
         src={item.video}
@@ -138,7 +183,8 @@ const Slot = memo(function Slot({
         className={vx("pointer-events-none absolute inset-0 bg-black", eased && DIM_MOVE)}
         style={{ opacity: look.dim }}
       />
-      <span aria-hidden className="pointer-events-none absolute inset-0 rounded-2xl border border-white/10" />
+      {/* Кромка — «чернилами» темы: на светлой сцене она отделяет светлый кадр от «бумаги». */}
+      <span aria-hidden className="pointer-events-none absolute inset-0 rounded-2xl border border-vs-ink/10" />
       <ReelCaption item={item} shown={active} onUse={onUse} />
       {!active && (
         // Листать с клавиатуры — стрелками; сосед-кнопка нужен мыши и пальцу.

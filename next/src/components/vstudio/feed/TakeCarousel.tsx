@@ -23,7 +23,7 @@ const TAKE_TONE: Partial<Record<TakeLite["status"], SegmentTone>> = {
   lost: "wait",
 };
 
-const ARROW = `grid size-11 shrink-0 cursor-pointer place-items-center rounded-full text-muted transition-colors hover:bg-white/[0.08] hover:text-foreground disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent md:size-9 ${VS_FOCUS}`;
+const ARROW = `grid size-11 shrink-0 cursor-pointer place-items-center rounded-full text-muted transition-colors hover:bg-vs-ink/[0.08] hover:text-foreground disabled:cursor-default disabled:opacity-30 disabled:hover:bg-transparent md:size-9 ${VS_FOCUS}`;
 
 /**
  * Карусель дублей «Дубль 2 из 3» (§9.6). Каждый «Повторить» — новый дубль

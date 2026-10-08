@@ -5,7 +5,7 @@ import { memo } from "react";
 import type { CSSProperties } from "react";
 import { FiArrowRight } from "react-icons/fi";
 import LazyClip from "../../ui/LazyClip";
-import { VS_FOCUS, VS_MEDIA, VS_ON_MEDIA, vx } from "../../ui/skin";
+import { VS_FOCUS, VS_MEDIA, VS_ON_MEDIA, VS_SHEEN_ON_MEDIA, vx } from "../../ui/skin";
 import { useReveal } from "../../ui/useReveal";
 import type { ReelItem } from "../showreelData";
 
@@ -30,9 +30,14 @@ export type GalleryCardProps = {
 // Кольцо фокуса отодвинуто: вплотную к подписи оно читалось бы как рамка текста.
 const CARD = `group block w-full cursor-pointer rounded-xl text-left transition-transform duration-200 motion-safe:active:scale-[0.97] focus-visible:ring-offset-4 focus-visible:ring-offset-background ${VS_FOCUS}`;
 
+// Отклик кадра на курсор. В тёмной теме его даёт светлеющая кромка (ниже); на тёмном кадре посреди светлой
+// сцены тёмная кромка почти не видна — там кадр приподнимается мягкой тенью.
+const MEDIA_LIFT =
+  "transition-shadow duration-300 group-hover:shadow-[var(--vs-card-hover-shadow)] group-focus-visible:shadow-[var(--vs-card-hover-shadow)] dark:group-hover:shadow-none dark:group-focus-visible:shadow-none";
+
 // Подпись действия выезжает поверх правого края второй строки; слева растворяется в фоне сцены.
 const ACTION =
-  "pointer-events-none absolute inset-y-0 right-0 flex items-center gap-1 whitespace-nowrap bg-linear-to-l from-background from-[calc(100%-2.5rem)] to-transparent pl-10 text-xs font-medium text-accent opacity-0 transition-opacity duration-300 group-hover:opacity-100 group-focus-visible:opacity-100 motion-reduce:transition-none";
+  "pointer-events-none absolute inset-y-0 right-0 flex items-center gap-1 whitespace-nowrap bg-linear-to-l from-background from-[calc(100%-2.5rem)] to-transparent pl-10 text-xs font-medium text-vs-accent opacity-0 transition-opacity duration-300 group-hover:opacity-100 group-focus-visible:opacity-100 motion-reduce:transition-none";
 
 /**
  * Карточка галереи: кадр 16:9 и две строки под ним. Вся карточка — одна
@@ -45,7 +50,7 @@ function GalleryCard({ item, title, source, action, hover, delayMs, onUse }: Gal
 
   const body = (
     <>
-      <span className={vx(VS_MEDIA, "vs-sheen block aspect-video w-full")}>
+      <span className={vx(VS_MEDIA, "vs-sheen block aspect-video w-full", VS_SHEEN_ON_MEDIA, MEDIA_LIFT)}>
         <LazyClip
           src={item.video}
           poster={item.poster}
@@ -54,9 +59,10 @@ function GalleryCard({ item, title, source, action, hover, delayMs, onUse }: Gal
           className="absolute inset-0"
         />
         <span className={vx(VS_ON_MEDIA, "pointer-events-none absolute left-2 top-2")}>{source}</span>
+        {/* Кромка — «чернилами» темы: кадр лежит прямо на сцене, и светлый постер на светлой сцене без неё теряет край. */}
         <span
           aria-hidden
-          className="pointer-events-none absolute inset-0 rounded-xl border border-white/10 transition-colors duration-300 group-hover:border-white/25 group-focus-visible:border-white/25"
+          className="pointer-events-none absolute inset-0 rounded-xl border border-vs-ink/10 transition-colors duration-300 group-hover:border-vs-ink/25 group-focus-visible:border-vs-ink/25"
         />
       </span>
       <span className="mt-2.5 block truncate text-sm font-medium text-foreground/90 transition-colors group-hover:text-foreground">

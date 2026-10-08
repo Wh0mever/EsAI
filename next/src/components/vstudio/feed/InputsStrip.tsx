@@ -62,16 +62,17 @@ function InputsStrip({ inputs, dropped, culprit }: InputsStripProps) {
         ]
           .filter(Boolean)
           .join(" · ");
+        // Пунктир «не учтено» на белом бледнее сплошной линии той же плотности — в светлой теме он плотнее.
         const frame = row.culprit
           ? "border-status-fail ring-2 ring-status-fail/50"
           : row.excluded
-            ? "border-dashed border-white/20"
-            : "border-white/10 hover:border-white/25";
+            ? "border-dashed border-vs-ink/30 dark:border-vs-ink/20"
+            : "border-vs-ink/10 hover:border-vs-ink/25";
         return (
           <li key={row.key} className="flex w-[4.5rem] shrink-0 flex-col gap-1" title={aria}>
             <div
               className={vx(
-                "relative size-[4.5rem] overflow-hidden rounded-xl border bg-white/[0.04] transition-colors",
+                "relative size-[4.5rem] overflow-hidden rounded-xl border bg-vs-ink/[0.04] transition-colors",
                 frame,
               )}
             >

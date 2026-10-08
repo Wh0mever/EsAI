@@ -33,7 +33,7 @@ export default function PromptMeter({ meter, modelName, onCondense, condensing, 
   if (meter.chars === 0) return null;
   const { level } = meter;
   const color = level === "hard" ? "text-status-fail" : level === "soft" ? "text-status-wait" : compact ? "text-muted-2" : "text-muted";
-  const bar = level === "hard" ? "bg-status-fail" : level === "soft" ? "bg-status-wait" : "bg-white/35";
+  const bar = level === "hard" ? "bg-status-fail" : level === "soft" ? "bg-status-wait" : "bg-vs-ink/35";
   const fill = Math.max(4, Math.min(100, Math.round(meter.ratio * 100)));
   const note =
     level === "hard"
@@ -49,7 +49,7 @@ export default function PromptMeter({ meter, modelName, onCondense, condensing, 
       <span className="tabular-nums">{ct(t, "meter.chars", { n: fmtNum(meter.chars) })}</span>
       <span aria-hidden>·</span>
       <span className="tabular-nums">{ct(t, "meter.words", { n: fmtNum(meter.words) })}</span>
-      <span className="relative h-1 w-12 overflow-hidden rounded-full bg-white/10" aria-hidden>
+      <span className="relative h-1 w-12 overflow-hidden rounded-full bg-vs-ink/10" aria-hidden>
         <span className={`absolute inset-y-0 left-0 rounded-full ${bar}`} style={{ width: `${fill}%` }} />
       </span>
       {note && <span className="min-w-0">{note}</span>}
@@ -59,7 +59,7 @@ export default function PromptMeter({ meter, modelName, onCondense, condensing, 
           onClick={onCondense}
           disabled={condensing}
           className={vx(
-            "inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-current/40 px-3 text-xs font-semibold text-foreground transition-colors hover:bg-white/[0.08] disabled:cursor-wait disabled:opacity-70 max-md:min-h-11",
+            "inline-flex cursor-pointer items-center gap-1.5 rounded-full border border-current/40 px-3 text-xs font-semibold text-foreground transition-colors hover:bg-vs-ink/[0.08] disabled:cursor-wait disabled:opacity-70 max-md:min-h-11",
             compact ? "min-h-8" : "min-h-9",
             VS_FOCUS,
           )}

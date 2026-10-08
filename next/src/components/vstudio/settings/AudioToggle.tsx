@@ -45,7 +45,11 @@ export default function AudioToggle({ model, value, onChange }: AudioToggleProps
             // before: расширяет зону нажатия до 44 px по высоте, не раздвигая строку заголовка.
             "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border transition-colors before:absolute before:-inset-x-2 before:-inset-y-2.5 before:content-['']",
             VS_FOCUS,
-            on ? "border-accent bg-accent" : "border-white/15 bg-white/[0.08]",
+            // Включён: кромка — тёмное золото поверх золотой заливки (в тёмной теме сливается с ней, на белом
+            // даёт дорожке чёткий край). Выключен: в светлой теме дорожка плотнее, иначе её не видно на белом.
+            on
+              ? "border-vs-accent/40 bg-accent"
+              : "border-vs-ink/20 bg-vs-ink/[0.12] dark:border-vs-ink/15 dark:bg-vs-ink/[0.08]",
             supported ? "cursor-pointer" : "cursor-not-allowed opacity-50",
           )}
         >

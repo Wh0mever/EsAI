@@ -621,7 +621,7 @@ export default function Composer() {
       <div
         ref={boxRef}
         className={vx(
-          "flex flex-col gap-2 transition-[border-color] duration-200 focus-within:!border-white/25",
+          "flex flex-col gap-2 transition-[border-color] duration-200 focus-within:!border-vs-ink/25",
           mobile ? "vs-solid rounded-[20px] p-2" : `${VS_PANEL} p-3`,
         )}
       >
@@ -684,7 +684,7 @@ export default function Composer() {
                 и причина, по которой запуск закрыт (она стоит над кнопкой «Создать»). */}
             <div className="flex min-h-4 items-center gap-3">
               {!emptyText && <span className="hidden shrink-0 text-[11px] text-muted-2 xl:inline">{ct(t, "composer.shortcut")}</span>}
-              <span className="h-px min-w-6 flex-1 bg-white/[0.08]" aria-hidden />
+              <span className="h-px min-w-6 flex-1 bg-border" aria-hidden />
               {meterLine}
               {reason && (
                 <p

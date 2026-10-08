@@ -67,7 +67,7 @@ export default function InputsExplainer({ kind, model, tray, frames, quote, onPi
               onClick={onPickModel}
               // Отрицательные поля: на телефоне зона нажатия 44 px, а строка остаётся высотой 32 px.
               className={cx(
-                "-my-1.5 inline-flex min-h-11 cursor-pointer items-center self-start rounded-md text-xs font-semibold text-foreground underline underline-offset-2 transition-colors hover:text-accent md:my-0 md:min-h-8",
+                "-my-1.5 inline-flex min-h-11 cursor-pointer items-center self-start rounded-md text-xs font-semibold text-foreground underline underline-offset-2 transition-colors hover:text-vs-accent md:my-0 md:min-h-8",
                 VS_FOCUS,
               )}
             >
@@ -80,8 +80,9 @@ export default function InputsExplainer({ kind, model, tray, frames, quote, onPi
       {rows.length > 0 && (
         <ul className="flex flex-col gap-2">
           {rows.map((row) => (
-            <li key={row.lid} className={cx("flex items-center gap-2", row.tone === "muted" && "opacity-70")}>
-              <span className="relative size-9 shrink-0 overflow-hidden rounded-lg border border-white/10 bg-white/[0.05]">
+            // На светлом та же прозрачность съедает больше контраста: пояснение (12 px) уходило ниже 4.5:1.
+            <li key={row.lid} className={cx("flex items-center gap-2", row.tone === "muted" && "opacity-85 dark:opacity-70")}>
+              <span className="relative size-9 shrink-0 overflow-hidden rounded-lg border border-vs-ink/10 bg-vs-ink/[0.05]">
                 {row.preview && (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={row.preview} alt="" className={cx("size-full object-cover", row.tone === "muted" && "grayscale")} />

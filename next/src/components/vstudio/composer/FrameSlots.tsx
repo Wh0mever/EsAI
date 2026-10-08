@@ -73,11 +73,16 @@ function EmptySlot({
         aria-haspopup="menu"
         aria-expanded={open}
         className={vx(
-          "inline-flex min-h-11 shrink-0 cursor-pointer items-center gap-1.5 rounded-xl border border-dashed text-xs font-medium transition-colors hover:border-accent/60 hover:text-foreground md:min-h-10",
+          "inline-flex min-h-11 shrink-0 cursor-pointer items-center gap-1.5 rounded-xl border border-dashed text-xs font-medium transition-colors hover:border-vs-accent/60 hover:text-foreground md:min-h-10",
           VS_FOCUS,
           compact ? "px-2.5" : "px-3",
           // Кольцо vs-ready расходится от слота, пока подсветка включена; без анимации остаётся золотая кромка.
-          pulse ? "vs-ready border-accent/70 text-foreground" : open ? "border-white/30 text-foreground" : "border-white/15 text-muted",
+          // Пунктир на белом бледнее сплошной линии той же плотности — в светлой теме он плотнее.
+          pulse
+            ? "vs-ready border-vs-accent/70 text-foreground"
+            : open
+              ? "border-vs-ink/45 text-foreground dark:border-vs-ink/30"
+              : "border-vs-ink/25 text-muted dark:border-vs-ink/15",
         )}
       >
         <Icon aria-hidden className="size-3.5 shrink-0" />
@@ -161,7 +166,7 @@ export default function FrameSlots({ frames, model, labels, flagged, handlers, o
   if (compact) {
     return (
       <div
-        className="flex shrink-0 items-center gap-1.5 border-l border-white/10 pl-2"
+        className="flex shrink-0 items-center gap-1.5 border-l border-vs-ink/10 pl-2"
         role="group"
         aria-label={ct(t, "composer.frames")}
         data-vs-frames=""

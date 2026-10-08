@@ -62,9 +62,11 @@ const PICKER_LIST_ID = "vs-mention-list";
 /**
  * Строка списка — та же форма, что у пунктов меню студии (VS_MENU_ITEM), но
  * подсветка не по наведению, а по выбранному пункту: его двигают ↑↓ из текста.
+ * Кроме заливки, выбранный пункт ничем не отмечен, а та же доля чернил на
+ * белом стекле бледнее, чем на тёмном, — в светлой теме заливка плотнее.
  */
 const ROW = "flex cursor-pointer items-center gap-2.5 rounded-xl px-2 text-sm text-foreground/85 transition-colors";
-const ROW_ACTIVE = "bg-white/[0.08] text-foreground";
+const ROW_ACTIVE = "bg-vs-ink/[0.12] text-foreground dark:bg-vs-ink/[0.08]";
 
 const abs = (url: string | null | undefined) => (url && url.startsWith("/") ? `${BACKEND}${url}` : url || "");
 
@@ -297,7 +299,7 @@ export default function MentionPicker({
           onMouseDown={keepFocus}
           onClick={() => activate(row)}
           className={`relative aspect-square overflow-hidden rounded-xl border bg-surface-3 ${
-            i === active ? "border-accent/70" : "border-white/10"
+            i === active ? "border-vs-accent/70" : "border-vs-ink/10"
           }`}
         >
           {row.item.thumb ? (
@@ -309,8 +311,10 @@ export default function MentionPicker({
             </span>
           )}
           {label && (
-            <span className={`absolute bottom-1 left-1 max-w-[calc(100%-0.5rem)] truncate ${chipClassName(label.state)}`}>
-              {label.text}
+            // Чип здесь лежит на фото, а его цвета рассчитаны на хром. В светлой теме под ним белая
+            // плашка: тёмно-золотой текст на тёмном снимке не прочесть. В тёмной — как было, без неё.
+            <span className="absolute bottom-1 left-1 mx-px flex max-w-[calc(100%-0.5rem)] rounded-md bg-surface dark:bg-transparent">
+              <span className={`!mx-0 min-w-0 truncate ${chipClassName(label.state)}`}>{label.text}</span>
             </span>
           )}
         </button>
@@ -332,7 +336,7 @@ export default function MentionPicker({
           <button
             type="button"
             onClick={onClose}
-            className={`grid size-11 place-items-center rounded-full text-xl text-muted transition-colors hover:bg-white/[0.08] hover:text-foreground ${VS_FOCUS}`}
+            className={`grid size-11 place-items-center rounded-full text-xl text-muted transition-colors hover:bg-vs-ink/[0.08] hover:text-foreground ${VS_FOCUS}`}
             aria-label={tx("mobile.close", "Закрыть")}
           >
             <IoClose aria-hidden />
@@ -351,10 +355,10 @@ export default function MentionPicker({
                 onMouseDown={keepFocus}
                 onClick={() => activate(row)}
                 className={`flex min-h-11 items-center justify-center gap-2 rounded-xl border px-2.5 text-[13px] font-medium leading-tight text-foreground ${
-                  i === active ? "border-accent/60 bg-white/[0.09]" : "border-white/10 bg-white/[0.05]"
+                  i === active ? "border-vs-accent/60 bg-vs-ink/[0.09]" : "border-vs-ink/10 bg-vs-ink/[0.05]"
                 }`}
               >
-                <span className="text-lg text-accent">{actionMeta[a].icon}</span>
+                <span className="text-lg text-vs-accent">{actionMeta[a].icon}</span>
                 {actionMeta[a].text}
               </button>
             );
@@ -396,7 +400,7 @@ export default function MentionPicker({
         onClick={() => activate(row)}
         className={`${ROW} py-1.5 ${i === active ? ROW_ACTIVE : ""}`}
       >
-        <span className="grid size-9 shrink-0 place-items-center overflow-hidden rounded-lg border border-white/10 bg-surface-3 text-lg text-muted-2">
+        <span className="grid size-9 shrink-0 place-items-center overflow-hidden rounded-lg border border-vs-ink/10 bg-surface-3 text-lg text-muted-2">
           {row.item.thumb ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={abs(row.item.thumb)} alt="" className="h-full w-full object-cover" loading="lazy" draggable={false} />
@@ -434,7 +438,7 @@ export default function MentionPicker({
         onClick={() => activate(row)}
         className={`${ROW} py-1.5 ${i === active ? ROW_ACTIVE : ""}`}
       >
-        <span className="grid size-9 shrink-0 place-items-center rounded-lg border border-accent/25 bg-accent/[0.08] text-lg text-accent">
+        <span className="grid size-9 shrink-0 place-items-center rounded-lg border border-vs-accent/25 bg-accent/[0.08] text-lg text-vs-accent">
           {actionMeta[row.action].icon}
         </span>
         {actionMeta[row.action].text}
@@ -469,7 +473,7 @@ export default function MentionPicker({
         </>
       )}
       {noMatches && <div className="px-2.5 py-2 text-sm text-muted">{tx("picker.empty", "Ничего не найдено")}</div>}
-      <div className={inReqRows.length + libRows.length > 0 || noMatches ? "mt-1 border-t border-white/10 pt-1" : ""}>
+      <div className={inReqRows.length + libRows.length > 0 || noMatches ? "mt-1 border-t border-vs-ink/10 pt-1" : ""}>
         {actRows.map(actionRow)}
       </div>
       {!query && inReqRows.length + libRows.length > 0 && (

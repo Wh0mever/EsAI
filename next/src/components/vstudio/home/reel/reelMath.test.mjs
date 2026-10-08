@@ -56,6 +56,26 @@ test("между местами поза меняется плавно: за п�
   assert.ok(near(M.poseAt(0.5).x, 31) && near(M.poseAt(0.5).scale, 0.89));
 });
 
+test("светлая сцена: дальний кадр растворяется быстрее, активный и соседи — как в тёмной", () => {
+  // Видимые целиком кадры и невидимая стоянка в обеих темах одинаковы.
+  assert.equal(M.paperOpacity(M.slotLook(0).opacity), 1);
+  assert.equal(M.paperOpacity(M.slotLook(1).opacity), 1);
+  assert.equal(M.paperOpacity(M.slotLook(3).opacity), 0);
+  // Дальний кадр (в тёмной теме 0.7) на «бумаге» — едва заметный след, а не серая плита.
+  const far = M.paperOpacity(M.slotLook(2).opacity);
+  assert.ok(far > 0.1 && far < 0.25, String(far));
+  // Между местами — без скачков и без возврата: кадр, уходящий к краю, только бледнеет.
+  let prev = 1;
+  for (let d = 1; d <= 3.0001; d += 0.05) {
+    const cur = M.paperOpacity(M.slotLook(d).opacity);
+    assert.ok(cur <= prev + 1e-9 && prev - cur < 0.1, `opacity @ ${d}`);
+    assert.ok(cur <= M.slotLook(d).opacity + 1e-9, `не плотнее тёмной темы @ ${d}`);
+    prev = cur;
+  }
+  assert.equal(M.paperOpacity(1.4), 1);
+  assert.equal(M.paperOpacity(-0.2), 0);
+});
+
 /* ---------- позиция ---------- */
 
 test("кратчайший путь по кругу", () => {

@@ -24,6 +24,7 @@ import { useVStudio } from "./context";
 import { signInReturnPath } from "./deepLink";
 import { groupProjects } from "./store";
 import { ArchiveProjectDialog, BalanceChip, MAX_TITLE_CHARS, MENU_POP } from "./StudioTopBar";
+import ThemeToggle from "./ThemeToggle";
 import {
   VS_BTN_GHOST,
   VS_BTN_GOLD,
@@ -53,8 +54,15 @@ import type { ProjectJSON, Uid } from "@/lib/vstudio/types";
 const SEARCH_DEBOUNCE_MS = 300;
 const CARTOON_STUDIO = "/studio";
 
-/** Золотая точка «вы здесь» и «идёт генерация». */
-const DOT = "size-1.5 shrink-0 rounded-full bg-accent shadow-[0_0_8px_rgba(245,197,24,0.8)]";
+/**
+ * Золотая точка «вы здесь» и «идёт генерация». Цвет — золото для текста и
+ * линий: яркое на светлой странице не видно. Свечение — только в тёмной теме,
+ * на бумаге оно легло бы жёлтым пятном.
+ */
+const DOT = "size-1.5 shrink-0 rounded-full bg-vs-accent dark:shadow-[0_0_8px_rgba(245,197,24,0.8)]";
+
+/** Строка-заглушка истории. На белом 6 % чернил почти не видно — в светлой теме чуть плотнее. */
+const RAIL_SKELETON = "bg-vs-ink/[0.08] dark:bg-vs-ink/[0.06]";
 
 /** Обычный клик по ссылке — переход внутри студии; Ctrl/⌘/Shift/средняя кнопка — как у браузера. */
 function plainClick(e: MouseEvent) {
@@ -143,7 +151,8 @@ function FullRail({ onNavigate, autoFocusSearch }: { onNavigate?: () => void; au
       {/* Высота — как у строки над лентой: логотип и название проекта стоят на одной линии. */}
       <div className="flex h-14 shrink-0 items-center gap-2.5 px-4">
         <Link href="/" className={vx("flex items-center rounded-md", VS_FOCUS)} aria-label="EsAI">
-          <EsaiLogo className="h-6 w-auto" />
+          {/* tone="auto": «Es» берёт цвет текста темы — тёмное на светлой странице, светлое на тёмной. */}
+          <EsaiLogo tone="auto" className="h-6 w-auto" />
         </Link>
         {/* На ≥1280 колонка стоит вплотную к строке над лентой, а там уже написано имя раздела или проекта. */}
         <span className="truncate text-[13px] font-medium text-muted xl:hidden">
@@ -197,7 +206,7 @@ function FullRail({ onNavigate, autoFocusSearch }: { onNavigate?: () => void; au
                 type="button"
                 onClick={() => setQuery("")}
                 className={vx(
-                  "absolute right-1 top-1/2 grid size-9 -translate-y-1/2 cursor-pointer place-items-center rounded-full text-muted transition-colors hover:bg-white/[0.08] hover:text-foreground",
+                  "absolute right-1 top-1/2 grid size-9 -translate-y-1/2 cursor-pointer place-items-center rounded-full text-muted transition-colors hover:bg-vs-ink/[0.08] hover:text-foreground",
                   VS_FOCUS,
                 )}
                 aria-label={t("nav.clearSearch", { defaultValue: "Очистить поиск" })}
@@ -272,12 +281,14 @@ function FullRail({ onNavigate, autoFocusSearch }: { onNavigate?: () => void; au
           <FiImage className="shrink-0 text-muted" aria-hidden="true" />
           {t("nav.library", { defaultValue: "Мои материалы" })}
         </button>
-        {/* Гостю «Войти» уже предложено выше, в блоке истории, и в верхней строке — третья кнопка здесь лишняя. */}
-        {authed !== false && (
-          <div className="mt-2 flex items-start gap-2 px-1">
-            <div className="min-w-0 flex-1">
-              <BalanceChip variant="rail" />
-            </div>
+        <div className="mt-2 flex flex-col gap-2 px-1">
+          {/* Гостю «Войти» уже предложено выше, в блоке истории, и в верхней строке — третья кнопка здесь лишняя. */}
+          {authed !== false && <BalanceChip variant="rail" />}
+          {/* Тема и профиль — своей строкой под балансом: чипу с «Пополнить» нужна почти вся
+              ширина колонки 248 px, третья кнопка рядом с ним выдавила бы подпись за край.
+              Переключатель темы шторку не закрывает (onNavigate не зовёт): человек видит, как меняется страница. */}
+          <div className="flex items-center justify-end gap-2">
+            <ThemeToggle />
             {authed && (
               <Link
                 href="/profile"
@@ -289,7 +300,7 @@ function FullRail({ onNavigate, autoFocusSearch }: { onNavigate?: () => void; au
               </Link>
             )}
           </div>
-        )}
+        </div>
       </div>
 
       <ArchiveProjectDialog project={archiveFor} onClose={() => setArchiveFor(null)} />
@@ -389,10 +400,13 @@ function ProjectItem({
         className={vx(
           "relative flex min-h-11 items-center gap-2.5 rounded-xl py-1.5 pl-2.5 pr-10 text-sm transition-colors",
           VS_FOCUS,
-          active ? "bg-white/[0.06] text-foreground" : "text-foreground/70 hover:bg-white/[0.04] hover:text-foreground",
+          // На светлой колонке та же доля чернил бледнее, чем белая на тёмной: выбранной строке и наведению — чуть больше.
+          active
+            ? "bg-vs-ink/[0.08] text-foreground dark:bg-vs-ink/[0.06]"
+            : "text-foreground/70 hover:bg-vs-ink/[0.05] hover:text-foreground dark:hover:bg-vs-ink/[0.04]",
         )}
       >
-        {active && <span className="absolute inset-y-2.5 left-0 w-0.5 rounded-full bg-accent" aria-hidden="true" />}
+        {active && <span className="absolute inset-y-2.5 left-0 w-0.5 rounded-full bg-vs-accent" aria-hidden="true" />}
         {project.thumb_url ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -400,11 +414,12 @@ function ProjectItem({
             alt=""
             loading="lazy"
             decoding="async"
-            className="h-[25px] w-11 shrink-0 rounded-md bg-black object-cover ring-1 ring-white/10"
+            // Подложка видна, только пока кадр грузится: на светлой колонке чёрная плитка мигала бы у каждой строки.
+            className="h-[25px] w-11 shrink-0 rounded-md bg-surface-3 object-cover ring-1 ring-vs-ink/10 dark:bg-black"
           />
         ) : (
           <span
-            className="grid h-[25px] w-11 shrink-0 place-items-center rounded-md bg-white/[0.05] text-muted-2 ring-1 ring-white/10"
+            className="grid h-[25px] w-11 shrink-0 place-items-center rounded-md bg-vs-ink/[0.05] text-muted-2 ring-1 ring-vs-ink/10"
             aria-hidden="true"
           >
             <FiFilm className="text-xs" />
@@ -427,7 +442,7 @@ function ProjectItem({
         aria-expanded={menu}
         aria-label={t("nav.menu", { defaultValue: "Меню проекта" })}
         className={vx(
-          "absolute right-1 top-1/2 grid size-9 -translate-y-1/2 cursor-pointer place-items-center rounded-full text-muted transition-[opacity,background-color,color] hover:bg-white/[0.1] hover:text-foreground focus-visible:opacity-100",
+          "absolute right-1 top-1/2 grid size-9 -translate-y-1/2 cursor-pointer place-items-center rounded-full text-muted transition-[opacity,background-color,color] hover:bg-vs-ink/[0.1] hover:text-foreground focus-visible:opacity-100",
           VS_FOCUS,
           menu || active ? "opacity-100" : "opacity-100 pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100",
         )}
@@ -470,11 +485,11 @@ function ProjectItem({
 function RailSkeleton() {
   return (
     <div className="flex flex-col gap-0.5 px-2.5" aria-hidden="true">
-      <div className="mb-2 h-2.5 w-16 rounded-full bg-white/[0.06]" />
+      <div className={vx("mb-2 h-2.5 w-16 rounded-full", RAIL_SKELETON)} />
       {["w-3/4", "w-1/2", "w-5/6", "w-2/3", "w-2/5"].map((w) => (
         <div key={w} className="flex min-h-11 items-center gap-2.5">
-          <div className="h-[25px] w-11 shrink-0 rounded-md bg-white/[0.06]" />
-          <div className={vx("h-2.5 rounded-full bg-white/[0.06]", w)} />
+          <div className={vx("h-[25px] w-11 shrink-0 rounded-md", RAIL_SKELETON)} />
+          <div className={vx("h-2.5 rounded-full", RAIL_SKELETON, w)} />
         </div>
       ))}
     </div>
@@ -497,7 +512,7 @@ function CompactRail({ onExpand }: { onExpand?: (focus?: "search") => void }) {
     <nav aria-label={t("nav.history", { defaultValue: "История" })} className="flex h-full flex-col items-center gap-1.5 pb-3">
       <Link href="/" className={vx("grid h-14 w-11 shrink-0 place-items-center rounded-xl", VS_FOCUS)} aria-label="EsAI">
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/esai-mark.svg" alt="" className="size-7 rounded-lg ring-1 ring-white/10" />
+        <img src="/esai-mark.svg" alt="" className="size-7 rounded-lg ring-1 ring-vs-ink/10" />
       </Link>
       {/* Те же два состояния, что у кнопки в полной колонке: золотая — при открытом проекте, тихая — на первом экране. */}
       <button
@@ -547,6 +562,7 @@ function CompactRail({ onExpand }: { onExpand?: (focus?: "search") => void }) {
       </button>
       <div className="flex-1" />
       <BalanceChip variant="compact" />
+      <ThemeToggle variant="compact" />
       {authed && (
         <Link
           href="/profile"

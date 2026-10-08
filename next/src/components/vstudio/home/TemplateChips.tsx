@@ -127,7 +127,7 @@ export default function TemplateChips({ onPick, disabled }: TemplateChipsProps) 
               {t("home.templates.cartoon", { defaultValue: "Мультфильм" })}
               <FiArrowRight
                 aria-hidden
-                className="shrink-0 text-sm text-muted-2 transition-transform duration-200 group-hover:translate-x-0.5 group-hover:text-accent motion-reduce:transition-none"
+                className="shrink-0 text-sm text-muted-2 transition-transform duration-200 group-hover:translate-x-0.5 group-hover:text-vs-accent motion-reduce:transition-none"
               />
             </Link>
           </li>

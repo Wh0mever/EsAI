@@ -16,12 +16,22 @@ import { VS_LABEL, VS_TAG, VS_TAG_GOLD, vx } from "../ui/skin";
 export const cx = vx;
 
 /**
- * Наведение на карточку в панели: рамка и фон чуть светлее, без тени. Глубокая
- * тень vs-card-hover здесь не годится — список стоит в прокрутке и в
- * раскрывающемся блоке, они срезали бы её в паре пикселей от карточки.
- * «!» — потому что рамка и фон vs-card заданы вне слоёв Tailwind.
+ * Цветная подложка у vs-card (выбрано, готово, ошибка): ставится вместе с
+ * !bg-…. В тёмной теме фон карточки полупрозрачный, и заливка видна сквозь
+ * него. В светлой он непрозрачный и закрыл бы её — там градиент снимаем, а в
+ * тёмной возвращаем тот же, что у vs-card.
  */
-export const CARD_HOVER = "hover:!border-white/25 hover:!bg-white/[0.04]";
+export const CARD_TINT = "!bg-none dark:![background-image:var(--vs-card-bg)]";
+
+/**
+ * Наведение на карточку в панели: рамка плотнее и фон чуть другой, без тени.
+ * Глубокая тень vs-card-hover здесь не годится — список стоит в прокрутке и в
+ * раскрывающемся блоке, они срезали бы её в паре пикселей от карточки.
+ * «!» — потому что рамка и фон vs-card заданы вне слоёв Tailwind. Градиент при
+ * наведении снимается по той же причине, что и в CARD_TINT.
+ */
+export const CARD_HOVER =
+  "hover:!border-vs-ink/25 hover:!bg-vs-ink/[0.04] hover:!bg-none dark:hover:![background-image:var(--vs-card-bg)]";
 
 const TAG_WARN =
   "inline-flex items-center gap-1 rounded-full border border-status-wait/40 bg-status-wait/[0.08] px-2 py-0.5 text-[11px] font-medium leading-4 text-status-wait";
@@ -94,14 +104,14 @@ export function OptionButton({
         // Фокус с клавиатуры карточке (vs-card) рисует контур из app/globals.css.
         "vs-card flex min-h-11 min-w-0 flex-col items-center justify-center gap-0.5 rounded-xl px-1.5 py-1.5 text-xs font-semibold tabular-nums md:min-h-10",
         // Выбранное — золотая рамка и едва заметная золотая заливка; наведение только у невыбранного.
-        active ? "vs-card-on !bg-accent/[0.07] text-foreground" : "text-foreground/65",
+        active ? cx("vs-card-on !bg-accent/[0.07] text-foreground", CARD_TINT) : "text-foreground/65",
         disabled
           ? "cursor-not-allowed opacity-45"
           : cx("cursor-pointer active:scale-[0.97]", !active && CARD_HOVER, !active && "hover:text-foreground"),
         className,
       )}
     >
-      {icon && <span className={cx("flex items-center justify-center", active && "text-accent")}>{icon}</span>}
+      {icon && <span className={cx("flex items-center justify-center", active && "text-vs-accent")}>{icon}</span>}
       <span className="leading-tight">{label}</span>
       {sub != null && sub !== "" && (
         // Цена — в обоих состояниях text-muted: на карточке поверх стекла muted-2 не дотягивает до контраста 4.5.
@@ -150,7 +160,9 @@ export function Pill({ children, tone = "plain" }: { children: ReactNode; tone?:
 
 /**
  * Цветная точка вендора модели: цвет — из общей карты lib/vendorColors, тот же,
- * что в каталоге моделей. Чужих логотипов не рисуем.
+ * что в каталоге моделей. Чужих логотипов не рисуем. Цвета карты подобраны под
+ * тёмный фон: на белом светлые (бирюзовый ByteDance, серый xAI) бледнеют,
+ * поэтому в светлой теме точка на пятую часть темнее.
  */
 export function VendorDot({ modelId, className }: { modelId: string | null | undefined; className?: string }) {
   const style = { "--vs-dot": vendorColorByOpenRouterId(modelId ?? undefined) } as CSSProperties;
@@ -159,7 +171,7 @@ export function VendorDot({ modelId, className }: { modelId: string | null | und
       aria-hidden
       style={style}
       className={cx(
-        "inline-block size-2 shrink-0 rounded-full bg-[var(--vs-dot)] [box-shadow:0_0_0_3px_color-mix(in_srgb,var(--vs-dot)_22%,transparent)]",
+        "inline-block size-2 shrink-0 rounded-full bg-[color:color-mix(in_srgb,var(--vs-dot)_78%,var(--vs-ink))] [box-shadow:0_0_0_3px_color-mix(in_srgb,var(--vs-dot)_22%,transparent)] dark:bg-[color:var(--vs-dot)]",
         className,
       )}
     />

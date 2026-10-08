@@ -107,7 +107,7 @@ function trayItem(asset: AssetJSON, slot: InputSlot): TrayItem {
 /** Кнопки строки действий мельче обычных кнопок студии, но на телефоне те же 44 px. */
 const ACT_SIZE = "!gap-1.5 !text-[13px] md:!min-h-9";
 /** Тихая кнопка: значок и подпись без рамки. Этот же вид отдаётся кнопке «Скачать». */
-const ACT_QUIET = `inline-flex min-h-11 min-w-11 cursor-pointer items-center justify-center gap-1.5 rounded-full px-3 text-[13px] font-medium text-muted transition-colors hover:bg-white/[0.08] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-muted md:min-h-9 md:min-w-0 ${VS_FOCUS}`;
+const ACT_QUIET = `inline-flex min-h-11 min-w-11 cursor-pointer items-center justify-center gap-1.5 rounded-full px-3 text-[13px] font-medium text-muted transition-colors hover:bg-vs-ink/[0.08] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-muted md:min-h-9 md:min-w-0 ${VS_FOCUS}`;
 
 /**
  * Три вида кнопок. В ленте десятки карточек, и одинаково громкие кнопки под
@@ -121,7 +121,7 @@ const ACT: Record<"ghost" | "gold" | "quiet", string> = {
 };
 
 /** Вложенный блок карточки: подтверждение повтора, ссылки «Поделиться». */
-const INSET = "flex flex-col gap-2.5 rounded-xl border border-white/10 bg-white/[0.04] p-3";
+const INSET = "flex flex-col gap-2.5 rounded-xl border border-vs-ink/10 bg-vs-ink/[0.04] p-3";
 
 function Btn({
   onClick,
@@ -500,7 +500,7 @@ function ShotActions({ shot, take, takes, model, dispatch, onComposerFilled }: S
             onClick={() => setRetry({ phase: "idle" })}
             // Крестик мелкий, зона нажатия — 44 px; лишнюю высоту строки съедает отрицательный отступ.
             className={vx(
-              "-my-3 grid size-11 cursor-pointer place-items-center rounded-full text-muted transition-colors hover:bg-white/[0.08] hover:text-foreground md:-my-1.5 md:size-8",
+              "-my-3 grid size-11 cursor-pointer place-items-center rounded-full text-muted transition-colors hover:bg-vs-ink/[0.08] hover:text-foreground md:-my-1.5 md:size-8",
               VS_FOCUS,
             )}
             aria-label={t("run.actions.dismiss", { defaultValue: "Скрыть" })}
@@ -511,7 +511,10 @@ function ShotActions({ shot, take, takes, model, dispatch, onComposerFilled }: S
       )}
 
       {shareHere?.phase === "ready" && (
-        <div className={INSET}>
+        // Галочка «ссылка скопирована» в общих кнопках сайта светло-зелёная, под тёмный фон: на белой
+        // кнопке светлой темы её почти не видно, а другого отклика у компактной кнопки нет.
+        // Здесь ей даём цвет состояния студии — он читается в обеих темах.
+        <div className={vx(INSET, "[&_.text-emerald-400]:text-status-ok")}>
           <p className="text-xs leading-snug text-muted">
             {t("share.hint", { defaultValue: "Ссылка на страницу ролика — видео откроется прямо в мессенджере" })}
           </p>

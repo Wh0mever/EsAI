@@ -1072,8 +1072,8 @@ test("класс чипа: у каждого состояния свой вид,
   for (const s of ["ok", "pending", "failed", "excluded", "deleted", "missing"]) {
     assert.ok(V.chipClassName(s).includes("vs-chip"), s);
   }
-  assert.ok(V.chipClassName("ok").includes("text-accent"));
+  assert.ok(V.chipClassName("ok").includes("text-vs-accent"));
   assert.ok(!V.chipClassName("excluded").includes("accent"));
   assert.ok(V.chipClassName("missing").includes("status-fail"));
-  assert.ok(V.chipClassName("ok", true).includes("ring-accent"));
+  assert.ok(V.chipClassName("ok", true).includes("ring-vs-accent"));
 });

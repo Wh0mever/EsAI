@@ -87,15 +87,16 @@ export const TakeProgress = memo(function TakeProgress({
   if (share === null) return null;
   return (
     <div
-      className="absolute inset-x-0 bottom-0 h-[3px] bg-white/10"
+      className="absolute inset-x-0 bottom-0 h-[3px] bg-vs-ink/10"
       role="progressbar"
       aria-label={label}
       aria-valuemin={0}
       aria-valuemax={100}
       aria-valuenow={Math.round(share * 100)}
     >
+      {/* Полоска тонкая — ей золото для линий (яркое на светлой «плёнке» не видно); свечение — только в тёмной теме. */}
       <div
-        className="h-full rounded-r-full bg-accent shadow-[0_0_12px_var(--accent)] transition-[width] duration-1000 ease-linear motion-reduce:transition-none"
+        className="h-full rounded-r-full bg-vs-accent transition-[width] duration-1000 ease-linear motion-reduce:transition-none dark:shadow-[0_0_12px_var(--accent)]"
         style={{ width: `${Math.max(3, share * 100)}%` }}
       />
     </div>
@@ -149,7 +150,7 @@ function TakeStatus({ take, onCancel, canceling }: TakeStatusProps) {
     <div className="flex w-full flex-col gap-2">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
         <p className="flex min-w-[10rem] flex-1 items-start gap-2 text-sm leading-snug">
-          <FiLoader className="mt-[3px] shrink-0 animate-spin motion-reduce:animate-none text-accent" aria-hidden />
+          <FiLoader className="mt-[3px] shrink-0 animate-spin motion-reduce:animate-none text-vs-accent" aria-hidden />
           <span className="min-w-0">
             <span className="font-medium text-foreground">{label}</span>
             {etaText && !slow && <span className="text-muted"> · {etaText}</span>}

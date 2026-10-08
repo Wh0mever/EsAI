@@ -92,13 +92,13 @@ export function BalanceChip({ variant = "chip" }: { variant?: "chip" | "rail" | 
         type="button"
         onClick={actions.openTopUp}
         className={vx(
-          "flex w-11 cursor-pointer flex-col items-center gap-1 rounded-2xl border border-white/10 bg-white/[0.05] py-2 text-muted transition-colors hover:border-accent/45 hover:bg-white/[0.09] hover:text-foreground",
+          "flex w-11 cursor-pointer flex-col items-center gap-1 rounded-2xl border border-vs-ink/10 bg-vs-ink/[0.05] py-2 text-muted transition-colors hover:border-vs-accent/45 hover:bg-vs-ink/[0.09] hover:text-foreground",
           VS_FOCUS,
         )}
         title={[amount, waiting, topupLabel].filter(Boolean).join(" · ")}
         aria-label={[amount, waiting, topupLabel].filter(Boolean).join(". ")}
       >
-        <FiZap className="text-accent" aria-hidden="true" />
+        <FiZap className="text-vs-accent" aria-hidden="true" />
         <span className="text-[11px] font-medium leading-none tabular-nums">{short}</span>
       </button>
     );
@@ -114,16 +114,16 @@ export function BalanceChip({ variant = "chip" }: { variant?: "chip" | "rail" | 
         onClick={actions.openTopUp}
         className={vx(
           VS_PILL,
-          "hover:!border-accent/45",
+          "hover:!border-vs-accent/45",
           rail ? "!h-11 w-full justify-between md:!h-10" : vx(TALL_HIT, "!h-9 md:!h-10"),
         )}
         title={topupLabel}
       >
         <span className="inline-flex items-center gap-1.5">
-          <FiZap className="shrink-0 text-accent" aria-hidden="true" />
+          <FiZap className="shrink-0 text-vs-accent" aria-hidden="true" />
           <span className="font-semibold tabular-nums text-foreground">{amount}</span>
         </span>
-        {rail && <span className="text-xs font-semibold text-accent">{topupLabel}</span>}
+        {rail && <span className="text-xs font-semibold text-vs-accent">{topupLabel}</span>}
       </button>
       {waiting && (
         <span
@@ -188,7 +188,7 @@ export function ProjectTitle({
         type="button"
         onClick={() => setEditing(true)}
         className={vx(
-          "group inline-flex min-h-11 min-w-0 cursor-pointer items-center gap-1.5 rounded-xl px-1.5 text-left font-semibold text-foreground transition-colors hover:bg-white/[0.06] md:min-h-9",
+          "group inline-flex min-h-11 min-w-0 cursor-pointer items-center gap-1.5 rounded-xl px-1.5 text-left font-semibold text-foreground transition-colors hover:bg-vs-ink/[0.06] md:min-h-9",
           VS_FOCUS,
           className,
         )}
@@ -231,7 +231,7 @@ export function ProjectTitle({
       aria-label={t("nav.rename", { defaultValue: "Переименовать" })}
       // На телефоне шрифт поля не меньше 16 px: иначе iOS приближает страницу при фокусе.
       className={vx(
-        "w-full min-w-0 rounded-xl border border-white/10 bg-white/[0.04] px-2.5 py-1.5 font-semibold text-foreground outline-none transition-colors placeholder:text-muted-2 focus:border-accent/60 max-sm:!text-base",
+        "w-full min-w-0 rounded-xl border border-vs-ink/10 bg-vs-ink/[0.04] px-2.5 py-1.5 font-semibold text-foreground outline-none transition-colors placeholder:text-muted-2 focus:border-vs-accent/60 max-sm:!text-base",
         className,
       )}
     />
@@ -314,7 +314,7 @@ export function ProjectMenu({ onRename }: { onRename?: () => void }) {
             aria-haspopup="menu"
             aria-expanded={open}
             aria-label={t("nav.menu", { defaultValue: "Меню проекта" })}
-            className={vx(VS_ICON_BTN, open && "!border-white/22 !bg-white/[0.1] !text-foreground")}
+            className={vx(VS_ICON_BTN, open && "!border-vs-ink/22 !bg-vs-ink/[0.1] !text-foreground")}
           >
             <FiMoreHorizontal className="text-lg" aria-hidden="true" />
           </button>

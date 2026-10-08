@@ -428,7 +428,7 @@ export default function TextareaFallback(props: VsPromptEditorProps) {
         aria-label={props.ariaLabel || placeholder}
         placeholder={placeholder}
         // 15 px — только с мышью: на сенсорном экране iOS приближает страницу при фокусе в поле мельче 16 px.
-        className={`block w-full resize-none bg-transparent px-1.5 py-1.5 pr-11 text-base leading-relaxed text-foreground caret-accent outline-none placeholder:text-muted-2 md:pointer-fine:text-[15px] max-md:pr-12 ${
+        className={`block w-full resize-none bg-transparent px-1.5 py-1.5 pr-11 text-base leading-relaxed text-foreground caret-vs-accent outline-none placeholder:text-muted-2 md:pointer-fine:text-[15px] max-md:pr-12 ${
           fullscreen ? "min-h-0 flex-1" : "min-h-[3.25rem]"
         }`}
       />

@@ -35,8 +35,12 @@ const SETTLE_MS = 120;
 
 const CARD = "relative aspect-video w-[84vw] max-w-[420px] shrink-0 snap-center snap-always overflow-hidden rounded-2xl";
 const CARD_LIVE = "bg-black transition-[scale,opacity,box-shadow] duration-300 ease-out motion-reduce:transition-none";
+// Тень активного кадра. Лента обрезает всё, что ниже её полей (20 px): в тёмной
+// теме срез чёрной тени на чёрной сцене не виден, на светлой он лёг бы ровной
+// серой полосой под кадром — там тень короче и целиком помещается в поля.
 const CARD_ON =
-  "shadow-[0_16px_36px_rgba(0,0,0,0.65)] group-focus-visible/reel:outline-2 group-focus-visible/reel:outline-offset-2 group-focus-visible/reel:outline-accent/80";
+  "shadow-[0_6px_14px_color-mix(in_srgb,var(--vs-ink)_18%,transparent)] dark:shadow-[0_16px_36px_rgba(0,0,0,0.65)] group-focus-visible/reel:outline-2 group-focus-visible/reel:outline-offset-2 group-focus-visible/reel:outline-vs-accent/80";
+// Соседний кадр бледнее — уходит в цвет сцены, какой бы она ни была.
 const CARD_OFF = "scale-[0.96] opacity-70";
 /** Поля по краям ленты: с ними первый и последний кадр тоже встают в центр. */
 const SPACER = "w-[calc((100%-min(84vw,420px))/2-0.75rem)] shrink-0";
@@ -160,7 +164,7 @@ function ReelStrip({ items, loading, onUse }: ReelLayoutProps) {
                     />
                     <span
                       aria-hidden
-                      className="pointer-events-none absolute inset-0 rounded-2xl border border-white/10"
+                      className="pointer-events-none absolute inset-0 rounded-2xl border border-vs-ink/10"
                     />
                     <ReelCaption item={item} shown={on} quick onUse={onUse} />
                     {!on && (

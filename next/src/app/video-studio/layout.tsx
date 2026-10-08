@@ -51,9 +51,10 @@ export const viewport: Viewport = {
  * подвала. Свой верх (логотип, баланс, профиль) рисует сама студия — левая
  * колонка на компьютере и верхняя панель на телефоне.
  *
- * Студия всегда тёмная, какая бы тема ни стояла на сайте: на ней играет
- * видео. Обёртка несёт data-theme и vs-root для первого кадра, а VsThemeScope
- * ставит ту же пару на <html> — туда порталом рисуются шторки и меню.
+ * Тема — та же, что у сайта (data-theme на <html>): тёмная и светлая палитры
+ * студии описаны в globals.css. Обёртка несёт vs-root для первого кадра, а
+ * VsThemeScope ставит тот же класс на <html> — туда порталом рисуются шторки
+ * и меню.
  */
 export default function VideoStudioLayout({
 	children,
@@ -61,7 +62,7 @@ export default function VideoStudioLayout({
 	children: React.ReactNode;
 }>) {
 	return (
-		<div data-theme="dark" className="vs-root min-h-[100dvh] bg-background text-foreground">
+		<div className="vs-root min-h-[100dvh] bg-background text-foreground">
 			<VsThemeScope />
 			{children}
 		</div>

@@ -256,7 +256,7 @@ export default function BottomSheet({
                 if (dismissible) controls.start(e);
               }}
             >
-              <div className="mx-auto mb-2 h-1 w-10 rounded-full bg-white/20" aria-hidden="true" />
+              <div className="mx-auto mb-2 h-1 w-10 rounded-full bg-vs-ink/20" aria-hidden="true" />
               {(title || showClose) && (
                 <div className="flex min-h-11 items-center gap-2 pb-2.5">
                   <div id={titleId} className="vs-display min-w-0 flex-1 truncate py-1 text-[17px] text-foreground">
@@ -277,7 +277,7 @@ export default function BottomSheet({
               )}
             </div>
             <div className={"min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-4 " + bodyClassName}>{children}</div>
-            {footer && <div className="shrink-0 border-t border-white/10 px-4 py-3">{footer}</div>}
+            {footer && <div className="shrink-0 border-t border-vs-ink/10 px-4 py-3">{footer}</div>}
           </motion.div>
         </div>
       )}

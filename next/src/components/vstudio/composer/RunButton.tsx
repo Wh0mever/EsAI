@@ -32,7 +32,12 @@ type T = ReturnType<typeof useTranslation>["t"];
 /** Золотая кнопка запуска: 44 px на любой ширине — главное действие панели. */
 const RUN_GOLD = `${VS_BTN_GOLD} whitespace-nowrap md:!min-h-11`;
 /** Запуск закрыт (ошибка, лимит, нет цены): та же форма без золота; причина — словами рядом. */
-const RUN_OFF = `inline-flex min-h-11 items-center justify-center gap-2 whitespace-nowrap rounded-full border border-white/10 bg-white/[0.06] px-5 text-sm font-semibold tracking-[0.01em] text-muted transition-colors ${VS_FOCUS}`;
+const RUN_OFF = `inline-flex min-h-11 items-center justify-center gap-2 whitespace-nowrap rounded-full border border-vs-ink/10 bg-vs-ink/[0.06] px-5 text-sm font-semibold tracking-[0.01em] text-muted transition-colors ${VS_FOCUS}`;
+/**
+ * Тусклое золото: ждём или создавать пока нечего. На белом кнопка гаснет сильнее, чем на тёмном
+ * (подпись сереет вместе с фоном), поэтому в светлой теме она чуть плотнее — подпись остаётся читаемой.
+ */
+const RUN_DIM = `${RUN_GOLD} !opacity-70 dark:!opacity-60`;
 
 export type RunButtonProps = {
   view: RunView;
@@ -153,7 +158,7 @@ export default function RunButton({ view, kind, quote, labels, onClick, compact,
   const idle = view.kind === "blocked" && view.issue.code === "prompt_empty";
   // Пока цена пересчитывается, кнопка не гаснет: иначе она мигала бы на каждой букве.
   const gold = accent || view.kind === "quoting";
-  const look = gold ? RUN_GOLD : muted && !idle ? RUN_OFF : `${RUN_GOLD} !opacity-60`;
+  const look = gold ? RUN_GOLD : muted && !idle ? RUN_OFF : RUN_DIM;
 
   const icon =
     view.kind === "sending" || view.kind === "uploading" || view.kind === "waiting" ? (
@@ -215,7 +220,7 @@ export default function RunButton({ view, kind, quote, labels, onClick, compact,
             aria-label={ct(t, "composer.priceInfo")}
             title={ct(t, "composer.priceInfo")}
             className={vx(
-              "grid size-11 shrink-0 cursor-pointer place-items-center rounded-full text-muted transition-colors hover:bg-white/[0.08] hover:text-foreground md:size-9 [@media(hover:hover)_and_(not_(any-pointer:coarse))]:hidden",
+              "grid size-11 shrink-0 cursor-pointer place-items-center rounded-full text-muted transition-colors hover:bg-vs-ink/[0.08] hover:text-foreground md:size-9 [@media(hover:hover)_and_(not_(any-pointer:coarse))]:hidden",
               VS_FOCUS,
             )}
           >

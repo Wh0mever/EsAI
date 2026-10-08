@@ -11,7 +11,7 @@
 import { useTranslation } from "react-i18next";
 import { FiImage, FiVideo } from "react-icons/fi";
 import type { VsKind } from "@/lib/vstudio/types";
-import { VS_FOCUS } from "../ui/skin";
+import { VS_FOCUS, VS_SEG_TRACK } from "../ui/skin";
 import { cx } from "./SettingsBits";
 import { tx } from "./settingsText";
 
@@ -35,14 +35,16 @@ export default function KindTabs({ value, onChange, counts, disabled, className 
     <div
       role="group"
       aria-label={tx(t, "kind.label")}
-      className={cx("grid grid-cols-2 gap-1 rounded-full bg-white/[0.05] p-1", className)}
+      className={cx("grid grid-cols-2 gap-1 rounded-full p-1", VS_SEG_TRACK, className)}
     >
       {/* Подложка выбранного вида лежит в первой ячейке и переезжает во вторую
-          (ширина ячейки + зазор gap-1), а не гаснет в одной и вспыхивает в другой. */}
+          (ширина ячейки + зазор gap-1), а не гаснет в одной и вспыхивает в другой.
+          Вид — как у VS_SEG_THUMB (ui/skin): белая плашка в светлой теме; в тёмной
+          у этой, крупной, остаётся блик по верхней кромке. */}
       <span
         aria-hidden
         className={cx(
-          "pointer-events-none col-start-1 row-start-1 rounded-full bg-white/[0.1] shadow-[inset_0_1px_0_rgba(255,255,255,0.1)] transition-transform duration-300 ease-[var(--vs-ease)] motion-reduce:transition-none",
+          "pointer-events-none col-start-1 row-start-1 rounded-full bg-surface shadow-sm transition-transform duration-300 ease-[var(--vs-ease)] motion-reduce:transition-none dark:bg-vs-ink/[0.1] dark:shadow-[inset_0_1px_0_color-mix(in_srgb,var(--vs-ink)_10%,transparent)]",
           value === "image" && "translate-x-[calc(100%+0.25rem)]",
         )}
       />
@@ -61,7 +63,7 @@ export default function KindTabs({ value, onChange, counts, disabled, className 
               "relative row-start-1 flex min-h-11 min-w-0 items-center justify-center gap-1.5 rounded-full px-3 text-[13px] font-semibold transition-colors md:min-h-9",
               col,
               VS_FOCUS,
-              active ? "text-accent" : off ? "text-muted" : "text-muted hover:text-foreground",
+              active ? "text-vs-accent" : off ? "text-muted" : "text-muted hover:text-foreground",
               off ? "cursor-not-allowed opacity-50" : "cursor-pointer",
             )}
           >

@@ -1107,8 +1107,13 @@ function LibrarySlot() {
 const PRIMARY_BTN = VS_BTN_GOLD;
 const SECONDARY_BTN = VS_BTN_GHOST;
 
-/** Строка-заглушка. Неподвижная: в скелетоне «проявляются» только крупные блоки (vs-film). */
-const SKELETON_LINE = "rounded-full bg-white/[0.06]";
+/**
+ * Заливка заглушки. Неподвижная: в скелетоне «проявляются» только крупные блоки
+ * (vs-film). На белой карточке 6 % чернил почти не видно — в светлой теме плотнее.
+ */
+const SKELETON_FILL = "bg-vs-ink/[0.08] dark:bg-vs-ink/[0.06]";
+/** Строка-заглушка. */
+const SKELETON_LINE = vx("rounded-full", SKELETON_FILL);
 
 function CenterMessage({
   icon,
@@ -1124,7 +1129,7 @@ function CenterMessage({
   return (
     <div className="flex min-h-[50dvh] flex-col items-center justify-center px-4 py-8 text-center">
       {icon && (
-        <div className="vs-card mb-5 grid size-14 place-items-center rounded-full text-[22px] text-accent" aria-hidden="true">
+        <div className="vs-card mb-5 grid size-14 place-items-center rounded-full text-[22px] text-vs-accent" aria-hidden="true">
           {icon}
         </div>
       )}
@@ -1147,7 +1152,8 @@ function FullPage({ children }: { children: ReactNode }) {
       <div className="vs-beam" aria-hidden="true" />
       <header className="relative flex h-[calc(3.5rem_+_env(safe-area-inset-top,0px))] shrink-0 items-center px-4 pt-[env(safe-area-inset-top,0px)] sm:px-6">
         <Link href="/" aria-label="EsAI" className={vx("flex items-center rounded-md", VS_FOCUS)}>
-          <EsaiLogo className="h-6 w-auto" />
+          {/* tone="auto": «Es» берёт цвет текста темы — тёмное на светлой странице, светлое на тёмной. */}
+          <EsaiLogo tone="auto" className="h-6 w-auto" />
         </Link>
       </header>
       <div className="relative flex flex-1 items-center justify-center p-4">{children}</div>
@@ -1222,7 +1228,7 @@ function OfflineBanner() {
   return (
     <div
       role="status"
-      className="flex shrink-0 items-center justify-center gap-2 border-b border-border bg-white/[0.04] px-3 py-2 text-[13px] text-muted"
+      className="flex shrink-0 items-center justify-center gap-2 border-b border-border bg-vs-ink/[0.04] px-3 py-2 text-[13px] text-muted"
     >
       <FiWifiOff className="shrink-0 text-status-wait" aria-hidden="true" />
       {t("page.offline", { defaultValue: "Нет сети — результаты не пропадут" })}
@@ -1254,11 +1260,11 @@ function PageSkeleton({ home }: { home: boolean }) {
           <div className={vx(SKELETON_LINE, "size-7 xl:h-6 xl:w-16")} />
         </div>
         <div className="vs-film size-10 shrink-0 rounded-full xl:w-full" />
-        <div className="mt-2.5 hidden h-10 shrink-0 rounded-xl bg-white/[0.04] xl:block" />
+        <div className="mt-2.5 hidden h-10 shrink-0 rounded-xl bg-vs-ink/[0.06] dark:bg-vs-ink/[0.04] xl:block" />
         <div className="mt-7 hidden flex-col gap-5 px-1 xl:flex">
           {["w-3/4", "w-1/2", "w-5/6", "w-2/3"].map((w) => (
             <div key={w} className="flex items-center gap-2.5">
-              <div className="h-[25px] w-11 shrink-0 rounded-md bg-white/[0.06]" />
+              <div className={vx("h-[25px] w-11 shrink-0 rounded-md", SKELETON_FILL)} />
               <div className={vx(SKELETON_LINE, "h-2.5", w)} />
             </div>
           ))}
@@ -1296,7 +1302,7 @@ function HomeSkeleton() {
       <div className="vs-film mt-8 aspect-video w-[84vw] max-w-[420px] rounded-2xl md:w-[min(58vw,760px)] md:max-w-full" />
       <div className="mt-8 flex w-full gap-2 overflow-hidden md:justify-center">
         {["w-32", "w-36", "w-44", "w-28", "w-40"].map((w) => (
-          <div key={w} className={vx("h-10 shrink-0 rounded-full bg-white/[0.05] md:h-9", w)} />
+          <div key={w} className={vx("h-10 shrink-0 rounded-full bg-vs-ink/[0.07] dark:bg-vs-ink/[0.05] md:h-9", w)} />
         ))}
       </div>
     </div>
@@ -1412,7 +1418,7 @@ function ToastItem({
         type="button"
         onClick={() => onDismiss(toast.id)}
         className={vx(
-          "relative grid size-8 shrink-0 cursor-pointer place-items-center rounded-full text-muted transition-colors before:absolute before:-inset-1.5 hover:bg-white/[0.08] hover:text-foreground",
+          "relative grid size-8 shrink-0 cursor-pointer place-items-center rounded-full text-muted transition-colors before:absolute before:-inset-1.5 hover:bg-vs-ink/[0.08] hover:text-foreground",
           VS_FOCUS,
         )}
         aria-label={t("mobile.close", { defaultValue: "Закрыть" })}

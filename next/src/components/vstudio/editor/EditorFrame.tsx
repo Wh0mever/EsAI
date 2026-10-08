@@ -152,7 +152,7 @@ export default function EditorFrame({
             type="button"
             onMouseDown={(e) => e.preventDefault()}
             onClick={() => onFullscreenChange(true)}
-            className={`absolute right-0 top-0 grid size-9 cursor-pointer place-items-center rounded-full text-base text-muted-2 transition-colors hover:bg-white/[0.08] hover:text-foreground max-md:size-11 ${VS_FOCUS}`}
+            className={`absolute right-0 top-0 grid size-9 cursor-pointer place-items-center rounded-full text-base text-muted-2 transition-colors hover:bg-vs-ink/[0.08] hover:text-foreground max-md:size-11 ${VS_FOCUS}`}
             aria-label={expandLabel}
             title={expandLabel}
           >
@@ -171,7 +171,7 @@ export default function EditorFrame({
             className="fixed inset-x-0 z-[950] flex flex-col bg-surface"
             style={box ? { top: box.top, height: box.height } : { top: 0, bottom: 0 }}
           >
-            <div className="flex items-center justify-between gap-2 border-b border-white/10 py-1.5 pl-4 pr-2 pt-[max(0.375rem,env(safe-area-inset-top))]">
+            <div className="flex items-center justify-between gap-2 border-b border-vs-ink/10 py-1.5 pl-4 pr-2 pt-[max(0.375rem,env(safe-area-inset-top))]">
               <span className="truncate text-xs text-muted-2">
                 {tx("composer.shortcut", "Ctrl/⌘ + Enter — создать")}
               </span>
@@ -179,7 +179,7 @@ export default function EditorFrame({
                 type="button"
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => onFullscreenChange(false)}
-                className={`flex h-11 cursor-pointer items-center gap-1.5 rounded-full px-3 text-sm text-muted transition-colors hover:bg-white/[0.08] hover:text-foreground ${VS_FOCUS}`}
+                className={`flex h-11 cursor-pointer items-center gap-1.5 rounded-full px-3 text-sm text-muted transition-colors hover:bg-vs-ink/[0.08] hover:text-foreground ${VS_FOCUS}`}
                 aria-label={collapseLabel}
               >
                 <IoContractOutline aria-hidden className="text-base" />

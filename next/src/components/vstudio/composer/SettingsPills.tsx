@@ -31,7 +31,7 @@ import { VendorDot } from "../settings/SettingsBits";
 import { AUTO, countInputs, findModel, forcedDuration, modelsFor, shownParams } from "../settings/settingsModel";
 import { tx } from "../settings/settingsText";
 import { selectKind, selectModel } from "../settings/useRunSettingsSync";
-import { VS_FOCUS, VS_LABEL, VS_PILL, VS_PILL_ON, vx } from "../ui/skin";
+import { VS_FOCUS, VS_LABEL, VS_PILL, VS_PILL_ON, VS_SEG_THUMB, vx } from "../ui/skin";
 import AnchoredPopover from "./Popover";
 
 type PillKey = "model" | "aspect" | "duration" | "resolution";
@@ -43,7 +43,7 @@ const KINDS: { kind: VsKind; icon: typeof FiVideo; key: "kind.video" | "kind.ima
 
 /** Чип параметра: плотнее общего VS_PILL — в строке их шесть, и рядом кнопка «Создать». */
 const PILL = `${VS_PILL} !px-3 tabular-nums`;
-const PILL_OPEN = "!border-white/25 !bg-white/[0.08] !text-foreground";
+const PILL_OPEN = "!border-vs-ink/25 !bg-vs-ink/[0.08] !text-foreground";
 /** Значение, которого модель не умеет (пришло из «Изменить»): чип жёлтый, причина — в окошке. */
 const PILL_WARN = "!border-status-wait/50 !text-status-wait";
 /** Параметр без выбора: текст в рост чипа, без рамки и без нажатия. */
@@ -234,7 +234,9 @@ export default function SettingsPills({ className }: { className?: string }) {
     <div
       role="group"
       aria-label={tx(t, "kind.label")}
-      className="inline-flex shrink-0 items-center gap-0.5 rounded-full border border-white/10 bg-white/[0.04] p-0.5"
+      // В тёмной теме дорожка — как соседние чипы; в светлой — утопленная, с белой плашкой выбранного
+      // (тот же вид, что у переключателя моделей на первом экране и в панели параметров).
+      className="inline-flex shrink-0 items-center gap-0.5 rounded-full border border-vs-ink/10 bg-surface-3 p-0.5 dark:bg-vs-ink/[0.04]"
     >
       {KINDS.map(({ kind: k, icon: Icon, key }) => {
         // Вид без моделей не прячем, а выключаем: видно, что он есть, и почему нельзя.
@@ -255,7 +257,7 @@ export default function SettingsPills({ className }: { className?: string }) {
             className={vx(
               "inline-flex h-[30px] items-center gap-1.5 rounded-full px-2.5 text-[13px] font-medium transition-colors",
               VS_FOCUS,
-              active ? "bg-white/[0.1] text-accent" : "text-muted",
+              active ? vx(VS_SEG_THUMB, "text-vs-accent") : "text-muted",
               empty ? "cursor-not-allowed opacity-45" : "cursor-pointer",
               !active && !empty && "hover:text-foreground",
             )}

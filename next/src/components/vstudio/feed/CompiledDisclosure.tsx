@@ -28,9 +28,15 @@ function remember(take: TakeJSON) {
 type Tr = (k: string, o?: Record<string, unknown>) => string;
 
 /** Тихая кнопка-строка: раскрытие блока, «Копировать». На телефоне зона нажатия 44 px. */
-const QUIET_BTN = `inline-flex min-h-11 cursor-pointer items-center gap-1.5 rounded-full px-2.5 text-xs font-medium text-muted transition-colors hover:bg-white/[0.07] hover:text-foreground md:min-h-8 ${VS_FOCUS}`;
+const QUIET_BTN = `inline-flex min-h-11 cursor-pointer items-center gap-1.5 rounded-full px-2.5 text-xs font-medium text-muted transition-colors hover:bg-vs-ink/[0.07] hover:text-foreground md:min-h-8 ${VS_FOCUS}`;
+/**
+ * Блок «как это было сделано» — углубление в карточке. В тёмной теме оно темнее
+ * карточки (затемнение), в светлой затемнять белое нельзя — выйдет грязь:
+ * там это тёплый лоток (surface-2), а текст в нём лежит на белом листе.
+ */
+const WELL = "border-border bg-surface-2 dark:bg-black/25";
 /** Текст «как есть»: промпт и тело запроса. */
-const CODE_BOX = "overflow-auto rounded-lg border border-white/[0.08] bg-black/30 p-3";
+const CODE_BOX = "overflow-auto rounded-lg border border-border bg-surface p-3 dark:bg-black/30";
 
 function paramRows(t: Tr, take: TakeLite): Array<[string, string]> {
   const e = take.effective || {};
@@ -141,7 +147,7 @@ function CompiledDisclosure({ take, inputs }: CompiledDisclosureProps) {
 
   return (
     // Подвал карточки: тонкая черта отделяет «как это было сделано» от самого кадра.
-    <div className="-mx-3 -mb-2 flex flex-col border-t border-white/[0.07] px-3 pt-1 sm:-mx-4 sm:-mb-1.5 sm:px-4">
+    <div className="-mx-3 -mb-2 flex flex-col border-t border-vs-ink/10 px-3 pt-1 sm:-mx-4 sm:-mb-1.5 sm:px-4 dark:border-vs-ink/[0.07]">
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -159,7 +165,7 @@ function CompiledDisclosure({ take, inputs }: CompiledDisclosureProps) {
       {open && (
         <div
           id={panelId}
-          className="mb-2 mt-1 flex flex-col gap-4 rounded-xl border border-white/[0.08] bg-black/25 p-3 text-sm sm:mb-1.5 sm:p-4"
+          className={vx(WELL, "mb-2 mt-1 flex flex-col gap-4 rounded-xl border p-3 text-sm sm:mb-1.5 sm:p-4")}
         >
           <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1.5 text-xs">
             <dt className="text-muted">{t("sent.modeTitle", { defaultValue: "Режим" })}</dt>

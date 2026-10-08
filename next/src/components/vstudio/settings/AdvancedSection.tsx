@@ -127,9 +127,9 @@ export default function AdvancedSection({ model, kind, params, onChange }: Advan
 
   // Вид как у VS_INPUT, но на телефоне шрифт 16 px: с меньшим iOS приближает страницу при фокусе.
   const inputCls =
-    "w-full rounded-xl border bg-white/[0.04] px-3 py-2 text-base text-foreground outline-none transition-colors placeholder:text-muted-2 md:text-sm";
+    "w-full rounded-xl border bg-vs-ink/[0.04] px-3 py-2 text-base text-foreground outline-none transition-colors placeholder:text-muted-2 md:text-sm";
   // Цвет рамки — отдельно: у поля с ошибкой он один во всех состояниях.
-  const inputLine = "border-white/10 hover:border-white/18 focus:border-accent/60";
+  const inputLine = "border-vs-ink/10 hover:border-vs-ink/18 focus:border-vs-accent/60";
 
   return (
     <section className="flex min-w-0 flex-col">
