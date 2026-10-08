@@ -3,6 +3,11 @@
 Главное, что проверяем:
 - наружу уходит только включённая строка с готовым, не удалённым результатом
   и только закрытый список полей — без uid, автора и фото, с которыми снято;
+- сценарии карусели: 12 ключей по порядку и «Другое», прежние разделы
+  переносит миграция 0004 (её шаг данных проверяем напрямую);
+- первый кадр работы «Image → Video» выходит наружу только с галочкой
+  «Показывать запрос» и только если он один, готов, не удалён и принадлежит
+  тому же сотруднику; всё остальное из присланного человеком — никогда;
 - порядок (sort, затем новые) и потолок в 48 работ;
 - кэш на 5 минут сбрасывает любая правка — но после фиксации транзакции;
 - гостевые запросы первого экрана не тратят общий anon-счётчик сайта;
@@ -12,14 +17,18 @@
 - лёгкая копия ролика: собирается после фиксации, не ломает ни панель, ни
   сайт, уходит вместе со строкой и с результатом (ffmpeg в тестах подменён).
 """
+import importlib
 import json
 from datetime import timedelta
 from unittest import mock
 
+from django.apps import apps as django_apps
 from django.core.cache import cache
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
+from django.db import connection, migrations
 from django.test import TestCase, override_settings
+from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from django.utils import timezone
 from rest_framework.test import APIClient
@@ -36,12 +45,24 @@ CACHES = {"default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"
 PUBLIC = "/api/vstudio/showcase/"
 PANEL = "/api/manage/vstudio/showcase/"
 PUBLIC_KEYS = {"id", "title", "category", "kind", "model", "aspect_ratio", "duration_s", "width",
-               "height", "video_url", "image_url", "poster_url", "full_url", "prompt", "params"}
-TAKE_KEYS = (PUBLIC_KEYS - {"id", "title", "category", "full_url"}) | {
+               "height", "video_url", "image_url", "poster_url", "full_url", "prompt", "params",
+               "needs_photo", "start_frame_url"}
+# В панели «свои фото» называются own_photos и видны без галочки — needs_photo там нет.
+TAKE_KEYS = (PUBLIC_KEYS - {"id", "title", "category", "full_url", "needs_photo"}) | {
     "uid", "status", "own_photos", "public_ok", "user_email", "user_is_staff", "created_at",
     "finished_at"}
 ITEM_KEYS = {"id", "title", "category", "sort", "is_active", "show_prompt", "state",
              "created_by_email", "created_at", "updated_at", "take"}
+# Порядок карусели — тот же список у фронта (home/scenarios.ts).
+SCENARIOS = ["film", "ad", "person", "car", "action", "scifi", "fashion", "music", "i2v", "anim",
+             "real", "vertical"]
+SCENARIO_NAMES = {
+    "film": "Киносцена", "ad": "Реклама товара", "person": "Персонаж", "car": "Автомобиль",
+    "action": "Экшен", "scifi": "Фантастика", "fashion": "Fashion", "music": "Музыкальный клип",
+    "i2v": "Image → Video", "anim": "Анимация", "real": "Реалистичная сцена",
+    "vertical": "Reels / TikTok", "other": "Другое"}
+OLD_CATEGORIES = ["film", "ad", "social", "anime", "music", "other"]
+FIRST, LAST = "first_frame", "last_frame"
 
 
 @override_settings(CACHES=CACHES, VSTUDIO_MODE="on")
@@ -103,6 +124,7 @@ class PublicPayloadTests(ShowcaseCase):
             "aspect_ratio": "16:9", "duration_s": 5, "width": 1280, "height": 720,
             "video_url": asset.url, "image_url": None, "poster_url": asset.thumb_url,
             "full_url": asset.url, "prompt": None, "params": None,
+            "needs_photo": False, "start_frame_url": None,
         }])
         self.assertTrue(asset.url.startswith("/media/vstudio/"))
 
@@ -135,6 +157,8 @@ class PublicPayloadTests(ShowcaseCase):
         card = self.public()[0]
         self.assertIsNone(card["prompt"])
         self.assertIsNone(card["params"])
+        # Без галочки сайт не знает и того, что работа снята со своим фото.
+        self.assertIs(card["needs_photo"], False)
 
         cache.clear()
         ShowcaseItem.objects.filter(pk=item.pk).update(show_prompt=True)
@@ -142,6 +166,8 @@ class PublicPayloadTests(ShowcaseCase):
         # Фото в запросе названо меткой, а не идентификатором.
         self.assertEqual(card["prompt"], "Девушка идёт по крыше @Image 1")
         self.assertEqual(card["params"], {"duration": 5, "resolution": "720p", "aspect_ratio": "16:9"})
+        # Референс — не первый кадр: известно только, что своё фото понадобится.
+        self.assertEqual((card["needs_photo"], card["start_frame_url"]), (True, None))
 
     def test_only_active_items_with_a_live_result(self):
         good = self.item()
@@ -164,7 +190,8 @@ class PublicPayloadTests(ShowcaseCase):
     def test_nothing_personal_leaves(self):
         ref = f.make_asset(self.staff)
         frame = f.make_asset(self.staff)
-        take = self.work(inputs=[ref, (frame, "first_frame")])
+        # Референс и кадр вместе — режим референсов: кадр здесь лишь подсказка модели.
+        take = self.work(inputs=[ref, (frame, FIRST)])
         self.item(take, show_prompt=True, created_by=self.staff)
         self.work(self.author)   # чужой дубль вне витрины
         cards = self.public()
@@ -172,10 +199,13 @@ class PublicPayloadTests(ShowcaseCase):
         card = cards[0]
         self.assertEqual(set(card), PUBLIC_KEYS)
         self.assertEqual(set(card["model"]), {"id", "name"})
+        self.assertEqual((take.mode, card["needs_photo"], card["start_frame_url"]),
+                         ("r2v", True, None))
         dump = json.dumps(card, ensure_ascii=False)
         asset = take.result_asset
-        for secret in (ref.uid, frame.uid, ref.url, ref.thumb_url, take.uid, take.shot.uid,
-                       take.project.uid, self.staff.email, self.author.email, "example.com"):
+        for secret in (ref.uid, frame.uid, ref.url, ref.thumb_url, frame.url, frame.thumb_url,
+                       take.uid, take.shot.uid, take.project.uid, self.staff.email,
+                       self.author.email, "example.com"):
             self.assertNotIn(secret, dump)
         # uid результата есть только внутри адресов его же файлов.
         for name in ("video_url", "full_url", "poster_url"):
@@ -193,6 +223,282 @@ class PublicPayloadTests(ShowcaseCase):
         dump = json.dumps(self.public())
         self.assertIn(f"/vstudio/{self.staff.pk}/", dump)
         self.assertNotIn(f"/vstudio/{self.author.pk}/", dump)
+
+
+# ---------------------------------------------------------------- первый кадр
+
+class StartFrameTests(ShowcaseCase):
+    """Первый кадр — единственный материал запроса, который может уйти наружу."""
+
+    def photo(self, user=None) -> Asset:
+        return f.make_asset(user or self.staff)
+
+    def frame_work(self, **kw):
+        """Работа «первый кадр → видео» и сам кадр."""
+        frame = self.photo()
+        return self.work(inputs=[(frame, FIRST)], **kw), frame
+
+    def card(self, take, *, show_prompt=True) -> dict:
+        """Карточка работы на сайте — по умолчанию с галочкой «Показывать запрос»."""
+        item = self.item(take, show_prompt=show_prompt)
+        cache.clear()
+        return next(row for row in self.public() if row["id"] == item.pk)
+
+    def frame_of(self, take, **kw):
+        return self.card(take, **kw)["start_frame_url"]
+
+    def test_image_to_video_shows_what_it_started_from(self):
+        take, frame = self.frame_work()
+        self.assertEqual(take.mode, "i2v")
+        card = self.card(take)
+        self.assertEqual(set(card), PUBLIC_KEYS)
+        # Наружу идёт лёгкая копия кадра, а не оригинал.
+        self.assertEqual((card["needs_photo"], card["start_frame_url"]), (True, frame.thumb_url))
+        self.assertTrue(card["start_frame_url"].startswith(f"/media/vstudio/{self.staff.pk}/"))
+        # uid кадра есть только внутри его же адреса.
+        dump = json.dumps(card, ensure_ascii=False).replace(card["start_frame_url"], "")
+        self.assertNotIn(frame.uid, dump)
+
+    def test_frame_without_a_light_copy_goes_as_is(self):
+        take, frame = self.frame_work()
+        Asset.objects.filter(pk=frame.pk).update(thumb="")
+        self.assertEqual(self.frame_of(take), frame.url)
+
+    def test_not_without_the_owner_permission(self):
+        take, frame = self.frame_work()
+        card = self.card(take, show_prompt=False)
+        self.assertEqual((card["needs_photo"], card["start_frame_url"]), (False, None))
+        self.assertNotIn(frame.uid, json.dumps(card))
+
+    def test_first_and_last_frame_shows_only_the_first(self):
+        first, last = self.photo(), self.photo()
+        take = self.work(inputs=[(first, FIRST), (last, LAST)])
+        self.assertEqual(take.mode, "flf2v")
+        card = self.card(take)
+        self.assertEqual(card["start_frame_url"], first.thumb_url)
+        self.assertNotIn(last.uid, json.dumps(card))
+
+    def test_other_modes_keep_their_pictures(self):
+        cases = {
+            "t2v": (self.work(), False),
+            "r2v": (self.work(inputs=[self.photo()]), True),
+            "r2v_pin": (self.work(inputs=[self.photo(), (self.photo(), FIRST)], mode="r2v_pin"),
+                        True),
+            "flf2v": (self.work(inputs=[(self.photo(), LAST)]), True),   # только последний кадр
+            "t2i": (self.work(kind="image"), False),
+            "i2i": (self.work(kind="image", inputs=[self.photo()]), True),
+        }
+        for mode, (take, needs_photo) in cases.items():
+            with self.subTest(mode=mode):
+                self.assertEqual(take.mode, mode)
+                card = self.card(take)
+                self.assertEqual((card["needs_photo"], card["start_frame_url"]),
+                                 (needs_photo, None))
+
+    def test_frame_that_is_not_safe_to_show_stays_private(self):
+        changes = {
+            "удалён человеком": {"deleted_at": timezone.now()},
+            "ещё создаётся": {"status": Asset.STATUS_PENDING},
+            "не получился": {"status": Asset.STATUS_FAILED},
+            "файла нет": {"file": ""},
+            "не картинка": {"kind": Asset.KIND_VIDEO},
+            "чужой материал": {"user": self.author},
+        }
+        for name, change in changes.items():
+            with self.subTest(frame=name):
+                take, frame = self.frame_work()
+                Asset.objects.filter(pk=frame.pk).update(**change)
+                card = self.card(take)
+                # Работа остаётся на сайте и по-прежнему просит своё фото — но без кадра.
+                self.assertEqual((card["needs_photo"], card["start_frame_url"]), (True, None))
+                self.assertNotIn(frame.uid, json.dumps(card))
+
+    def test_only_a_staff_work(self):
+        # Строку поставили в обход панели…
+        foreign = self.work(self.author, inputs=[(self.photo(self.author), FIRST)])
+        self.assertFalse(showcase.can_publish(foreign))
+        self.assertIsNone(self.frame_of(foreign))
+        # …или автор перестал быть сотрудником уже после публикации.
+        take, _frame = self.frame_work()
+        type(self.staff).objects.filter(pk=self.staff.pk).update(is_staff=False)
+        self.assertIsNone(self.frame_of(take))
+
+    def test_exactly_one_frame_went_to_the_model(self):
+        first, second = self.photo(), self.photo()
+
+        def gone(asset, reason):
+            return {"asset": asset.uid, "slot": FIRST, "reason": reason}
+
+        off = {"asset": second, "slot": FIRST, "included": False}
+        # Кадр выключен человеком: модели он не ушёл — не уходит и на сайт.
+        self.assertIsNone(self.frame_of(self.work(inputs=[off], mode="i2v")))
+        # Два включённых кадра, и нигде не сказано, какой лишний, — двоякий случай.
+        self.assertIsNone(self.frame_of(self.work(inputs=[(first, FIRST), (second, FIRST)])))
+        # Единственный кадр значится неотправленным.
+        self.assertIsNone(self.frame_of(self.work(inputs=[(first, FIRST)],
+                                                  dropped=[gone(first, "duplicate_frame")])))
+        # Лишний записан в «не отправлено» — остаётся тот, что ушёл модели.
+        take = self.work(inputs=[(first, FIRST), (second, FIRST)],
+                         dropped=[gone(second, "duplicate_frame")])
+        self.assertEqual(self.frame_of(take), first.thumb_url)
+        take = self.work(inputs=[off, (first, FIRST)], dropped=[gone(second, "excluded_by_user")])
+        self.assertEqual((take.mode, self.frame_of(take)), ("i2v", first.thumb_url))
+
+    def test_odd_dropped_list_is_not_an_error(self):
+        # Take.dropped — JSON: мусор в нём не должен ронять первый экран.
+        for dropped in ({"asset": "x"}, [None, "x", 7, {"slot": FIRST}], None):
+            with self.subTest(dropped=dropped):
+                take, frame = self.frame_work()
+                take.dropped = dropped
+                self.assertEqual(showcase.start_frame_url(take), frame.thumb_url)
+
+    def test_deleted_frame_leaves_the_site_at_once(self):
+        take, frame = self.frame_work()
+        item = self.item(take, show_prompt=True)
+        self.assertEqual(self.public()[0]["start_frame_url"], frame.thumb_url)
+        with self.captureOnCommitCallbacks(execute=True):
+            res = self.client_for(self.staff).delete(f"/api/vstudio/assets/{frame.uid}/")
+        self.assertEqual(res.status_code, 204)
+        # Без ожидания кэша. Сама работа остаётся: удалён не результат.
+        card = self.public()[0]
+        self.assertEqual((card["id"], card["needs_photo"], card["start_frame_url"]),
+                         (item.pk, True, None))
+
+    def test_list_reads_all_frames_in_one_go(self):
+        def queries() -> int:
+            cache.clear()
+            with CaptureQueriesContext(connection) as ctx:
+                cards = showcase.public_items()
+            self.assertTrue(cards and all(card["start_frame_url"] for card in cards))
+            return len(ctx)
+
+        self.item(self.frame_work()[0], show_prompt=True)
+        # Список и материалы его запросов — сколько бы работ ни было.
+        self.assertEqual(queries(), 2)
+        for _ in range(3):
+            self.item(self.frame_work()[0], show_prompt=True)
+        self.assertEqual(queries(), 2)
+
+    def test_panel_sees_the_frame_before_it_goes_public(self):
+        take, frame = self.frame_work()
+        self.item(take)   # галочки «Показывать запрос» нет
+        spare, spare_frame = self.frame_work()
+        users = self.work(self.author, inputs=[(self.photo(self.author), FIRST)])
+        data = self.panel.get(PANEL, {"scope": "all"}).json()
+        self.assertEqual(data["items"][0]["take"]["start_frame_url"], frame.thumb_url)
+        rows = {row["uid"]: row for row in data["candidates"]["results"]}
+        self.assertEqual(rows[spare.uid]["start_frame_url"], spare_frame.thumb_url)
+        # Работу пользователя в витрину не поставить — и его кадр панель здесь не показывает.
+        self.assertEqual((rows[users.uid]["own_photos"], rows[users.uid]["start_frame_url"]),
+                         (True, None))
+        self.assertIsNone(self.public()[0]["start_frame_url"])
+
+
+# ---------------------------------------------------------------- сценарии
+
+class ScenarioTests(ShowcaseCase):
+    def test_list_is_the_carousel_order(self):
+        self.assertEqual(list(ShowcaseItem.SCENARIOS), SCENARIOS)
+        self.assertEqual(showcase.SCENARIOS, ShowcaseItem.SCENARIOS)
+        self.assertEqual(list(showcase.CATEGORIES), SCENARIOS + ["other"])
+        self.assertEqual(dict(showcase.CATEGORY_CHOICES), SCENARIO_NAMES)
+        field = ShowcaseItem._meta.get_field("category")
+        self.assertEqual((field.max_length, field.default, field.verbose_name),
+                         (8, "other", "Сценарий"))
+        # Поле не расширяли: длиннее ключ в базу PostgreSQL не запишется.
+        self.assertTrue(all(len(key) <= field.max_length for key in showcase.CATEGORIES))
+
+    def test_panel_takes_every_scenario(self):
+        for key in showcase.CATEGORIES:
+            with self.subTest(key=key):
+                res = self.panel.post(PANEL, {"take": self.work().uid, "category": key},
+                                      format="json")
+                self.assertEqual(res.status_code, 201, res.content)
+                self.assertEqual(res.json()["category"], key)
+        item = ShowcaseItem.objects.get(category="other")
+        res = self.panel.patch(f"{PANEL}{item.pk}/", {"category": "vertical"}, format="json")
+        self.assertEqual((res.status_code, res.json()["category"]), (200, "vertical"))
+        cache.clear()
+        self.assertEqual(sorted(row["category"] for row in self.public()),
+                         sorted(SCENARIOS + ["vertical"]))
+
+    def test_old_sections_are_refused(self):
+        item = self.item(category="film")
+        for key in ("social", "anime", "Film", "", "verticals"):
+            with self.subTest(key=key):
+                for res in (self.panel.post(PANEL, {"take": self.work().uid, "category": key},
+                                            format="json"),
+                            self.panel.patch(f"{PANEL}{item.pk}/", {"category": key},
+                                             format="json")):
+                    self.assertEqual(res.status_code, 400, res.content)
+                    self.assertEqual(res.json()["detail"],
+                                     "Сценарий: " + ", ".join(SCENARIOS + ["other"]))
+        item.refresh_from_db()
+        self.assertEqual((item.category, ShowcaseItem.objects.count()), ("film", 1))
+
+
+class ScenarioMigrationTests(ShowcaseCase):
+    """Шаг данных миграции 0004: «Соцсети» → Reels / TikTok, «Аниме» → «Анимация».
+
+    Тестовая база строится прямо из моделей, миграции в ней не идут — функции
+    шага вызываем сами, на настоящих моделях.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.migration = importlib.import_module("vstudio.migrations.0004_showcase_scenarios")
+
+    def rows(self, keys) -> list:
+        return [self.item(category=key).pk for key in keys]
+
+    def categories(self, pks) -> list:
+        found = dict(ShowcaseItem.objects.filter(pk__in=pks).values_list("pk", "category"))
+        return [found[pk] for pk in pks]
+
+    def test_forwards_moves_the_two_old_keys(self):
+        pks = self.rows(OLD_CATEGORIES)
+        stamps = list(ShowcaseItem.objects.order_by("pk").values_list("updated_at", flat=True))
+        self.migration.forwards(django_apps, None)
+        self.assertEqual(self.categories(pks), ["film", "ad", "vertical", "anim", "music", "other"])
+        self.assertTrue(set(self.categories(pks)) <= set(showcase.CATEGORIES))
+        # Перенос — не правка человека: «Изменена» в панели не двигается.
+        self.assertEqual(
+            list(ShowcaseItem.objects.order_by("pk").values_list("updated_at", flat=True)), stamps)
+        # Повторный запуск ничего не портит.
+        self.migration.forwards(django_apps, None)
+        self.assertEqual(self.categories(pks), ["film", "ad", "vertical", "anim", "music", "other"])
+
+    def test_backwards_leaves_only_what_the_old_list_knew(self):
+        pks = self.rows(SCENARIOS + ["other"])
+        self.migration.backwards(django_apps, None)
+        self.assertEqual(self.categories(pks), [
+            "film", "ad", "other", "other", "other", "other", "other", "music", "other", "anime",
+            "other", "social", "other"])
+        self.assertTrue(set(self.categories(pks)) <= set(OLD_CATEGORIES))
+
+    def test_there_and_back(self):
+        pks = self.rows(OLD_CATEGORIES)
+        self.migration.forwards(django_apps, None)
+        self.migration.backwards(django_apps, None)
+        self.assertEqual(self.categories(pks), OLD_CATEGORIES)
+
+    def test_wired_into_the_migration(self):
+        migration = self.migration.Migration
+        self.assertEqual(migration.dependencies, [("vstudio", "0003_showcaseitem")])
+        alter, data = migration.operations
+        self.assertIsInstance(alter, migrations.AlterField)
+        self.assertEqual((alter.model_name, alter.name), ("showcaseitem", "category"))
+        # Список в миграции — тот же, что у модели: makemigrations нечего добавить.
+        self.assertEqual(alter.field.choices, ShowcaseItem.CATEGORY_CHOICES)
+        self.assertEqual((alter.field.max_length, alter.field.default, alter.field.verbose_name),
+                         (8, "other", "Сценарий"))
+        self.assertIsInstance(data, migrations.RunPython)
+        self.assertEqual((data.code, data.reverse_code, data.reversible),
+                         (self.migration.forwards, self.migration.backwards, True))
+        # Каждый новый ключ знает дорогу назад, каждый прежний — вперёд.
+        self.assertEqual(set(self.migration.RESTORED), set(SCENARIOS) - set(OLD_CATEGORIES))
+        self.assertEqual(set(self.migration.RENAMED),
+                         set(OLD_CATEGORIES) - set(SCENARIOS + ["other"]))
 
 
 # ---------------------------------------------------------------- порядок и потолок
@@ -552,9 +858,9 @@ class PanelListTests(ShowcaseCase):
         data = self.get()
         self.assertEqual(set(data), {"items", "candidates", "scope", "categories", "public_limit"})
         self.assertEqual((data["scope"], data["public_limit"]), ("staff", 48))
-        self.assertEqual([c["key"] for c in data["categories"]],
-                         ["film", "ad", "social", "anime", "music", "other"])
-        self.assertTrue(all(c["label"] for c in data["categories"]))
+        # Сценарии — в порядке карусели, «Другое» последним; подписи — как на сайте.
+        self.assertEqual([c["key"] for c in data["categories"]], SCENARIOS + ["other"])
+        self.assertEqual({c["key"]: c["label"] for c in data["categories"]}, SCENARIO_NAMES)
         self.assertEqual(set(data["candidates"]), {"count", "page_size", "results"})
 
         row = data["items"][0]
@@ -833,6 +1139,43 @@ class DjangoAdminTests(ShowcaseCase):
             "is_active": "on"})
         self.assertContains(res, "только работы сотрудников")
         self.assertFalse(ShowcaseItem.objects.exists())
+
+    def test_form_offers_scenarios_and_refuses_old_sections(self):
+        add = reverse("admin:vstudio_showcaseitem_add")
+        page = self.client.get(add)
+        for key, name in SCENARIO_NAMES.items():
+            self.assertContains(page, f'<option value="{key}"', msg_prefix=name)
+        self.assertNotContains(page, '<option value="social"')
+        self.assertContains(page, "станет виден и этот кадр")
+
+        res = self.client.post(add, {"take": self.work().pk, "category": "vertical", "sort": 0,
+                                     "is_active": "on"})
+        self.assertEqual(res.status_code, 302)
+        item = ShowcaseItem.objects.get()
+        self.assertEqual(item.category, "vertical")
+        for key in ("social", "anime"):
+            with self.subTest(key=key):
+                res = self.client.post(
+                    reverse("admin:vstudio_showcaseitem_change", args=[item.pk]),
+                    {"title": "x", "category": key, "sort": 0})
+                self.assertEqual(res.status_code, 200)   # форма с ошибкой, а не сохранение
+                self.assertTrue(res.context["adminform"].form.errors["category"])
+        item.refresh_from_db()
+        self.assertEqual((item.category, item.title), ("vertical", ""))
+        # Фильтр списка — по тем же сценариям.
+        listed = self.client.get(reverse("admin:vstudio_showcaseitem_changelist"),
+                                 {"category__exact": "vertical"})
+        self.assertEqual(list(listed.context["cl"].result_list), [item])
+
+    def test_change_page_shows_the_frame_that_would_go_public(self):
+        frame, ref = f.make_asset(self.staff), f.make_asset(self.staff)
+        from_frame = self.item(self.work(inputs=[(frame, FIRST)]))
+        from_ref = self.item(self.work(inputs=[ref]))
+        page = self.client.get(reverse("admin:vstudio_showcaseitem_change", args=[from_frame.pk]))
+        self.assertContains(page, frame.thumb_url)
+        page = self.client.get(reverse("admin:vstudio_showcaseitem_change", args=[from_ref.pk]))
+        self.assertEqual(page.status_code, 200)
+        self.assertNotContains(page, ref.thumb_url)
 
     def test_rebuild_clip_action_skips_images(self):
         video = self.item()

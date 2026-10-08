@@ -456,7 +456,7 @@ class Take(models.Model):
 
 
 class ShowcaseItem(models.Model):
-    """Работа в витрине первого экрана («Сделано в EsAI»).
+    """Работа в витрине первого экрана (карусель «12 сценариев»).
 
     Строка — разрешение показать результат одного готового дубля всем, включая
     гостей; ставит её владелец в /admin-new. Своего ролика у строки нет:
@@ -466,20 +466,42 @@ class ShowcaseItem(models.Model):
     уходит наружу — vstudio.showcase.
     """
 
+    # Сценарий — для чего ролик: под этим именем он стоит в карусели. Те же
+    # ключи у фронта (home/scenarios.ts); поле — 8 символов, длиннее ключ не влезет.
     CATEGORY_FILM = "film"
     CATEGORY_AD = "ad"
-    CATEGORY_SOCIAL = "social"
-    CATEGORY_ANIME = "anime"
+    CATEGORY_PERSON = "person"
+    CATEGORY_CAR = "car"
+    CATEGORY_ACTION = "action"
+    CATEGORY_SCIFI = "scifi"
+    CATEGORY_FASHION = "fashion"
     CATEGORY_MUSIC = "music"
+    CATEGORY_I2V = "i2v"
+    CATEGORY_ANIM = "anim"
+    CATEGORY_REAL = "real"
+    CATEGORY_VERTICAL = "vertical"
     CATEGORY_OTHER = "other"
     CATEGORY_CHOICES = [
-        (CATEGORY_FILM, "Кино"),
-        (CATEGORY_AD, "Реклама"),
-        (CATEGORY_SOCIAL, "Соцсети"),
-        (CATEGORY_ANIME, "Аниме"),
-        (CATEGORY_MUSIC, "Клипы"),
+        (CATEGORY_FILM, "Киносцена"),
+        (CATEGORY_AD, "Реклама товара"),
+        (CATEGORY_PERSON, "Персонаж"),
+        (CATEGORY_CAR, "Автомобиль"),
+        (CATEGORY_ACTION, "Экшен"),
+        (CATEGORY_SCIFI, "Фантастика"),
+        (CATEGORY_FASHION, "Fashion"),
+        (CATEGORY_MUSIC, "Музыкальный клип"),
+        (CATEGORY_I2V, "Image → Video"),
+        (CATEGORY_ANIM, "Анимация"),
+        (CATEGORY_REAL, "Реалистичная сцена"),
+        (CATEGORY_VERTICAL, "Reels / TikTok"),
         (CATEGORY_OTHER, "Другое"),
     ]
+    # Порядок карусели. «Другое» — не сценарий: такая работа своего места в ней не имеет.
+    SCENARIOS = (
+        CATEGORY_FILM, CATEGORY_AD, CATEGORY_PERSON, CATEGORY_CAR, CATEGORY_ACTION,
+        CATEGORY_SCIFI, CATEGORY_FASHION, CATEGORY_MUSIC, CATEGORY_I2V, CATEGORY_ANIM,
+        CATEGORY_REAL, CATEGORY_VERTICAL,
+    )
 
     # Один дубль — одна строка: второй раз ту же работу в витрину не поставить.
     # Дубль уходит (удалили аккаунт) — уходит и строка.
@@ -487,14 +509,15 @@ class ShowcaseItem(models.Model):
                                 verbose_name="Дубль")
     title = models.CharField(max_length=80, blank=True, default="", verbose_name="Название")
     category = models.CharField(max_length=8, choices=CATEGORY_CHOICES, default=CATEGORY_OTHER,
-                                verbose_name="Раздел")
+                                verbose_name="Сценарий")
     # Меньше — выше; при равных выше та, что добавлена позже.
     sort = models.IntegerField(default=0, verbose_name="Порядок")
     is_active = models.BooleanField(default=True, verbose_name="Показывать")
-    # Запрос — чужая находка: наружу только по явной галочке.
+    # Запрос — чужая находка: наружу только по явной галочке. С ней же виден
+    # первый кадр работы «Image → Video» (vstudio.showcase.start_frame_url).
     show_prompt = models.BooleanField(default=False, verbose_name="Показывать запрос")
-    # Первый экран сам крутит ролики в карусели и сетке, а результат дубля
-    # весит мегабайты. Копию (480 px, без звука) собирает задача
+    # Первый экран сам крутит ролики в карусели, а результат дубля весит
+    # мегабайты. Копию (480 px, без звука) собирает задача
     # build_showcase_clip; пока её нет, на сайте играет исходник.
     clip = models.FileField(upload_to="vstudio/showcase/", blank=True,
                             verbose_name="Ролик для ленты (лёгкий)")

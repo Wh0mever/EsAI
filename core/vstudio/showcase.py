@@ -3,9 +3,15 @@
 У одного списка две стороны:
 - сайт (GET /api/vstudio/showcase/) открыт всем, включая гостей, поэтому наружу
   идёт только перечисленное в public_json: файл результата, обложка, название,
-  модель и размеры. Ни uid дубля, ни почты автора, ни фото, с которыми работа
-  снята; текст запроса и параметры — только с галочкой «Показывать запрос».
-  Одно исключение: исходник и обложка лежат в папке автора
+  сценарий, модель и размеры. Ни uid дубля, ни почты автора, ни фото, с
+  которыми работа снята; текст запроса и параметры — только с галочкой
+  «Показывать запрос».
+  С той же галочкой у работы «Image → Video» становится виден и первый кадр —
+  картинка, с которой ролик начинается (start_frame_url): по примеру должно
+  быть понятно, что из чего получилось. Референсы, последний кадр и роли не
+  выходят никогда; про остальные работы со своими фото сайт знает только сам
+  факт (needs_photo).
+  Одно исключение: исходник, обложка и первый кадр лежат в папке автора
   (vstudio/<номер аккаунта>/<uid материала>…), и номер виден в их адресах.
   Поэтому в витрину ставятся только работы сотрудников (can_publish);
 - панель (/api/manage/vstudio/showcase/, adminapi.vstudio) видит ту же витрину
@@ -30,7 +36,7 @@ from django.core.cache import cache
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 from django.db import IntegrityError, transaction
-from django.db.models import F, Q
+from django.db.models import F, Prefetch, Q
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 from rest_framework import status as http
@@ -42,23 +48,27 @@ from cartoon.clips import make_clip
 from . import prompt_doc as pd
 from . import serializers as S
 from .assets import delete_files
-from .models import TAKE_DONE, Asset, ShowcaseItem, Take
+from .models import TAKE_DONE, Asset, ShotInput, ShowcaseItem, Take
 
 logger = logging.getLogger("vstudio")
 
 CACHE_KEY = "vstudio:showcase:v1"
 CACHE_S = 300
-# Больше первый экран не покажет: карусель берёт 12, галерея листает остальное.
+# Больше первый экран не покажет: карусель берёт 12, остальное — запас на замену.
 MAX_PUBLIC = 48
 # Что нужно кнопке «Снять похожее». Сид и негативный промпт наружу не идут.
 PARAM_KEYS = ("duration", "resolution", "aspect_ratio")
 SCOPES = ("staff", "all")
 CATEGORY_CHOICES = ShowcaseItem.CATEGORY_CHOICES
 CATEGORIES = tuple(key for key, _label in CATEGORY_CHOICES)
+# Сценарии карусели по порядку — те же ключи без «Другое».
+SCENARIOS = ShowcaseItem.SCENARIOS
 TITLE_MAX = ShowcaseItem._meta.get_field("title").max_length
 SORT_LIMIT = 100_000
 # Режимы, в которых модели ушёл один текст — без фото человека.
 TEXT_MODES = (Take.MODE_T2V, Take.MODE_T2I)
+# Режимы, в которых ролик начинается ровно с присланной картинки.
+FRAME_MODES = (Take.MODE_I2V, Take.MODE_FLF2V)
 # make_clip берёт ролик байтами. Больше этого в память не читаем (тот же
 # потолок, что у постера в delivery): такая работа остаётся с исходником.
 CLIP_SOURCE_MAX_BYTES = 64 * 1024 * 1024
@@ -155,19 +165,65 @@ def _media(take: Take) -> dict:
     }
 
 
+# ---------------------------------------------------------------- свои фото
+
+def needs_photo(take: Take) -> bool:
+    """Работа снята со своими картинками: повторить её можно, только добавив свою."""
+    return take.mode not in TEXT_MODES
+
+
+def start_frame_url(take: Take) -> str | None:
+    """Адрес картинки, с которой начинается ролик, — или None.
+
+    Единственный материал запроса, который может уйти наружу, поэтому всё
+    правило здесь и при любом сомнении ответ — None:
+    - режим «первый кадр → видео» (i2v, flf2v). В остальных фото — референсы:
+      лица и вещи, которые человек показывать не собирался;
+    - работа сотрудника (can_publish) и картинка из его же материалов: в её
+      адресе тот же номер аккаунта, что уже виден в адресе результата;
+    - кадр ровно один — тот, что ушёл модели: включён и не отброшен как лишний
+      (Take.dropped). Двоякий случай не разбираем;
+    - картинка готова, файл на месте и человек её не удалил.
+    Отдаём лёгкую копию, если она есть: наружу нужна миниатюра, а не оригинал.
+    """
+    if take.mode not in FRAME_MODES or not can_publish(take):
+        return None
+    slot = ShotInput.SLOT_FIRST_FRAME
+    dropped = {row.get("asset") for row in (take.dropped if isinstance(take.dropped, list) else [])
+               if isinstance(row, dict) and row.get("slot") == slot}
+    frames = [row.asset for row in take.shot.inputs.all()
+              if row.slot == slot and row.included and row.asset.uid not in dropped]
+    if len(frames) != 1:
+        return None
+    asset = frames[0]
+    if (asset.user_id != take.user_id or asset.kind != Asset.KIND_IMAGE
+            or asset.status != Asset.STATUS_READY or asset.deleted_at is not None
+            or not asset.file):
+        return None
+    return asset.thumb_url or asset.url or None
+
+
+def _with_inputs(qs, prefix: str = ""):
+    """Материалы запросов — одним заходом на весь список: по ним ищется первый кадр."""
+    return qs.prefetch_related(Prefetch(f"{prefix}shot__inputs",
+                                        queryset=ShotInput.objects.select_related("asset")))
+
+
 # ---------------------------------------------------------------- сайт
 
 def public_qs():
     """Что видно всем: включённые строки с готовым, не удалённым результатом."""
     return (ShowcaseItem.objects.filter(_ready_q("take__"), is_active=True)
-            .select_related("take__result_asset", "take__shot__model").order_by(*_ORDER))
+            .select_related("take__user", "take__result_asset", "take__shot__model")
+            .order_by(*_ORDER))
 
 
 def public_json(item: ShowcaseItem) -> dict:
     """Карточка для сайта. Список полей закрытый: новое поле дубля само наружу не уйдёт."""
     take = item.take
     out = {"id": item.pk, "title": item.title, "category": item.category, **_media(take),
-           "full_url": None, "prompt": None, "params": None}
+           "full_url": None, "prompt": None, "params": None,
+           "needs_photo": False, "start_frame_url": None}
     if out["video_url"]:
         # В лентах играет лёгкая копия, исходник — рядом, для показа в полном
         # качестве. Копии ещё нет — работа видна сразу, с исходником.
@@ -178,6 +234,10 @@ def public_json(item: ShowcaseItem) -> dict:
         # prompt_text — запрос глазами человека: фото в нём названы «@Image N», без uid.
         out["prompt"] = take.shot.prompt_text or None
         out["params"] = _params(take)
+        # Как работа снята — тоже часть рецепта: без галочки сайт не знает даже
+        # того, что в ней были свои фото.
+        out["needs_photo"] = needs_photo(take)
+        out["start_frame_url"] = start_frame_url(take)
     return out
 
 
@@ -189,7 +249,7 @@ def public_items() -> list[dict]:
         cached = None
     if cached is not None:
         return cached
-    items = [public_json(item) for item in public_qs()[:MAX_PUBLIC]]
+    items = [public_json(item) for item in _with_inputs(public_qs(), "take__")[:MAX_PUBLIC]]
     try:
         cache.set(CACHE_KEY, items, CACHE_S)
     except Exception:
@@ -318,14 +378,17 @@ def forget_assets(asset_pks) -> None:
     """Результаты удалили: их работы уходят из витрины сразу, а не через пять минут.
 
     Лёгкая копия — наш дубликат ролика: раз результат удалён, по прямой ссылке
-    не должна жить и она.
+    не должна жить и она. Удалили не результат, а первый кадр работы — работа
+    остаётся, но адрес кадра с сайта уходит так же сразу.
     """
     rows = list(ShowcaseItem.objects.filter(take__result_asset_id__in=asset_pks)
                 .values_list("pk", "clip"))
     for pk, clip in rows:
         if clip:
             _set_clip(pk, "")
-    if rows:
+    if rows or ShowcaseItem.objects.filter(
+            take__shot__inputs__asset_id__in=asset_pks,
+            take__shot__inputs__slot=ShotInput.SLOT_FIRST_FRAME).exists():
         drop_cache()
 
 
@@ -361,7 +424,9 @@ def take_row(take: Take) -> dict:
         **_media(take),
         "prompt": take.shot.prompt_text or "",
         "params": _params(take),
-        "own_photos": take.mode not in TEXT_MODES,
+        "own_photos": needs_photo(take),
+        # Что станет видно всем с галочкой «Показывать запрос» — показать заранее.
+        "start_frame_url": start_frame_url(take),
         "public_ok": can_publish(take),
         "user_email": take.user.email,
         "user_is_staff": bool(take.user.is_staff),
@@ -400,8 +465,8 @@ def staff_json(item: ShowcaseItem, live: set | None = None) -> dict:
 
 
 def _items_qs():
-    return ShowcaseItem.objects.select_related("created_by", "take__user", "take__result_asset",
-                                               "take__shot__model")
+    return _with_inputs(ShowcaseItem.objects.select_related(
+        "created_by", "take__user", "take__result_asset", "take__shot__model"), "take__")
 
 
 def staff_items() -> list[dict]:
@@ -431,8 +496,8 @@ def candidates_qs(scope: str, query: str = ""):
     о согласии автора нет. all — работы всех: посмотреть можно, поставить
     нельзя (см. can_publish).
     """
-    qs = (Take.objects.filter(_ready_q(), showcase__isnull=True)
-          .select_related("user", "result_asset", "shot__model"))
+    qs = _with_inputs(Take.objects.filter(_ready_q(), showcase__isnull=True)
+                      .select_related("user", "result_asset", "shot__model"))
     if scope == "staff":
         qs = qs.filter(user__is_staff=True)
     if query:
@@ -455,8 +520,9 @@ def _clean(data) -> dict:
             raise ShowcaseError(f"Название длиннее {TITLE_MAX} символов")
         out["title"] = title
     if "category" in data:
+        # Прежние ключи (social, anime) сюда уже не проходят: их перенесла миграция 0004.
         if data["category"] not in CATEGORIES:
-            raise ShowcaseError("Раздел: " + ", ".join(CATEGORIES))
+            raise ShowcaseError("Сценарий: " + ", ".join(CATEGORIES))
         out["category"] = data["category"]
     if "sort" in data:
         sort = data["sort"]
@@ -540,8 +606,9 @@ def remove(item: ShowcaseItem, *, actor, request=None) -> None:
 
 
 __all__ = [
-    "CACHE_KEY", "CACHE_S", "MAX_PUBLIC", "SCOPES", "CATEGORY_CHOICES", "CATEGORIES",
+    "CACHE_KEY", "CACHE_S", "MAX_PUBLIC", "SCOPES", "CATEGORY_CHOICES", "CATEGORIES", "SCENARIOS",
     "ShowcaseError",
+    "needs_photo", "start_frame_url",
     "public_qs", "public_json", "public_items", "drop_cache", "forget_assets", "revive_assets",
     "enqueue_clip", "request_clip", "build_clip", "can_publish",
     "take_row", "staff_json", "staff_items", "get_item", "parse_scope", "candidates_qs",
