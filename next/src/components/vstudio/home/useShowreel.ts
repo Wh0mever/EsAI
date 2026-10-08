@@ -1,12 +1,12 @@
 "use client";
 
 /**
- * Витрина первого экрана: настоящие ролики для карусели и галереи.
+ * Витрина первого экрана: настоящие ролики для карусели.
  *
  * Два публичных запроса — работы видеостудии и сцены мультстудии (названия
  * сцен переводит сервер, поэтому запрос несёт язык). Каждый может не ответить
  * сам по себе: тогда его часть считается пустой, а первый экран живёт на
- * второй. Разбор и сборку списков делает showreelData.ts.
+ * второй. Разбор ответов и выбор кадров карусели делает showreelData.ts.
  *
  * Кэш общий для вкладки и привязан к языку: первый экран монтируется заново
  * при каждом возврате к «Новой генерации», а сцены за 10 минут не меняются.
@@ -30,7 +30,7 @@ import {
   type ShowreelData,
 } from "./showreelData";
 
-export type { ReelCategory, ReelItem } from "./showreelData";
+export type { ReelItem } from "./showreelData";
 
 export type Showreel = ShowreelData & {
   /** Показать пока нечего: первый запрос ещё в пути. */
@@ -43,19 +43,17 @@ export const SHOWREEL_RETRY_MS = 30 * 1000;
 /** Сколько раз подряд пробуем сами после сбоя (30 с, 1 мин, 2 мин). */
 const MAX_RETRIES = 3;
 
-type Cartoon = ReturnType<typeof cartoonItems>;
 type Entry = {
   view: Showreel;
   at: number;
   ok: boolean;
   studio: ReelItem[];
-  cartoon: Cartoon;
+  cartoon: ReelItem[];
   /** Отпечаток содержимого: тот же ответ не должен перерисовывать карусель. */
   sig: string;
 };
 
 const LOADING: Showreel = { ...EMPTY_SHOWREEL, loading: true };
-const NO_CARTOON: Cartoon = { items: [], titles: new Map() };
 
 const cache = new Map<ApiLang, Entry>();
 const inflight = new Map<ApiLang, Promise<void>>();
@@ -125,12 +123,9 @@ export function loadShowreel(lang: ApiLang, retryFailed = false): Promise<void> 
       // Источник не ответил — его часть пустая. Но при обновлении сбой не
       // должен стереть ролики, которые уже на экране: берём прежние.
       const studio = showcase.ok ? studioItems(showcase.data) : (prev?.studio ?? []);
-      const cartoon = presets.ok ? cartoonItems(presets.data) : (prev?.cartoon ?? NO_CARTOON);
-      const sig = JSON.stringify([studio, cartoon.items, [...cartoon.titles]]);
-      const view =
-        prev && prev.sig === sig
-          ? prev.view
-          : { ...buildShowreel(studio, cartoon.items, cartoon.titles), loading: false };
+      const cartoon = presets.ok ? cartoonItems(presets.data) : (prev?.cartoon ?? []);
+      const sig = JSON.stringify([studio, cartoon]);
+      const view = prev && prev.sig === sig ? prev.view : { ...buildShowreel(studio, cartoon), loading: false };
       const ok = showcase.ok && presets.ok;
       cache.set(lang, { view, at: Date.now(), ok, studio, cartoon, sig });
       lastView = view;
@@ -142,7 +137,7 @@ export function loadShowreel(lang: ApiLang, retryFailed = false): Promise<void> 
       // показываем пустую витрину, а не вечную загрузку.
       if (cache.has(lang)) return;
       const view = { ...EMPTY_SHOWREEL, loading: false };
-      cache.set(lang, { view, at: Date.now(), ok: false, studio: [], cartoon: NO_CARTOON, sig: "" });
+      cache.set(lang, { view, at: Date.now(), ok: false, studio: [], cartoon: [], sig: "" });
     })
     .finally(() => {
       inflight.delete(lang);

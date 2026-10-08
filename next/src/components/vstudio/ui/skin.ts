@@ -66,9 +66,10 @@ export const VS_TAG = "inline-flex items-center gap-1 rounded-full border border
 export const VS_TAG_GOLD = "inline-flex items-center gap-1 rounded-full border border-vs-accent/35 bg-accent/[0.1] px-2 py-0.5 text-[11px] font-semibold leading-4 text-vs-accent";
 
 /**
- * Плашка поверх видео и постеров. Без размытия фона: плашка стоит на каждой
- * карточке галереи, и каждая размытая — отдельный проход по кадру играющего
- * под ней ролика на каждом шаге прокрутки. Плотная подложка читается так же.
+ * Плашка поверх видео и постеров. Без размытия фона: плашка стоит на каждом
+ * кадре ленты и карусели, и каждая размытая — отдельный проход по кадру
+ * играющего под ней ролика на каждом шаге прокрутки. Плотная подложка читается
+ * так же.
  */
 export const VS_ON_MEDIA = "rounded-full bg-black/65 px-2 py-0.5 text-[10px] font-medium leading-4 text-white";
 /**

@@ -658,34 +658,34 @@
 		"reel": {
 			"carousel": "carousel",
 			"cartoon": "Cartoon Studio",
+			"clip": "Clip {{n}}",
 			"frame": "Clip {{n}} of {{total}}",
 			"hero": "Shoot with your own character",
 			"label": "Sample clips",
 			"like": "Make a similar one",
 			"model": "Use this model",
 			"next": "Next clip",
+			"photo": "Photo",
+			"photoAlt": "The photo this clip started from",
 			"prev": "Previous clip",
+			"rail": "Clip scenarios",
 			"seconds": "{{n}} s",
 			"show": "Show: {{title}}"
 		},
-		"showcase": {
-			"all": "All",
-			"cartoon": "Cartoon Studio",
-			"more": "Show more",
-			"shown": "Showing {{shown}} of {{total}}",
-			"studio": "Video Studio",
-			"subCartoon": "EsAI Cartoon Studio scenes — recreate any of them with your own character",
-			"subMixed": "Work from the Video Studio and scenes from the Cartoon Studio",
-			"subStudio": "Work created in the EsAI Video Studio",
-			"tabsLabel": "Showcase sections",
-			"tabsNext": "Scroll sections forward",
-			"tabsPrev": "Scroll sections back",
-			"title": "Made with EsAI",
-			"untitledScene": "Cartoon Studio scene",
-			"untitledWork": "Video Studio work",
-			"useModel": "Use this model",
-			"useScene": "Recreate this scene",
-			"useSimilar": "Make a similar one"
+		"scenario": {
+			"action": "Action",
+			"ad": "Product ad",
+			"anim": "Animation",
+			"car": "Car",
+			"fashion": "Fashion",
+			"film": "Cinematic scene",
+			"i2v": "Image → Video",
+			"music": "Music video",
+			"other": "Other",
+			"person": "Character",
+			"real": "Realistic scene",
+			"scifi": "Sci-fi",
+			"vertical": "Reels / TikTok"
 		},
 		"templates": {
 			"cartoon": "Cartoon",
@@ -723,7 +723,7 @@
 				"prompt": "Music video: [artist] walks down a night street under neon lights, the camera moves alongside, rhythmic cuts between shots, reflections in puddles."
 			},
 			"film": {
-				"label": "Film scene",
+				"label": "Cinematic scene",
 				"prompt": "Cinematic shot: [who] [doing what] in [where]. The camera slowly pushes in, soft backlight, light haze, shallow depth of field."
 			},
 			"logo": {
@@ -754,7 +754,13 @@
 		},
 		"use": {
 			"gone": "The model used for this example isn't in the studio right now — the selected one stays.",
-			"kept": "Model and settings selected. Your request text was left untouched."
+			"kept": "Model and settings selected. Your request text was left untouched.",
+			"locked": "This example was shot with {{model}}, which is on a paid plan. Your model stays selected.",
+			"lockedFilled": "This example was shot with {{model}}, which is on a paid plan. We filled in the request and kept your model.",
+			"lockedKept": "This example was shot with {{model}}, which is on a paid plan. Your model and request text were left as they are.",
+			"lockedSwitched": "This example was shot with {{model}}, which is on a paid plan. We switched to video with a model available to you.",
+			"lockedSwitchedKept": "This example was shot with {{model}}, which is on a paid plan. We switched to video with a model available to you. Your request text was left untouched.",
+			"photo": "Add your own photo — this example was made from a picture."
 		}
 	}
 }

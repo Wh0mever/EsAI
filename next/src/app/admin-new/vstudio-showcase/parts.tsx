@@ -169,6 +169,39 @@ export function Preview({ media, className = "" }: { media: ShowcaseMedia; class
   );
 }
 
+/**
+ * Первый кадр ролика, снятого с фото. С «Показывать запрос» он уходит на сайт
+ * вместе с запросом, а в превью дубля его нет: там результат, а не исходное
+ * фото — на нём может быть человек или чужой товар. Показываем его до того,
+ * как работа станет видна; нажатие открывает кадр в новой вкладке. shown —
+ * запрос показывается, и кадр вместе с ним; иначе кадр приглушён.
+ */
+export function StartFrame({ src, shown, size = "sm" }: { src: string; shown: boolean; size?: "sm" | "lg" }) {
+  const title = shown
+    ? "Первый кадр ролика — его видят все посетители"
+    : "Первый кадр ролика — станет виден всем с «Показывать запрос»";
+  return (
+    <a
+      href={src}
+      target="_blank"
+      rel="noreferrer"
+      title={`${title}. Нажмите, чтобы открыть`}
+      className={`block shrink-0 overflow-hidden rounded-md border border-border bg-black transition-opacity ${
+        shown ? "" : "opacity-50 hover:opacity-100 focus-visible:opacity-100"
+      }`}
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={src}
+        alt={title}
+        loading="lazy"
+        decoding="async"
+        className={`${size === "lg" ? "h-20" : "h-9"} w-auto max-w-40 object-contain`}
+      />
+    </a>
+  );
+}
+
 export function Skeleton({ className }: { className: string }) {
   return <div className={`rounded-2xl bg-surface-2 motion-safe:animate-pulse ${className}`} />;
 }

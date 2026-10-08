@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useEffectEvent, useRef, useState } from "react";
+import type { RefObject } from "react";
 import { VS_FOCUS, vx } from "./skin";
 import { useReducedMotion } from "./useAutoplayAllowed";
 
@@ -57,9 +58,25 @@ export type SegmentsProps = {
   className?: string;
 };
 
-type FillProps = { ms: number; paused: boolean; onEnd?: () => void };
+export type SegmentFillProps = {
+  ms: number;
+  paused: boolean;
+  onEnd?: () => void;
+  /**
+   * По чьей видимости судить, что полоска на экране; без него — по её дорожке.
+   * Нужен ряду, который прокручивается вбок (названия под каруселью): дорожка
+   * активного чипа может уехать за его край, а сам ряд всё ещё перед глазами.
+   */
+  anchor?: RefObject<Element | null>;
+};
 
-function Fill({ ms, paused, onEnd }: FillProps) {
+/**
+ * Заполнение активного сегмента — часы карусели. Ставится в дорожку с
+ * position: relative и overflow: hidden. Снаружи нужен тем, кто рисует свои
+ * сегменты (ряд названий под каруселью первого экрана), но листает по тем же
+ * часам, что и Segments.
+ */
+export function SegmentFill({ ms, paused, onEnd, anchor }: SegmentFillProps) {
   const ref = useRef<HTMLSpanElement>(null);
   const anim = useRef<Animation | null>(null);
   const ended = useEffectEvent(() => onEnd?.());
@@ -69,7 +86,7 @@ function Fill({ ms, paused, onEnd }: FillProps) {
 
   useEffect(() => {
     // Наблюдаем дорожку, а не саму заливку: та в начале сжата в ноль.
-    const track = ref.current?.parentElement;
+    const track = anchor?.current ?? ref.current?.parentElement;
     if (!track) return;
     let offscreen = false;
     const sync = () => setUnseen(offscreen || document.hidden);
@@ -86,7 +103,7 @@ function Fill({ ms, paused, onEnd }: FillProps) {
       io?.disconnect();
       document.removeEventListener("visibilitychange", sync);
     };
-  }, []);
+  }, [anchor]);
 
   useEffect(() => {
     const el = ref.current;
@@ -145,7 +162,7 @@ export default function Segments({
       {i === current &&
         (timed ? (
           // key: новый активный сегмент — заполнение с нуля.
-          <Fill key={current} ms={progressMs} paused={paused} onEnd={onProgressEnd} />
+          <SegmentFill key={current} ms={progressMs} paused={paused} onEnd={onProgressEnd} />
         ) : (
           <span className="absolute inset-0 rounded-full bg-vs-accent" />
         ))}

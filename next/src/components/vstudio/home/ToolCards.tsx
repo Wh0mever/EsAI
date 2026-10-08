@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useId, useRef } from "react";
+import { useId } from "react";
 import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { useVStudio } from "../context";
@@ -15,9 +15,10 @@ import { framesPlan } from "./tools/framesPlan";
 import { chooseModel } from "./tools/modelStrip";
 import SectionHead from "./tools/SectionHead";
 import { CartoonArt, FramesArt, ImageArt, RefsArt } from "./tools/ToolArt";
+import { useFramesFocus } from "./tools/useFramesFocus";
 
 export type ToolCardsProps = {
-  /** Постер сцены мультстудии из витрины — для карточки «Мультстудия»; null — значок плёнки. */
+  /** Постер сцены мультстудии — для карточки «Мультстудия»; null — значок плёнки. */
   cartoonPoster: string | null;
 };
 
@@ -49,9 +50,7 @@ export default function ToolCards({ cartoonPoster }: ToolCardsProps) {
   const reveal = useReveal<HTMLElement>();
   const headId = useId();
   const { composer, models } = state;
-
-  const frame = useRef(0);
-  useEffect(() => () => cancelAnimationFrame(frame.current), []);
+  const showFramesSoon = useFramesFocus();
 
   const onRefs = () => {
     trackHomePick("tool", "refs");
@@ -81,8 +80,7 @@ export default function ToolCards({ cartoonPoster }: ToolCardsProps) {
       "info",
     );
     // Слоты кадров появятся, когда панель запроса перерисуется с новой моделью, — зовём её кадром позже.
-    cancelAnimationFrame(frame.current);
-    frame.current = requestAnimationFrame(() => callDockOrFocus("focusFrames"));
+    showFramesSoon();
   };
 
   const onImage = () => {

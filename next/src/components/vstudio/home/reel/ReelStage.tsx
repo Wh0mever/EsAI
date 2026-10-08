@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useCallback, useRef, useState } from "react";
+import { memo, useCallback, useMemo, useRef, useState } from "react";
 import type {
   CSSProperties,
   KeyboardEvent,
@@ -16,18 +16,22 @@ import { prefersReducedMotion } from "../../ui/useAutoplayAllowed";
 import { useReveal } from "../../ui/useReveal";
 import type { ReelItem } from "../showreelData";
 import ReelCaption from "./ReelCaption";
-import { REEL_ENTER, type ReelLayoutProps } from "./reelLayout";
+import { REEL_ENTER, isBareClick, isStudioReel, type ReelLayoutProps } from "./reelLayout";
 import {
   INTENT_PX,
   REEL_INTERVAL_MS,
   dragShift,
   dragSteps,
+  fogBand,
   isLoop,
+  isPortrait,
+  paperFog,
   paperOpacity,
   slotLook,
   slotsAround,
   stepPx,
 } from "./reelMath";
+import ScenarioRail from "./ScenarioRail";
 import { useReelFit } from "./useReelFit";
 import { useReelAuto, useReelPause } from "./useReelPause";
 import { useReelTrack } from "./useReelTrack";
@@ -38,9 +42,17 @@ import { useSettled } from "./useSettled";
  *
  * В центре активный кадр, по бокам — по два соседа, повёрнутых к нему. Ролик
  * играет только в одном кадре — активном; соседи — постеры. Листают стрелками
- * на сцене и на клавиатуре, нажатием на соседа, перетаскиванием и сегментами
- * под сценой; раз в 7 секунд карусель листается сама, пока человек её видит и
- * не трогает.
+ * на сцене и на клавиатуре, нажатием на соседа, перетаскиванием и рядом под
+ * сценой: у роликов студии это названия сценариев (ScenarioRail), у сцен
+ * мультстудии — сегменты. Раз в 7 секунд карусель листается сама, пока человек
+ * её видит и не трогает.
+ *
+ * Нажатие на активный кадр ролика студии — то же, что его золотая кнопка:
+ * пример ложится в панель запроса. Отдельной кнопки поверх кадра для этого
+ * нет: она закрыла бы «Смотреть» (кнопка во весь кадр, когда ролики не
+ * заводятся сами) и дала бы клавиатуре и скринридеру второе такое же действие.
+ * Нажатие ловит сам кадр, а кнопки внутри него отвечают за себя; с клавиатуры
+ * то же делают золотая кнопка и Enter на самой карусели.
  *
  * Кадры — прямые дети сцены .vs-stage (перспектива действует только на них) и
  * лежат в одной ячейке сетки: высоту сцены задаёт сам кадр, а место каждому —
@@ -50,7 +62,9 @@ import { useSettled } from "./useSettled";
  * Две темы. Сам кадр и всё, что лежит на нём (чёрная вуаль соседа, подпись,
  * подсветка под курсором), одинаковы: видео тёмное в любой теме. От темы
  * зависит то, чем кадр касается сцены: тень, волосяная кромка, стрелки и то,
- * как дальний кадр уходит из виду — в темноту зала или в «бумагу».
+ * как дальний кадр уходит из виду. В тёмном зале он гаснет; на «бумаге»
+ * притемнённый кадр стоял бы у края серой плитой, поэтому там он растворяется
+ * в цвете сцены от ближнего края к дальнему (FOG, reelMath.fogBand).
  */
 
 type Gesture = { id: number; x: number; y: number; live: boolean };
@@ -63,8 +77,7 @@ const SLOT_MOVE =
 /**
  * Прозрачность места приходит двумя переменными (их ставит Slot), а не готовым
  * opacity: в тёмной теме дальний кадр гаснет по таблице макета, на светлой
- * сцене — быстрее (reelMath.paperOpacity), иначе притемнённый кадр стоял бы у
- * края серой плитой.
+ * сцене он бледнее (reelMath.paperOpacity).
  */
 const SLOT_FADE = "opacity-[var(--vs-o-paper)] dark:opacity-[var(--vs-o)]";
 // Тени — из палитры темы: на «бумаге» чёрная тень легла бы грязным пятном. В
@@ -72,7 +85,20 @@ const SLOT_FADE = "opacity-[var(--vs-o-paper)] dark:opacity-[var(--vs-o)]";
 const SLOT_ON =
   "shadow-[var(--vs-shadow-float)] dark:shadow-[var(--vs-shadow-float),0_10px_28px_rgba(0,0,0,0.5)] group-focus-visible/reel:outline-2 group-focus-visible/reel:outline-offset-4 group-focus-visible/reel:outline-vs-accent/80";
 const SLOT_SIDE = "shadow-[var(--vs-shadow-soft)] dark:shadow-[0_22px_50px_rgba(0,0,0,0.6)]";
+// Дальний кадр на светлой сцене тени не бросает: сам он растворён в «бумаге», и тень обвела бы пустое место.
+const SLOT_FAR = "shadow-none dark:shadow-[0_22px_50px_rgba(0,0,0,0.6)]";
 const DIM_MOVE = "transition-opacity duration-[400ms] motion-reduce:transition-none";
+/**
+ * «Туман» светлой сцены: вуаль цвета «бумаги» поверх кадра, гуще к его внешнему
+ * краю (vs-fog, globals.css). Это не маска: маска срезала бы и тень кадра, а её
+ * границы нельзя вести переходом. Вуаль же проявляется той же прозрачностью,
+ * что и затемнение соседа. В тёмной теме её нет.
+ */
+const FOG = "vs-fog pointer-events-none absolute inset-0 dark:hidden";
+/** С какого расстояния кадр считается дальним (между соседом и дальним местом). */
+const FAR_FROM = 1.5;
+/** Место под сценой: ряд названий или сегменты. Высота одна на все случаи — кадры, придя, не сдвинут страницу. */
+const FOOT = "relative -mt-3 h-9";
 /**
  * Стрелки стоят у края сцены: обычно над соседним кадром, а у короткой карусели
  * на первом и последнем кадре — над самой сценой. В тёмной теме это тёмное
@@ -94,6 +120,8 @@ const HANDOVER_MS = 240;
 
 type SlotProps = {
   item: ReelItem;
+  /** Имя кадра — подпись и название для кнопок. */
+  name: string;
   /** На сколько мест кадр от центра; дробное — пока его ведут пальцем. */
   d: number;
   active: boolean;
@@ -114,6 +142,7 @@ type SlotProps = {
 
 const Slot = memo(function Slot({
   item,
+  name,
   d,
   active,
   playing,
@@ -127,6 +156,12 @@ const Slot = memo(function Slot({
 }: SlotProps) {
   const look = slotLook(d);
   const parked = Math.abs(d) > PARKED_FROM;
+  const far = Math.abs(d) > FAR_FROM;
+  // Ролик студии в центре: нажатие на сам кадр применяет пример. Сцена мультстудии — ссылка
+  // в другой раздел: уводить туда нажатием на кадр было бы неожиданно, у неё остаётся кнопка.
+  const usable = active && item.source === "vstudio";
+  // Вертикальный ролик студии показываем целиком, с полями: обрезанный под рамку 16:9, он потерял бы две трети кадра.
+  const upright = item.source === "vstudio" && isPortrait(item.aspect);
   const pose = {
     width: width ?? undefined,
     transform: look.transform,
@@ -158,14 +193,24 @@ const Slot = memo(function Slot({
       aria-label={label}
       aria-hidden={parked ? true : undefined}
       inert={parked}
+      onClick={
+        usable
+          ? (e) => {
+              if (isBareClick(e.target)) onUse(item);
+            }
+          : undefined
+      }
       className={vx(
         SLOT,
         SLOT_FADE,
         "bg-black",
         width === null && SLOT_WIDTH,
         eased && SLOT_MOVE,
-        active ? SLOT_ON : SLOT_SIDE,
+        active ? SLOT_ON : far ? SLOT_FAR : SLOT_SIDE,
         parked && "pointer-events-none",
+        usable && "group/frame",
+        // Пока кадр ведут пальцем, курсор — «рука» сцены.
+        usable && eased && "cursor-pointer",
       )}
       style={pose}
     >
@@ -177,6 +222,7 @@ const Slot = memo(function Slot({
         alt=""
         className="absolute inset-0"
         rounded="rounded-2xl"
+        fit={upright ? "contain" : "cover"}
       />
       <span
         aria-hidden
@@ -185,7 +231,12 @@ const Slot = memo(function Slot({
       />
       {/* Кромка — «чернилами» темы: на светлой сцене она отделяет светлый кадр от «бумаги». */}
       <span aria-hidden className="pointer-events-none absolute inset-0 rounded-2xl border border-vs-ink/10" />
-      <ReelCaption item={item} shown={active} onUse={onUse} />
+      <span
+        aria-hidden
+        className={vx(FOG, d < 0 && "[--vs-fog-to:left]", eased && DIM_MOVE)}
+        style={{ opacity: paperFog(d) }}
+      />
+      <ReelCaption item={item} name={name} shown={active} onUse={onUse} />
       {!active && (
         // Листать с клавиатуры — стрелками; сосед-кнопка нужен мыши и пальцу.
         <button
@@ -200,10 +251,10 @@ const Slot = memo(function Slot({
   );
 });
 
-function ReelStage({ items, loading, onUse }: ReelLayoutProps) {
+function ReelStage({ items, names, loading, onUse }: ReelLayoutProps) {
   const { t } = useTranslation("vstudio", { useSuspense: false });
   const reveal = useReveal<HTMLDivElement>();
-  const { frame: fitFrame, width } = useReelFit<HTMLDivElement>();
+  const { frame: fitFrame, width, column } = useReelFit<HTMLDivElement>();
   const { track, index, move, jump } = useReelTrack(items);
   const region = useRef<HTMLDivElement>(null);
   const stage = useRef<HTMLDivElement>(null);
@@ -216,6 +267,8 @@ function ReelStage({ items, loading, onUse }: ReelLayoutProps) {
   const [dragging, setDragging] = useState(false);
   /** Карусель уже листали — сама или рукой. До этого все кадры на сцене из первой партии. */
   const [moved, setMoved] = useState(false);
+  /** Фокус в ряду названий: там новый кадр называет сам чип, на который фокус переходит. */
+  const [railFocus, setRailFocus] = useState(false);
   const gesture = useRef<Gesture | null>(null);
   const swallowClick = useRef(false);
 
@@ -224,6 +277,15 @@ function ReelStage({ items, loading, onUse }: ReelLayoutProps) {
   const step = stepPx(width ?? 0);
   const canPrev = loop || track.pos > 0;
   const canNext = loop || track.pos < count - 1;
+  const current = count > 0 ? items[index] : null;
+  const studio = isStudioReel(items);
+
+  // Где дальним кадрам светлой сцены уйти в «бумагу» — зависит только от ширины кадра и колонки.
+  const fog = useMemo(() => {
+    if (width === null) return undefined;
+    const band = fogBand(width, column);
+    return { "--vs-fog-a": `${band.from}%`, "--vs-fog-b": `${band.to}%` } as CSSProperties;
+  }, [width, column]);
 
   // Подпись и кнопка прежнего активного кадра сейчас станут недоступны. Если
   // фокус стоял на них, он пропал бы вместе с ними — и стрелки клавиатуры
@@ -256,6 +318,14 @@ function ReelStage({ items, loading, onUse }: ReelLayoutProps) {
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+    // Enter на самой карусели — то же, что золотая кнопка активного кадра. На кнопках внутри
+    // (стрелки, названия, «Смотреть») Enter нажимает их самих — туда не вмешиваемся.
+    if (e.key === "Enter") {
+      if (e.repeat || e.target !== region.current || !current || current.source !== "vstudio") return;
+      e.preventDefault();
+      onUse(current);
+      return;
+    }
     if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
     e.preventDefault();
     go(e.key === "ArrowLeft" ? -1 : 1);
@@ -300,7 +370,7 @@ function ReelStage({ items, loading, onUse }: ReelLayoutProps) {
     gesture.current = null;
     if (!g.live) return;
     // После перетаскивания браузер пришлёт click тому, на чём отпустили кнопку
-    // мыши: соседу или кнопке кадра. Этот click — не нажатие, его гасим.
+    // мыши: соседу, кнопке кадра или самому кадру. Этот click — не нажатие, его гасим.
     swallowClick.current = true;
     setTimeout(() => {
       swallowClick.current = false;
@@ -319,7 +389,6 @@ function ReelStage({ items, loading, onUse }: ReelLayoutProps) {
 
   const frame = (i: number) =>
     t("home.reel.frame", { defaultValue: "Кадр {{n}} из {{total}}", n: i + 1, total: count });
-  const current = count > 0 ? items[index] : null;
   const running = auto && count > 1;
   const paused = pause.paused || dragging;
 
@@ -353,6 +422,7 @@ function ReelStage({ items, loading, onUse }: ReelLayoutProps) {
               "vs-stage grid touch-pan-y touch-pinch-zoom select-none place-items-center py-6",
               count > 1 && (dragging ? "cursor-grabbing" : "cursor-grab"),
             )}
+            style={fog}
             onPointerDown={onPointerDown}
             onPointerMove={onPointerMove}
             onPointerUp={endGesture}
@@ -374,10 +444,12 @@ function ReelStage({ items, loading, onUse }: ReelLayoutProps) {
                 })
               : slotsAround(track.pos, shift, count).map(({ v, index: i, d }) => {
                   const item = items[i];
+                  const name = names[i] ?? "";
                   return (
                     <Slot
                       key={`${v}:${item.id}`}
                       item={item}
+                      name={name}
                       d={d}
                       active={v === track.pos}
                       playing={v === playingPos}
@@ -385,9 +457,7 @@ function ReelStage({ items, loading, onUse }: ReelLayoutProps) {
                       eased={!dragging}
                       label={frame(i)}
                       pickLabel={
-                        item.title
-                          ? t("home.reel.show", { defaultValue: "Показать: {{title}}", title: item.title })
-                          : frame(i)
+                        name ? t("home.reel.show", { defaultValue: "Показать: {{title}}", title: name }) : frame(i)
                       }
                       late={moved}
                       onUse={onUse}
@@ -410,26 +480,49 @@ function ReelStage({ items, loading, onUse }: ReelLayoutProps) {
           )}
         </div>
 
-        {count > 1 ? (
-          <Segments
-            count={count}
-            active={index}
-            progressMs={running ? REEL_INTERVAL_MS : null}
-            paused={paused}
-            onProgressEnd={autoNext}
-            onSelect={select}
-            label={frame}
-            className="mt-1 px-4"
-          />
-        ) : (
-          // Место под сегменты держим и без них: кадры не должны сдвинуть страницу, когда придут.
-          <div aria-hidden className="mt-1 h-3" />
-        )}
+        {/* Ряд заходит на нижнее поле сцены (там только тень кадра): название стоит под самым кадром.
+            relative — чтобы на этой полосе нажатие доставалось ему, а не сцене под ним. */}
+        <div
+          className={FOOT}
+          onFocus={studio ? () => setRailFocus(true) : undefined}
+          onBlur={
+            studio
+              ? (e) => {
+                  if (!e.currentTarget.contains(e.relatedTarget)) setRailFocus(false);
+                }
+              : undefined
+          }
+        >
+          {count > 1 &&
+            (studio ? (
+              <ScenarioRail
+                names={names}
+                active={index}
+                progressMs={running ? REEL_INTERVAL_MS : null}
+                paused={paused}
+                onProgressEnd={autoNext}
+                onSelect={select}
+              />
+            ) : (
+              <Segments
+                count={count}
+                active={index}
+                progressMs={running ? REEL_INTERVAL_MS : null}
+                paused={paused}
+                onProgressEnd={autoNext}
+                onSelect={select}
+                label={frame}
+                className="h-full px-4"
+              />
+            ))}
+        </div>
 
-        {/* Пока карусель листается сама, скринридер молчит; когда её листает человек — называет кадр. */}
+        {/* Пока карусель листается сама, скринридер молчит; когда её листает человек — называет кадр.
+            Из ряда названий кадр называет чип, на который переходит фокус, — второй раз то же не читаем.
+            Сегменты мультстудии фокус за кадром не ведут, там называть кадр по-прежнему нам. */}
         {current && (
-          <p className="sr-only" aria-live={running && !paused ? "off" : "polite"} aria-atomic>
-            {current.title ? `${frame(index)}: ${current.title}` : frame(index)}
+          <p className="sr-only" aria-live={(running && !paused) || (studio && railFocus) ? "off" : "polite"} aria-atomic>
+            {names[index] ? `${frame(index)}: ${names[index]}` : frame(index)}
           </p>
         )}
       </div>

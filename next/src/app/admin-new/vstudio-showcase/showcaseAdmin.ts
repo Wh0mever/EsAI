@@ -12,6 +12,9 @@
  * Страница работает с ShowcaseItem и Candidate и имён полей сервера не знает:
  * поменялось имя — правится только здесь. Ответы разбираем как «чужие руки»:
  * запись без id или с полем не того типа страницу не роняет, а пропускается.
+ * category — сценарий ролика: под его именем работа стоит в карусели первого
+ * экрана. Какие работы в неё попадут, сервер не знает — это правило сайта, и
+ * панель повторяет его здесь же (carousel, placesOf).
  * Модуль чистый (без React и сети) — его проверяет showcaseAdmin.test.mjs.
  */
 
@@ -25,17 +28,40 @@ const PUBLIC_LIMIT = 48;
 /** Размер страницы кандидатов, если сервер не назвал page_size. */
 const PAGE_SIZE = 50;
 
+/** Сценарий работы: на сервере это поле category, отсюда и имя типа. */
 export type Category = { key: string; label: string };
 
-/** Запасной список: категории присылает сервер, этот — на случай ответа без них. */
-const CATEGORIES: Category[] = [
-  { key: "film", label: "Кино" },
-  { key: "ad", label: "Реклама" },
-  { key: "social", label: "Соцсети" },
-  { key: "anime", label: "Аниме" },
-  { key: "music", label: "Клипы" },
-  { key: "other", label: "Другое" },
+/**
+ * Двенадцать сценариев карусели — в том порядке, в каком она их показывает.
+ * Тот же список у сервера (ShowcaseItem.SCENARIOS) и у первого экрана
+ * (components/vstudio/home/scenarios.ts): меняется один — меняются все три.
+ */
+export const SCENARIOS: readonly Category[] = [
+  { key: "film", label: "Киносцена" },
+  { key: "ad", label: "Реклама товара" },
+  { key: "person", label: "Персонаж" },
+  { key: "car", label: "Автомобиль" },
+  { key: "action", label: "Экшен" },
+  { key: "scifi", label: "Фантастика" },
+  { key: "fashion", label: "Fashion" },
+  { key: "music", label: "Музыкальный клип" },
+  { key: "i2v", label: "Image → Video" },
+  { key: "anim", label: "Анимация" },
+  { key: "real", label: "Реалистичная сцена" },
+  { key: "vertical", label: "Reels / TikTok" },
 ];
+
+/** «Другое» — работа без сценария: своего места в карусели у неё нет. */
+const OTHER = "other";
+
+/** Запасной список: сценарии присылает сервер, этот — на случай ответа без них. */
+const CATEGORIES: Category[] = [...SCENARIOS, { key: OTHER, label: "Другое" }];
+
+/** Ключи до переименования: сервер, который ещё не обновили, отдаёт работы с ними. */
+const RENAMED: ReadonlyMap<string, string> = new Map([
+  ["social", "vertical"],
+  ["anime", "anim"],
+]);
 
 export type ShowcaseKind = "video" | "image";
 
@@ -57,6 +83,12 @@ export type ShowcaseMedia = {
   authorEmail: string;
   /** Автор — сотрудник. */
   staff: boolean;
+  /**
+   * Фото, с которого начинался ролик (Image → Video); null — ролик снят без него.
+   * С «Показывать запрос» его увидят все посетители, поэтому сервер отдаёт его
+   * панели всегда — показать владельцу заранее.
+   */
+  startFrame: string | null;
 };
 
 export type ShowcaseItem = ShowcaseMedia & {
@@ -121,6 +153,8 @@ function media(take: Row): ShowcaseMedia {
     prompt: text(take.prompt),
     authorEmail: text(take.user_email),
     staff: take.user_is_staff === true,
+    // У картинки первого кадра не бывает — как на сайте (home/showreelData.ts).
+    startFrame: kind === "video" ? url(take.start_frame_url) : null,
   };
 }
 
@@ -133,7 +167,7 @@ export function parseItem(payload: unknown): ShowcaseItem | null {
     ...media(isRow(payload.take) ? payload.take : {}),
     id,
     title: text(payload.title),
-    category: text(payload.category) || "other",
+    category: text(payload.category) || OTHER,
     sort: num(payload.sort) ?? 0,
     visible: payload.is_active !== false,
     showPrompt: payload.show_prompt === true,
@@ -209,6 +243,29 @@ export function listPath(query: { staffOnly: boolean; search: string; page: numb
 }
 
 export type AddForm = { title: string; category: string; showPrompt: boolean };
+
+/**
+ * С чем открывается окно «В витрину». Запрос показываем сразу: по нему
+ * работает «Снять похожее», ради которого ролик и стоит в карусели. Запрос
+ * сотрудника — рабочий материал студии; запрос пользователя — его находка,
+ * такую галочку ставит только сам владелец.
+ */
+export function addDefaults(candidate: Pick<Candidate, "staff" | "prompt">): AddForm {
+  return { title: "", category: "", showPrompt: candidate.staff && candidate.prompt !== "" };
+}
+
+/**
+ * Название после выбора сценария `key`. В пустое поле ставим имя сценария:
+ * его посетитель и видит под роликом. Набранное владельцем не трогаем —
+ * «своим» не считается только имя сценария, которое подставили мы: оно
+ * уходит вслед за сценарием. У «Другого» имени для подписи нет.
+ */
+export function titleForScenario(title: string, key: string, categories: readonly Category[]): string {
+  const named = categories.filter((category) => category.key !== OTHER);
+  const typed = title.trim();
+  if (typed && !named.some((category) => category.label === typed)) return title;
+  return named.find((category) => category.key === key)?.label ?? "";
+}
 
 /** sort — куда поставить новую работу (см. sortForNew); без него сервер ставит 0. */
 export function addBody(takeUid: string, form: AddForm, sort?: number): Record<string, unknown> {
@@ -351,7 +408,7 @@ export function insertItem(items: readonly ShowcaseItem[], item: ShowcaseItem): 
   return at < 0 ? [...rest, item] : [...rest.slice(0, at), item, ...rest.slice(at)];
 }
 
-/** Что посетители видят прямо сейчас, по порядку: первые `limit` видимых работ с живым файлом. */
+/** Что сервер отдаёт сайту прямо сейчас, по порядку: первые `limit` видимых работ с живым файлом. */
 export function publicOrder(items: readonly ShowcaseItem[], limit: number): number[] {
   const out: number[] = [];
   for (const item of items) {
@@ -359,4 +416,85 @@ export function publicOrder(items: readonly ShowcaseItem[], limit: number): numb
     if (item.visible && item.available) out.push(item.id);
   }
   return out;
+}
+
+/* ------------------------------------------------------------------ */
+/* Карусель                                                            */
+/* ------------------------------------------------------------------ */
+
+export type ScenarioSlot = {
+  key: string;
+  label: string;
+  /** Ролик, которым карусель показывает сценарий; null — пусто. */
+  item: ShowcaseItem | null;
+  /** Сколько ещё роликов сценария отдано сайту: в карусель они идут после первых, на свободные места. */
+  spare: number;
+};
+
+export type Carousel = {
+  /** Сценарии SCENARIOS в порядке карусели. */
+  slots: ScenarioSlot[];
+  /** Сколько из них заполнено. */
+  filled: number;
+  /** Роликов студии на сайте — вместе с теми, что без сценария. */
+  videos: number;
+  /** id роликов в порядке карусели, не больше её размера. */
+  order: number[];
+  /** false — роликов меньше, чем карусели нужно: вместо них идут сцены мультстудии. */
+  studio: boolean;
+};
+
+/** limit — сколько работ сервер отдаёт сайту; size и min — размер карусели и её порог (REEL_SIZE, REEL_MIN). */
+export type ReelRule = { limit: number; size: number; min: number };
+
+/**
+ * Карусель первого экрана глазами панели — тем же правилом, что на сайте
+ * (components/vstudio/home/showreelData.ts). В неё идут только ролики,
+ * отданные сайту: сначала верхний ролик каждого сценария в порядке
+ * SCENARIOS, затем остальные в порядке витрины, всего не больше `size`.
+ * Картинки карусель не берёт. Набралось меньше `min` — студию она не
+ * показывает вовсе: с мультстудией ролики не смешиваются.
+ */
+export function carousel(items: readonly ShowcaseItem[], rule: ReelRule): Carousel {
+  const sent = new Set(publicOrder(items, rule.limit));
+  const videos = items.filter((item) => item.kind === "video" && sent.has(item.id));
+  const byScenario = new Map<string, ShowcaseItem[]>();
+  for (const item of videos) {
+    const key = RENAMED.get(item.category) ?? item.category;
+    byScenario.set(key, [...(byScenario.get(key) ?? []), item]);
+  }
+  const slots = SCENARIOS.map(({ key, label }): ScenarioSlot => {
+    const own = byScenario.get(key) ?? [];
+    return { key, label, item: own[0] ?? null, spare: Math.max(own.length - 1, 0) };
+  });
+  const heads = slots.flatMap((slot) => (slot.item ? [slot.item] : []));
+  const taken = new Set(heads.map((item) => item.id));
+  const order = [...heads, ...videos.filter((item) => !taken.has(item.id))].slice(0, rule.size).map((item) => item.id);
+  return { slots, filled: heads.length, videos: videos.length, order, studio: order.length >= rule.min };
+}
+
+/** Где работа сейчас на сайте. */
+export type Place = "reel" | "wait" | "out" | "hidden" | "over" | "nofile";
+
+/**
+ * Что с каждой работой на сайте. Кроме карусели, первый экран работ студии
+ * не показывает, поэтому «отдана сайту» ещё не значит «видна»: ролик ждёт,
+ * пока карусель наберёт свой минимум ("wait"), а картинка и ролик сверх
+ * размера карусели в неё не попадают ("out").
+ */
+export function placesOf(
+  items: readonly ShowcaseItem[],
+  limit: number,
+  reel: Pick<Carousel, "order" | "studio">,
+): Map<number, Place> {
+  const sent = new Set(publicOrder(items, limit));
+  const shown = new Set(reel.order);
+  const place = (item: ShowcaseItem): Place => {
+    if (!item.available) return "nofile";
+    if (!item.visible) return "hidden";
+    if (!sent.has(item.id)) return "over";
+    if (!shown.has(item.id)) return "out";
+    return reel.studio ? "reel" : "wait";
+  };
+  return new Map(items.map((item) => [item.id, place(item)]));
 }

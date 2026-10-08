@@ -79,7 +79,7 @@ const VISIBLE_SHARE = 0.6;
 const STAGE_SHARE = 0.5;
 /**
  * Столько карточка должна простоять на экране, чтобы завести ролик сама. Без
- * этого при быстром пролистывании галереи каждая промелькнувшая карточка
+ * этого при быстром пролистывании страницы каждая промелькнувшая карточка
  * успевала бы создать <video> и начать загрузку, которую тут же бросит.
  * Постер всё это время на месте, так что ожидания не видно.
  */
@@ -91,7 +91,7 @@ const HOST_SELECTOR = "[data-vs-clip-host]";
 
 /**
  * Пустой кадр (картинки нет или она ещё не пришла). На светлой сцене тон на
- * ступень темнее, чем у карточек: кадр галереи лежит прямо на «бумаге», и
+ * ступень темнее, чем у карточек: кадр карусели лежит прямо на «бумаге», и
  * более светлая заглушка на ней пропала бы.
  */
 const BLANK = "bg-surface-3 dark:bg-surface-2";
@@ -340,8 +340,8 @@ export default function LazyClip({
   const playLabel = t("run.actions.play", { defaultValue: "Смотреть" });
   const positioned = /(?:^|\s)(?:absolute|fixed|sticky)(?:\s|$)/.test(className || "");
 
-  // Без размытия фона, как и VS_ON_MEDIA: при выключенном автозапуске значок
-  // стоит на каждой карточке галереи.
+  // Без размытия фона, как и VS_ON_MEDIA: размытый значок — отдельный проход
+  // по кадру под ним, плотная подложка читается так же.
   const playGlyph = (
     <span className="grid size-11 place-items-center rounded-full bg-black/60 text-white transition-transform duration-200 group-hover/clip:scale-110">
       <FiPlay className="ml-0.5 text-lg" aria-hidden />

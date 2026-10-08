@@ -12,6 +12,9 @@
  * кругу, и место v занимает кадр v mod N. Короткая карусель кругом не идёт —
  * иначе один и тот же кадр стоял бы и слева, и справа от активного.
  *
+ * Здесь же — то, что считается рядом с геометрией: как дальний кадр уходит в
+ * «бумагу» на светлой сцене, имена кадров и прокрутка ряда названий под каруселью.
+ *
  * Модуль чистый (без React и DOM): его проверяет node-тест reelMath.test.mjs.
  */
 
@@ -100,24 +103,96 @@ export function slotLook(d: number): SlotLook {
   };
 }
 
-/** Во сколько раз быстрее дальний кадр растворяется на светлой сцене (показатель степени). */
-const PAPER_FADE = 5;
+/** На сколько пикселей уезжает центр кадра за один шаг карусели. */
+export function stepPx(cardWidth: number): number {
+  return (STOPS[1].x / 100) * cardWidth;
+}
+
+/* ---------- светлая сцена ---------- */
+
+/** Перспектива сцены — как у .vs-stage в globals.css. */
+const PERSPECTIVE = 1500;
+/** Зазор между внешним краем соседнего кадра и краем колонки. */
+const EDGE_GAP = 16;
+/** Во сколько раз быстрее дальний кадр бледнеет на светлой сцене (показатель степени). */
+const PAPER_FADE = 3;
+/** На скольких пикселях от края соседа дальний кадр сходит на нет — если до края колонки есть столько места. */
+const FOG_REACH = 96;
+/** За столько пикселей до края колонки от дальнего кадра уже ничего не осталось: срез колонки не виден. */
+const FOG_REST = 8;
+/** Какая доля «тумана» уже лежит на дальнем кадре там, где он выходит из-за соседа. */
+const FOG_HEAD = 0.3;
 
 /**
  * Прозрачность кадра на светлой сцене. Соседи притемнены чёрной вуалью (dim):
  * в тёмном зале дальний кадр так уходит в темноту, а на «бумаге» тот же кадр
- * встал бы у края сцены серой плитой. Поэтому там он растворяется в фоне
- * быстрее. Активный кадр и ближние соседи (opacity 1) и невидимая стоянка
- * (opacity 0) остаются как есть, а между ними кривая гладкая — за пальцем кадр
- * идёт без скачка.
+ * встал бы у края сцены серой плитой. Поэтому там он бледнее, а главное —
+ * уходит в «бумагу» не весь разом, а от ближнего края к дальнему (fogBand).
+ * Активный кадр и ближние соседи (opacity 1) и невидимая стоянка (opacity 0)
+ * остаются как есть, а между ними кривая гладкая — за пальцем кадр идёт без
+ * скачка.
  */
 export function paperOpacity(opacity: number): number {
   return round3(clamp(opacity, 0, 1) ** PAPER_FADE);
 }
 
-/** На сколько пикселей уезжает центр кадра за один шаг карусели. */
-export function stepPx(cardWidth: number): number {
-  return (STOPS[1].x / 100) * cardWidth;
+/** Сила «тумана» на кадре светлой сцены: у активного и соседей его нет, дальний кадр и стоянка в нём целиком. */
+export function paperFog(d: number): number {
+  return round3(clamp(Math.abs(d) - 1, 0, 1));
+}
+
+/**
+ * Где на экране внешний край соседа (|d| = 1), в пикселях от центра сцены.
+ * Край повёрнут к зрителю, и перспектива отодвигает его тем дальше, чем шире кадр.
+ */
+export function sideEdge(cardWidth: number): number {
+  const side = STOPS[1];
+  const turn = (side.rot * Math.PI) / 180;
+  const flat = (side.x / 100 - 0.5 + side.scale * Math.cos(turn)) * cardWidth;
+  const depth = side.scale * Math.sin(turn) * cardWidth;
+  return (flat * PERSPECTIVE) / (PERSPECTIVE - depth);
+}
+
+export type FogBand = {
+  /** Здесь «туман» начинается, % ширины кадра от его ближнего к центру края. */
+  from: number;
+  /** Отсюда и до внешнего края кадр закрыт целиком. */
+  to: number;
+};
+
+/**
+ * Светлая сцена: на какой полосе дальний кадр (|d| = 2) уходит в «бумагу».
+ *
+ * Из-за соседа он виден только внешней частью. В тёмном зале она гаснет сама,
+ * а на светлой сцене стояла бы серой плитой, срезанной краем колонки. Поэтому
+ * поверх кадра лежит вуаль цвета сцены: у края соседа она уже заметна
+ * (FOG_HEAD) и закрывает кадр целиком через FOG_REACH пикселей — или раньше,
+ * если край колонки ближе: до него не должно дойти ничего. На обычном экране
+ * между соседом и краем колонки всего EDGE_GAP, и от дальнего кадра остаётся
+ * мягкая кромка; на широком он растворяется на глазах.
+ *
+ * Считаем в пикселях экрана и переводим в доли ширины самого кадра — вуаль
+ * лежит на нём и поворачивается вместе с ним. columnWidth === null — ширина
+ * колонки неизвестна: берём самый тесный случай.
+ */
+export function fogBand(cardWidth: number, columnWidth: number | null): FogBand {
+  const edge = sideEdge(cardWidth);
+  // Кадра нет или он шире самой перспективы — считать нечего, вуали нет.
+  if (!(cardWidth > 0) || !(edge > 0) || !Number.isFinite(edge)) return { from: 100, to: 100 };
+  const far = STOPS[2];
+  const turn = (far.rot * Math.PI) / 180;
+  // Ближний край дальнего кадра и то, как его ширина и глубина ложатся на экран.
+  const hinge = (far.x / 100 - 0.5) * cardWidth;
+  const flat = far.scale * Math.cos(turn) * cardWidth;
+  const depth = far.scale * Math.sin(turn) * cardWidth;
+  /** Какая доля ширины кадра видна в точке экрана x (от центра сцены). */
+  const share = (x: number) => clamp((PERSPECTIVE * (x - hinge)) / (flat * PERSPECTIVE + depth * x), 0, 1);
+
+  const room = columnWidth === null ? EDGE_GAP : columnWidth / 2 - edge;
+  const reach = clamp(room - FOG_REST, 0, FOG_REACH);
+  const from = share(edge - (reach * FOG_HEAD) / (1 - FOG_HEAD));
+  const to = Math.max(from, share(edge + reach));
+  return { from: Math.round(from * 1000) / 10, to: Math.round(to * 1000) / 10 };
 }
 
 /* ---------- позиция ---------- */
@@ -239,12 +314,11 @@ export const CARD_MAX = 760;
 export const CARD_VW = 0.58;
 /** Сцена выше кадра на столько (по 24 px сверху и снизу). */
 export const STAGE_PAD = 48;
-/** Что под сценой тоже должно остаться над панелью запроса: полоска сегментов с отступами. */
-export const REEL_FOOT = 36;
-/** Перспектива сцены — как у .vs-stage в globals.css. */
-const PERSPECTIVE = 1500;
-/** Зазор между внешним краем соседнего кадра и краем колонки. */
-const EDGE_GAP = 16;
+/**
+ * Что под сценой тоже должно остаться над панелью запроса: ряд названий (или
+ * сегментов) — он на 24 px ниже сцены — и зазор до панели.
+ */
+export const REEL_FOOT = 44;
 /** Ради места над панелью запроса карусель уступает не больше этой доли ширины. */
 const FOLD_FLOOR = 0.62;
 const CARD_MIN = 240;
@@ -276,4 +350,90 @@ export function fitWidth(viewportWidth: number, stageWidth: number, room: number
   if (room === null) return Math.round(wide);
   const fold = ((room - STAGE_PAD) * 16) / 9;
   return Math.round(Math.max(Math.min(wide, fold), wide * FOLD_FLOOR));
+}
+
+/* ---------- названия кадров и их ряд ---------- */
+
+/** Что нужно знать о кадре, чтобы его назвать. */
+export type Nameable = {
+  /** Ключ сценария; null — сценария нет. */
+  scenario: string | null;
+  title: string;
+  /** Видеостудия — название модели. */
+  subtitle: string;
+};
+
+/**
+ * Короткое имя каждого кадра — им подписан чип под каруселью и сам кадр.
+ * Имя сценария; без сценария — название работы, а нет и его — модель. Второй
+ * ролик того же сценария называем его собственным названием, если оно есть и
+ * отличается: два одинаковых чипа рядом человек не различит. Пустая строка —
+ * назвать нечем, чип подпишут номером.
+ *
+ * defaultName — имя сценария, каким его знает сервер (scenarios.scenarioDefault).
+ * Панель и команда съёмки ставят его работе в название сами, и на другом языке
+ * сайта оно не совпадает с переводом: без этой сверки второй ролик сценария
+ * вышел бы с русским именем посреди английских.
+ */
+export function reelNames(
+  items: readonly Nameable[],
+  scenarioName: (key: string) => string,
+  defaultName: (key: string) => string = () => "",
+): string[] {
+  const taken = new Set<string>();
+  return items.map((item) => {
+    const key = item.scenario;
+    const scenario = key ? scenarioName(key) : "";
+    if (!key || !scenario) return item.title || item.subtitle;
+    const own = item.title !== scenario && item.title !== defaultName(key) ? item.title : "";
+    if (taken.has(scenario) && own) return own;
+    taken.add(scenario);
+    return scenario;
+  });
+}
+
+/**
+ * Куда прокрутить ряд названий, чтобы чип встал посередине. У краёв ряд
+ * упирается: первый и последний чип остаются у своего края, а ряд, который
+ * помещается целиком, не двигается вовсе.
+ */
+export function railScroll(chipLeft: number, chipWidth: number, viewWidth: number, fullWidth: number): number {
+  const room = Math.max(0, fullWidth - viewWidth);
+  return Math.round(clamp(chipLeft + chipWidth / 2 - viewWidth / 2, 0, room));
+}
+
+/* ---------- лента телефона: переход к кадру ---------- */
+
+/**
+ * Дольше лента телефона к кадру не едет. Если за это время она на него так и не
+ * встала (её перехватили пальцем, браузер не прокрутил), часы карусели отпускаем.
+ */
+export const JUMP_MS = 1500;
+
+/**
+ * Ленту телефона ведут к кадру `to` — нажали чип или соседа, карусель
+ * перелистнулась сама. Какой кадр она теперь ждёт; null — ждать нечего, он уже
+ * в центре. Пока лента едет, активным считается прежний кадр, и часы карусели
+ * на это время стоят: иначе заливка его чипа, дойдя до конца в пути, увела бы
+ * ленту к его соседу, а нажатие пропало бы.
+ */
+export function jumpTarget(to: number, centered: number): number | null {
+  return to === centered ? null : to;
+}
+
+/**
+ * Лента встала на кадр `settled`: доехала ли она, куда её вели. Кадр, на котором
+ * она задержалась по пути, и прежний кадр в самом начале пути — не в счёт:
+ * отпусти они часы, те успели бы перелистнуть карусель до приезда.
+ */
+export function jumpDone(target: number | null, settled: number): boolean {
+  return target !== null && settled === target;
+}
+
+/** Вертикальный ролик («9:16»). Запись, которую не разобрать, вертикальной не считаем. */
+export function isPortrait(aspect: string): boolean {
+  const m = /^\s*(\d+(?:\.\d+)?)\s*[:/]\s*(\d+(?:\.\d+)?)\s*$/.exec(aspect);
+  if (!m) return false;
+  const width = Number(m[1]);
+  return width > 0 && Number(m[2]) > width;
 }
