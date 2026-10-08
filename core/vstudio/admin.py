@@ -487,6 +487,12 @@ class ShowcaseItemForm(forms.ModelForm):
     class Meta:
         model = ShowcaseItem
         fields = "__all__"
+        help_texts = {
+            "category": "Под этим именем ролик стоит в карусели первого экрана. "
+                        "«Другое» — своего места в ней нет.",
+            "show_prompt": "По запросу работает кнопка «Снять похожее». У работы, снятой с "
+                           "первого кадра, вместе с запросом всем станет виден и этот кадр.",
+        }
 
     def clean_take(self):
         # То же правило, что у панели: запасной вход не должен его обходить.
@@ -509,9 +515,10 @@ class ShowcaseItemAdmin(admin.ModelAdmin):
     raw_id_fields = ("take",)
     actions = ("rebuild_clip",)
     fields = ("preview_large", "take", "title", "category", "sort", "is_active", "show_prompt",
-              "clip_link", "created_by", "created_at", "updated_at")
+              "first_frame", "clip_link", "created_by", "created_at", "updated_at")
     # Лёгкую копию собирает задача — руками файл не подкладывают.
-    readonly_fields = ("preview_large", "clip_link", "created_by", "created_at", "updated_at")
+    readonly_fields = ("preview_large", "first_frame", "clip_link", "created_by", "created_at",
+                       "updated_at")
 
     def get_readonly_fields(self, request, obj=None):
         # Работу в строке не подменить: другая работа — это другая строка.
@@ -562,6 +569,11 @@ class ShowcaseItemAdmin(admin.ModelAdmin):
     @admin.display(description="Вид")
     def preview_large(self, obj):
         return _media_preview(self._picture(obj), height=240) if obj.pk else "—"
+
+    @admin.display(description="Первый кадр (с «Показывать запрос» виден всем)")
+    def first_frame(self, obj):
+        # Ровно та картинка, что уйдёт на сайт: правило одно — showcase.start_frame_url.
+        return _media_preview(showcase.start_frame_url(obj.take) or "", height=120) if obj.pk else "—"
 
     @admin.display(description="Название", ordering="title")
     def title_or_dash(self, obj):

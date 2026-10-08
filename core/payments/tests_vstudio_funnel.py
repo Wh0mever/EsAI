@@ -55,6 +55,18 @@ class FunnelEventWhitelistTests(TestCase):
         event = FunnelEvent.objects.get(name="vstudio_home_pick")
         self.assertEqual((event.meta, event.device_key, event.user), (meta, "dev-1", None))
 
+    def test_home_pick_from_carousel_is_accepted(self):
+        # Карусель шлёт what="reel" и id работы витрины. "showcase" слал блок под
+        # ней: блока больше нет, но вкладка, открытая до выкладки, ещё пришлёт.
+        for what in ("reel", "showcase"):
+            with self.subTest(what=what):
+                meta = {"what": what, "id": "vs:12"}
+                res = APIClient().post("/api/payments/funnel/event/",
+                                       {"name": "vstudio_home_pick", "meta": meta}, format="json",
+                                       HTTP_X_DEVICE_KEY="dev-1")
+                self.assertEqual(res.status_code, 201)
+                self.assertEqual(FunnelEvent.objects.filter(name="vstudio_home_pick").latest("pk").meta, meta)
+
 
 @override_settings(CACHES=CACHES)
 class FunnelThrottleTests(TestCase):
