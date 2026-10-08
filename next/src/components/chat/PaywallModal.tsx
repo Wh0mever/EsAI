@@ -18,7 +18,11 @@ export type PaywallReason =
 export type PaywallContext = {
   /** error_code that triggered the modal */
   reason: PaywallReason;
-  /** cheapest package price in KGS (от бэка: min_package_kgs), default 190 */
+  /**
+   * Цена самого дешёвого пакета (от бэка: min_package_kgs). В тексте окна её
+   * больше нет: сумма устаревала вместе с пакетами (писали «190 сомов», когда
+   * дешёвый пакет уже стоил дороже). Поле оставлено — его передают вызывающие.
+   */
   minPackageKgs?: number;
   /** current balance (insufficient_balance) */
   balanceTokens?: number;
@@ -47,7 +51,6 @@ export default function PaywallModal({ context, onClose, onTopUp }: Props) {
 
   const open = context != null;
   const reason = context?.reason;
-  const minKgs = context?.minPackageKgs ?? 190;
 
   // Per-reason title / description / icon.
   let title = t("paywall.title_generic", { defaultValue: "Пополните баланс" });
@@ -60,9 +63,7 @@ export default function PaywallModal({ context, onClose, onTopUp }: Props) {
       defaultValue: "Премиум-модель доступна на платном тарифе",
     });
     desc = t("paywall.premium_desc", {
-      defaultValue:
-        "Пополните баланс на {{kgs}} сомов, чтобы открыть все премиум-нейросети планеты.",
-      kgs: fmt(minKgs),
+      defaultValue: "Пополните баланс, чтобы открыть все премиум-нейросети планеты.",
     });
   } else if (reason === "insufficient_balance") {
     icon = <FiZap />;
