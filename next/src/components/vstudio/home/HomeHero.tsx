@@ -80,7 +80,7 @@ export default function HomeHero({ modelCount }: HomeHeroProps) {
         {subHead}
         {subTail.map((part, i) => (
           <Fragment key={i}>
-            <span className="font-semibold text-accent">@</span>
+            <span className="font-semibold text-vs-accent">@</span>
             {part}
           </Fragment>
         ))}

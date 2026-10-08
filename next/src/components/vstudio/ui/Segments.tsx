@@ -21,6 +21,11 @@ import { useReducedMotion } from "./useAutoplayAllowed";
  * С tone неактивные сегменты окрашены цветом состояния (дубли кадра: готов,
  * не получился, идёт) — исход каждого виден, не перелистывая. Активный всегда
  * золотой: его состояние и так на экране.
+ *
+ * Дорожка — «чернилами» темы (vs-ink): белая на тёмной сцене, тёмная на
+ * светлой. Заполнение — золото для линий (vs-accent), как у шкалы дубля: яркое
+ * в тёмной теме, тёмное в светлой. Яркое золото на «бумаге» и на белой
+ * карточке сливалось с дорожкой, и активный сегмент был бледнее соседних.
  */
 export type SegmentTone = "ok" | "fail" | "wait" | "progress" | "idle";
 
@@ -29,7 +34,7 @@ const TONE: Record<SegmentTone, string> = {
   fail: "bg-status-fail/60",
   wait: "bg-status-wait/55",
   progress: "bg-status-progress/60",
-  idle: "bg-white/15",
+  idle: "bg-vs-ink/15",
 };
 
 export type SegmentsProps = {
@@ -108,7 +113,7 @@ function Fill({ ms, paused, onEnd }: FillProps) {
     else if (run.playState === "paused") run.play();
   }, [hold, ms]);
 
-  return <span ref={ref} className="absolute inset-0 origin-left rounded-full bg-accent" />;
+  return <span ref={ref} className="absolute inset-0 origin-left rounded-full bg-vs-accent" />;
 }
 
 export default function Segments({
@@ -142,7 +147,7 @@ export default function Segments({
           // key: новый активный сегмент — заполнение с нуля.
           <Fill key={current} ms={progressMs} paused={paused} onEnd={onProgressEnd} />
         ) : (
-          <span className="absolute inset-0 rounded-full bg-accent" />
+          <span className="absolute inset-0 rounded-full bg-vs-accent" />
         ))}
     </span>
   );

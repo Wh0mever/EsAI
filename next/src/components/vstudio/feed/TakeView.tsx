@@ -1,13 +1,13 @@
 "use client";
 
-import { memo, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { memo, useCallback, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { FiAlertTriangle, FiCheckCircle, FiImage, FiMaximize2, FiSlash } from "react-icons/fi";
 import VideoPlayer from "@/components/video/VideoPlayer";
 import { errorText } from "@/lib/vstudio/errors";
 import type { AssetJSON, ShotInputJSON, TakeLite } from "@/lib/vstudio/types";
-import { VS_FOCUS, VS_MEDIA, VS_ON_MEDIA, VS_TAG, vx } from "../ui/skin";
+import { VS_FOCUS, VS_ON_MEDIA, VS_SHEEN_ON_MEDIA, VS_TAG, vx } from "../ui/skin";
 import { prefersReducedMotion } from "../ui/useAutoplayAllowed";
 import { formatClock, isOpenStatus, labelNumber, mediaRatio, statusPhrase } from "./feedLogic";
 import TakeStatus, { TakeProgress } from "./TakeStatus";
@@ -29,16 +29,53 @@ function frameStyle(ratio: number): CSSProperties {
 /** Кадр с пропорцией меньше этой не достаёт до краёв карточки: по бокам нужна подложка. */
 const BACKDROP_BELOW_RATIO = 1.5;
 
-/** Рамка кадра в ленте: та же, что у плеера, чтобы подмена постера на плеер была незаметна. */
-const FRAME = vx(VS_MEDIA, "border border-border");
+/**
+ * Рамка кадра в ленте: та же, что у плеера, чтобы подмена постера на плеер была незаметна.
+ * Геометрия — как у VS_MEDIA (ui/skin.ts), а цвет подложки свой: чёрной она становится,
+ * когда картинка её уже закрыла. Пока файл грузится (у картинки это полный размер),
+ * в светлой теме на белой карточке стояла бы чёрная плита — там подложка в тон пустого
+ * кадра, как у LazyClip. В тёмной теме она чёрная всегда.
+ *
+ * Кромка закрытого кадра лежит на его чёрной подложке, поэтому её подсветка при наведении
+ * белая в обеих темах: чернила темы на чёрном не видны.
+ */
+const FRAME = "relative overflow-hidden rounded-xl border border-border";
+const FRAME_ON = "bg-black hover:border-white/25";
+const FRAME_BARE = "bg-surface-3 hover:border-border-strong dark:bg-black dark:hover:border-white/25";
 /** Кольцо фокуса внутрь: сцена обрезает всё, что выходит за кадр. */
 const FRAME_FOCUS = vx(VS_FOCUS, "focus-visible:ring-inset");
+
+/**
+ * Что стало с картинкой кадра по этому адресу: загрузилась или не открылась.
+ * Картинка из кэша бывает готова раньше, чем React повесит onLoad, — её ловит ref.
+ */
+function useFrameImage(src: string | null) {
+  const [seen, setSeen] = useState<{ src: string; ok: boolean } | null>(null);
+  const mount = useCallback(
+    (img: HTMLImageElement | null) => {
+      if (src && img && img.complete && img.naturalWidth > 0) setSeen({ src, ok: true });
+    },
+    [src],
+  );
+  const onLoad = useCallback(() => {
+    if (src) setSeen({ src, ok: true });
+  }, [src]);
+  const onError = useCallback(() => {
+    if (src) setSeen({ src, ok: false });
+  }, [src]);
+  const now = seen && seen.src === src ? seen : null;
+  return { loaded: now?.ok === true, failed: now?.ok === false, mount, onLoad, onError };
+}
 
 /**
  * Сцена под кадр: он стоит по центру, а по бокам — его же размытая копия.
  * Без неё вертикальный ролик в широкой карточке висит в пустоте. Копия — уже
  * загруженный постер (второго запроса нет). На телефоне кадр и так во всю
  * ширину, у широкого кадра боков почти нет — там её не рисуем.
+ *
+ * В тёмной теме копия приглушена (40 %) и тонет в карточке. На белой карточке
+ * та же прозрачность разбавила бы её белым — тёмный ролик дал бы серую грязь, —
+ * поэтому в светлой теме копия стоит в полную силу: бока продолжают кадр.
  */
 function Stage({ backdrop, ratio, children }: { backdrop: string | null; ratio: number; children: ReactNode }) {
   return (
@@ -51,7 +88,7 @@ function Stage({ backdrop, ratio, children }: { backdrop: string | null; ratio: 
           aria-hidden
           loading="lazy"
           decoding="async"
-          className="pointer-events-none absolute inset-0 -z-10 hidden h-full w-full scale-125 object-cover opacity-40 blur-2xl sm:block"
+          className="pointer-events-none absolute inset-0 -z-10 hidden h-full w-full scale-125 object-cover blur-2xl sm:block dark:opacity-40"
         />
       )}
       {children}
@@ -80,6 +117,11 @@ function ResultVideo({
 }) {
   const boxRef = useRef<HTMLDivElement | null>(null);
   const [active, setActive] = useState(false);
+  const poster = asset.thumb_url || null;
+  const { loaded, failed, mount, onLoad, onError } = useFrameImage(poster);
+  // Постера нет или он не открылся — рамка чёрная сразу: закрыть её нечему, а плеер,
+  // который встанет на её место по нажатию, тоже чёрный.
+  const covered = loaded || failed || !poster;
 
   const start = () => {
     flushSync(() => setActive(true));
@@ -106,13 +148,25 @@ function ResultVideo({
             title={playLabel}
             className={vx(
               FRAME,
+              covered ? FRAME_ON : FRAME_BARE,
               FRAME_FOCUS,
-              "vs-sheen group block h-full w-full cursor-pointer transition-colors hover:border-white/25 disabled:cursor-default",
+              // Блик идёт по постеру — тихий в обеих темах.
+              VS_SHEEN_ON_MEDIA,
+              "vs-sheen group block h-full w-full cursor-pointer transition-colors disabled:cursor-default",
             )}
           >
-            {asset.thumb_url && (
+            {poster && (
               // eslint-disable-next-line @next/next/no-img-element
-              <img src={asset.thumb_url} alt="" loading="lazy" decoding="async" className="h-full w-full object-contain" />
+              <img
+                ref={mount}
+                src={poster}
+                alt=""
+                loading="lazy"
+                decoding="async"
+                onLoad={onLoad}
+                onError={onError}
+                className="h-full w-full object-contain"
+              />
             )}
             <span className="absolute inset-0 grid place-items-center" aria-hidden>
               <svg
@@ -134,7 +188,9 @@ function ResultVideo({
 }
 
 function ResultImage({ asset, ratio, alt }: { asset: AssetJSON; ratio: number; alt: string }) {
-  const src = asset.url || asset.thumb_url;
+  const src = asset.url || asset.thumb_url || null;
+  // Не загрузилась — рамка остаётся светлой: на ней читается подпись, которую браузер ставит вместо картинки.
+  const { loaded, mount, onLoad } = useFrameImage(src);
   if (!src) return null;
   return (
     <Stage backdrop={asset.thumb_url || src} ratio={ratio}>
@@ -145,12 +201,21 @@ function ResultImage({ asset, ratio, alt }: { asset: AssetJSON; ratio: number; a
         style={frameStyle(ratio)}
         className={vx(
           FRAME,
+          loaded ? FRAME_ON : FRAME_BARE,
           FRAME_FOCUS,
-          "group mx-auto block cursor-zoom-in transition-colors hover:border-white/25",
+          "group mx-auto block cursor-zoom-in transition-colors",
         )}
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={src} alt={alt} loading="lazy" decoding="async" className="h-full w-full object-contain" />
+        <img
+          ref={mount}
+          src={src}
+          alt={alt}
+          loading="lazy"
+          decoding="async"
+          onLoad={onLoad}
+          className="h-full w-full object-contain"
+        />
         <span
           className="pointer-events-none absolute right-2.5 top-2.5 grid size-8 place-items-center rounded-full bg-black/55 text-sm text-white opacity-0 backdrop-blur-sm transition-opacity duration-200 group-hover:opacity-100 group-focus-visible:opacity-100"
           aria-hidden
@@ -179,12 +244,13 @@ function Viewfinder({ ratio }: { ratio: number }) {
   const r = Math.min(2.4, Math.max(0.5, Number.isFinite(ratio) && ratio > 0 ? ratio : 16 / 9));
   return (
     <span className="relative block h-16 max-w-full sm:h-24" style={{ aspectRatio: `${r}` }}>
-      <span className="absolute inset-0 rounded-[3px] border border-white/[0.07]" />
+      {/* На светлой «плёнке» контур в 7 % чернил теряется — в светлой теме он чуть плотнее. */}
+      <span className="absolute inset-0 rounded-[3px] border border-vs-ink/[0.12] dark:border-vs-ink/[0.07]" />
       {FINDER_CORNERS.map((corner) => (
-        <span key={corner} className={vx("absolute size-3 border-accent/70", corner)} />
+        <span key={corner} className={vx("absolute size-3 border-vs-accent/70", corner)} />
       ))}
-      <span className="absolute left-1/2 top-1/2 h-px w-2.5 -translate-x-1/2 -translate-y-1/2 bg-white/25" />
-      <span className="absolute left-1/2 top-1/2 h-2.5 w-px -translate-x-1/2 -translate-y-1/2 bg-white/25" />
+      <span className="absolute left-1/2 top-1/2 h-px w-2.5 -translate-x-1/2 -translate-y-1/2 bg-vs-ink/25" />
+      <span className="absolute left-1/2 top-1/2 h-2.5 w-px -translate-x-1/2 -translate-y-1/2 bg-vs-ink/25" />
     </span>
   );
 }
@@ -216,7 +282,7 @@ function OpenTake({
     <div
       ref={ref}
       className={vx(
-        "vs-film vs-grain relative isolate overflow-hidden rounded-xl border border-white/10",
+        "vs-film vs-grain relative isolate overflow-hidden rounded-xl border border-vs-ink/10",
         !inView && OFFSCREEN,
       )}
     >
@@ -240,7 +306,7 @@ function OpenTake({
 /** Блок закрытого дубля без результата: цвет статуса — только в тонкой рамке и лёгкой заливке. */
 const NOTE_BOX = "flex items-start gap-2.5 rounded-xl border p-3 text-sm leading-snug";
 const NOTE_ICON = "grid size-7 shrink-0 place-items-center rounded-full text-sm";
-const NOTE_NEUTRAL = "border-white/10 bg-white/[0.03] text-muted";
+const NOTE_NEUTRAL = "border-vs-ink/10 bg-vs-ink/[0.03] text-muted";
 
 type Tr = (key: string, options?: Record<string, unknown>) => string;
 

@@ -92,13 +92,17 @@ export default function DropOverlay() {
     <div
       ref={zoneRef}
       aria-hidden={!active}
+      // Вуаль — цветом сцены, а не чёрная: в тёмной теме лента гаснет, в светлой затягивается бумагой
+      // (плотнее: на светлом карточки ленты иначе спорят с плашкой «Отпустите…»).
       className={`pointer-events-none absolute inset-2 z-30 flex items-center justify-center rounded-[24px] border-2 border-dashed transition-opacity duration-150 ${
-        active && present ? "border-accent/70 bg-black/60 opacity-100 backdrop-blur-[3px]" : "border-transparent opacity-0"
+        active && present
+          ? "border-vs-accent/70 bg-background/75 opacity-100 backdrop-blur-[3px] dark:bg-background/60"
+          : "border-transparent opacity-0"
       }`}
     >
       {active && present && (
         <div className="vs-glass mx-4 flex flex-col items-center gap-2 rounded-2xl px-8 py-6 text-center" role="status">
-          <span className="grid size-12 place-items-center rounded-full border border-accent/35 bg-accent/[0.1] text-accent">
+          <span className="grid size-12 place-items-center rounded-full border border-vs-accent/35 bg-accent/[0.1] text-vs-accent">
             <FiUploadCloud className="size-6" aria-hidden />
           </span>
           <div className="text-base font-semibold text-foreground">{ct(t, "tray.dropHere")}</div>

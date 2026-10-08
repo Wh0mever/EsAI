@@ -74,15 +74,16 @@ export default function MobileDrawer({
             aria-modal="true"
             aria-label={ariaLabel}
             tabIndex={-1}
-            // Стекло с одной светлой кромкой — со стороны ленты. Тяжёлую тень
-            // заменяет мягкая: панель параметров открывается без затемнения,
-            // и чёрная полоса вдоль неё резала бы кадры. Над затемнённой лентой
+            // Стекло с одной кромкой — со стороны ленты. Тяжёлую тень заменяет
+            // мягкая (vs-shadow-soft, своя в каждой теме): панель параметров
+            // открывается без затемнения, и чёрная полоса вдоль неё резала бы
+            // кадры, а на светлой странице легла бы грязью. Над затемнённой лентой
             // размытие не видно, а слабый телефон двигает такую панель рывками —
             // там оно снято, а стекло взято непрозрачное (vs-solid): иначе сквозь него
             // проступал бы текст страницы; без затемнения размытие нужно по той же причине.
             className={
               (backdrop === "dim" ? "vs-solid " : "vs-glass ") +
-              "absolute inset-y-0 flex flex-col text-foreground outline-none !border-y-0 !shadow-[0_0_44px_rgba(0,0,0,0.5)] " +
+              "vs-shadow-soft absolute inset-y-0 flex flex-col text-foreground outline-none !border-y-0 " +
               (left ? "left-0 rounded-r-[24px] !border-l-0 " : "right-0 rounded-l-[24px] !border-r-0 ") +
               className
             }

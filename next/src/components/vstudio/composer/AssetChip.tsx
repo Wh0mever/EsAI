@@ -28,6 +28,7 @@ import {
 import { errorText } from "@/lib/vstudio/errors";
 import type { FrameSlot, InputSlot, RefLabel, TrayItem } from "@/lib/vstudio/types";
 import BottomSheet from "../BottomSheet";
+import { CARD_TINT } from "../settings/SettingsBits";
 import { useIsMobile } from "../settings/SettingsSheet";
 import { MAX_ROLE_CHARS } from "../store";
 import { VS_FOCUS, VS_INPUT, VS_MENU_ITEM, vx } from "../ui/skin";
@@ -66,7 +67,7 @@ export type AssetChipProps = ChipActions & {
 const LONG_PRESS_MS = 480;
 
 /** «Влево» / «Вправо» в меню чипа: две половинки одной строки. */
-const MOVE_BTN = `flex min-h-11 flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-xl text-sm text-foreground/85 transition-colors hover:bg-white/[0.08] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 md:min-h-9 ${VS_FOCUS}`;
+const MOVE_BTN = `flex min-h-11 flex-1 cursor-pointer items-center justify-center gap-1.5 rounded-xl text-sm text-foreground/85 transition-colors hover:bg-vs-ink/[0.08] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 md:min-h-9 ${VS_FOCUS}`;
 /** Маленькая кнопка внутри чипа: отменить загрузку, повторить, учитывать снова. */
 const CHIP_BTN = `grid size-8 shrink-0 cursor-pointer place-items-center rounded-full transition-colors ${VS_FOCUS}`;
 
@@ -113,7 +114,7 @@ function Thumb({ item, compact }: { item: TrayItem; compact?: boolean }) {
   const busy = item.status === "processing" || item.status === "pending";
   const pct = Math.max(0, Math.min(100, item.progress || 0));
   return (
-    <span className={`relative ${size} shrink-0 overflow-hidden rounded-lg border border-white/10 bg-surface-3`}>
+    <span className={`relative ${size} shrink-0 overflow-hidden rounded-lg border border-vs-ink/10 bg-surface-3`}>
       {src ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
@@ -129,8 +130,10 @@ function Thumb({ item, compact }: { item: TrayItem; compact?: boolean }) {
         </span>
       )}
       {item.status === "uploading" && (
+        // Кольцо лежит на фото, а оно при загрузке выцветает к подложке — в светлой теме к светлой.
+        // Поэтому дорожка там темнее, а дуга — ярким золотом в обеих темах (stroke-accent: класс
+        // text-accent в светлой теме сайта темнеет, и дуга слилась бы с дорожкой).
         <svg className="absolute inset-0 m-auto size-7 -rotate-90" viewBox="0 0 36 36" aria-hidden>
-          <circle cx="18" cy="18" r="15" fill="none" stroke="currentColor" strokeWidth="4" className="text-black/30" />
           <circle
             cx="18"
             cy="18"
@@ -138,9 +141,17 @@ function Thumb({ item, compact }: { item: TrayItem; compact?: boolean }) {
             fill="none"
             stroke="currentColor"
             strokeWidth="4"
+            className="text-black/55 dark:text-black/30"
+          />
+          <circle
+            cx="18"
+            cy="18"
+            r="15"
+            fill="none"
+            strokeWidth="4"
             strokeLinecap="round"
             strokeDasharray={`${(pct / 100) * 94.25} 94.25`}
-            className="text-accent transition-[stroke-dasharray] duration-200"
+            className="stroke-accent transition-[stroke-dasharray] duration-200"
           />
         </svg>
       )}
@@ -150,7 +161,8 @@ function Thumb({ item, compact }: { item: TrayItem; compact?: boolean }) {
         </span>
       )}
       {(item.status === "failed" || item.status === "deleted") && (
-        <span className="absolute inset-0 grid place-items-center bg-status-fail/35 text-white">
+        // В светлой теме вуаль плотнее: серое фото под ней светлее, и белый значок на 35% терялся.
+        <span className="absolute inset-0 grid place-items-center bg-status-fail/70 text-white dark:bg-status-fail/35">
           <FiAlertTriangle aria-hidden />
         </span>
       )}
@@ -342,14 +354,16 @@ function AssetChip(props: AssetChipProps) {
   const aria = [label?.aria || title, sub.text].filter(Boolean).join(" · ");
 
   // Основа — vs-card; состояние меняет только кромку и подложку (через !: у vs-card они свои).
+  // CARD_TINT — чтобы цветная подложка была видна и на белой карточке светлой темы.
+  // Пунктир «не учитывается» на белом бледнее сплошной линии — в светлой теме он плотнее.
   const tone =
     item.status === "failed" || item.status === "deleted" || flagged
-      ? "!border-status-fail/60 !bg-status-fail/10"
+      ? `!border-status-fail/60 !bg-status-fail/10 ${CARD_TINT}`
       : excluded
-        ? "!border-dashed !border-white/15 hover:!border-white/30"
+        ? "!border-dashed !border-vs-ink/25 hover:!border-vs-ink/45 dark:!border-vs-ink/15 dark:hover:!border-vs-ink/30"
         : item.status === "ready" && item.included
-          ? "!border-accent/40 !bg-accent/[0.07] hover:!border-accent/70"
-          : "hover:!border-white/25";
+          ? `!border-vs-accent/40 !bg-accent/[0.07] hover:!border-vs-accent/70 ${CARD_TINT}`
+          : "hover:!border-vs-ink/25";
 
   const close = () => setOpen(false);
   const cancelPress = () => {
@@ -437,7 +451,7 @@ function AssetChip(props: AssetChipProps) {
               e.stopPropagation();
               props.onCancel?.();
             }}
-            className={`${CHIP_BTN} text-muted hover:bg-white/[0.1] hover:text-foreground`}
+            className={`${CHIP_BTN} text-muted hover:bg-vs-ink/[0.1] hover:text-foreground`}
             aria-label={ct(t, "tray.cancel")}
             title={ct(t, "tray.cancel")}
           >
@@ -465,7 +479,7 @@ function AssetChip(props: AssetChipProps) {
               e.stopPropagation();
               props.onInclude(true);
             }}
-            className={`${CHIP_BTN} text-muted hover:bg-white/[0.1] hover:text-foreground`}
+            className={`${CHIP_BTN} text-muted hover:bg-vs-ink/[0.1] hover:text-foreground`}
             aria-label={ct(t, "tray.include")}
             title={ct(t, "tray.include")}
           >

@@ -43,7 +43,7 @@ function EmptyState({ onPick, disabled }: EmptyStateProps) {
       <div ref={reveal} className="vs-reveal flex flex-col items-center gap-3">
         <span className="relative grid size-14 place-items-center" aria-hidden>
           <span className="absolute -inset-5 rounded-full bg-accent/15 blur-2xl" />
-          <span className="vs-card relative grid size-14 place-items-center rounded-full text-2xl text-accent">
+          <span className="vs-card relative grid size-14 place-items-center rounded-full text-2xl text-vs-accent">
             <IoSparklesOutline />
           </span>
         </span>
@@ -82,7 +82,7 @@ function EmptyState({ onPick, disabled }: EmptyStateProps) {
                 >
                   <span className="flex items-center gap-2.5">
                     <span
-                      className="grid size-8 shrink-0 place-items-center rounded-full border border-accent/25 bg-accent/[0.08] text-accent"
+                      className="grid size-8 shrink-0 place-items-center rounded-full border border-vs-accent/25 bg-accent/[0.08] text-vs-accent"
                       aria-hidden
                     >
                       <Icon />

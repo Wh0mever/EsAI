@@ -48,6 +48,10 @@ import { useAutoplayAllowed, useCanHover } from "./useAutoplayAllowed";
  * Размер задаёт className (aspect-video w-full, h-full w-full …); без него
  * кадр занимает родителя целиком. Родитель с absolute-подписями поверх кадра
  * должен быть position: relative сам — кадр их не позиционирует.
+ *
+ * Две темы. Всё, что лежит поверх картинки и ролика (кнопка запуска, чёрная
+ * подложка под кадром), — чёрно-белое в любой теме: кадр тёмный всегда.
+ * Заглушка, пока кадра нет, — часть страницы и берёт цвета темы.
  */
 
 export type LazyClipMode = "visible" | "hover" | "active";
@@ -84,6 +88,22 @@ const DWELL_MS = 280;
 const INTERACTIVE_SELECTOR = "a[href], button, [role='button']";
 /** Карточка, наведение и фокус которой заводят ролик, если это не сама ссылка-кнопка. */
 const HOST_SELECTOR = "[data-vs-clip-host]";
+
+/**
+ * Пустой кадр (картинки нет или она ещё не пришла). На светлой сцене тон на
+ * ступень темнее, чем у карточек: кадр галереи лежит прямо на «бумаге», и
+ * более светлая заглушка на ней пропала бы.
+ */
+const BLANK = "bg-surface-3 dark:bg-surface-2";
+/**
+ * Подложка под кадром. Картинка проявляется за полсекунды. В тёмной теме она
+ * проявляется из чёрного — как и было. На светлой странице чёрная плитка на
+ * месте светлой заглушки мигнула бы у каждой карточки, поэтому там подложка
+ * темнеет тем же переходом, что и картинка, и чёрной (поля у fit="contain")
+ * становится, когда кадр уже закрыт.
+ */
+const BACKING = "transition-colors duration-500";
+const BACKING_BARE = "bg-surface-3 dark:bg-black";
 
 const idle = () => 0;
 
@@ -334,7 +354,9 @@ export default function LazyClip({
       ref={mount}
       onClick={needsTap && nested ? start : undefined}
       className={vx(
-        "group/clip block overflow-hidden bg-black",
+        "group/clip block overflow-hidden",
+        BACKING,
+        covered ? "bg-black" : BACKING_BARE,
         !positioned && "relative",
         rounded,
         className || "h-full w-full",
@@ -344,8 +366,8 @@ export default function LazyClip({
         <span
           aria-hidden
           className={vx(
-            "absolute inset-0 grid place-items-center text-2xl text-white/20",
-            loading && seen ? "vs-film" : "bg-surface-2",
+            "absolute inset-0 grid place-items-center text-2xl text-vs-ink/20",
+            loading && seen ? "vs-film" : BLANK,
           )}
         >
           {!loading && <FiFilm />}

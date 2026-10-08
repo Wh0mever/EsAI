@@ -63,9 +63,9 @@ export default function PriceBreakdown({ quote }: PriceBreakdownProps) {
           ))}
         </ul>
       )}
-      <div className={lines.length > 0 ? "border-t border-white/10 pt-2.5" : ""}>
+      <div className={lines.length > 0 ? "border-t border-vs-ink/10 pt-2.5" : ""}>
         <div className="text-[15px] font-semibold text-foreground tabular-nums">{ct(t, "price.total", { credits: fmtNum(credits) })}</div>
-        <div className="mt-0.5 text-xs text-accent">{ct(t, "price.note")}</div>
+        <div className="mt-0.5 text-xs text-vs-accent">{ct(t, "price.note")}</div>
       </div>
       {b && (
         <div className="text-xs leading-snug text-muted tabular-nums">

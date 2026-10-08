@@ -23,6 +23,8 @@
 		"rename": "Rename",
 		"running": "Generation in progress",
 		"search": "Search",
+		"themeDark": "Dark theme",
+		"themeLight": "Light theme",
 		"today": "Today",
 		"untitled": "Untitled",
 		"yesterday": "Yesterday"

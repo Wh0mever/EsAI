@@ -90,7 +90,11 @@ function StudioHome({ onStarter, disabled }: StudioHomeProps) {
 
   return (
     <div className="flex w-full flex-col pb-6">
-      <div className="vs-grain relative overflow-hidden">
+      {/* Блок обрезает луч по своим краям. В тёмной теме — целиком: тень карусели на чёрной сцене
+          всё равно не видна. На светлой сцене та же тень, срезанная по низу блока, легла бы под
+          кадрами ровной полосой, как «пол», — там низ открыт (clip-path пускает тень ещё на 5rem,
+          бока и верх режутся как раньше). */}
+      <div className="vs-grain relative overflow-x-clip [clip-path:inset(0_0_-5rem_0)] dark:overflow-hidden dark:[clip-path:none]">
         <div className="vs-beam" aria-hidden />
         {/* Свой слой: иначе луч (он absolute) лёг бы поверх текста и кадров. */}
         <div className="relative">

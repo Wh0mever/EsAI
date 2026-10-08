@@ -6,7 +6,7 @@ import { useTranslation } from "react-i18next";
 import { FiArrowRight, FiChevronLeft, FiChevronRight, FiFilm, FiGrid } from "react-icons/fi";
 import type { Uid } from "@/lib/vstudio/types";
 import { useVStudio } from "../context";
-import { VS_CARD, VS_FOCUS, VS_H2, VS_ICON_BTN, VS_SECTION, VS_SECTION_GAP, vx } from "../ui/skin";
+import { VS_CARD, VS_FOCUS, VS_H2, VS_ICON_BTN, VS_SECTION, VS_SECTION_GAP, VS_SHEEN_ON_MEDIA, vx } from "../ui/skin";
 import { useReveal } from "../ui/useReveal";
 import { trackHomePick } from "./homePick";
 import { lastActive } from "./strip/stripLogic";
@@ -117,7 +117,17 @@ const CARD_LINK = vx(
   "group block h-full w-full cursor-pointer rounded-2xl text-left transition-transform duration-200 active:scale-[0.97] motion-reduce:transition-none",
   VS_FOCUS,
 );
-const CARD_FACE = vx(VS_CARD, "vs-card-hover vs-sheen h-full");
+/**
+ * Лента прокручивается и режет всё, что выходит за её поля (4 px под карточкой).
+ * Глубокая тень наведения на светлой «бумаге» обрывалась там прямой серой
+ * полосой, поэтому в светлой теме тень короткая и помещается в поля; наведение
+ * отмечает потемневшая кромка. В тёмной срез не виден — тень прежняя.
+ */
+const CARD_FACE = vx(
+  VS_CARD,
+  "vs-card-hover vs-sheen h-full [--vs-card-hover-shadow:0_1px_3px_color-mix(in_srgb,var(--vs-ink)_16%,transparent)] dark:[--vs-card-hover-shadow:inherit]",
+  VS_SHEEN_ON_MEDIA,
+);
 
 /**
  * «Продолжить»: последние проекты вошедшего человека — одно нажатие, и он там,
@@ -218,11 +228,11 @@ export default function ContinueStrip() {
                             <span
                               aria-hidden
                               className={vx(
-                                "size-1.5 shrink-0 rounded-full bg-accent",
+                                "size-1.5 shrink-0 rounded-full bg-vs-accent",
                                 seen && "animate-pulse motion-reduce:animate-none",
                               )}
                             />
-                            <span className="truncate text-accent">
+                            <span className="truncate text-vs-accent">
                               {t("nav.running", { defaultValue: "Идёт генерация" })}
                             </span>
                           </>
@@ -244,7 +254,7 @@ export default function ContinueStrip() {
             <li className="w-[148px] shrink-0">
               <button type="button" onClick={openAll} className={CARD_LINK}>
                 <span className={vx(CARD_FACE, "flex flex-col items-center justify-center gap-2.5 px-3 text-center")}>
-                  <span className="grid size-10 place-items-center rounded-full border border-white/10 bg-white/[0.05] text-muted transition-colors group-hover:text-foreground">
+                  <span className="grid size-10 place-items-center rounded-full border border-vs-ink/10 bg-vs-ink/[0.05] text-muted transition-colors group-hover:text-foreground">
                     <FiGrid aria-hidden />
                   </span>
                   <span className="inline-flex items-center gap-1 text-[13px] font-medium text-foreground/85">

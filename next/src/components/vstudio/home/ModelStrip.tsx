@@ -9,7 +9,7 @@ import { useVStudioModels } from "../hooks/useVStudioModels";
 import { openLockedModel } from "../settings/RunSettingsPanel";
 import { modelsFor } from "../settings/settingsModel";
 import { tx } from "../settings/settingsText";
-import { VS_FOCUS, VS_SECTION, VS_SECTION_GAP, vx } from "../ui/skin";
+import { VS_FOCUS, VS_SECTION, VS_SECTION_GAP, VS_SEG_THUMB, VS_SEG_TRACK, vx } from "../ui/skin";
 import { useReveal } from "../ui/useReveal";
 import { trackHomePick } from "./homePick";
 import { HOME_CELLS, HOME_CELL_IN, staggerStyle } from "./tools/cardSkin";
@@ -33,6 +33,10 @@ const SKELETON = [0, 1, 2, 3];
 const STRIP =
   "vs-noscroll -mx-4 -my-3 flex snap-x snap-mandatory scroll-px-4 gap-3 overflow-x-auto px-4 py-3 sm:-mx-6 sm:scroll-px-6 sm:px-6 md:m-0 md:grid md:grid-cols-2 md:overflow-visible md:p-0 lg:grid-cols-3 xl:grid-cols-4";
 const CELL = "w-[240px] shrink-0 snap-start md:w-auto";
+
+/** Переключатель «Видео / Картинки»: дорожка и плашка — общие с панелью запроса и параметрами (ui/skin). */
+const TABS = vx("inline-flex shrink-0 rounded-full p-1", VS_SEG_TRACK);
+const TAB_ON = vx(VS_SEG_THUMB, "text-vs-accent");
 
 /**
  * «Модели студии» (§2.2): карточки моделей из state.models. Нажатие выбирает
@@ -120,7 +124,7 @@ export default function ModelStrip() {
           <div
             role="group"
             aria-label={t("home.models.tabs", { defaultValue: "Какие модели показать" })}
-            className="inline-flex shrink-0 rounded-full bg-white/[0.05] p-1"
+            className={TABS}
           >
             {KINDS.map((kind) => {
               const Icon = kind === "video" ? FiVideo : FiImage;
@@ -134,7 +138,7 @@ export default function ModelStrip() {
                   onClick={() => setTab(kind)}
                   className={vx(
                     "inline-flex min-h-11 cursor-pointer items-center gap-1.5 rounded-full px-4 text-[13px] font-medium tabular-nums transition-colors disabled:cursor-not-allowed disabled:opacity-45 md:min-h-9",
-                    on ? "bg-white/[0.1] text-accent" : "text-muted enabled:hover:text-foreground",
+                    on ? TAB_ON : "text-muted enabled:hover:text-foreground",
                     VS_FOCUS,
                   )}
                 >

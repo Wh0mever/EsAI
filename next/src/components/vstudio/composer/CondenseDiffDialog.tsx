@@ -51,7 +51,7 @@ function Column({ title, stats, doc, labels, accent }: { title: string; stats: T
   return (
     <section className={vx("vs-card flex min-w-0 flex-1 flex-col gap-2 rounded-2xl p-3.5", accent && "vs-card-on")}>
       <header className="flex items-baseline justify-between gap-2">
-        <h3 className={vx(VS_LABEL, accent && "!text-accent")}>{title}</h3>
+        <h3 className={vx(VS_LABEL, accent && "!text-vs-accent")}>{title}</h3>
         <span className="text-xs tabular-nums text-muted">
           {ct(t, "assist.stats", { chars: fmtNum(stats.chars), words: fmtNum(stats.words) })}
         </span>

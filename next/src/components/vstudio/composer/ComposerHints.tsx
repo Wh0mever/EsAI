@@ -87,7 +87,8 @@ export default function ComposerHints({ items, onFix }: ComposerHintsProps) {
       aria-live="polite"
     >
       {hasErrors && <h3 className="sr-only">{ct(t, "composer.errorsTitle")}</h3>}
-      <ul className="flex flex-col divide-y divide-white/[0.07]">
+      {/* На белой карточке линия в 7% почти не видна — в светлой теме она плотнее. */}
+      <ul className="flex flex-col divide-y divide-vs-ink/10 dark:divide-vs-ink/[0.07]">
         {shown.map((item, i) => (
           <HintRow key={`${item.issue.code}:${i}`} item={item} onFix={onFix} />
         ))}
@@ -118,7 +119,7 @@ export function ScriptBanner({ onDismiss }: { onDismiss: () => void }) {
   const { t } = useTranslation("vstudio", { useSuspense: false });
   return (
     <div className="vs-card flex shrink-0 flex-col gap-2 rounded-2xl px-3.5 py-2.5 sm:flex-row sm:items-center sm:gap-3" role="note">
-      <FiFilm className="hidden size-4 shrink-0 text-accent sm:block" aria-hidden />
+      <FiFilm className="hidden size-4 shrink-0 text-vs-accent sm:block" aria-hidden />
       <div className="min-w-0 flex-1">
         <div className="text-sm font-semibold text-foreground">{ct(t, "meter.script.title")}</div>
         <div className="text-xs leading-snug text-muted">{ct(t, "meter.script.body")}</div>

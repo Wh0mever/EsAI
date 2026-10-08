@@ -155,9 +155,10 @@ function Tile({
         className={vx(
           "relative block aspect-square w-full overflow-hidden rounded-xl border bg-surface-2 transition-[border-color,box-shadow] duration-200",
           VS_FOCUS,
+          // Кромка плитки лежит на её собственной подложке (surface-2), а не на фото — это хром, цвет от темы.
           inRequest
-            ? "border-accent/70 shadow-[0_0_0_1px_rgba(245,197,24,0.28)]"
-            : "border-white/10 hover:border-white/30",
+            ? "border-vs-accent/70 shadow-[0_0_0_1px_color-mix(in_srgb,var(--vs-accent)_28%,transparent)]"
+            : "border-vs-ink/10 hover:border-vs-ink/30",
           failed ? "cursor-not-allowed" : "cursor-pointer",
         )}
       >
@@ -177,7 +178,8 @@ function Tile({
           </span>
         )}
         {pending && (
-          <span className="absolute inset-0 grid place-items-center bg-black/50 text-white">
+          // Как и у «не получилось» ниже: без фото вуаль лежит на светлой подложке, в светлой теме она плотнее.
+          <span className="absolute inset-0 grid place-items-center bg-black/60 text-white dark:bg-black/50">
             <span className="flex flex-col items-center gap-1 text-[11px]">
               <FiLoader className="size-5 motion-safe:animate-spin" aria-hidden />
               {ct(t, "library.pending")}
@@ -185,7 +187,8 @@ function Tile({
           </span>
         )}
         {failed && (
-          <span className="absolute inset-0 grid place-items-center bg-status-fail/40 text-white">
+          // У плитки без фото вуаль лежит на светлой подложке: в светлой теме она плотнее, иначе белая подпись не читается.
+          <span className="absolute inset-0 grid place-items-center bg-status-fail/80 text-white dark:bg-status-fail/40">
             <span className="flex flex-col items-center gap-1 text-[11px]">
               <FiAlertTriangle className="size-5" aria-hidden />
               {ct(t, "library.failed")}

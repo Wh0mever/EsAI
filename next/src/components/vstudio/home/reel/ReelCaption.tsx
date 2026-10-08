@@ -105,7 +105,12 @@ function ReelCaption({ item, shown, quick = false, onUse }: ReelCaptionProps) {
           )}
         >
           {item.title && (
-            <p className="truncate text-lg font-semibold text-white @[480px]:text-xl">{item.title}</p>
+            // Тень — на случай, когда кадр ещё не закрыт: в светлой теме заглушка под ним светлая,
+            // и одного затемнения белому названию мало. На тёмном ролике её не видно. Тень
+            // короткая: строку обрезает truncate, широкое свечение он срезал бы по её краям.
+            <p className="truncate text-lg font-semibold text-white [text-shadow:0_1px_2px_rgb(0_0_0/0.8),0_0_6px_rgb(0_0_0/0.5)] @[480px]:text-xl">
+              {item.title}
+            </p>
           )}
           {badges}
         </div>

@@ -7,7 +7,7 @@ import { vendorColorByOpenRouterId, vendorInitialByOpenRouterId, vendorLabelByOp
 import type { ModelJSON, VsKind } from "@/lib/vstudio/types";
 import { etaText } from "../../settings/settingsModel";
 import { tx, txRef } from "../../settings/settingsText";
-import { VS_ON_MEDIA, VS_TAG, VS_TAG_GOLD, vx } from "../../ui/skin";
+import { VS_TAG, VS_TAG_GOLD, vx } from "../../ui/skin";
 import { HOME_CARD, HOME_CARD_ON } from "./cardSkin";
 import { artLens, stripFacts, stripPrice, vendorArt } from "./modelStrip";
 
@@ -23,10 +23,22 @@ export type ModelCardProps = {
 const RING = "absolute left-0 top-0 -translate-x-1/2 -translate-y-1/2 rounded-full border";
 
 /**
+ * Плашка на шапке: имя вендора и замок. Шапка — рисунок, а не кадр, и в светлой
+ * теме она светлая: чёрная плашка «как на видео» стала бы на ней самым громким
+ * пятном карточки. Поэтому там плашка белая с тёмным текстом; в тёмной теме —
+ * прежняя тёмная с белым.
+ */
+const ART_CHIP = "bg-surface/90 text-foreground shadow-sm dark:bg-black/65 dark:text-white dark:shadow-none";
+
+/**
  * Карточка модели в ленте первого экрана. Шапка — не кадр и не логотип, а
  * рисунок из цвета вендора: карточка модели не показывает съёмку, которую
  * эта модель не делала (§0.6). Под шапкой — то же, что в списке моделей
  * панели параметров, только коротко: три метки, цена и состояние.
+ *
+ * Рисунок шапки — «чернилами» темы (кольца, буква) поверх пятен цвета вендора
+ * на подложке --surface-2: в тёмной теме он светлый на тёмном, в светлой —
+ * тёмный на пастельном.
  */
 function ModelCard({ model, kind, selected, onPick }: ModelCardProps) {
   const { t } = useTranslation("vstudio", { useSuspense: false });
@@ -44,42 +56,49 @@ function ModelCard({ model, kind, selected, onPick }: ModelCardProps) {
     >
       {/* Скругление на пиксель меньше карточки: шапка лежит внутри её рамки. */}
       <span
-        className="vs-grain relative block h-24 w-full shrink-0 overflow-hidden rounded-t-[15px] border-b border-white/[0.06] bg-surface-2"
+        className="vs-grain relative block h-24 w-full shrink-0 overflow-hidden rounded-t-[15px] border-b border-vs-ink/[0.06] bg-surface-2"
         style={{ background: vendorArt(vendorColorByOpenRouterId(model.id)) }}
       >
         <span aria-hidden className="absolute size-0" style={{ left: `${lens.x}%`, top: `${lens.y}%` }}>
           <span
             className={vx(
               RING,
-              "size-14 border-white/[0.11] transition-transform duration-700 ease-[var(--vs-ease)] motion-safe:group-hover/model:scale-110",
+              "size-14 border-vs-ink/[0.11] transition-transform duration-700 ease-[var(--vs-ease)] motion-safe:group-hover/model:scale-110",
             )}
           />
           <span
             className={vx(
               RING,
-              "size-28 border-white/[0.08] transition-transform delay-75 duration-700 ease-[var(--vs-ease)] motion-safe:group-hover/model:scale-110",
+              "size-28 border-vs-ink/[0.08] transition-transform delay-75 duration-700 ease-[var(--vs-ease)] motion-safe:group-hover/model:scale-110",
             )}
           />
-          <span className={vx(RING, "size-48 border-white/[0.05]")} />
+          <span className={vx(RING, "size-48 border-vs-ink/[0.05]")} />
         </span>
         {/* Буква вендора уходит под нижний край шапки: срез читается как задуманный, а не как случайный. */}
         <span
           aria-hidden
-          className="absolute -bottom-7 right-2 select-none text-[84px] font-bold leading-none tracking-tighter text-white/[0.06]"
+          className="absolute -bottom-7 right-2 select-none text-[84px] font-bold leading-none tracking-tighter text-vs-ink/[0.06]"
         >
           {vendorInitialByOpenRouterId(model.id)}
         </span>
-        <span className={vx(VS_ON_MEDIA, "absolute left-2.5 top-2.5")}>{vendorLabelByOpenRouterId(model.id)}</span>
+        <span
+          className={vx(
+            ART_CHIP,
+            "absolute left-2.5 top-2.5 rounded-full px-2 py-0.5 text-[10px] font-medium leading-4",
+          )}
+        >
+          {vendorLabelByOpenRouterId(model.id)}
+        </span>
         {model.locked && (
           <span
             aria-hidden
-            className="absolute right-2.5 top-2.5 grid size-6 place-items-center rounded-full bg-black/65 text-white"
+            className={vx(ART_CHIP, "absolute right-2.5 top-2.5 grid size-6 place-items-center rounded-full")}
           >
             <FiLock className="size-3" />
           </span>
         )}
         {eta && (
-          <span className="absolute bottom-2.5 left-3 inline-flex items-center gap-1 text-[11px] font-medium leading-none text-white/65">
+          <span className="absolute bottom-2.5 left-3 inline-flex items-center gap-1 text-[11px] font-medium leading-none text-muted">
             <FiClock className="size-3" aria-hidden />
             {tx(t, "settings.eta", { t: txRef(t, eta) })}
           </span>
@@ -115,7 +134,7 @@ function ModelCard({ model, kind, selected, onPick }: ModelCardProps) {
             {price ? txRef(t, price) : ""}
           </span>
           {selected ? (
-            <span className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-accent">
+            <span className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-vs-accent">
               <FiCheck className="size-3.5" aria-hidden />
               {t("home.models.selected", { defaultValue: "Выбрано" })}
               {model.locked && <span className="sr-only">{tx(t, "settings.locked")}</span>}

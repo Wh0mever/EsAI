@@ -161,7 +161,7 @@ export default function AssetTray({
             return (
               <li
                 key={item.lid}
-                className={`relative flex ${over ? (drag?.after ? "after:absolute after:-right-1 after:inset-y-1 after:w-0.5 after:rounded after:bg-accent" : "before:absolute before:-left-1 before:inset-y-1 before:w-0.5 before:rounded before:bg-accent") : ""} ${
+                className={`relative flex ${over ? (drag?.after ? "after:absolute after:-right-1 after:inset-y-1 after:w-0.5 after:rounded after:bg-vs-accent" : "before:absolute before:-left-1 before:inset-y-1 before:w-0.5 before:rounded before:bg-vs-accent") : ""} ${
                   drag?.lid === item.lid ? "opacity-50" : ""
                 }`}
               >

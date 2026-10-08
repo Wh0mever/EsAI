@@ -141,7 +141,7 @@ function ModelCard({
         <div className="flex shrink-0 flex-col items-end gap-1">
           {price && <span className={cx(VS_TAG, "whitespace-nowrap tabular-nums")}>{price}</span>}
           {selected && !compact && (
-            <span className="inline-flex items-center gap-0.5 text-[11px] font-semibold leading-4 text-accent">
+            <span className="inline-flex items-center gap-0.5 text-[11px] font-semibold leading-4 text-vs-accent">
               <FiCheck className="size-3" aria-hidden />
               {tx(t, "settings.selected")}
             </span>
@@ -177,7 +177,9 @@ function ModelCard({
         dense ? "rounded-xl" : "rounded-2xl",
         // Либо выбрана, либо подсвечивается при наведении: вместе наведение гасит золотую рамку.
         selected ? "vs-card-on" : CARD_HOVER,
-        model.locked && "opacity-80",
+        // Приглушаем только в тёмной теме: на белой карточке мелкие подписи с прозрачностью
+        // уходят ниже 4.5:1, а замок и «платный тариф» отмечают модель и без неё.
+        model.locked && "dark:opacity-80",
       )}
     >
       {body}

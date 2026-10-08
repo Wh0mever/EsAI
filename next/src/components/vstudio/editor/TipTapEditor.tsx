@@ -67,16 +67,20 @@ import {
 import { RefStore, VsRef } from "./vsRef";
 import { closeMention, isMentionActive, openAt, VsMention, type MentionBridge, type MentionSession } from "./suggestion";
 
-/** Стили, которых нет в Tailwind-классах: курсор, плейсхолдер, подчёркивание тегов, метка загрузки. */
+/**
+ * Стили, которых нет в Tailwind-классах: курсор, плейсхолдер, подчёркивание тегов, метка загрузки.
+ * Цвета — только токенами темы: курсор и набираемый «@тег» берут золото для текста (--vs-accent),
+ * яркое золото заливок на белом поле не видно.
+ */
 const EDITOR_CSS = `
-.vs-editor.ProseMirror { caret-color: var(--accent); }
+.vs-editor.ProseMirror { caret-color: var(--vs-accent, var(--accent)); }
 .vs-editor.ProseMirror p { margin: 0; }
 .vs-editor.ProseMirror p.is-editor-empty:first-child::before {
   content: attr(data-placeholder); float: left; height: 0; pointer-events: none; color: var(--muted-2);
 }
 .vs-editor.ProseMirror .vs-chip { white-space: nowrap; }
 .vs-editor.ProseMirror .ProseMirror-selectednode { outline: none; }
-.vs-editor.ProseMirror .suggestion { color: var(--accent-text); }
+.vs-editor.ProseMirror .suggestion { color: var(--vs-accent, var(--accent-text)); }
 .vs-editor.ProseMirror .vs-tag-issue {
   text-decoration: underline wavy var(--status-fail); text-underline-offset: 3px; text-decoration-skip-ink: none;
 }

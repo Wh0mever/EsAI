@@ -57,7 +57,7 @@ type Problem = { text: string; tone: "error" | "info" } | null;
 
 /** Список выбора: подложка непрозрачная — выпадающая часть у браузера берёт цвет отсюда. */
 const SELECT =
-  "min-h-11 w-full min-w-0 cursor-pointer rounded-xl border border-white/10 bg-surface-2 px-2.5 text-base text-foreground outline-none transition-colors hover:border-white/18 focus:border-accent/60 md:min-h-10 md:text-sm";
+  "min-h-11 w-full min-w-0 cursor-pointer rounded-xl border border-vs-ink/10 bg-surface-2 px-2.5 text-base text-foreground outline-none transition-colors hover:border-vs-ink/18 focus:border-vs-accent/60 md:min-h-10 md:text-sm";
 
 export default function ImageGenMini({ open, onClose, anchor, onCreated }: ImageGenMiniProps) {
   const mobile = useIsMobile();
@@ -74,14 +74,14 @@ export default function ImageGenMini({ open, onClose, anchor, onCreated }: Image
   return (
     <AnchoredPopover anchor={anchor} open={open} onClose={onClose} role="dialog" ariaLabel={title} autoFocus>
       <div className="flex w-[min(24rem,calc(100vw-2rem))] flex-col">
-        <div className="flex items-center gap-2 border-b border-white/10 py-2 pl-4 pr-2">
-          <IoSparklesOutline className="text-accent" aria-hidden />
+        <div className="flex items-center gap-2 border-b border-vs-ink/10 py-2 pl-4 pr-2">
+          <IoSparklesOutline className="text-vs-accent" aria-hidden />
           <h2 className="flex-1 text-sm font-semibold text-foreground">{title}</h2>
           <button
             type="button"
             onClick={onClose}
             className={vx(
-              "grid size-9 cursor-pointer place-items-center rounded-full text-muted transition-colors hover:bg-white/[0.08] hover:text-foreground",
+              "grid size-9 cursor-pointer place-items-center rounded-full text-muted transition-colors hover:bg-vs-ink/[0.08] hover:text-foreground",
               VS_FOCUS,
             )}
             aria-label={ct(t, "imagegen.close")}
@@ -233,7 +233,7 @@ function ImageGenForm({ onClose, onCreated }: { onClose: () => void; onCreated: 
         maxLength={PROMPT_MAX}
         placeholder={ct(t, "imagegen.placeholder")}
         aria-label={ct(t, "imagegen.title")}
-        className={`${DOCK_FIELD} min-h-[5.5rem] resize-y px-3 py-2 leading-relaxed caret-accent`}
+        className={`${DOCK_FIELD} min-h-[5.5rem] resize-y px-3 py-2 leading-relaxed caret-vs-accent`}
       />
       <div className="grid grid-cols-2 gap-2">
         <label className="flex min-w-0 flex-col gap-1.5">
