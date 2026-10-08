@@ -1525,7 +1525,7 @@
 	"paywall": {
 		"title_generic": "Top up your balance",
 		"premium_title": "Premium model is available on a paid plan",
-		"premium_desc": "Top up your balance by {{kgs}} som to unlock all premium AI models on the planet.",
+		"premium_desc": "Top up your balance to unlock all premium AI models on the planet.",
 		"insufficient_title": "Not enough credits",
 		"insufficient_have": "You have {{have}} credits.",
 		"insufficient_need": "The request needs about {{need}}.",
