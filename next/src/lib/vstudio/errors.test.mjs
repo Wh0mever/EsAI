@@ -3,6 +3,8 @@
 import "./nodeTsHooks.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import i18next from "i18next";
 
 const E = await import("./errors.ts");
 
@@ -219,6 +221,150 @@ test("кадр: свой род и i18next context frame", () => {
     "Выключенное фото не учитывается и не оплачивается.",
   );
   assert.equal(E.issueRu("too_many_inputs", { max: 16 }, "errors"), "Слишком много материалов в одном запросе (максимум 16).");
+});
+
+/* ---------- закрытый дубль: причина по коду, а не по статусу ---------- */
+
+const LANGS = ["ru", "en", "kg"];
+const LOCALES = Object.fromEntries(
+  LANGS.map((lang) => [lang, JSON.parse(fs.readFileSync(new URL(`../../locales/${lang}/vstudio.json`, import.meta.url), "utf8"))]),
+);
+// Настоящий i18next с теми же правилами, что в src/i18n/i18n.ts: context и откат на ru.
+const i18n = i18next.createInstance();
+await i18n.init({
+  lng: "ru",
+  fallbackLng: "ru",
+  supportedLngs: LANGS,
+  ns: ["vstudio"],
+  defaultNS: "vstudio",
+  resources: Object.fromEntries(LANGS.map((lang) => [lang, { vstudio: LOCALES[lang] }])),
+  interpolation: { escapeValue: false },
+});
+const tFor = (lang) => i18n.getFixedT(lang, "vstudio");
+
+// Коды, которыми конвейер закрывает дубль сам (ERRORS в core/vstudio/pipeline.py),
+// и статус, с которым дубль приходит. Текст бэкенда — как он лежит в take.error.message.
+const PIPELINE = {
+  journal_unavailable: ["failed", "Не удалось запустить генерацию. Кредиты не списаны — попробуйте ещё раз."],
+  queue_timeout: ["failed", "Генерация слишком долго ждала очереди. Кредиты не списаны — попробуйте ещё раз."],
+  service_misconfigured: ["failed", "Студия временно недоступна. Мы уже чиним. Кредиты не списаны."],
+  internal_error: ["failed", "Не удалось запустить генерацию. Кредиты не списаны — попробуйте ещё раз."],
+  bad_result: ["failed", "Модель вернула файл, который не удалось открыть. Кредиты не списаны — попробуйте ещё раз."],
+  submit_unknown: ["lost", "Не удалось подтвердить запуск — кредиты не списаны, мы проверим вручную."],
+  provider_timeout: ["lost", "Модель так и не вернула результат. Кредиты не списаны, мы проверим вручную."],
+  provider_unreachable: ["lost", "Не удалось забрать результат у модели. Кредиты не списаны, мы проверим вручную."],
+  save_failed: ["lost", "Не удалось сохранить результат. Кредиты не списаны, мы проверим вручную."],
+};
+const LOST_CODES = Object.keys(PIPELINE).filter((code) => PIPELINE[code][0] === "lost");
+
+const closed = (status, code, over = {}) => ({
+  status,
+  kind: "video",
+  error: code ? { code, message: PIPELINE[code]?.[1] ?? "", input: null } : null,
+  ...over,
+});
+
+const PIPELINE_PY = new URL("../../../../core/vstudio/pipeline.py", import.meta.url);
+
+test(
+  "список кодов конвейера совпадает с ERRORS бэкенда — новый код без текста не пройдёт",
+  { skip: fs.existsSync(PIPELINE_PY) ? false : "рядом нет core/ (только фронтенд)" },
+  () => {
+    const block = /^ERRORS = \{\r?\n([\s\S]*?)^\}/m.exec(fs.readFileSync(PIPELINE_PY, "utf8"));
+    assert.ok(block, "ERRORS не найден в pipeline.py");
+    const codes = [...block[1].matchAll(/^\s*"(\w+)":/gm)].map((m) => m[1]);
+    assert.deepEqual(codes.sort(), Object.keys(PIPELINE).sort());
+  },
+);
+
+test("у каждого кода конвейера свой текст в ru, en и kg", () => {
+  for (const code of Object.keys(PIPELINE)) {
+    assert.ok(E.ERROR_RU[code], code);
+    assert.equal(LOCALES.ru.errors[code], E.ERROR_RU[code], `ru: ${code}`);
+    for (const lang of LANGS) {
+      const text = LOCALES[lang].errors[code];
+      assert.ok(typeof text === "string" && text.trim(), `${lang}: ${code}`);
+    }
+  }
+  // У lost четыре причины — и четыре разных текста в каждом языке.
+  for (const lang of LANGS) {
+    assert.equal(new Set(LOST_CODES.map((code) => LOCALES[lang].errors[code])).size, LOST_CODES.length, lang);
+  }
+});
+
+test("закрытый дубль: текст по error.code и в failed, и в lost", () => {
+  for (const lang of LANGS) {
+    for (const [code, [status]] of Object.entries(PIPELINE)) {
+      assert.equal(E.takeErrorText(tFor(lang), closed(status, code)), LOCALES[lang].errors[code], `${lang}: ${status} ${code}`);
+    }
+  }
+  // Переводы ещё не загрузились (t отдаёт defaultValue) — текст бэкенда того же кода, не чужой.
+  for (const [code, [status, backend]] of Object.entries(PIPELINE)) {
+    assert.equal(E.takeErrorText(fakeT, closed(status, code)), backend, code);
+    assert.equal(E.takeErrorText(fakeT, closed(status, code, { error: { code, message: "", input: null } })), E.ERROR_RU[code], code);
+  }
+});
+
+test("lost + save_failed: «ролик снят, но не сохранён», а не «не подтвердили запуск»", () => {
+  const take = closed("lost", "save_failed");
+  assert.equal(
+    E.takeErrorText(tFor("ru"), take),
+    "Ролик снят, но сохранить его не удалось. Кредиты не списаны — мы довезём его вручную.",
+  );
+  for (const lang of LANGS) {
+    const text = E.takeErrorText(tFor(lang), take);
+    assert.equal(text, LOCALES[lang].errors.save_failed, lang);
+    assert.notEqual(text, LOCALES[lang].errors.submit_unknown, lang);
+    assert.notEqual(text, E.takeErrorText(tFor(lang), closed("lost", "submit_unknown")), lang);
+  }
+  assert.match(E.takeErrorText(tFor("en"), take), /video was generated.*couldn't save it.*not charged.*deliver/);
+  assert.match(E.takeErrorText(tFor("kg"), take), /Ролик тартылды.*сактоо мүмкүн болбоду.*Кредит алынган жок.*жеткирип беребиз/);
+});
+
+test("картинка: свой текст кода (context image), без него — общий текст кода", () => {
+  const message = "Не удалось сохранить картинку. Кредиты не списаны — попробуйте ещё раз.";
+  const image = closed("failed", "save_failed", { kind: "image", error: { code: "save_failed", message, input: null } });
+  for (const lang of LANGS) {
+    assert.equal(E.takeErrorText(tFor(lang), image), LOCALES[lang].errors.save_failed_image, lang);
+    // У provider_timeout ключа _image нет: картинка, не вернувшаяся за 8 минут, — тот же текст.
+    assert.equal(
+      E.takeErrorText(tFor(lang), closed("lost", "provider_timeout", { kind: "image" })),
+      LOCALES[lang].errors.provider_timeout,
+      lang,
+    );
+  }
+  assert.equal(E.takeErrorText(fakeT, image), message);
+});
+
+test("код, которого фронт не знает: текст бэкенда, иначе общая фраза статуса без причины", () => {
+  const unknown = (status, message = "") => ({ status, kind: "video", error: { code: "совсем_новый_код", message, input: null } });
+  for (const lang of LANGS) {
+    const t = tFor(lang);
+    assert.equal(E.takeErrorText(t, unknown("lost")), LOCALES[lang].errors.take_lost, lang);
+    assert.equal(E.takeErrorText(t, unknown("failed")), LOCALES[lang].errors.unknown, lang);
+    assert.equal(E.takeErrorText(t, closed("lost", null)), LOCALES[lang].errors.take_lost, lang);
+    assert.equal(E.takeErrorText(t, closed("failed", null)), LOCALES[lang].errors.unknown, lang);
+    assert.equal(E.takeErrorText(t, unknown("lost", "Новая причина с сервера.")), "Новая причина с сервера.", lang);
+    // Запасная фраза не называет ни одну из известных причин.
+    for (const code of Object.keys(PIPELINE)) assert.notEqual(LOCALES[lang].errors.take_lost, LOCALES[lang].errors[code], `${lang}: ${code}`);
+  }
+  assert.equal(E.takeErrorText(fakeT, unknown("lost")), E.CLIENT_RU.take_lost);
+  assert.equal(E.takeErrorText(fakeT, unknown("failed")), E.CLIENT_RU.unknown);
+  assert.doesNotMatch(E.CLIENT_RU.take_lost, /запуск|сохран|модел|очеред/i);
+  // Код без текста, но с сообщением бэкенда — показываем сообщение.
+  assert.equal(E.takeErrorText(fakeT, { status: "lost", kind: "video", error: { code: "", message: "Текст", input: null } }), "Текст");
+});
+
+test("дубль без ошибки (идёт, готов, отменён) — причины нет", () => {
+  for (const status of ["queued", "submitting", "running", "saving", "done", "canceled"]) {
+    assert.equal(E.takeErrorText(fakeT, closed(status, "save_failed")), "", status);
+  }
+});
+
+test("errorText: unknownText — только для кода без своего текста", () => {
+  assert.equal(E.errorText(fakeT, { code: "совсем_новый_код", message: "", unknownText: "Запасной" }), "Запасной");
+  assert.equal(E.errorText(fakeT, { code: "совсем_новый_код", message: "С сервера", unknownText: "Запасной" }), "С сервера");
+  assert.equal(E.errorText(fakeT, { code: "network", message: "", unknownText: "Запасной" }), "Нет сети — результаты не пропадут.");
 });
 
 test("interpolationParams и fillRu", () => {

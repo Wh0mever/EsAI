@@ -428,6 +428,9 @@ test("неудача и потеря: кредиты не списаны, вин
   );
   const lost = await run(m, videoBody({ prompt_doc: doc(text("Кошка #lost")) }));
   tick(60_000);
+  // Третий запуск — после закрытия первых двух: открытых видео может быть только два.
+  const unsaved = await run(m, videoBody({ prompt_doc: doc(text("Кошка #lost_save")) }));
+  tick(60_000);
   const f = await takeOf(m, fail.data.take.uid);
   assert.equal(f.status, "failed");
   assert.equal(f.charge_state, "released");
@@ -437,6 +440,10 @@ test("неудача и потеря: кредиты не списаны, вин
   const l = await takeOf(m, lost.data.take.uid);
   assert.equal(l.status, "lost");
   assert.equal(l.error.code, "submit_unknown");
+  // lost бывает и с другой причиной: ролик снят, но не сохранён.
+  const u = await takeOf(m, unsaved.data.take.uid);
+  assert.deepEqual([u.status, u.error.code, u.charge_state], ["lost", "save_failed", "released"]);
+  assert.match(u.error.message, /^Ролик снят, но сохранить его не удалось/);
   assert.equal(m.inspect().balance, 500);
 });
 

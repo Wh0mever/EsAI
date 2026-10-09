@@ -5,7 +5,7 @@ import { flushSync } from "react-dom";
 import { useTranslation } from "react-i18next";
 import { FiAlertTriangle, FiCheckCircle, FiImage, FiMaximize2, FiSlash } from "react-icons/fi";
 import VideoPlayer from "@/components/video/VideoPlayer";
-import { errorText } from "@/lib/vstudio/errors";
+import { takeErrorText } from "@/lib/vstudio/errors";
 import type { AssetJSON, ShotInputJSON, TakeLite } from "@/lib/vstudio/types";
 import { VS_FOCUS, VS_ON_MEDIA, VS_SHEEN_ON_MEDIA, VS_TAG, vx } from "../ui/skin";
 import { prefersReducedMotion } from "../ui/useAutoplayAllowed";
@@ -363,8 +363,9 @@ export type TakeViewProps = {
 /**
  * Один дубль (§9.6): идущий — «плёнка» со статусом, секундомером и шкалой по
  * ETA; готовый — плеер или картинка на сцене; неудачный — причина по
- * error_code, виноватый вход и «Кредиты не списаны»; отменённый и потерянный —
- * своя строка. Что списано за готовый дубль, показывает TakeReceipt в карточке.
+ * error_code, виноватый вход и «Кредиты не списаны»; потерянный — тоже причина
+ * по error_code; отменённый — своя строка. Что списано за готовый дубль,
+ * показывает TakeReceipt в карточке.
  */
 function TakeView({ take, inputs, onCancel, canceling }: TakeViewProps) {
   const { t } = useTranslation("vstudio", { useSuspense: false });
@@ -374,22 +375,16 @@ function TakeView({ take, inputs, onCancel, canceling }: TakeViewProps) {
   const ratio = mediaRatio(take.result, take.effective?.aspect_ratio, take.kind);
   const noCharge = take.charge_state === "released" || (!open && take.status !== "done" && !take.credits?.charged);
 
-  const failure =
-    take.status === "failed"
-      ? errorText(t, {
-          code: take.error?.code || "provider_error",
-          message: take.error?.message || "",
-          // У картинки свои тексты (errors.<code>_image): «…изображение», а не «…видео».
-          context: take.kind === "image" ? "image" : undefined,
-        })
-      : "";
+  // И у failed, и у lost причину называет error.code: одна фраза на весь lost выдавала
+  // «ролик снят, но не сохранён» за «не подтвердили запуск».
+  const failure = takeErrorText(t, take);
   const culprit = take.error?.input ? inputs.find((i) => i.asset.uid === take.error?.input) : undefined;
   const culpritText = culprit
     ? t("run.culprit", { defaultValue: "Модели не подошло: {{label}}", label: inputLabel(t as Tr, culprit) })
     : "";
 
   // Живой регион переживает смену статуса — поэтому диктор скажет «Видео готово».
-  const announce = take.status === "failed" ? `${statusText}. ${failure}` : statusText;
+  const announce = failure ? `${statusText}. ${failure}` : statusText;
 
   // Дубль досняли на глазах у человека — кадр «проявляется» один раз. Готовые
   // кадры из истории и дубли, на которые перелистнули карусель, стоят сразу.
@@ -473,7 +468,7 @@ function TakeView({ take, inputs, onCancel, canceling }: TakeViewProps) {
           <span className={vx(NOTE_ICON, "bg-status-wait/15 text-status-wait")} aria-hidden>
             <FiAlertTriangle />
           </span>
-          <p className="min-w-0 flex-1 pt-0.5 text-foreground">{statusText}</p>
+          <p className="min-w-0 flex-1 pt-0.5 text-foreground">{failure}</p>
         </div>
       )}
 

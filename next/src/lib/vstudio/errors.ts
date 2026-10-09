@@ -17,6 +17,7 @@ import type {
   HttpErrorCode,
   IssueFix,
   PriceLine,
+  TakeLite,
   VsError,
   VsKind,
   VsResult,
@@ -134,8 +135,10 @@ export const HTTP_RU: Record<Exclude<HttpErrorCode, BlockingCode>, string> = {
 };
 
 /**
- * Причины неудачного дубля (TakeLite.error.code): конвейер (§6) и разбор
- * ответа провайдера (core/ai/provider_errors.py — тексты оттуда).
+ * Причины неудачного дубля (TakeLite.error.code): конвейер (§6, ERRORS в
+ * core/vstudio/pipeline.py) и разбор ответа провайдера
+ * (core/ai/provider_errors.py — тексты оттуда). Код конвейера без текста здесь
+ * роняет errors.test.mjs: иначе человек увидел бы чужую причину.
  */
 export const TAKE_ERROR_RU: Record<string, string> = {
   journal_unavailable: "Не удалось запустить генерацию. Кредиты не списаны — попробуйте ещё раз.",
@@ -143,7 +146,8 @@ export const TAKE_ERROR_RU: Record<string, string> = {
   submit_unknown: "Не удалось подтвердить запуск — кредиты не списаны, мы проверим вручную.",
   provider_timeout: "Модель так и не вернула результат. Кредиты не списаны, мы проверим вручную.",
   provider_unreachable: "Не удалось забрать результат у модели. Кредиты не списаны, мы проверим вручную.",
-  save_failed: "Не удалось сохранить результат. Кредиты не списаны, мы проверим вручную.",
+  // Точнее текста бэкенда («не удалось сохранить результат»): ролик уже снят, и его довезут.
+  save_failed: "Ролик снят, но сохранить его не удалось. Кредиты не списаны — мы довезём его вручную.",
   image_real_person:
     "Модель не принимает фото реальных людей. Используйте рисунок, аватар, мультяшного героя или картинку без лица — и попробуйте снова.",
   image_sensitive:
@@ -173,6 +177,8 @@ export const CLIENT_RU: Record<string, string> = {
   bad_response: "Сервер ответил непонятно. Обновите страницу и попробуйте снова.",
   aborted: "",
   unknown: "Что-то пошло не так. Попробуйте ещё раз.",
+  // Потерянный дубль с кодом, которого фронт не знает: только то, что верно при любой причине.
+  take_lost: "Результат не выдан. Кредиты не списаны, мы проверим вручную.",
 };
 
 /** Все тексты группы errors.<code> в одном словаре — источник для FE-6. */
@@ -462,6 +468,9 @@ export function derivedParams(params: Record<string, unknown> | null | undefined
  * (картинка: context "image" → «Не удалось сгенерировать изображение»),
  * иначе обычный ключ. У condense_failed context — причина из тела (reason):
  * «Сжимать нечего…» вместо общего «Не получилось сжать».
+ *
+ * unknownText — готовый (уже переведённый) текст для кода, которого фронт не
+ * знает, вместо общего «что-то пошло не так».
  */
 export function errorText(
   t: Translate,
@@ -469,12 +478,15 @@ export function errorText(
     params?: Record<string, unknown>;
     data?: Record<string, unknown>;
     context?: string;
+    unknownText?: string;
   },
 ): string {
   if (err.code === "aborted") return "";
   // У 409/429 параметры лежат прямо в теле (limit, credits) — берём и их.
   const params = { ...(err.data || {}), ...(err.params || {}) };
-  const fallback = ERROR_RU[err.code] ? fillRu(ERROR_RU[err.code], params) : fillRu(CLIENT_RU.unknown, null);
+  const fallback = ERROR_RU[err.code]
+    ? fillRu(ERROR_RU[err.code], params)
+    : err.unknownText || fillRu(CLIENT_RU.unknown, null);
   const reason = err.code === "condense_failed" && typeof err.data?.reason === "string" ? err.data.reason : "";
   const context = err.context || reason || undefined;
   return translate(t, errorKey(err.code), {
@@ -482,6 +494,31 @@ export function errorText(
     defaultValue: err.message || fallback,
     ...(context ? { context } : {}),
     ...interpolationParams(params),
+  });
+}
+
+/**
+ * Причина закрытого дубля (failed | lost) — по его error.code, а не по статусу.
+ * lost закрывают разные коды: «не подтвердили запуск» и «ролик снят, но не
+ * сохранён» — не одно и то же, и одна фраза на весь статус называла бы чужую
+ * причину.
+ *
+ * Код, которого фронт не знает, — текст бэкенда; нет и его — общая фраза
+ * статуса, которая причину не называет. Дубль без ошибки (идёт, готов,
+ * отменён) — пустая строка.
+ */
+export function takeErrorText(t: Translate, take: Pick<TakeLite, "status" | "kind" | "error">): string {
+  if (take.status !== "failed" && take.status !== "lost") return "";
+  const unknownText = errorText(t, { code: take.status === "lost" ? "take_lost" : "unknown", message: "" });
+  const code = take.error?.code || "";
+  const message = take.error?.message || "";
+  if (!code) return message || unknownText;
+  return errorText(t, {
+    code,
+    message,
+    unknownText,
+    // У картинки свои тексты (errors.<code>_image): «…картинку», а не «…ролик».
+    context: take.kind === "image" ? "image" : undefined,
   });
 }
 
