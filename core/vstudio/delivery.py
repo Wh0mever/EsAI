@@ -37,7 +37,7 @@ from django.utils import timezone
 from ai import media_provider as mp
 from ai.models import GenerationLog
 
-from .assets import delete_files
+from .assets import delete_files, user_dir
 from .models import (
     CHARGE_CHARGED, CHARGE_RESERVED, TAKE_DONE, TAKE_LOST, TAKE_RUNNING, TAKE_SAVING, Asset,
     Project, Take,
@@ -250,7 +250,7 @@ def fetch_video(take: Take, url: str, *, max_bytes: int = MAX_VIDEO_BYTES,
             logger.warning("vstudio take=%s: ролик %s байт — без размеров и постера", take.uid, size)
         thumb_blob = make_thumb(poster, POSTER_BOX) if poster else None
 
-        base = f"vstudio/{take.user_id}/{asset_uid}"
+        base = f"{user_dir(take.user_id)}/{asset_uid}"
         with open(tmp, "rb") as fh:
             saved.append(default_storage.save(f"{base}.mp4", File(fh)))
         thumb = ""

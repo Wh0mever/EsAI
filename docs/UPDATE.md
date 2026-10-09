@@ -43,6 +43,83 @@ dc up -d --force-recreate next
 # dc up -d --force-recreate --no-deps nginx
 ```
 
+## Видеостудия: оплаченный ролик не сохранялся (09.10.2026)
+
+Что сломалось. Первые настоящие ролики студии провайдер снял и взял за них
+деньги, а выдача пять раз подряд упала на
+`Permission denied: '/app/media/vstudio/<id>'` — дубли ушли в «Оплачено, но не
+выдано». Кредиты у людей не списались.
+
+Почему. `core` работает от root, воркеры Celery — от `appuser`, а `chown` из
+`entrypoint.sh` проходит один раз, при старте `core`. Каталог, созданный в
+`media` позже, получал владельца root и права 755: загрузка фото создавала
+`vstudio/` и `vstudio/<id>/`, и воркер студии писать туда уже не мог.
+
+Что меняет исправление (только сервер, миграций и сборки фронтенда нет):
+- новые каталоги в `media` создаются с правами 777, файлы — как раньше, 644
+  (`FILE_UPLOAD_DIRECTORY_PERMISSIONS`, `FILE_UPLOAD_PERMISSIONS`). Каталог
+  человека `vstudio/<id>/` загрузка фото заводит сама и права ставит через
+  `chmod`: от `umask` процесса gunicorn (он один на 8 потоков) они не зависят;
+- перед платным запросом воркер студии создаёт и стирает пробный файл в
+  каталоге человека. Не вышло — провайдеру ничего не уходит: дубль закрывается
+  с «Студия временно недоступна. Мы уже чиним. Кредиты не списаны», причина —
+  в журнале генераций («хранилище недоступно: …») и в
+  `logs/celery_vstudio.log` (строка «хранилище недоступно» с дублем и путём);
+- там же воркер смотрит свободное место: пробный файл запишется и на почти
+  полный диск, а ролик — нет. Меньше 1 ГБ на диске `media` или во временном
+  каталоге контейнера (`/tmp`, туда скачивается ролик) — провайдеру тоже ничего
+  не уходит, причина — «хранилище недоступно: мало места: … МБ свободно в …,
+  нужно 1024 МБ». Это новый способ студии встать: пока места меньше порога,
+  отказ получает КАЖДАЯ генерация, и ролик, и картинка. Порог —
+  `MIN_FREE_BYTES` в `core/vstudio/storage_check.py`;
+- `logs/django.log` открывается при первой записи, а не при старте процесса.
+  Файл делят root (`core`) и `appuser` (воркеры): после ротации, которую сделал
+  `core`, он принадлежит root, и воркер, поднятый без перезапуска `core`, не
+  стартовал вовсе (`Unable to configure handler 'file'`) — вместе с отправкой
+  и опросом оплаченных дублей. Теперь воркер работает, а в его журнале
+  (`logs/celery*.log` или `dc logs <воркер>`) идут блоки
+  `--- Logging error ---` с `PermissionError … django.log`. Лечится так:
+  `dc exec -T core chown appuser:appuser /app/logs/django.log`.
+
+Выкладка — «Обычное обновление», и `core` пересоздаём обязательно: настройка
+действует только на новые каталоги, а уже лежащие (root, 755) перевладевает
+`entrypoint.sh` при старте `core`. Воркеры тоже пересоздаём — пробу делают они.
+```bash
+# До выкладки: места, которое видит воркер студии. В колонке Avail обеих строк
+# должно быть заметно больше 1G, иначе после выкладки студия откажет всем.
+dc exec -T celery_vstudio df -h /app/media /tmp
+
+dc up -d --force-recreate core
+dc up -d --force-recreate --no-deps celery celery_beat celery_media celery_vstudio
+
+# 1. Старые каталоги перевладел entrypoint — ждём пустой вывод. Сразу после
+#    перезапуска это проверка только chown. Новую настройку она проверяет, если
+#    повторить её позже (например, на следующий день, после новых загрузок):
+#    вывод по-прежнему пустой.
+dc exec -T core find /app/media -type d ! -user appuser ! -perm -002
+
+# 2. То же, что в инциденте, на пробном каталоге: core (root) создаёт новый
+#    каталог через хранилище, воркер (appuser) в него пишет. Ждём
+#    WORKER-CAN-WRITE; «Permission denied» — права новых каталогов не действуют.
+dc exec -T core python manage.py shell -c "from django.core.files.storage import default_storage as s; from django.core.files.base import ContentFile as C; s.save('_permcheck/a/x.txt', C(b'x'))"
+dc exec -T celery_vstudio sh -c 'touch /app/media/_permcheck/a/w && echo WORKER-CAN-WRITE'
+dc exec -T core rm -rf /app/media/_permcheck
+
+# 3. Тесты с настоящими правами каталогов (на Windows они пропускаются).
+#    Только в контейнере воркера: от root два теста пропускаются. Ждём OK без
+#    skipped. База не нужна и не создаётся, файлы — во временном каталоге.
+dc exec -T celery_vstudio python manage.py test \
+  vstudio.tests.test_storage_check.DirectoryModeTests \
+  vstudio.tests.test_storage_check.DiskProbeTests \
+  vstudio.tests.test_storage_check.FreeSpaceTests \
+  vstudio.tests.test_storage_check.UploadDirectoryTests \
+  vstudio.tests.test_storage_check.SettingsTests --noinput
+```
+
+Потерянные 09.10 ролики можно попробовать довезти после выкладки:
+Django-админка `/admin/` → дубли видеостудии → «Довезти». Для человека это
+бесплатно; получится, только если провайдер ещё хранит результат.
+
 ## Открытие видеостудии всем
 
 У `/video-studio` два независимых выключателя, и порядок важен.

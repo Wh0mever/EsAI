@@ -29,7 +29,7 @@ from dataclasses import dataclass, field
 from typing import NamedTuple
 
 from django.core.files.base import ContentFile
-from django.core.files.storage import default_storage
+from django.core.files.storage import FileSystemStorage, default_storage
 
 from .models import Asset, Take
 
@@ -528,9 +528,57 @@ def _normalize(blob: bytes, *, max_side: int, trusted: bool = False) -> Normaliz
 
 # ---------------------------------------------------------------- хранение
 
+def user_dir(user_id) -> str:
+    """Каталог файлов человека в default_storage: vstudio/<user_id> (§2.1).
+
+    Одно место на всех: загрузки, выдача роликов и проба хранилища перед
+    платным запросом (storage_check) должны смотреть в один и тот же каталог.
+    """
+    return f"vstudio/{user_id}"
+
+
+def make_dirs(path: str, mode) -> None:
+    """Создать каталог и недостающие над ним. Права получают только созданные здесь.
+
+    Права ставит chmod, а не umask, как FileSystemStorage._save: umask один на
+    весь процесс, и в потоках gunicorn два сохранения разом могут оставить
+    каталог с 755 — в такой воркер студии не положит оплаченный ролик.
+    """
+    if os.path.isdir(path):
+        return
+    parent = os.path.dirname(path)
+    if parent != path:
+        make_dirs(parent, mode)
+    try:
+        os.mkdir(path)
+    except FileExistsError:
+        # Успел другой процесс: каталог его, и права на нём выставил он.
+        return
+    if mode is not None:
+        os.chmod(path, mode)
+
+
+def ensure_user_dir(user_id) -> None:
+    """Завести каталог человека до сохранения — с правами через chmod (make_dirs).
+
+    Первую загрузку фото принимает core: root и 8 потоков gunicorn. Без этого
+    шага права vstudio/<id>/ зависели бы от umask процесса в момент сохранения.
+    Не бросает: не вышло — сохранение следом создаст каталог само или сообщит
+    настоящую ошибку, как раньше.
+    """
+    # Только локальный диск: path() есть и у хранилища в памяти.
+    if not isinstance(default_storage, FileSystemStorage):
+        return
+    try:
+        make_dirs(default_storage.path(user_dir(user_id)),
+                  default_storage.directory_permissions_mode)
+    except Exception:
+        logger.warning("каталог %s не создан заранее", user_dir(user_id), exc_info=True)
+
+
 def asset_paths(user_id, asset_uid: str, ext: str) -> tuple[str, str]:
     """vstudio/<user_id>/<uid>.<ext> и превью <uid>_t.jpg (§2.1)."""
-    base = f"vstudio/{user_id}/{asset_uid}"
+    base = f"{user_dir(user_id)}/{asset_uid}"
     return f"{base}.{ext}", f"{base}_t.jpg"
 
 
@@ -582,6 +630,8 @@ def store_image_bytes(user_id, asset_uid: str, blob: bytes, *, sha256: str | Non
     """
     norm = normalize_image_bytes(blob, max_side=max_side, trusted=trusted)
     file_path, thumb_path = asset_paths(user_id, asset_uid, norm.ext)
+    # После нормализации: фото, которому отказали, не оставляет и каталога.
+    ensure_user_dir(user_id)
     saved: list[str] = []
     try:
         saved.append(default_storage.save(file_path, ContentFile(norm.data)))

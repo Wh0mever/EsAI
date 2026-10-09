@@ -16,6 +16,9 @@
   вызов тихо выходит. Поэтому двойная постановка любой задачи безопасна.
 - Журнал (GenerationLog, source=vstudio) создаётся в submit прямо перед
   вызовом провайдера. Не создался — провайдеру ничего не уходит (fail-closed).
+- Так же с хранилищем: перед платным запросом воркер пробует записать файл в
+  каталог человека и смотрит свободное место (storage_check). Не вышло или
+  места мало — провайдеру ничего не уходит.
 - Провайдер принял работу → сначала строка в логе с provider_id, потом запись
   в БД: если база моргнёт, оплаченный ролик найдётся по логу.
 - Деньги: списание только в транзакции выдачи (delivery.commit_*), резерв
@@ -49,7 +52,7 @@ from ai import media_provider as mp
 from ai.models import GenerationLog
 from ai.provider_errors import INPUT_ERROR_CODES, explain_image_error, explain_video_error
 
-from . import delivery, notify
+from . import delivery, notify, storage_check
 from .assets import store_image_bytes
 from .models import (
     TAKE_CANCELED, TAKE_CLOSED, TAKE_DONE, TAKE_FAILED, TAKE_LOST, TAKE_QUEUED, TAKE_RUNNING,
@@ -298,6 +301,23 @@ def _close(take: Take, frm, to: str, code: str, *, message: str = "", error_inpu
     return True
 
 
+def _storage_refused(take: Take, frm: str) -> bool:
+    """True — результат негде сохранить: дубль закрыт, провайдеру ничего не уйдёт.
+
+    Fail-closed, как с журналом. 09.10.2026 провайдер взял деньги за два
+    ролика, а выдача пять раз упала на правах каталога — ролики пропали.
+    Запись в журнале уже есть: причину видно в админке.
+    """
+    ok, reason = storage_check.storage_ready(take.user_id)
+    if ok:
+        return False
+    logger.error("vstudio take=%s: хранилище недоступно (%s) — провайдеру не отправляем: %s",
+                 take.uid, storage_check.storage_path(take.user_id), reason)
+    _close(take, frm, TAKE_FAILED, "service_misconfigured",
+           journal=GenerationLog.STATUS_FAILED, journal_error=f"хранилище недоступно: {reason}")
+    return True
+
+
 def provider_config(take) -> dict:
     """Конфиг OpenRouter с ключом, которым работа дубля была отправлена.
 
@@ -408,6 +428,9 @@ def submit(take_id) -> str:
         entry.failed("дубль закрыт до отправки провайдеру")
         return "skip"
     take.genlog_id = entry.pk
+
+    if _storage_refused(take, TAKE_SUBMITTING):
+        return "failed"
 
     try:
         body = outgoing_body(take.request_body)
@@ -679,6 +702,9 @@ def run_image(take_id) -> str:
         entry.failed("дубль закрыт до отправки провайдеру")
         return "skip"
     take.genlog_id = entry.pk
+
+    if _storage_refused(take, TAKE_RUNNING):
+        return "failed"
 
     try:
         body = outgoing_body(take.request_body)
