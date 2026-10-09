@@ -243,6 +243,15 @@ STATIC_ROOT = os.path.join(BASE_DIR, "static")
 STATICFILES_DIRS = [BASE_DIR / "core" / "static"]
 MEDIA_URL = "/media/"
 MEDIA_ROOT = os.path.join(BASE_DIR, "media")
+# В media пишут два пользователя: core (gunicorn) работает от root, воркеры
+# Celery — от appuser, а chown из entrypoint проходит только при старте core.
+# Каталог, который core создаёт позже, получал владельца root и права 755:
+# 09.10.2026 так появился vstudio/<id>/ (загрузка фото), и воркер студии не
+# смог положить туда ролик, за который провайдер уже взял деньги. Поэтому новые
+# каталоги открыты обоим (это же права новых каталогов collectstatic). Файлы —
+# 644, как и были: их только читают (nginx отдаёт /media/).
+FILE_UPLOAD_DIRECTORY_PERMISSIONS = 0o777
+FILE_UPLOAD_PERMISSIONS = 0o644
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # --- REST framework (Session + JWT) ---
@@ -463,6 +472,12 @@ LOGGING = {
             "backupCount": 5,
             "formatter": "verbose",
             "encoding": "utf-8",
+            # Файл открывается при первой записи, а не при настройке журнала.
+            # django.log делят root (core) и appuser (воркеры): после ротации,
+            # которую сделал core, файл принадлежит root, и воркер, поднятый
+            # без перезапуска core, падал ещё в django.setup(). Вместе с ним
+            # вставали отправка и опрос уже оплаченных дублей видеостудии.
+            "delay": True,
         },
     },
     "root": {

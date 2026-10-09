@@ -67,6 +67,9 @@ class PipelineCase(TestCase):
         patcher.start()
         self.addCleanup(patcher.stop)
         self.push = self.enterContext(mock.patch("users.webpush.notify_user", return_value={}))
+        # Сколько места на машине, где идут тесты, на исход влиять не должно:
+        # проба хранилища перед отправкой отказывает при остатке меньше 1 ГБ.
+        self.enterContext(mock.patch("vstudio.storage_check._free_bytes", return_value=1 << 40))
         self.user = f.make_user(balance=500)
         self.model = f.make_gpt_model()
 
