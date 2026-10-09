@@ -167,10 +167,8 @@ export function statusPhrase(take: Pick<TakeLite, "status" | "kind" | "mode" | "
     case "canceled":
       return { key: "run.status.canceled", ru: "Отменено" };
     case "lost":
-      return {
-        key: "run.status.lost",
-        ru: "Не удалось подтвердить запуск — кредиты не списаны, мы проверим вручную.",
-      };
+      // Только итог: причин у lost несколько, её называет takeErrorText по error.code.
+      return { key: "run.status.lost", ru: "Не выдано" };
     default:
       return { key: "run.status.queued", ru: "В очереди" };
   }
@@ -232,11 +230,19 @@ export function settledToast(
           : { key: "toast.videoDone", ru: "Видео готово" },
     };
   }
-  if (take.status === "failed" || take.status === "lost") {
+  if (take.status === "failed") {
     return {
-      id: `vs-take-${take.uid}-${take.status}`,
+      id: `vs-take-${take.uid}-failed`,
       tone: "error",
       phrase: { key: "toast.failed", ru: "Не получилось — кредиты не списаны" },
+    };
+  }
+  if (take.status === "lost") {
+    // «Не получилось» тут бывает неправдой: ролик мог быть снят и ждёт довоза.
+    return {
+      id: `vs-take-${take.uid}-lost`,
+      tone: "error",
+      phrase: { key: "toast.lost", ru: "Не выдано — кредиты не списаны, проверим вручную" },
     };
   }
   return null;

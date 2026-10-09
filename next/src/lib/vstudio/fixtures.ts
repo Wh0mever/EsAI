@@ -14,7 +14,8 @@
  *
  * Сценарии по тексту промпта: «#fail» — дубль упадёт (с фото из загрузок у
  * Seedance — image_real_person с подсветкой фото), «#lost» — «не удалось
- * подтвердить запуск», «#condense_fail» — «Сжать с ИИ» не справится.
+ * подтвердить запуск», «#lost_save» — «ролик снят, но не сохранён»,
+ * «#condense_fail» — «Сжать с ИИ» не справится.
  *
  * Настройки мока в браузере: localStorage["vstudio:fixtures:opts"] =
  * '{"guest":false,"staff":true,"mode":"on","balance":1200,"latencyMs":250}'.
@@ -707,6 +708,8 @@ type StoredTake = {
   startedAt: number;
   outcome: Outcome;
   failCode: string;
+  /** Причина lost: у него их несколько, и текст в ленте выбирается по коду. */
+  lostCode: string;
   failInput: Uid | null;
   serialized_prompt: string;
   request_body: Record<string, unknown>;
@@ -844,7 +847,7 @@ export function createMockBackend(options: MockOptions = {}): MockBackend {
     } else {
       L.charge_state = "released";
       L.credits.charged = 0;
-      const code = status === "lost" ? "submit_unknown" : t.failCode;
+      const code = status === "lost" ? t.lostCode : t.failCode;
       L.error = { code, message: TAKE_ERROR_RU[code] || ERROR_RU.unknown, input: status === "lost" ? null : t.failInput };
       if (L.kind === "image" && L.result) {
         const pending = assets.get(L.result.uid);
@@ -1025,6 +1028,7 @@ export function createMockBackend(options: MockOptions = {}): MockBackend {
       startedAt,
       outcome,
       failCode: faces ? "image_real_person" : "prompt_rejected",
+      lostCode: plain.includes("#lost_save") ? "save_failed" : "submit_unknown",
       failInput: faces && uploadInput ? uploadInput.asset : null,
       serialized_prompt: compiled.quote.serialized_prompt,
       request_body: compiled.body,

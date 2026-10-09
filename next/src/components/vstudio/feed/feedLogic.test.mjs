@@ -150,7 +150,14 @@ test("подписи статусов §9.6", () => {
   assert.equal(L.statusPhrase(take(1, { status: "running", kind: "image" })).key, "run.status.runningImage");
   assert.equal(L.statusPhrase(take(1, { status: "saving" })).ru, "Сохраняем…");
   assert.equal(L.statusPhrase(take(1, { status: "done", kind: "image" })).key, "run.status.doneImage");
-  assert.match(L.statusPhrase(take(1, { status: "lost" })).ru, /кредиты не списаны/);
+});
+
+test("подпись lost — только итог: причину называет error.code, а не статус", () => {
+  // lost закрывают четыре кода; подпись статуса не должна выбирать за них причину.
+  const codes = ["submit_unknown", "provider_timeout", "provider_unreachable", "save_failed"];
+  const phrases = codes.map((code) => L.statusPhrase(take(1, { status: "lost", error: { code, message: "", input: null } })));
+  for (const p of phrases) assert.deepEqual(p, { key: "run.status.lost", ru: "Не выдано" });
+  assert.doesNotMatch(phrases[0].ru, /запуск|сохран|модел/i);
 });
 
 test("секундомер и ETA", () => {
@@ -191,7 +198,11 @@ test("тосты: готово, не получилось; отмена молч
   assert.equal(L.settledToast(take(1, { status: "done", kind: "image" })).phrase.ru, "Картинка готова");
   const f = L.settledToast(take(1, { status: "failed" }));
   assert.equal(f.tone, "error");
-  assert.equal(L.settledToast(take(1, { status: "lost" })).tone, "error");
+  assert.equal(f.phrase.key, "toast.failed");
+  // lost — не «не получилось»: ролик мог быть снят и ждать довоза.
+  const lost = L.settledToast(take(1, { status: "lost" }));
+  assert.deepEqual([lost.tone, lost.phrase.key, lost.id], ["error", "toast.lost", `vs-take-${U(0x1001)}-lost`]);
+  assert.match(lost.phrase.ru, /^Не выдано — кредиты не списаны/);
   assert.equal(L.settledToast(take(1, { status: "canceled" })), null);
   assert.equal(L.settledToast(take(1, { status: "running" })), null);
 });
