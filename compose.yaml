@@ -84,8 +84,12 @@ services:
       # при старте могли дважды применить одну миграцию данных.
       RUN_MIGRATIONS: "0"
       RUN_COLLECTSTATIC: "0"
+    # exec обязателен у всех celery ниже. Без него первым процессом контейнера
+    # остаётся sh, сигнал остановки до celery не доходит: docker ждёт весь
+    # stop_grace_period (до 12 минут) и убивает воркер посреди задачи. С exec
+    # celery получает SIGTERM сам, доделывает начатое и выходит сразу.
     command: >
-      sh -lc "celery -A core worker
+      sh -lc "exec celery -A core worker
       --loglevel=${CELERY_LOG_LEVEL:-INFO}
       --logfile=/app/logs/celery.log
       --concurrency=${CELERY_CONCURRENCY:-2}
@@ -129,7 +133,7 @@ services:
       RUN_MIGRATIONS: "0"
       RUN_COLLECTSTATIC: "0"
     command: >
-      sh -lc "celery -A core worker
+      sh -lc "exec celery -A core worker
       -Q ${CELERY_MEDIA_QUEUE:-media}
       --loglevel=${CELERY_LOG_LEVEL:-INFO}
       --logfile=/app/logs/celery_media.log
@@ -176,7 +180,7 @@ services:
       RUN_MIGRATIONS: "0"
       RUN_COLLECTSTATIC: "0"
     command: >
-      sh -lc "celery -A core worker
+      sh -lc "exec celery -A core worker
       -Q ${CELERY_VSTUDIO_QUEUE:-vstudio}
       --pool=prefork
       --loglevel=${CELERY_LOG_LEVEL:-INFO}
@@ -217,11 +221,11 @@ services:
       RUN_MIGRATIONS: "0"
       RUN_COLLECTSTATIC: "0"
     command: >
-      sh -lc "celery -A core beat
+      sh -lc "exec celery -A core beat
       --loglevel=${CELERY_LOG_LEVEL:-INFO}
       --logfile=/app/logs/celery_beat.log
       --pidfile=/tmp/celerybeat.pid
-      --scheduler django_celery_beat.schedulers:DatabaseScheduler || true"
+      --scheduler django_celery_beat.schedulers:DatabaseScheduler"
     depends_on:
       core:
         condition: service_started
