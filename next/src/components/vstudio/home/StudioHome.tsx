@@ -93,7 +93,7 @@ function StudioHome({ onStarter, disabled }: StudioHomeProps) {
       if (cur.disabled) return;
       // Текст прошлого примера или сценария новый пример заменяет, свой текст человека — нет.
       const outcome = applyReelItem(item, cur.state, cur.dispatch, homeStarters(cur.t, cur.reel));
-      const notice = applyNotice(item, cur.state.models, outcome, cur.state.composer.kind);
+      const notice = applyNotice(item, cur.state.models, outcome, cur.state.composer.kind, cur.state.composer.model);
       if (notice) cur.actions.toast(cur.say(notice, reelModelName(item, cur.state.models)), "info");
       if (!wantsPhoto(item, cur.state.composer)) {
         focusComposer();
