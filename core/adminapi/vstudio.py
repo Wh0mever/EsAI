@@ -10,14 +10,18 @@ admin-new — Фаза 1.5; до неё ответ читают глазами �
 
   GET    vstudio/showcase/?scope=staff|all[&q=][&page=]   витрина и кандидаты
   POST   vstudio/showcase/ {take, title, category, …}     поставить дубль
+  PATCH  vstudio/showcase/ {reel_size}                    сколько роликов в карусели
   PATCH  vstudio/showcase/<id>/                           название, сценарий, порядок, показ
   DELETE vstudio/showcase/<id>/                           убрать из витрины
 
 Витрину (карусель первого экрана) видят все посетители студии. category —
 сценарий ролика; список в ответе GET (categories) идёт в порядке карусели,
-последним — «Другое». Что можно показывать, что уходит наружу и запись в
-журнал действий — в vstudio.showcase; здесь только разбор запроса и форма
-ответа. Отказы — телом {"detail": "<текст>"}, как у остальной панели.
+последним — «Другое». reel_size — сколько работ карусель берёт; GET отдаёт
+его вместе с границами (reel_size_min, reel_size_max), PATCH принимает только
+целое число в этих границах и отвечает {"reel_size": N}. Что можно показывать,
+что уходит наружу и запись в журнал действий — в vstudio.showcase; здесь
+только разбор запроса и форма ответа. Отказы — телом {"detail": "<текст>"},
+как у остальной панели.
 """
 from __future__ import annotations
 
@@ -73,7 +77,8 @@ def _body(request) -> dict:
 
 
 class VStudioShowcaseView(StaffAPIView):
-    """GET — витрина целиком и готовые дубли, которых в ней нет; POST — поставить дубль."""
+    """GET — витрина целиком и готовые дубли, которых в ней нет; POST — поставить дубль;
+    PATCH — размер карусели."""
 
     def get(self, request):
         showcase = _showcase()
@@ -89,6 +94,9 @@ class VStudioShowcaseView(StaffAPIView):
             "scope": scope,
             "categories": [{"key": key, "label": label} for key, label in showcase.CATEGORY_CHOICES],
             "public_limit": showcase.MAX_PUBLIC,
+            "reel_size": showcase.reel_size(),
+            "reel_size_min": showcase.REEL_SIZE_MIN,
+            "reel_size_max": showcase.REEL_SIZE_MAX,
         })
 
     def post(self, request):
@@ -98,6 +106,13 @@ class VStudioShowcaseView(StaffAPIView):
         item, created = showcase.add(_body(request), actor=request.user, request=request)
         return Response(showcase.staff_json(item),
                         status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
+
+    def patch(self, request):
+        showcase = _showcase()
+        if showcase is None:
+            return _not_installed()
+        size = showcase.set_reel_size(_body(request), actor=request.user, request=request)
+        return Response({"reel_size": size})
 
 
 class VStudioShowcaseItemView(StaffAPIView):

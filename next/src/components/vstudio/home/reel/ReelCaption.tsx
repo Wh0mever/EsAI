@@ -6,7 +6,7 @@ import { useTranslation } from "react-i18next";
 import { FiArrowDownLeft, FiArrowUpRight, FiVideo } from "react-icons/fi";
 import { VS_BTN_GOLD, VS_ON_MEDIA, vx } from "../../ui/skin";
 import type { ReelItem } from "../showreelData";
-import { isPortrait } from "./reelMath";
+import { isPortrait, namedByModel } from "./reelMath";
 
 export type ReelCaptionProps = {
   item: ReelItem;
@@ -88,13 +88,13 @@ function ReelCaption({ item, name, shown, quick = false, onUse }: ReelCaptionPro
   const source = cartoon ? t("home.reel.cartoon", { defaultValue: "Мультстудия" }) : item.subtitle;
   const seconds = item.duration ? Math.round(item.duration) : 0;
   // Назвать кадр нечем, кроме модели, — она уже стоит плашкой, второй раз заголовком не пишем.
-  const title = name !== item.subtitle ? name : "";
+  const title = namedByModel(name, item) ? "" : name;
   const label = cartoon
     ? t("home.reel.hero", { defaultValue: "Снять со своим героем" })
     : item.prompt
       ? t("home.reel.like", { defaultValue: "Снять похожее" })
       : t("home.reel.model", { defaultValue: "Выбрать эту модель" });
-  // Скринридеру — с именем кадра: в карусели двенадцать одинаковых кнопок.
+  // Скринридеру — с именем кадра: в карусели десятки одинаковых кнопок.
   const named = name ? `${label}: ${name}` : undefined;
 
   const badges = (source || seconds > 0) && (

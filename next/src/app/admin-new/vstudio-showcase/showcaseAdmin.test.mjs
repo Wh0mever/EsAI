@@ -1,11 +1,13 @@
-// Админка, витрина видеостудии: разбор ответов сервера, тела запросов, порядок и карусель (showcaseAdmin.ts).
+// Админка, витрина видеостудии: разбор ответов сервера, тела запросов, порядок, карусель и её размер (showcaseAdmin.ts).
 // Запуск (Node 22.6+):  node --experimental-strip-types --test src/app/admin-new/vstudio-showcase/showcaseAdmin.test.mjs
-// Хук нужен одной проверке — сверке с первым экраном: его модули импортируют друг друга без расширения.
+// showcaseAdmin.ts берёт границы размера карусели у первого экрана — через алиас "@/…", которого Node не знает.
+// Поэтому хук идёт первой строкой, а сам модуль подключается динамически, уже после него.
 import "../../../lib/vstudio/nodeTsHooks.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync, readdirSync } from "node:fs";
-import {
+import { existsSync, readFileSync, readdirSync } from "node:fs";
+
+const {
   SCENARIOS,
   SHOWCASE_PATH,
   addBody,
@@ -24,9 +26,17 @@ import {
   planMove,
   previousOf,
   publicOrder,
+  reelSizeBody,
+  reelSizeError,
+  reelSizeExact,
+  reelSizeHint,
+  reelSizeQuick,
+  reelSizeStep,
+  reelSizeTyped,
+  savedReelSize,
   sortForNew,
   titleForScenario,
-} from "./showcaseAdmin.ts";
+} = await import("./showcaseAdmin.ts");
 
 // Строки в том виде, как их собирает core/vstudio/showcase.py (take_row, staff_json).
 const take = (over = {}) => ({
@@ -77,6 +87,9 @@ const listBody = (over = {}) => ({
     { key: "music", label: "Музыкальный клип" },
   ],
   public_limit: 48,
+  reel_size: 24,
+  reel_size_min: 5,
+  reel_size_max: 48,
   ...over,
 });
 
@@ -102,7 +115,7 @@ const SCENARIO_TABLE = [
   ["vertical", "Reels / TikTok"],
 ];
 
-/** Правило карусели, как на сайте: сервер отдаёт 48 работ, в карусели 12 мест, меньше 5 роликов она не показывает. */
+/** Правило карусели, как на сайте: сервер отдаёт 48 работ, мест 12 (пока владелец не выбрал другое число), меньше 5 роликов она не показывает. */
 const RULE = { limit: 48, size: 12, min: 5 };
 
 /** Ролик витрины в сценарии `category`; место в списке задаёт порядок массива. */
@@ -145,6 +158,7 @@ test("parseList: витрина, кандидаты, категории и ли�
   assert.equal(data.count, 73);
   assert.equal(data.pageSize, 50);
   assert.equal(data.publicLimit, 48);
+  assert.deepEqual(data.reelSize, { value: 24, min: 5, max: 48 });
   assert.deepEqual(data.categories.map((c) => c.label), ["Киносцена", "Музыкальный клип"]);
 });
 
@@ -168,11 +182,223 @@ test("parseList: чужое и битое пропускаем, а не пада
   assert.equal(data.count, 2, "без count — сколько пришло");
   assert.equal(data.pageSize, 50);
   assert.equal(data.publicLimit, 48);
+  assert.deepEqual(data.reelSize, { value: 12, min: 5, max: 48 }, "сервер прежней версии размера не присылает");
   assert.deepEqual(
     data.categories.map((c) => [c.key, c.label]),
     [...SCENARIO_TABLE, ["other", "Другое"]],
     "без списка сервера — запасной: двенадцать сценариев и «Другое»",
   );
+});
+
+test("размер карусели: число и границы — с сервера, без них — как у сайта", () => {
+  const size = (over) => parseList(listBody(over)).reelSize;
+  assert.deepEqual(size({}), { value: 24, min: 5, max: 48 });
+  assert.equal(size({ reel_size: 5 }).value, 5);
+  assert.equal(size({ reel_size: 48 }).value, 48);
+  // Не целое от 5 до 48 — настройки как будто нет: так же решит и первый экран.
+  for (const bad of [undefined, null, "24", true, 24.5, 4, 49, 0, -12, Number.NaN, {}, [24]]) {
+    assert.equal(size({ reel_size: bad }).value, 12, String(bad));
+  }
+  // Границы сервера уже, чем у сайта, — берём их: больше он всё равно не примет.
+  assert.deepEqual(size({ reel_size_min: 8, reel_size_max: 36 }), { value: 24, min: 8, max: 36 });
+  assert.deepEqual(size({ reel_size_min: 24, reel_size_max: 24 }), { value: 24, min: 24, max: 24 });
+  // Шире — не берём: такой размер сайт не покажет. Перепутанные и не числа — тоже как у сайта.
+  assert.deepEqual(size({ reel_size_min: 1, reel_size_max: 96 }), { value: 24, min: 5, max: 48 });
+  assert.deepEqual(size({ reel_size_min: 30, reel_size_max: 10 }), { value: 24, min: 5, max: 48 });
+  assert.deepEqual(size({ reel_size_min: "5", reel_size_max: null }), { value: 24, min: 5, max: 48 });
+  assert.deepEqual(size({ reel_size_min: 5.5, reel_size_max: true }), { value: 24, min: 5, max: 48 });
+});
+
+test("размер карусели: тело запроса, ответ сервера и отказ", () => {
+  assert.deepEqual(reelSizeBody(24), { reel_size: 24 });
+  assert.equal(typeof reelSizeBody(24).reel_size, "number", "строку сервер не примет");
+
+  assert.equal(savedReelSize({ reel_size: 36 }), 36);
+  const garbage = [null, "<html>", [], {}, { reel_size: "36" }, { reel_size: true }, { reel_size: 4 }, { reel_size: 49 }, { reel_size: 24.5 }];
+  for (const bad of garbage) assert.equal(savedReelSize(bad), null, JSON.stringify(bad));
+
+  // Текст отказа — как его пишет сервер (showcase._clean_reel_size): показываем дословно.
+  assert.equal(
+    reelSizeError({ status: 400, data: { detail: "Роликов в карусели — целое число от 5 до 48" } }),
+    "Роликов в карусели — целое число от 5 до 48",
+  );
+  assert.equal(reelSizeError({ status: 502, data: "<html>" }), "Не удалось сохранить размер карусели (HTTP 502)");
+  assert.match(reelSizeError({ status: 0, data: null }), /Нет связи/);
+  // Сервер прежней версии: PATCH на этот адрес он не знает, а его текст владельцу ничего не скажет.
+  assert.match(reelSizeError({ status: 405, data: { detail: 'Метод "PATCH" не разрешен.' } }), /Сервер ещё не обновлён/);
+});
+
+test("размер карусели: шаг, набранное число и быстрые значения не выходят за границы", () => {
+  const size = (value, min = 5, max = 48) => ({ value, min, max });
+  assert.equal(reelSizeStep(size(12), 1), 13);
+  assert.equal(reelSizeStep(size(12), -1), 11);
+  assert.equal(reelSizeStep(size(47), 1), 48);
+  assert.equal(reelSizeStep(size(48), 1), null, "больше некуда — кнопка гаснет");
+  assert.equal(reelSizeStep(size(5), -1), null, "меньше некуда");
+  // Число оказалось вне границ (сервер их сузил) — первый же шаг возвращает его в границы.
+  assert.equal(reelSizeStep(size(40, 5, 36), 1), 36);
+  assert.equal(reelSizeStep(size(40, 5, 36), -1), 36);
+
+  assert.equal(reelSizeTyped("24", size(12)), 24);
+  assert.equal(reelSizeTyped(" 18 ", size(12)), 18);
+  assert.equal(reelSizeTyped("100", size(12)), 48, "больше предела — предел");
+  assert.equal(reelSizeTyped("3", size(12)), 5);
+  assert.equal(reelSizeTyped("0", size(12)), 5);
+  assert.equal(reelSizeTyped("12", size(12)), 12);
+  for (const not of ["", "  ", "abc", "12.5", "-7", "1e2", "12 шт"]) {
+    assert.equal(reelSizeTyped(not, size(12)), null, `«${not}» — не число: человек передумал`);
+  }
+
+  assert.deepEqual(reelSizeQuick(size(12)), [12, 18, 24, 36, 48]);
+  assert.deepEqual(reelSizeQuick(size(12, 5, 24)), [12, 18, 24]);
+  assert.deepEqual(reelSizeQuick(size(20, 20, 40)), [24, 36]);
+});
+
+test("размер карусели: уход из поля сохраняет только число, годное как есть, — к границе подгоняет один Enter", () => {
+  const size = (value, min = 5, max = 48) => ({ value, min, max });
+  // Первая цифра любого из быстрых значений — меньше минимума. Набрали её и кликнули мимо
+  // (или сменили окно): Enter записал бы 5, и на сайт ушла бы карусель из пяти роликов.
+  for (const half of ["1", "2", "3", "4", "0"]) {
+    assert.equal(reelSizeTyped(half, size(12)), 5, `Enter: «${half}» — на ближнюю границу`);
+    assert.equal(reelSizeExact(half, size(12)), null, `уход из поля: «${half}» пропадает`);
+  }
+  assert.equal(reelSizeTyped("100", size(12)), 48);
+  assert.equal(reelSizeExact("100", size(12)), null);
+  assert.equal(reelSizeExact("49", size(12)), null);
+  // Число в границах сохраняется и без Enter: у цифровой клавиатуры телефона его нет.
+  assert.equal(reelSizeExact("5", size(12)), 5);
+  assert.equal(reelSizeExact("24", size(12)), 24);
+  assert.equal(reelSizeExact(" 18 ", size(12)), 18);
+  assert.equal(reelSizeExact("048", size(12)), 48);
+  assert.equal(reelSizeExact("12", size(12)), 12);
+  // Не число — «передумал», как и у Enter; null — в поле ничего не набирали.
+  for (const not of ["", "  ", "abc", "12.5", "-7", "1e2", "12 шт", null]) {
+    assert.equal(reelSizeExact(not, size(12)), null, String(not));
+  }
+  // Границы сервера уже — годится только то, что в них.
+  assert.equal(reelSizeExact("40", size(12, 5, 36)), null);
+  assert.equal(reelSizeExact("36", size(12, 5, 36)), 36);
+  // Всё, что уход из поля может сохранить, — ровно набранное число, и Enter сохранил бы его же.
+  for (let typed = 0; typed <= 999; typed++) {
+    const exact = reelSizeExact(String(typed), size(12));
+    assert.equal(exact, typed >= 5 && typed <= 48 ? typed : null, String(typed));
+    if (exact !== null) assert.equal(reelSizeTyped(String(typed), size(12)), exact);
+  }
+
+  // От этого же числа шагают − и + (ReelSizeControl): набрали 20, нажали «+» — 21, а не 13.
+  const from = (draft, saved) => ({ ...size(saved), value: reelSizeExact(draft, size(saved)) ?? saved });
+  assert.equal(reelSizeStep(from("20", 12), 1), 21);
+  assert.equal(reelSizeStep(from("20", 12), -1), 19);
+  assert.equal(reelSizeStep(from("48", 12), 1), null, "в поле уже предел — «+» гаснет");
+  // Недобранное в счёт не идёт: шаг от сохранённого.
+  assert.equal(reelSizeStep(from("4", 12), 1), 13);
+  assert.equal(reelSizeStep(from(null, 12), -1), 11);
+});
+
+test("размер карусели: присланное сервером показываем как есть, а просим только то, что он примет", async () => {
+  const site = await import("../../../components/vstudio/home/showreelData.ts");
+  const bounds = parseList({}).reelSize;
+  assert.deepEqual(bounds, { value: site.REEL_SIZE, min: site.REEL_MIN, max: site.REEL_MAX });
+
+  // Сервер отдаёт только целое в границах (чужое в базе он зажимает сам): у сайта,
+  // у доски панели и в ответе на сохранение оно остаётся тем же числом.
+  for (let n = site.REEL_MIN; n <= site.REEL_MAX; n++) {
+    assert.equal(site.clampReelSize(n), n);
+    assert.equal(site.reelSizeOf({ items: [], reel_size: n }), n);
+    assert.equal(parseList({ reel_size: n }).reelSize.value, n);
+    assert.equal(savedReelSize({ reel_size: n }), n);
+  }
+
+  // Всё, до чего можно дойти кнопками, полем и быстрыми значениями, — целое в
+  // тех же границах: число вне их сервер не зажмёт, а откажет.
+  const asked = new Set(reelSizeQuick(bounds));
+  for (let value = bounds.min; value <= bounds.max; value++) {
+    for (const by of [-1, 1]) {
+      const next = reelSizeStep({ ...bounds, value }, by);
+      if (next !== null) asked.add(next);
+    }
+  }
+  for (let typed = 0; typed <= 999; typed++) {
+    asked.add(reelSizeTyped(String(typed), bounds));
+    // Уход из поля просит то же число, что набрано, — или ничего.
+    const exact = reelSizeExact(String(typed), bounds);
+    if (exact !== null) asked.add(exact);
+  }
+  for (const value of asked) {
+    assert.ok(Number.isInteger(value) && value >= site.REEL_MIN && value <= site.REEL_MAX, String(value));
+    assert.deepEqual(reelSizeBody(value), { reel_size: value });
+  }
+  assert.equal(asked.size, site.REEL_MAX - site.REEL_MIN + 1, "и каждое допустимое число достижимо");
+});
+
+// Сервер лежит рядом с фронтендом не всегда (сборка одного next/): тогда сверку пропускаем.
+const SERVER_PY = {
+  showcase: new URL("../../../../../core/vstudio/showcase.py", import.meta.url),
+  panel: new URL("../../../../../core/adminapi/vstudio.py", import.meta.url),
+  site: new URL("../../../../../core/vstudio/views.py", import.meta.url),
+};
+
+test(
+  "размер карусели: границы и имена полей — те же, что в коде сервера",
+  { skip: Object.values(SERVER_PY).every((file) => existsSync(file)) ? false : "рядом нет core/ (только фронтенд)" },
+  async () => {
+    const site = await import("../../../components/vstudio/home/showreelData.ts");
+    const py = Object.fromEntries(Object.entries(SERVER_PY).map(([name, file]) => [name, readFileSync(file, "utf8")]));
+
+    // Числа живут в трёх местах: showcase.py, showreelData.ts и (через него) панель.
+    const constant = (name) => new RegExp(`^${name} = (\\S+)\\s*$`, "m").exec(py.showcase)?.[1];
+    assert.equal(constant("REEL_SIZE_MIN"), String(site.REEL_MIN));
+    assert.equal(constant("REEL_SIZE_DEFAULT"), String(site.REEL_SIZE));
+    assert.equal(constant("REEL_SIZE_MAX"), "MAX_PUBLIC");
+    assert.equal(constant("MAX_PUBLIC"), String(site.REEL_MAX));
+
+    // Имя поля берём из кода сервера и кладём в ответ — фронтенд обязан его прочитать.
+    const field = (source, value) => new RegExp(`"(\\w+)":\\s*${value}`).exec(source)?.[1];
+    const told = field(py.site, "showcase\\.reel_size\\(\\)");
+    assert.equal(told, "reel_size", "ответ сайту: GET vstudio/showcase/");
+    assert.equal(site.reelSizeOf({ items: [], [told]: 30 }), 30);
+
+    const staff = {
+      value: field(py.panel, "showcase\\.reel_size\\(\\)"),
+      min: field(py.panel, "showcase\\.REEL_SIZE_MIN\\b"),
+      max: field(py.panel, "showcase\\.REEL_SIZE_MAX\\b"),
+    };
+    assert.deepEqual(staff, { value: "reel_size", min: "reel_size_min", max: "reel_size_max" }, "ответ панели");
+    assert.deepEqual(parseList({ [staff.value]: 30, [staff.min]: 6, [staff.max]: 40 }).reelSize, { value: 30, min: 6, max: 40 });
+
+    // Сохранение: какое поле сервер читает из тела и каким отвечает.
+    const read = /size = data\["(\w+)"\]/.exec(py.showcase)?.[1];
+    const answered = field(py.panel, "size\\}");
+    assert.deepEqual([read, answered], ["reel_size", "reel_size"], "PATCH manage/vstudio/showcase/");
+    assert.deepEqual(Object.keys(reelSizeBody(30)), [read]);
+    assert.equal(savedReelSize({ [answered]: 30 }), 30);
+  },
+);
+
+test("подсказка под размером: сколько роликов есть и сходится ли это с числом мест", () => {
+  const rule = "Карусель берёт верхний ролик каждого сценария, затем остальные по порядку списка.";
+  const hint = (videos, size) => reelSizeHint({ videos, studio: Math.min(videos, size) >= 5 }, { size, min: 5 });
+
+  assert.deepEqual(hint(12, 12), { text: `${rule} Сейчас в витрине 12 включённых роликов.`, note: null });
+  assert.deepEqual(hint(12, 24), {
+    text: `${rule} Сейчас в витрине 12 включённых роликов.`,
+    note: "Роликов меньше, чем мест: карусель покажет 12.",
+  });
+  assert.equal(hint(30, 24).note, "Не вошло роликов: 6 — в списке они помечены «Вне карусели».");
+  assert.equal(hint(48, 48).note, null);
+  // Меньше пяти роликов карусель не показывает вовсе — «покажет 3» было бы неправдой.
+  assert.equal(hint(3, 12).note, "Роликов меньше 5: карусель пока показывает сцены мультстудии.");
+  assert.equal(hint(0, 12).note, "Роликов меньше 5: карусель пока показывает сцены мультстудии.");
+
+  // Число роликов любое — слова согласуются с ним.
+  const have = (videos) => hint(videos, 48).text.slice(rule.length + 1);
+  assert.equal(have(0), "Сейчас в витрине 0 включённых роликов.");
+  assert.equal(have(1), "Сейчас в витрине 1 включённый ролик.");
+  for (const n of [2, 3, 4, 22, 23, 24, 32, 44]) assert.equal(have(n), `Сейчас в витрине ${n} включённых ролика.`);
+  for (const n of [5, 9, 10, 11, 12, 13, 14, 19, 20, 25, 30, 40, 48]) {
+    assert.equal(have(n), `Сейчас в витрине ${n} включённых роликов.`);
+  }
+  for (const n of [21, 31, 41]) assert.equal(have(n), `Сейчас в витрине ${n} включённый ролик.`);
 });
 
 test("сценарии: двенадцать ключей в порядке карусели, как у сервера и первого экрана", () => {
@@ -487,6 +713,45 @@ test("carousel: мест двенадцать — сценарии вперед�
   assert.deepEqual(partial.order, [19, 18, 17, 16, 15, 14, 13, 12, 11, 10, 1, 2]);
 });
 
+test("carousel: размер меняет только то, где очередь обрезана", () => {
+  // Тридцать роликов: двенадцать сценариев в обратном порядке, шесть «Другое», затем ещё по одному на сценарий.
+  const keys = SCENARIOS.map((c) => c.key);
+  const list = [
+    ...keys.slice().reverse().map((key, i) => clip(i + 1, key)),
+    ...Array.from({ length: 6 }, (_, i) => clip(i + 13, "other")),
+    ...keys.map((key, i) => clip(i + 19, key)),
+  ];
+  const heads = [12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1];
+  const rest = Array.from({ length: 18 }, (_, i) => i + 13);
+  const at = (size) => carousel(list, { ...RULE, size });
+
+  for (const size of [5, 11, 12, 13, 18, 24, 30, 36, 48]) {
+    const reel = at(size);
+    assert.deepEqual(reel.queue, [...heads, ...rest], `размер ${size}: очередь от него не зависит`);
+    assert.deepEqual(reel.order, reel.queue.slice(0, size), `размер ${size}`);
+    assert.deepEqual({ filled: reel.filled, videos: reel.videos, studio: reel.studio }, { filled: 12, videos: 30, studio: true });
+    assert.deepEqual(reel.tail.map((x) => x.id), reel.order.slice(12), `размер ${size}: после сценариев — как в списке`);
+    assert.ok(reel.slots.every((slot) => slot.spare === 1));
+  }
+  assert.deepEqual(at(18).tail.map((x) => x.id), [13, 14, 15, 16, 17, 18]);
+  assert.equal(at(48).order.length, 30, "мест больше, чем роликов, — идут все");
+  assert.equal(at(48).tail.length, 18);
+
+  // Карусель короче, чем занятых сценариев: последние сняты, но посетитель их не увидит.
+  const short = at(5);
+  assert.deepEqual(short.order, [12, 11, 10, 9, 8]);
+  assert.deepEqual(short.slots.map((slot) => slot.fits), [true, true, true, true, true, false, false, false, false, false, false, false]);
+  assert.deepEqual(short.tail, []);
+  assert.ok(at(12).slots.every((slot) => slot.fits));
+  assert.equal(carousel([], RULE).slots.some((slot) => slot.fits), false, "пустой сценарий никуда не «вошёл»");
+
+  // Метки строк: кто в карусели, а кто в очереди дальше выбранного размера.
+  const places = placesOf(list, RULE.limit, at(24));
+  for (const id of at(24).queue.slice(0, 24)) assert.equal(places.get(id), "reel", `работа ${id}`);
+  for (const id of [25, 26, 27, 28, 29, 30]) assert.equal(places.get(id), "out", `работа ${id}`);
+  assert.ok([...placesOf(list, RULE.limit, at(48)).values()].every((place) => place === "reel"));
+});
+
 test("carousel: ключи до переименования считаются новыми сценариями", () => {
   const reel = carousel([clip(1, "social"), clip(2, "anime"), clip(3, "anim"), clip(4, "неизвестный")], RULE);
   const slot = (key) => reel.slots.find((x) => x.key === key);
@@ -497,7 +762,7 @@ test("carousel: ключи до переименования считаются 
   assert.deepEqual(reel.order, [2, 1, 3, 4]);
 });
 
-test("carousel: панель собирает карусель так же, как первый экран", async () => {
+test("carousel: панель собирает карусель так же, как первый экран, — при любом её размере", async () => {
   // Правило карусели живёт на сайте (home/showreelData.ts), панель его
   // повторяет. Разойдутся — доска покажет не то, что видит посетитель.
   const site = await import("../../../components/vstudio/home/showreelData.ts");
@@ -538,16 +803,27 @@ test("carousel: панель собирает карусель так же, ка
   });
   assert.equal(scenes.length, 8);
 
+  // Размер и его границы панель берёт у сайта: без настройки сервера — те же числа.
+  assert.deepEqual([site.REEL_SIZE, site.REEL_MIN, site.REEL_MAX], [12, 5, 48]);
+  assert.deepEqual(parseList({}).reelSize, { value: site.REEL_SIZE, min: site.REEL_MIN, max: site.REEL_MAX });
+  for (const told of [undefined, null, 5, 12, 30, 48, 4, 49, "24", 24.5, true]) {
+    assert.equal(parseList({ reel_size: told }).reelSize.value, site.clampReelSize(told), String(told));
+  }
+
   const pool = [...SCENARIOS.map((c) => c.key), "other", "other", "social", "anime", "чужой"];
   let seed = 20261008;
   const rnd = (n) => {
     seed = (seed * 1103515245 + 12345) % 2147483648;
     return seed % n;
   };
-  let studioRounds = 0;
-  for (let round = 0; round < 400; round++) {
-    const rule = { limit: round % 4 === 0 ? 9 : 48, size: site.REEL_SIZE, min: site.REEL_MIN };
-    const list = Array.from({ length: rnd(26) }, (_, i) =>
+  const sizes = site.REEL_MAX - site.REEL_MIN + 1;
+  const seen = { studio: 0, cut: 0, spare: 0, sizes: new Set() };
+  for (let round = 0; round < 600; round++) {
+    // Каждый третий раунд — размер по умолчанию, остальные перебирают все допустимые по кругу.
+    const size = round % 3 === 0 ? site.REEL_SIZE : site.REEL_MIN + (round % sizes);
+    const rule = { limit: round % 4 === 0 ? 9 : 48, size, min: site.REEL_MIN };
+    // Витрины и короткие, и длиннее самой большой карусели: в ней должно бывать и тесно, и пусто.
+    const list = Array.from({ length: rnd(round % 2 ? 70 : 20) }, (_, i) =>
       clip(i + 1, pool[rnd(pool.length)], {
         ...(rnd(6) === 0 ? PICTURE : {}),
         visible: rnd(7) !== 0,
@@ -555,17 +831,70 @@ test("carousel: панель собирает карусель так же, ка
       }),
     );
     const panel = carousel(list, rule);
-    const view = site.buildShowreel(site.studioItems(sitePayload(list, rule.limit)), scenes);
+    const studio = site.studioItems(sitePayload(list, rule.limit));
+    const view = site.buildShowreel(studio, scenes, size);
+    if (size === site.REEL_SIZE) assert.deepEqual(view, site.buildShowreel(studio, scenes), `раунд ${round}: без размера — двенадцать`);
     if (panel.studio) {
-      studioRounds++;
+      seen.studio++;
+      seen.sizes.add(size);
+      if (panel.videos > size) seen.cut++;
+      if (panel.videos < size) seen.spare++;
       assert.equal(view.source, "vstudio", `раунд ${round}`);
-      assert.deepEqual(view.reel.map((x) => x.id), panel.order.map((id) => `vs:${id}`), `раунд ${round}`);
+      assert.deepEqual(view.reel.map((x) => x.id), panel.order.map((id) => `vs:${id}`), `раунд ${round}, размер ${size}`);
     } else {
       assert.equal(view.source, "cartoon", `раунд ${round}`);
       assert.ok(view.reel.every((x) => x.source === "cartoon"), `раунд ${round}: ролики студии со сценами не смешиваются`);
     }
   }
-  assert.ok(studioRounds > 100 && studioRounds < 300, "проверены обе карусели — и студии, и мультстудии");
+  assert.ok(seen.studio > 150 && seen.studio < 550, "проверены обе карусели — и студии, и мультстудии");
+  assert.ok(seen.cut > 50 && seen.spare > 50, "и когда роликов больше, чем мест, и когда меньше");
+  assert.equal(seen.sizes.size, sizes, "и при каждом допустимом размере");
+
+  // Те же размеры, что владелец выбирает на деле, — на одной витрине и с ответом
+  // в числах: случайные раунды говорят «совпало», но не говорят, с чем.
+  // Шестьдесят работ: восемь «Другое» сверху, под ними двенадцать сценариев в
+  // обратном порядке и ещё по ролику на сценарий, картинка, скрытая, без файла,
+  // дальше вперемешку. Сайту уходят первые 48 видимых — одно место в них у картинки.
+  const keys = SCENARIOS.map((c) => c.key);
+  const mixed = ["other", "social", "anime", "чужой", "film"];
+  const showcase = [
+    ...Array.from({ length: 8 }, (_, i) => clip(i + 1, "other")),
+    ...keys.slice().reverse().map((key, i) => clip(i + 9, key)),
+    ...keys.map((key, i) => clip(i + 21, key)),
+    clip(33, "ad", PICTURE),
+    clip(34, "car", { visible: false }),
+    clip(35, "music", { available: false }),
+    ...Array.from({ length: 25 }, (_, i) => clip(i + 36, mixed[i % mixed.length])),
+  ];
+  const span = (from, to) => Array.from({ length: to - from + 1 }, (_, i) => from + i);
+  const heads = span(9, 20).reverse();
+  const queue = [...heads, ...span(1, 8), ...span(21, 32), ...span(36, 50)];
+  assert.equal(queue.length, 47, "мест 48, роликов сайту ушло 47");
+  const sent = sitePayload(showcase, 48);
+  assert.equal(sent.items.length, 48);
+  const idsAt = (places, place) => showcase.filter((x) => places.get(x.id) === place).map((x) => x.id);
+  const byId = (a, b) => a - b;
+
+  for (const size of [5, 12, 13, 24, 48]) {
+    // Число приходит обеим сторонам одним полем: сайту — в ответе витрины, панели — в её списке.
+    const onSite = site.reelSizeOf({ ...sent, reel_size: size });
+    const onPanel = parseList({ reel_size: size, public_limit: 48 });
+    assert.deepEqual([onSite, onPanel.reelSize.value], [size, size]);
+
+    const panel = carousel(showcase, { limit: onPanel.publicLimit, size: onPanel.reelSize.value, min: site.REEL_MIN });
+    const view = site.buildShowreel(site.studioItems(sent), scenes, onSite);
+    assert.deepEqual(panel.queue, queue, `размер ${size}: очередь от него не зависит`);
+    assert.deepEqual(panel.order, queue.slice(0, size), `размер ${size}`);
+    assert.equal(view.source, "vstudio", `размер ${size}`);
+    assert.deepEqual(view.reel.map((x) => x.id), panel.order.map((id) => `vs:${id}`), `размер ${size}: сайт и панель`);
+
+    // Метки строк говорят то же: в карусели — кто вошёл, «вне» — остаток очереди.
+    const places = placesOf(showcase, onPanel.publicLimit, panel);
+    assert.deepEqual(idsAt(places, "reel").sort(byId), queue.slice(0, size).sort(byId), `размер ${size}: метки`);
+    assert.deepEqual(idsAt(places, "out").sort(byId), queue.slice(size).sort(byId), `размер ${size}: вне карусели`);
+    assert.deepEqual(idsAt(places, "over"), span(51, 60), `размер ${size}: сайту не ушли`);
+    assert.deepEqual([places.get(33), places.get(34), places.get(35)], ["image", "hidden", "nofile"]);
+  }
 });
 
 test("placesOf: где работа сейчас на сайте", () => {
@@ -582,22 +911,26 @@ test("placesOf: где работа сейчас на сайте", () => {
   const waiting = placesOf(few, RULE.limit, carousel(few, RULE));
   assert.deepEqual(
     [...waiting],
-    [[101, "hidden"], [102, "nofile"], [103, "nofile"], [104, "out"], [1, "wait"], [2, "wait"], [3, "wait"], [4, "wait"]],
+    [[101, "hidden"], [102, "nofile"], [103, "nofile"], [104, "image"], [1, "wait"], [2, "wait"], [3, "wait"], [4, "wait"]],
   );
 
   // Роликов четырнадцать: двенадцать в карусели, двум места не хватило.
   const many = [...base, ...keys.map((key, i) => clip(i + 1, key)), clip(13, "film"), clip(14, "other")];
   const places = placesOf(many, RULE.limit, carousel(many, RULE));
-  assert.equal(places.get(104), "out", "картинка в карусель не идёт");
+  assert.equal(places.get(104), "image", "картинка в карусель не идёт — при любом её размере");
   for (let id = 1; id <= 12; id++) assert.equal(places.get(id), "reel");
   assert.equal(places.get(13), "out");
   assert.equal(places.get(14), "out");
   assert.equal(places.size, many.length, "место есть у каждой работы");
 
+  // Мест стало четырнадцать — вошли оба, картинка по-прежнему нет.
+  const wider = placesOf(many, RULE.limit, carousel(many, { ...RULE, size: 14 }));
+  assert.deepEqual([wider.get(13), wider.get(14), wider.get(104)], ["reel", "reel", "image"]);
+
   // Сервер отдаёт только первые limit видимых работ — остальные до сайта не доходят.
   const cut = { ...RULE, limit: 6 };
   const over = placesOf(many, cut.limit, carousel(many, cut));
-  assert.equal(over.get(104), "out");
+  assert.equal(over.get(104), "image");
   assert.equal(over.get(5), "reel", "пять роликов отдано — карусель есть");
   assert.equal(over.get(6), "over");
   assert.equal(over.get(14), "over");
@@ -641,7 +974,8 @@ test("имена полей сервера знает только showcaseAdmin
   // Обещание модуля: сменилось имя поля — правится один файл. Сторожим его:
   // компоненты страницы не должны читать ответ сервера сами.
   const dir = new URL("./", import.meta.url);
-  const server = /\b(is_active|show_prompt|user_email|user_is_staff|public_ok|poster_url|video_url|image_url|start_frame_url|created_by_email|page_size|public_limit)\b/;
+  const server =
+    /\b(is_active|show_prompt|user_email|user_is_staff|public_ok|poster_url|video_url|image_url|start_frame_url|created_by_email|page_size|public_limit|reel_size|reel_size_min|reel_size_max)\b/;
   for (const name of readdirSync(dir)) {
     if (!name.endsWith(".tsx")) continue;
     const source = readFileSync(new URL(name, dir), "utf8");

@@ -92,9 +92,10 @@ const HOST_SELECTOR = "[data-vs-clip-host]";
 /**
  * Пустой кадр (картинки нет или она ещё не пришла). На светлой сцене тон на
  * ступень темнее, чем у карточек: кадр карусели лежит прямо на «бумаге», и
- * более светлая заглушка на ней пропала бы.
+ * более светлая заглушка на ней пропала бы. Снаружи нужен ленте карусели: её
+ * дальние кадры — такие же пустые рамки, без самого LazyClip.
  */
-const BLANK = "bg-surface-3 dark:bg-surface-2";
+export const CLIP_BLANK = "bg-surface-3 dark:bg-surface-2";
 /**
  * Подложка под кадром. Картинка проявляется за полсекунды. В тёмной теме она
  * проявляется из чёрного — как и было. На светлой странице чёрная плитка на
@@ -367,7 +368,7 @@ export default function LazyClip({
           aria-hidden
           className={vx(
             "absolute inset-0 grid place-items-center text-2xl text-vs-ink/20",
-            loading && seen ? "vs-film" : BLANK,
+            loading && seen ? "vs-film" : CLIP_BLANK,
           )}
         >
           {!loading && <FiFilm />}

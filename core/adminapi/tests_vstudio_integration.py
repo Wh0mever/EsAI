@@ -55,6 +55,23 @@ class VstudioModeSettingTests(TestCase):
         self.assertEqual(res.status_code, 400)
         self.assertEqual(self._call("GET").data["vstudio_mode_override"], "")
 
+    def test_carousel_size_is_not_a_general_setting(self):
+        # Размер карусели меняет панель витрины (PATCH vstudio/showcase/) — там
+        # проверка границ и журнал. Общий PATCH настроек про ключ не знает:
+        # иначе через него прошли бы и «2», и «500».
+        from adminapi.models import AppSetting
+        from adminapi.runtime import KEYS
+        from vstudio import showcase
+
+        self.assertIn(showcase.REEL_SIZE_KEY, KEYS)
+        res = self._call("PATCH", {showcase.REEL_SIZE_KEY: 2, "reel_size": 500})
+        self.assertEqual(res.status_code, 200)
+        self.assertFalse(AppSetting.objects.filter(key=showcase.REEL_SIZE_KEY).exists())
+        self.assertEqual(showcase.reel_size(), showcase.REEL_SIZE_DEFAULT)
+        snapshot = self._call("GET").data
+        self.assertNotIn(showcase.REEL_SIZE_KEY, snapshot)
+        self.assertNotIn("reel_size", snapshot)
+
 
 class GPTModelAdminSerializerVstudioTests(TestCase):
     def setUp(self):

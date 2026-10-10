@@ -1,42 +1,62 @@
 "use client";
 
 import { FiChevronDown, FiChevronUp, FiTrash2 } from "react-icons/fi";
-import { REEL_MIN, REEL_SIZE } from "@/components/vstudio/home/showreelData";
+import { REEL_MIN } from "@/components/vstudio/home/showreelData";
 import { Badge, CARD, INPUT, Preview, StartFrame, Switch, btn, fmtDate, mediaFacts, type Tone } from "./parts";
 import { TITLE_MAX, type Category, type ItemChanges, type Place, type ShowcaseItem } from "./showcaseAdmin";
 
-const PLACE: Record<Place, { tone: Tone; label: string; title: string }> = {
-  reel: {
-    tone: "accent",
-    label: "В карусели",
-    title: "Идёт в карусели первого экрана видеостудии",
-  },
-  wait: {
-    tone: "wait",
-    label: "Ждёт карусели",
-    title: `Карусель покажет ролики студии, когда их станет не меньше ${REEL_MIN}, — пока в ней сцены мультстудии`,
-  },
-  out: {
-    tone: "wait",
-    label: "Вне карусели",
-    title: `Посетители её сейчас не видят: в карусели ${REEL_SIZE} роликов — верхний из каждого сценария, затем остальные по порядку; картинки в неё не идут`,
-  },
-  hidden: {
-    tone: "muted",
-    label: "Скрыта",
-    title: "Посетители её не видят: переключатель «Видна» выключен",
-  },
-  over: {
-    tone: "wait",
-    label: "Не поместилась",
-    title: "Сайту уходят только первые видимые работы — поднимите эту выше или скройте лишние",
-  },
-  nofile: {
-    tone: "fail",
-    label: "Файл удалён",
-    title: "Автор удалил результат дубля — посетителям работа не показывается",
-  },
-};
+/**
+ * Метка «где работа на сайте». frame — номер ролика в очереди карусели,
+ * size — сколько в ней мест: номер не совпадает с местом в списке, потому что
+ * карусель сначала берёт по ролику на сценарий.
+ */
+function placeBadge(place: Place, frame: number, size: number): { tone: Tone; label: string; title: string } {
+  switch (place) {
+    case "reel":
+      return {
+        tone: "accent",
+        label: `В карусели · кадр ${frame}`,
+        title:
+          "Идёт в карусели первого экрана видеостудии. Номер кадра — место в ней: сначала верхний ролик каждого сценария, затем остальные по порядку списка",
+      };
+    case "wait":
+      return {
+        tone: "wait",
+        label: "Ждёт карусели",
+        title: `Карусель покажет ролики студии, когда их станет не меньше ${REEL_MIN}, — пока в ней сцены мультстудии`,
+      };
+    case "out":
+      return {
+        tone: "wait",
+        label: `Вне карусели: мест ${size}`,
+        title: `Посетители его сейчас не видят: мест в карусели ${size}, а этот ролик в её очереди ${frame}-й. Поднимите его выше или увеличьте «Роликов в карусели»`,
+      };
+    case "image":
+      return {
+        tone: "wait",
+        label: "Вне карусели: картинка",
+        title: "Посетители её сейчас не видят: карусель первого экрана берёт только ролики",
+      };
+    case "hidden":
+      return {
+        tone: "muted",
+        label: "Скрыта",
+        title: "Посетители её не видят: переключатель «Видна» выключен",
+      };
+    case "over":
+      return {
+        tone: "wait",
+        label: "Не поместилась",
+        title: "Сайту уходят только первые видимые работы — поднимите эту выше или скройте лишние",
+      };
+    case "nofile":
+      return {
+        tone: "fail",
+        label: "Файл удалён",
+        title: "Автор удалил результат дубля — посетителям работа не показывается",
+      };
+  }
+}
 
 const ORDER_BTN =
   "flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg border border-border text-muted transition-colors enabled:hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40 sm:h-7 sm:w-9";
@@ -46,6 +66,10 @@ type Props = {
   index: number;
   total: number;
   place: Place;
+  /** Номер ролика в очереди карусели, с единицы; 0 — в очередь он не идёт (картинка, скрыт, без файла). */
+  frame: number;
+  /** Сколько роликов показывает карусель. */
+  reelSize: number;
   categories: Category[];
   /** Запрос по этой работе в пути — её поля ждут ответа. */
   busy: boolean;
@@ -61,6 +85,8 @@ export default function ItemRow({
   index,
   total,
   place,
+  frame,
+  reelSize,
   categories,
   busy,
   orderLocked,
@@ -68,7 +94,7 @@ export default function ItemRow({
   onMove,
   onRemove,
 }: Props) {
-  const badge = PLACE[place];
+  const badge = placeBadge(place, frame, reelSize);
 
   const commitTitle = (field: HTMLInputElement) => {
     const value = field.value.trim();

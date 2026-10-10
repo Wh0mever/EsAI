@@ -1,13 +1,14 @@
 "use client";
 
 import { memo, useCallback, useEffect, useRef, useState } from "react";
-import type { KeyboardEvent } from "react";
+import type { KeyboardEvent, MouseEvent } from "react";
 import { useTranslation } from "react-i18next";
+import { FiChevronLeft, FiChevronRight } from "react-icons/fi";
 import { SegmentFill } from "../../ui/Segments";
 import { VS_FOCUS, vx } from "../../ui/skin";
 import { prefersReducedMotion, useReducedMotion } from "../../ui/useAutoplayAllowed";
 import { EDGE_FADE, useEdgeFade } from "../strip/useEdgeFade";
-import { railScroll } from "./reelMath";
+import { railArrows, railScroll } from "./reelMath";
 
 /**
  * Ряд названий под каруселью роликов студии: у каждого ролика — свой чип
@@ -16,10 +17,19 @@ import { railScroll } from "./reelMath";
  * любому. Под активным чипом — та же золотая полоска, что заполняла сегмент
  * (SegmentFill): часы у карусели по-прежнему одни, и листает она по ним.
  *
- * Ряд один. Двенадцать названий на большинстве экранов не помещаются — тогда
- * он прокручивается вбок, а активный чип сам встаёт посередине. Двигаем только
- * сам ряд (scrollTo): scrollIntoView потянул бы за собой и ленту студии.
- * Вверх-вниз ряд не прокручивается, и страница под пальцем идёт как обычно.
+ * Ряд один. Названий бывает до 48, и уже двенадцать на большинстве экранов не
+ * помещаются — тогда он прокручивается вбок, а активный чип сам встаёт
+ * посередине. Двигаем только сам ряд (scrollTo): scrollIntoView потянул бы за
+ * собой и ленту студии. Вверх-вниз ряд не прокручивается, и страница под
+ * пальцем идёт как обычно.
+ *
+ * Пальцем и тачпадом ряд листают вбок, а колесо обычной мыши ведёт страницу.
+ * Поэтому у длинного ряда (reelMath.railArrows) на экранах от 768 px по краям
+ * стоят стрелки: они листают только ряд, активный ролик остаётся на месте.
+ * Стрелки — для мыши: в обход по Tab и в разметку вкладок они не входят
+ * (с клавиатуры ряд листают клавиши), потому и роль tablist — у прокручиваемого
+ * блока, а не у корня, где они лежат. В корне же они остаются под его паузой:
+ * пока курсор на стрелке, карусель не листается и ряд назад не уводит.
  *
  * Активный чип отличается цветом и полоской, но не жирностью: иначе соседние
  * названия вздрагивали бы при каждой смене ролика.
@@ -56,11 +66,23 @@ const TRACK = "relative block h-0.5 w-full overflow-hidden rounded-full transiti
  * На сцене он меняется сразу, на телефоне — когда лента доедет до кадра.
  */
 const FOLLOW_MS = 1500;
+/**
+ * Стрелка у края ряда. Заливка непрозрачная: под стрелкой гаснет край ряда
+ * (EDGE_FADE), и бледные названия не должны просвечивать сквозь неё.
+ */
+const ARROW =
+  "absolute top-1/2 hidden size-7 -translate-y-1/2 cursor-pointer place-items-center rounded-full border border-vs-ink/12 bg-surface text-muted shadow-sm transition-colors hover:border-vs-ink/25 hover:text-foreground motion-reduce:transition-none md:grid dark:bg-surface-3";
+/**
+ * Нажатие на стрелку фокус не забирает. Иначе он ушёл бы на кнопку, которой
+ * для скринридера нет, а сцена решила бы, что человек в ряду названий, и
+ * перестала бы называть кадры сама (ReelStage, railFocus).
+ */
+const keepFocus = (e: MouseEvent) => e.preventDefault();
 
 function ScenarioRail({ names, active, progressMs, paused, onProgressEnd, onSelect }: ScenarioRailProps) {
   const { t } = useTranslation("vstudio", { useSuspense: false });
   const reduced = useReducedMotion();
-  const { attach, fade } = useEdgeFade<HTMLDivElement>();
+  const { attach, fade, page } = useEdgeFade<HTMLDivElement>();
   const root = useRef<HTMLDivElement>(null);
   const row = useRef<HTMLDivElement | null>(null);
   const settled = useRef(false);
@@ -122,12 +144,12 @@ function ScenarioRail({ names, active, progressMs, paused, onProgressEnd, onSele
 
   if (total <= 1) return null;
 
+  const arrows = railArrows(total, fade);
+
   return (
     <div
       ref={root}
-      role="tablist"
-      aria-label={t("home.reel.rail", { defaultValue: "Сценарии роликов" })}
-      className="h-full w-full"
+      className="relative h-full w-full"
       onPointerEnter={() => setHover(true)}
       onPointerLeave={() => setHover(false)}
       onTouchStart={() => setTouching(true)}
@@ -137,6 +159,8 @@ function ScenarioRail({ names, active, progressMs, paused, onProgressEnd, onSele
     >
       <div
         ref={mount}
+        role="tablist"
+        aria-label={t("home.reel.rail", { defaultValue: "Сценарии роликов" })}
         className={vx("vs-noscroll h-full overflow-x-auto overflow-y-hidden overscroll-x-contain", EDGE_FADE[fade])}
       >
         {/* Помещается целиком — стоит по центру; не помещается — начинается от левого края. */}
@@ -187,6 +211,30 @@ function ScenarioRail({ names, active, progressMs, paused, onProgressEnd, onSele
           })}
         </div>
       </div>
+      {arrows.prev && (
+        <button
+          type="button"
+          aria-hidden
+          tabIndex={-1}
+          onMouseDown={keepFocus}
+          onClick={() => page(-1)}
+          className={vx(ARROW, "left-1")}
+        >
+          <FiChevronLeft />
+        </button>
+      )}
+      {arrows.next && (
+        <button
+          type="button"
+          aria-hidden
+          tabIndex={-1}
+          onMouseDown={keepFocus}
+          onClick={() => page(1)}
+          className={vx(ARROW, "right-1")}
+        >
+          <FiChevronRight />
+        </button>
+      )}
     </div>
   );
 }

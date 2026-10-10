@@ -172,6 +172,89 @@ test("кэш живёт 10 минут; неудачный ответ — 30 се
   assert.equal(R.peekShowreel("ru").reel.length, 5);
 });
 
+const THIRTY = Array.from({ length: 30 }, (_, i) => i + 1);
+
+test("размер карусели приходит с витриной: сервер прежней версии его не шлёт — тогда 12", async () => {
+  routes["vstudio/showcase/"] = () => json(200, { ...showcaseBody(THIRTY), reel_size: 24 });
+  await R.loadShowreel("ru");
+  const view = R.peekShowreel("ru");
+  assert.equal(view.source, "vstudio");
+  assert.deepEqual(view.reel.map((i) => i.id), THIRTY.slice(0, 24).map((n) => `vs:${n}`));
+
+  // Поля нет или в нём не размер — карусель в двенадцать роликов, как была.
+  for (const body of [{}, { reel_size: "24" }, { reel_size: 49 }, { reel_size: 4 }, { reel_size: 24.5 }, { reel_size: null }, { reel_size: true }]) {
+    R.resetShowreelCache();
+    routes["vstudio/showcase/"] = () => json(200, { ...showcaseBody(THIRTY), ...body });
+    await R.loadShowreel("ru");
+    assert.equal(R.peekShowreel("ru").reel.length, 12, JSON.stringify(body));
+  }
+
+  // Размер — потолок: роликов меньше — карусель из тех, что есть.
+  R.resetShowreelCache();
+  routes["vstudio/showcase/"] = () => json(200, { ...showcaseBody(THIRTY), reel_size: 48 });
+  await R.loadShowreel("ru");
+  assert.equal(R.peekShowreel("ru").reel.length, 30);
+});
+
+test("владелец сменил размер, не тронув роликов, — карусель перерисовывается; тот же размер — нет", async () => {
+  let now = 1_000_000;
+  Date.now = () => now;
+  let size = 12;
+  routes["vstudio/showcase/"] = () => json(200, { ...showcaseBody(THIRTY), reel_size: size });
+  await R.loadShowreel("ru");
+  const twelve = R.peekShowreel("ru");
+  assert.equal(twelve.reel.length, 12);
+
+  now += R.SHOWREEL_TTL_MS + 1;
+  await R.loadShowreel("ru");
+  assert.equal(R.peekShowreel("ru"), twelve, "ответ тот же — тот же объект");
+
+  size = 24;
+  now += R.SHOWREEL_TTL_MS + 1;
+  await R.loadShowreel("ru");
+  const wide = R.peekShowreel("ru");
+  assert.notEqual(wide, twelve);
+  assert.equal(wide.reel.length, 24);
+  // Первые двенадцать — те же ролики на тех же местах: карусель дополнилась, а не перемешалась.
+  assert.deepEqual(wide.reel.slice(0, 12).map((i) => i.id), twelve.reel.map((i) => i.id));
+
+  size = 5;
+  now += R.SHOWREEL_TTL_MS + 1;
+  await R.loadShowreel("ru");
+  assert.equal(R.peekShowreel("ru").reel.length, 5);
+});
+
+test("витрина не ответила при обновлении: размер карусели остаётся прежним, а не падает до 12", async () => {
+  let now = 1_000_000;
+  Date.now = () => now;
+  routes["vstudio/showcase/"] = () => json(200, { ...showcaseBody(THIRTY), reel_size: 24 });
+  await R.loadShowreel("ru");
+  const wide = R.peekShowreel("ru");
+  assert.equal(wide.reel.length, 24);
+
+  // Сбой витрины при том же ответе мультстудии: ничего не изменилось — тот же объект.
+  now += R.SHOWREEL_TTL_MS + 1;
+  routes["vstudio/showcase/"] = () => json(503, {});
+  await R.loadShowreel("ru");
+  assert.equal(R.peekShowreel("ru"), wide);
+
+  // Сбой витрины, а сцены мультстудии сменились: карусель собирается заново — с прежними роликами и прежним размером.
+  now += R.SHOWREEL_RETRY_MS + 1;
+  routes["cartoon/presets/"] = () => json(200, presetsBody("ru", 9));
+  await R.loadShowreel("ru");
+  const rebuilt = R.peekShowreel("ru");
+  assert.notEqual(rebuilt, wide);
+  assert.equal(rebuilt.source, "vstudio");
+  assert.deepEqual(rebuilt.reel.map((i) => i.id), wide.reel.map((i) => i.id));
+
+  // Витрина не ответила с самого начала — размеру взяться неоткуда: 12 сцен мультстудии, как раньше.
+  R.resetShowreelCache();
+  routes["cartoon/presets/"] = () => json(200, presetsBody("ru", 20));
+  await R.loadShowreel("ru");
+  assert.equal(R.peekShowreel("ru").source, "cartoon");
+  assert.equal(R.peekShowreel("ru").reel.length, 12);
+});
+
 test("вернулась сеть: неудачный ответ перезапрашиваем сразу, удачный — нет", async () => {
   routes["cartoon/presets/"] = () => json(404, {});
   await R.loadShowreel("ru");

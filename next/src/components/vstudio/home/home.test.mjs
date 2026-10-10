@@ -298,6 +298,85 @@ test("карусель: первый ролик каждого сценария,
   assert.deepEqual(ids(many.reel), Array.from({ length: 12 }, (_, i) => `vs:${i + 1}`));
 });
 
+/* ---------- размер карусели — настройка владельца ---------- */
+
+test("размер карусели: целое от 5 до 48, всё остальное — 12", () => {
+  assert.deepEqual([S.REEL_MIN, S.REEL_SIZE, S.REEL_MAX], [5, 12, 48]);
+  for (const ok of [5, 6, 12, 18, 24, 36, 47, 48]) assert.equal(S.clampReelSize(ok), ok);
+  // За границами — не ближайшая граница, а размер по умолчанию: такое число настройкой не было.
+  for (const out of [4, 0, -12, 49, 480, Infinity, -Infinity]) assert.equal(S.clampReelSize(out), 12, String(out));
+  for (const junk of [24.5, NaN, "24", "", null, undefined, true, false, [24], { size: 24 }, 24n, () => 24]) {
+    assert.equal(S.clampReelSize(junk), 12, String(junk));
+  }
+});
+
+test("размер карусели из ответа витрины: поле reel_size; сервер прежней версии его не присылает", () => {
+  assert.equal(S.reelSizeOf({ items: [], reel_size: 24 }), 24);
+  assert.equal(S.reelSizeOf({ items: [], reel_size: 48 }), 48);
+  assert.equal(S.reelSizeOf({ items: [] }), 12);
+  for (const bad of [{ reel_size: "24" }, { reel_size: 49 }, { reel_size: 4 }, { reel_size: null }, { reelSize: 24 }]) {
+    assert.equal(S.reelSizeOf(bad), 12, JSON.stringify(bad));
+  }
+  for (const bad of [null, undefined, "", 24, [], [{ reel_size: 24 }]]) assert.equal(S.reelSizeOf(bad), 12, String(bad));
+});
+
+test("карусель студии режется по размеру владельца; без него — 12, как раньше", () => {
+  const studio = works(48, (i) => ({ category: C.SCENARIOS[i % 12] }));
+  assert.equal(studio.length, 48);
+  assert.equal(S.buildShowreel(studio, scenes(30)).reel.length, 12);
+  for (const size of [5, 12, 13, 24, 36, 48]) {
+    const view = S.buildShowreel(studio, scenes(30), size);
+    assert.equal(view.source, "vstudio", String(size));
+    assert.equal(view.reel.length, size, String(size));
+    assert.equal(new Set(ids(view.reel)).size, size, String(size));
+  }
+  // Больше, чем есть роликов, карусель не станет.
+  assert.equal(S.buildShowreel(studio.slice(0, 20), [], 48).reel.length, 20);
+  // Негодный размер — 12, а не «сколько дали»: тройка увела бы карусель к мультстудии.
+  for (const bad of [3, 0, 49, 24.5, NaN, "24", null]) {
+    const view = S.buildShowreel(studio, scenes(30), bad);
+    assert.deepEqual([view.source, view.reel.length], ["vstudio", 12], String(bad));
+  }
+  // Тот же размер — та же карусель, что и без него: для 12 ничего не меняется.
+  assert.deepEqual(S.buildShowreel(studio, scenes(30), 12), S.buildShowreel(studio, scenes(30)));
+});
+
+test("большая карусель: первый ролик каждого сценария, затем остальные в порядке владельца — и за первой дюжиной", () => {
+  // Владелец расставил: две киносцены, работа без сценария, три рекламы, автомобиль, ещё «Другое» и киносцена.
+  const order = ["film", "film", "other", "ad", "ad", "ad", "car", "other", "film"];
+  const studio = works(order.length, (i) => ({ category: order[i] }));
+  const all = S.buildShowreel(studio, [], 48);
+  assert.deepEqual(ids(all.reel), ["vs:1", "vs:4", "vs:7", "vs:2", "vs:3", "vs:5", "vs:6", "vs:8", "vs:9"]);
+  // Размер режет хвост, а не начало: блок «по одному на сценарий» остаётся целым.
+  assert.deepEqual(ids(S.buildShowreel(studio, [], 5).reel), ["vs:1", "vs:4", "vs:7", "vs:2", "vs:3"]);
+
+  // Сорок восемь роликов двенадцати сценариев: дюжина в порядке сценариев, остальные 36 — в порядке сервера.
+  const full = works(48, (i) => ({ category: C.SCENARIOS[11 - (i % 12)] }));
+  const reel = S.buildShowreel(full, scenes(30), 48).reel;
+  assert.deepEqual(reel.slice(0, 12).map((i) => i.scenario), [...C.SCENARIOS]);
+  assert.deepEqual(ids(reel.slice(12)), Array.from({ length: 36 }, (_, i) => `vs:${i + 13}`));
+  // При размере 24 в карусель попадает ровно начало той же очереди.
+  assert.deepEqual(ids(S.buildShowreel(full, scenes(30), 24).reel), ids(reel.slice(0, 24)));
+});
+
+test("размер владельца — только про ролики студии: карусель мультстудии остаётся в 12 сцен", () => {
+  const cartoon = scenes(40, 30);
+  // Роликов студии мало — карусель у мультстудии, и её размер прежний.
+  for (const size of [5, 24, 48]) {
+    const view = S.buildShowreel(works(4), cartoon, size);
+    assert.equal(view.source, "cartoon", String(size));
+    assert.equal(view.reel.length, 12, String(size));
+  }
+  // Порог «пять своих роликов» от размера не зависит.
+  assert.equal(S.buildShowreel(works(5), cartoon, 48).source, "vstudio");
+  assert.equal(S.buildShowreel(works(5), cartoon, 48).reel.length, 5);
+  // Картинки в большую карусель тоже не идут.
+  const image = (i) => ({ kind: "image", video_url: null, image_url: `/media/vstudio/${i}.png`, poster_url: null });
+  const mixed = S.buildShowreel(works(30, (i) => (i % 2 ? image(i) : {})), cartoon, 48);
+  assert.equal(mixed.reel.length, 15);
+  assert.ok(mixed.reel.every((i) => i.kind === "video"));
+});
+
 test("карусель: старые ключи сервера встают на места своих сценариев", () => {
   const order = ["social", "anime", "music", "ad", "film"];
   const view = S.buildShowreel(works(5, (i) => ({ category: order[i] })), []);

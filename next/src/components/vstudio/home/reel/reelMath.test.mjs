@@ -318,10 +318,82 @@ test("второй ролик того же сценария называетс�
     [clip("film", "Ночной переулок"), clip("ad"), clip("film", "Погоня"), clip("film", "Киносцена"), clip("film")],
     ruName,
   );
-  // Своего названия нет или оно то же, что у сценария, — остаётся имя сценария.
-  assert.deepEqual(names, ["Киносцена", "Реклама товара", "Погоня", "Киносцена", "Киносцена"]);
+  // Своего названия нет или оно то же, что у сценария, — имя сценария с номером, по порядку появления.
+  assert.deepEqual(names, ["Киносцена", "Реклама товара", "Погоня", "Киносцена · 2", "Киносцена · 3"]);
   // Порядок важен: сценарием называется первый, даже если у него есть своё название.
   assert.equal(M.reelNames([clip("i2v", "Юрта у озера")], ruName)[0], "Image → Video");
+});
+
+test("большая карусель: несколько роликов сценария без своих названий — «Сценарий · 2», «· 3» по порядку", () => {
+  assert.equal(M.NAME_SEP, " · ");
+  // Номера идут подряд среди тех, кто назван сценарием: ролик со своим названием счёт не сбивает.
+  const reel = [clip("ad"), clip("film"), clip("ad"), clip("ad", "Духи"), clip("film"), clip("ad"), clip("ad", "Реклама товара")];
+  assert.deepEqual(M.reelNames(reel, ruName), [
+    "Реклама товара",
+    "Киносцена",
+    "Реклама товара · 2",
+    "Духи",
+    "Киносцена · 2",
+    "Реклама товара · 3",
+    "Реклама товара · 4",
+  ]);
+  // Номер стоит после переведённого имени — на любом языке сайта.
+  const EN = { film: "Cinematic scene", ad: "Product ad" };
+  const enName = (key) => EN[key] ?? "";
+  const served = [clip("film", "Киносцена"), clip("film", "Киносцена"), clip("ad", "Реклама товара"), clip("film", "Киносцена")];
+  assert.deepEqual(M.reelNames(served, enName, ruName), ["Cinematic scene", "Cinematic scene · 2", "Product ad", "Cinematic scene · 3"]);
+});
+
+test("большая карусель: «Другое» и работы без названия — тоже без одинаковых чипов", () => {
+  // «Другое» сценарием не считается: своё название, без него — модель; повторы — с номером.
+  const other = [clip(null, "Демо"), clip(null), clip(null), clip(null, "", "Kling 3.0"), clip(null, "Демо"), clip(null), clip(null, "", "")];
+  assert.deepEqual(M.reelNames(other, ruName), ["Демо", "Seedance 2.0", "Seedance 2.0 · 2", "Kling 3.0", "Демо · 2", "Seedance 2.0 · 3", ""]);
+  // Назвать нечем — пустая строка у каждого: такой чип подписан номером ролика, он и так свой.
+  assert.deepEqual(M.reelNames([clip(null, "", ""), clip(null, "", "")], ruName), ["", ""]);
+  // Своё название совпало с именем чужого сценария — второй такой чип тоже с номером.
+  assert.deepEqual(M.reelNames([clip("ad"), clip("film"), clip("film", "Реклама товара")], ruName), ["Реклама товара", "Киносцена", "Реклама товара · 2"]);
+  // Владелец сам назвал работу «Киносцена · 2»: номер берём свободный.
+  assert.deepEqual(M.reelNames([clip("film"), clip(null, "Киносцена · 2"), clip("film"), clip("film")], ruName), [
+    "Киносцена",
+    "Киносцена · 2",
+    "Киносцена · 3",
+    "Киносцена · 4",
+  ]);
+  // Сцены мультстудии с разными названиями — как раньше, без номеров.
+  assert.deepEqual(M.reelNames([clip(null, "Космос", "Приключение"), clip(null, "Лес", "Приключение")], ruName), ["Космос", "Лес"]);
+});
+
+test("48 роликов двенадцати сценариев: каждое имя в ряду одно, первые двенадцать — без номеров", async () => {
+  const C = await import("../scenarios.ts");
+  const t = (key, options) => options.defaultValue;
+  // Как на сервере: работе без своего названия панель ставит русское имя сценария.
+  const reel = Array.from({ length: 48 }, (_, i) => {
+    const key = C.SCENARIOS[i % 12];
+    return clip(key, C.scenarioDefault(key));
+  });
+  const names = M.reelNames(reel, (key) => C.scenarioLabel(t, key), C.scenarioDefault);
+  assert.equal(new Set(names).size, 48);
+  assert.deepEqual(names.slice(0, 12), C.SCENARIOS.map((key) => C.scenarioDefault(key)));
+  assert.deepEqual(names.slice(12, 15), ["Киносцена · 2", "Реклама товара · 2", "Персонаж · 2"]);
+  assert.deepEqual(names.slice(45), ["Анимация · 4", "Реалистичная сцена · 4", "Reels / TikTok · 4"]);
+  // Карусель из двенадцати разных сценариев — имена прежние: для неё ничего не изменилось.
+  assert.deepEqual(M.reelNames(reel.slice(0, 12), (key) => C.scenarioLabel(t, key), C.scenarioDefault), names.slice(0, 12));
+});
+
+test("кадр назван одной моделью — заголовком на кадре её не повторяем, с номером тоже", () => {
+  assert.equal(M.namedByModel("Seedance 2.0", clip(null)), true);
+  assert.equal(M.namedByModel("Seedance 2.0 · 2", clip(null)), true);
+  // Имя сценария и своё название — заголовок.
+  assert.equal(M.namedByModel("Киносцена", clip("film")), false);
+  assert.equal(M.namedByModel("Киносцена · 2", clip("film")), false);
+  assert.equal(M.namedByModel("Свой ролик", clip(null, "Свой ролик")), false);
+  // Своё название, которое начинается с имени модели, — всё равно своё.
+  assert.equal(M.namedByModel("Seedance 2.0 · Ночь", clip(null, "Seedance 2.0 · Ночь")), false);
+  // Название, равное модели, заголовком не писали и раньше.
+  assert.equal(M.namedByModel("Seedance 2.0", clip(null, "Seedance 2.0")), true);
+  // Модели нет — сравнивать не с чем.
+  assert.equal(M.namedByModel("", clip(null, "", "")), false);
+  assert.equal(M.namedByModel("Свой ролик", clip(null, "Свой ролик", "")), false);
 });
 
 test("название, которое работе поставил сервер, — не своё: на другом языке русское имя сценария не всплывает", async () => {
@@ -330,13 +402,13 @@ test("название, которое работе поставил серве�
   const EN = { film: "Cinematic scene", ad: "Product ad" };
   const enName = (key) => EN[key] ?? "";
   const reel = [clip("film", "Киносцена"), clip("ad", "Реклама товара"), clip("film", "Киносцена"), clip("film", "Погоня")];
-  assert.deepEqual(M.reelNames(reel, enName, ruName), ["Cinematic scene", "Product ad", "Cinematic scene", "Погоня"]);
+  assert.deepEqual(M.reelNames(reel, enName, ruName), ["Cinematic scene", "Product ad", "Cinematic scene · 2", "Погоня"]);
   // Без имён сервера — как раньше (так видно, что сверка идёт именно с ними).
   assert.deepEqual(M.reelNames(reel, enName), ["Cinematic scene", "Product ad", "Киносцена", "Погоня"]);
   // Чужое имя сценария — уже своё название: «Реклама товара» у киносцены владелец набрал сам.
   assert.deepEqual(M.reelNames([clip("film"), clip("film", "Реклама товара")], enName, ruName), ["Cinematic scene", "Реклама товара"]);
   // По-русски оба имени совпадают — ничего не меняется.
-  assert.deepEqual(M.reelNames(reel, ruName, ruName), ["Киносцена", "Реклама товара", "Киносцена", "Погоня"]);
+  assert.deepEqual(M.reelNames(reel, ruName, ruName), ["Киносцена", "Реклама товара", "Киносцена · 2", "Погоня"]);
 
   // Имена сервера карусель берёт из scenarios.ts — у каждого сценария оно есть и равно русскому названию.
   const C = await import("../scenarios.ts");
@@ -365,6 +437,124 @@ test("лента телефона: пока она едет к выбранно�
   assert.ok(M.JUMP_MS >= 1000 && M.JUMP_MS < M.REEL_INTERVAL_MS / 2);
 });
 
+/* ---------- большая карусель: что живёт в разметке ---------- */
+
+test("сцена с 48 кадрами: в разметке те же одиннадцать мест, круг замыкается", () => {
+  const big = M.slotsAround(0, 0, 48);
+  assert.deepEqual(big.map((s) => s.index), [43, 44, 45, 46, 47, 0, 1, 2, 3, 4, 5]);
+  // Сколько бы кадров ни было и куда бы ни ушла позиция — мест столько же, сколько у двенадцати.
+  for (const count of [5, 12, 13, 24, 48]) {
+    for (const pos of [0, 1, count - 1, count, -1, 7 * count + 3, -1000]) {
+      const slots = M.slotsAround(pos, 0, count);
+      assert.equal(slots.length, 2 * M.REACH + 1, `${count} @ ${pos}`);
+      assert.deepEqual(slots.map((s) => s.d), [-5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5], `${count} @ ${pos}`);
+      assert.ok(slots.every((s) => s.index === M.mod(s.v, count)), `${count} @ ${pos}`);
+    }
+  }
+  // Пока тянут пальцем — тоже одиннадцать.
+  assert.equal(M.slotsAround(40, -1.6, 48).length, 11);
+
+  // Круг: назад с первого — последний, полный оборот возвращает на место.
+  let t = track(48);
+  assert.equal(M.activeIndex(M.moveTrack(t, -1)), 47);
+  for (let i = 0; i < 48; i++) t = M.moveTrack(t, 1, true);
+  assert.deepEqual([t.pos, M.activeIndex(t)], [48, 0]);
+  // К далёкому кадру — кратчайшей дорогой: до 25-го вперёд, до 26-го уже назад.
+  assert.equal(M.jumpTrack(track(48), 47).pos, -1);
+  assert.equal(M.jumpTrack(track(48), 24).pos, 24);
+  assert.equal(M.jumpTrack(track(48), 25).pos, -23);
+  assert.equal(M.activeIndex(M.jumpTrack(track(48, 100), 30)), 30);
+});
+
+test("лента телефона: до двенадцати кадров живёт целиком, длиннее — только кадры рядом с активным", () => {
+  const live = (active, aim, count) =>
+    Array.from({ length: count }, (_, i) => i).filter((i) => M.stripLive(i, active, aim, count));
+  assert.deepEqual([M.STRIP_WHOLE, M.STRIP_NEAR], [12, 2]);
+  // Короткая лента — как раньше: живые все, где бы ни стоял активный и куда бы она ни ехала.
+  for (const count of [1, 2, 5, 12]) {
+    for (const active of [0, count - 1]) {
+      assert.equal(live(active, null, count).length, count, `${count} @ ${active}`);
+      assert.equal(live(active, 0, count).length, count, `${count} @ ${active}`);
+    }
+  }
+  // Длинная: активный, по два соседа с каждой стороны — и всё.
+  assert.deepEqual(live(20, null, 48), [18, 19, 20, 21, 22]);
+  assert.deepEqual(live(0, null, 48), [0, 1, 2]);
+  assert.deepEqual(live(6, null, 13), [4, 5, 6, 7, 8]);
+  // С последнего кадра карусель сама вернётся к первому — он готов заранее.
+  assert.deepEqual(live(47, null, 48), [0, 45, 46, 47]);
+  assert.deepEqual(live(46, null, 48), [44, 45, 46, 47]);
+  // Лента едет к далёкому кадру: он и его соседи оживают сразу, кадры по дороге — нет.
+  assert.deepEqual(live(0, 30, 48), [0, 1, 2, 28, 29, 30, 31, 32]);
+  assert.deepEqual(live(47, 0, 48), [0, 1, 2, 45, 46, 47]);
+  // Активный кадр живой всегда, а живых — не больше десяти, сколько бы кадров ни было.
+  let most = 0;
+  for (let active = 0; active < 48; active++) {
+    assert.equal(M.stripLive(active, active, null, 48), true);
+    for (const aim of [null, ...Array.from({ length: 48 }, (_, i) => i)]) {
+      most = Math.max(most, live(active, aim, 48).length);
+    }
+  }
+  assert.equal(most, 10);
+});
+
+test("лента телефона: кадр под пальцем живой сразу, не дожидаясь, пока лента встанет", () => {
+  // Как их считает ReelStrip: от активного и от того, к которому едут или который под пальцем.
+  const live = (spot, aim, count) =>
+    Array.from({ length: count }, (_, i) => i).filter((i) => M.stripLive(i, spot.centered, aim ?? spot.passing, count));
+
+  // 48 роликов, лента стоит на первом. Три быстрых смахивания: встать между ними лента
+  // не успевает, и активным всё это время остаётся первый кадр.
+  let spot = M.STRIP_START;
+  assert.deepEqual(live(spot, null, 48), [0, 1, 2]);
+  for (const seen of [1, 2, 3]) {
+    spot = M.stripSeen(spot, null, seen, 48);
+    assert.equal(spot.centered, 0, "ролик и часы ждут, пока лента встанет");
+    // Кадр в центре и оба соседа, чьи края видны, — с картинкой, а не пустой рамкой.
+    for (const i of [seen - 1, seen, seen + 1]) assert.ok(live(spot, null, 48).includes(i), `${i} при ${seen}`);
+  }
+  assert.deepEqual(live(spot, null, 48), [0, 1, 2, 3, 4, 5]);
+
+  // Лента встала на четвёртом кадре: он активный, живые снова считаются только от него.
+  spot = M.stripSettled(spot, 3);
+  assert.deepEqual(spot, { centered: 3, passing: null });
+  assert.deepEqual(live(spot, null, 48), [1, 2, 3, 4, 5]);
+
+  // Нажали чип 31-го ролика: лента едет сама — кадры по дороге ничего не грузят.
+  for (const seen of [4, 9, 17, 29]) {
+    spot = M.stripSeen(spot, 30, seen, 48);
+    assert.equal(spot.passing, null, `по дороге, кадр ${seen}`);
+    assert.deepEqual(live(spot, 30, 48), [1, 2, 3, 4, 5, 28, 29, 30, 31, 32]);
+  }
+  // Доехала. Рядом с кадром, мимо которого раньше вели пальцем, живых не осталось.
+  spot = M.stripSettled(spot, 30);
+  assert.deepEqual(live(spot, null, 48), [28, 29, 30, 31, 32]);
+
+  // Смахнули и, не дав ленте встать, нажали чип: дальше кадр под пальцем не в счёт.
+  const swiped = M.stripSeen(M.STRIP_START, null, 4, 48);
+  assert.deepEqual(swiped, { centered: 0, passing: 4 });
+  assert.deepEqual(M.stripSeen(swiped, 20, 5, 48), { centered: 0, passing: null });
+  // Ленту в пути перехватили пальцем (цели больше нет) — снова следим за кадром под ним.
+  assert.deepEqual(M.stripSeen({ centered: 0, passing: null }, null, 17, 48), { centered: 0, passing: 17 });
+
+  // Живых по-прежнему не больше десяти, где бы ни был активный и какой бы кадр ни был под пальцем.
+  let most = 0;
+  for (let centered = 0; centered < 48; centered++) {
+    for (let seen = 0; seen < 48; seen++) {
+      most = Math.max(most, live(M.stripSeen({ centered, passing: null }, null, seen, 48), null, 48).length);
+    }
+  }
+  assert.equal(most, 10);
+
+  // Лента до двенадцати кадров живёт целиком: следить не за чем, и состояние не меняется
+  // (тот же объект — лишней перерисовки нет).
+  for (const count of [2, 5, 12]) assert.equal(M.stripSeen(M.STRIP_START, null, 1, count), M.STRIP_START, String(count));
+  assert.equal(M.stripSeen(M.STRIP_START, null, 1, 13).passing, 1);
+  // Повторный сигнал о том же кадре и остановка на уже активном — тоже без перерисовки.
+  assert.equal(M.stripSeen(swiped, null, 4, 48), swiped);
+  assert.equal(M.stripSettled(M.STRIP_START, 0), M.STRIP_START);
+});
+
 test("ряд названий: активный чип — посередине, у краёв ряд упирается", () => {
   // Ряд 1300 в окне 400: чип 500…600 встаёт по центру.
   assert.equal(M.railScroll(500, 100, 400, 1300), 350);
@@ -377,6 +567,23 @@ test("ряд названий: активный чип — посередине,
   assert.equal(M.railScroll(700, 120, 1300, 1300), 0);
   // Дробные размеры (масштаб страницы) — целое число пикселей.
   assert.equal(M.railScroll(500.4, 99.3, 399.5, 1300.2), 350);
+});
+
+test("ряд названий: стрелки по краям — только у длинного ряда и только туда, где есть продолжение", () => {
+  const none = { prev: false, next: false };
+  // До двенадцати названий ряд остаётся каким был: стрелок нет, даже если он не помещается.
+  assert.equal(M.RAIL_WHOLE, 12);
+  for (const count of [2, 5, 12]) {
+    for (const fade of ["none", "start", "mid", "end"]) assert.deepEqual(M.railArrows(count, fade), none, `${count} ${fade}`);
+  }
+  // Длинный ряд: в начале листать можно только вперёд, в конце — только назад.
+  for (const count of [13, 24, 48]) {
+    assert.deepEqual(M.railArrows(count, "start"), { prev: false, next: true }, String(count));
+    assert.deepEqual(M.railArrows(count, "mid"), { prev: true, next: true }, String(count));
+    assert.deepEqual(M.railArrows(count, "end"), { prev: true, next: false }, String(count));
+    // Поместился целиком (очень широкий экран) — листать нечего.
+    assert.deepEqual(M.railArrows(count, "none"), none, String(count));
+  }
 });
 
 test("вертикальный ролик узнаём по записи пропорций", () => {
