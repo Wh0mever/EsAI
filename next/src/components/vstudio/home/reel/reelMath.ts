@@ -13,10 +13,13 @@
  * иначе один и тот же кадр стоял бы и слева, и справа от активного.
  *
  * Здесь же — то, что считается рядом с геометрией: как дальний кадр уходит в
- * «бумагу» на светлой сцене, имена кадров и прокрутка ряда названий под каруселью.
+ * «бумагу» на светлой сцене, имена кадров, прокрутка ряда названий под
+ * каруселью и его стрелки, и то, какие кадры длинной ленты телефона живые.
  *
  * Модуль чистый (без React и DOM): его проверяет node-тест reelMath.test.mjs.
  */
+
+import type { EdgeFade } from "../strip/stripLogic";
 
 /** Сколько карусель стоит на кадре, прежде чем перелистнётся сама. */
 export const REEL_INTERVAL_MS = 7000;
@@ -363,12 +366,21 @@ export type Nameable = {
   subtitle: string;
 };
 
+/** Чем номер повтора отделён от имени: «Реклама товара · 2». */
+export const NAME_SEP = " · ";
+
 /**
  * Короткое имя каждого кадра — им подписан чип под каруселью и сам кадр.
- * Имя сценария; без сценария — название работы, а нет и его — модель. Второй
- * ролик того же сценария называем его собственным названием, если оно есть и
- * отличается: два одинаковых чипа рядом человек не различит. Пустая строка —
+ * Имя сценария; без сценария («Другое», ключ, которого нет в переводах) —
+ * название работы, а нет и его — модель. Второй ролик того же сценария называем
+ * его собственным названием, если оно есть и отличается. Пустая строка —
  * назвать нечем, чип подпишут номером.
+ *
+ * Двух одинаковых имён в ряду нет: человек не различит такие чипы. В карусели
+ * на несколько десятков роликов совпадения — обычное дело: три «Киносцены» без
+ * своих названий, пять работ «Другое» на одной модели. Повтору дописываем
+ * номер, по порядку появления: «Киносцена», «Киносцена · 2», «Киносцена · 3».
+ * Номер от языка не зависит — отдельной строки перевода ему не нужно.
  *
  * defaultName — имя сценария, каким его знает сервер (scenarios.scenarioDefault).
  * Панель и команда съёмки ставят его работе в название сами, и на другом языке
@@ -381,15 +393,33 @@ export function reelNames(
   defaultName: (key: string) => string = () => "",
 ): string[] {
   const taken = new Set<string>();
+  const used = new Set<string>();
   return items.map((item) => {
     const key = item.scenario;
     const scenario = key ? scenarioName(key) : "";
-    if (!key || !scenario) return item.title || item.subtitle;
-    const own = item.title !== scenario && item.title !== defaultName(key) ? item.title : "";
-    if (taken.has(scenario) && own) return own;
-    taken.add(scenario);
-    return scenario;
+    let base = item.title || item.subtitle;
+    if (key && scenario) {
+      const own = item.title !== scenario && item.title !== defaultName(key) ? item.title : "";
+      base = taken.has(scenario) && own ? own : scenario;
+      taken.add(scenario);
+    }
+    if (!base) return "";
+    // Номер ищем свободный: владелец мог и сам назвать работу «Киносцена · 2».
+    let name = base;
+    for (let n = 2; used.has(name); n++) name = `${base}${NAME_SEP}${n}`;
+    used.add(name);
+    return name;
   });
+}
+
+/**
+ * Кадр назван одной лишь моделью (с номером повтора или без): у работы нет ни
+ * сценария, ни своего названия. На кадре модель уже стоит плашкой — заголовком
+ * её второй раз не пишут.
+ */
+export function namedByModel(name: string, item: Pick<Nameable, "title" | "subtitle">): boolean {
+  if (!item.subtitle) return false;
+  return name === item.subtitle || (!item.title && name.startsWith(`${item.subtitle}${NAME_SEP}`));
 }
 
 /**
@@ -400,6 +430,25 @@ export function reelNames(
 export function railScroll(chipLeft: number, chipWidth: number, viewWidth: number, fullWidth: number): number {
   const room = Math.max(0, fullWidth - viewWidth);
   return Math.round(clamp(chipLeft + chipWidth / 2 - viewWidth / 2, 0, room));
+}
+
+/**
+ * Ряд длиннее стольких названий получает стрелки по краям. Двенадцать тоже
+ * помещаются не везде, но там спрятаны два-четыре чипа, и до них одно нажатие
+ * на крайний. В ряду на 48 спрятано сорок: колесо мыши ведёт страницу, а не
+ * ряд, и добраться до них без стрелок можно, только листая саму карусель.
+ */
+export const RAIL_WHOLE = 12;
+
+export type RailArrows = { prev: boolean; next: boolean };
+
+/**
+ * Какие стрелки нужны ряду названий: только длинному и только с той стороны,
+ * где у него есть продолжение (fade — что useEdgeFade намерил у краёв).
+ */
+export function railArrows(count: number, fade: EdgeFade): RailArrows {
+  const paged = count > RAIL_WHOLE;
+  return { prev: paged && (fade === "mid" || fade === "end"), next: paged && (fade === "start" || fade === "mid") };
 }
 
 /* ---------- лента телефона: переход к кадру ---------- */
@@ -428,6 +477,63 @@ export function jumpTarget(to: number, centered: number): number | null {
  */
 export function jumpDone(target: number | null, settled: number): boolean {
   return target !== null && settled === target;
+}
+
+/* ---------- лента телефона: какие кадры живые ---------- */
+
+/**
+ * Лента до стольких кадров живёт целиком, как жила всегда: двенадцать постеров
+ * телефону не в тягость. В более длинной (владелец задаёт до 48 роликов)
+ * картинку, подпись и кнопки получают только кадры рядом с активным; остальные
+ * стоят пустыми рамками и держат ширину ленты и места прилипания.
+ */
+export const STRIP_WHOLE = 12;
+/** Сколько кадров по каждую сторону от активного живые: соседи видны краем, следующие за ними готовы к смахиванию. */
+export const STRIP_NEAR = 2;
+
+/**
+ * Живой ли кадр i ленты телефона: есть ли у него картинка, ролик и подпись.
+ * Считаем от кадра, вставшего в центр (active), а не от прокрутки: кадры,
+ * мимо которых лента едет к далёкому, ничего не грузят. Кадр, к которому она
+ * едет (aim), и его соседи оживают заранее — к приезду они на месте. Когда
+ * ленту ведут пальцем, на месте aim — кадр под ним (stripSeen).
+ */
+export function stripLive(i: number, active: number, aim: number | null, count: number): boolean {
+  if (count <= STRIP_WHOLE) return true;
+  const near = (to: number) => Math.abs(i - to) <= STRIP_NEAR;
+  // С последнего кадра карусель сама возвращается к первому.
+  return near(active) || (aim !== null && near(aim)) || (i === 0 && active === count - 1);
+}
+
+/**
+ * Где лента телефона. centered — кадр, вставший в центр: в нём играет ролик и от
+ * него идут часы; таким кадр становится, только простояв в центре. passing —
+ * кадр, который в центре прямо сейчас, пока ленту ведут пальцем и встать она
+ * ещё не успела; null — лента стоит или едет сама.
+ */
+export type StripSpot = { centered: number; passing: number | null };
+
+export const STRIP_START: StripSpot = { centered: 0, passing: null };
+
+/**
+ * Наблюдатель ленты увидел в центре кадр seen. Активным он станет, когда лента
+ * встанет, а живым (stripLive — вторым кадром отсчёта, на месте aim) должен
+ * быть уже сейчас: между быстрыми смахиваниями лента встать не успевает, и
+ * под пальцем шли бы пустые рамки. Когда лента едет сама (target — чип, сосед,
+ * часы карусели), кадры по дороге по-прежнему ничего не грузят. Короткой ленте
+ * следить не за чем: она живёт целиком.
+ */
+export function stripSeen(spot: StripSpot, target: number | null, seen: number, count: number): StripSpot {
+  const passing = target === null && count > STRIP_WHOLE ? seen : null;
+  return passing === spot.passing ? spot : { centered: spot.centered, passing };
+}
+
+/**
+ * Лента простояла на кадре settled: теперь активный он. Кадра «под пальцем»
+ * больше нет — живые снова считаются только от активного (и от aim).
+ */
+export function stripSettled(spot: StripSpot, settled: number): StripSpot {
+  return spot.centered === settled && spot.passing === null ? spot : { centered: settled, passing: null };
 }
 
 /** Вертикальный ролик («9:16»). Запись, которую не разобрать, вертикальной не считаем. */

@@ -3,14 +3,24 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
-import LazyClip from "../../ui/LazyClip";
+import LazyClip, { CLIP_BLANK } from "../../ui/LazyClip";
 import Segments from "../../ui/Segments";
 import { vx } from "../../ui/skin";
 import { prefersReducedMotion } from "../../ui/useAutoplayAllowed";
 import { useReveal } from "../../ui/useReveal";
 import ReelCaption from "./ReelCaption";
 import { REEL_ENTER, isBareClick, isStudioReel, type ReelLayoutProps } from "./reelLayout";
-import { JUMP_MS, REEL_INTERVAL_MS, isPortrait, jumpDone, jumpTarget } from "./reelMath";
+import {
+  JUMP_MS,
+  REEL_INTERVAL_MS,
+  STRIP_START,
+  isPortrait,
+  jumpDone,
+  jumpTarget,
+  stripLive,
+  stripSeen,
+  stripSettled,
+} from "./reelMath";
 import ScenarioRail from "./ScenarioRail";
 import { useReelAuto, useReelPause } from "./useReelPause";
 
@@ -29,8 +39,19 @@ import { useReelAuto, useReelPause } from "./useReelPause";
  *
  * К кадру, выбранному чипом, соседом или стрелкой, лента едет не сразу, и всё
  * это время активным остаётся прежний кадр. Часы карусели на время пути стоят
- * (jumping): иначе заливка прежнего чипа, дойдя до конца в дороге, увела бы
- * ленту к его соседу — и нажатие пропало бы.
+ * (aim): иначе заливка прежнего чипа, дойдя до конца в дороге, увела бы ленту
+ * к его соседу — и нажатие пропало бы.
+ *
+ * Роликов в карусели бывает до 48. Рамка в ленте есть у каждого — она держит
+ * ширину ленты и место прилипания, — а картинку, подпись и кнопки в длинной
+ * ленте получают только кадры рядом с активным и с тем, к которому лента едет
+ * (reelMath.stripLive): телефон не грузит и не держит в разметке сорок
+ * постеров, которых не видно. Лента до двенадцати кадров живёт целиком.
+ *
+ * Активным кадр становится, лишь простояв в центре, а пальцем листают быстрее:
+ * между смахиваниями лента встать не успевает. Поэтому живые кадры считаются
+ * ещё и от того, который под пальцем сейчас (reelMath.stripSeen), — иначе в
+ * длинной ленте под ним шли бы пустые рамки.
  */
 
 /** Доля кадра в окне ленты, с которой он считается вставшим в центр. */
@@ -73,10 +94,15 @@ function ReelStrip({ items, names, loading, onUse }: ReelLayoutProps) {
   const pause = useReelPause(root);
   const auto = useReelAuto();
 
-  const [centered, setCentered] = useState(0);
+  /** Какой кадр встал в центр и какой сейчас под пальцем (reelMath.StripSpot). */
+  const [spot, setSpot] = useState(STRIP_START);
   const [touching, setTouching] = useState(false);
-  /** Лента сама едет к кадру target — часы карусели стоят, пока она не встанет на него. */
-  const [jumping, setJumping] = useState(false);
+  /**
+   * К какому кадру лента сейчас едет сама; null — стоит. Пока едет, часы карусели
+   * стоят, а этот кадр и его соседи уже живые. В target — то же число для
+   * наблюдателя ленты: он читает его, не переподписываясь.
+   */
+  const [aim, setAim] = useState<number | null>(null);
   const target = useRef<number | null>(null);
   const jumpTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
@@ -84,13 +110,13 @@ function ReelStrip({ items, names, loading, onUse }: ReelLayoutProps) {
     clearTimeout(jumpTimer.current);
     jumpTimer.current = undefined;
     target.current = null;
-    setJumping(false);
+    setAim(null);
   }, []);
   useEffect(() => () => clearTimeout(jumpTimer.current), []);
 
   const count = items.length;
   // Список мог стать короче, пока лента на экране.
-  const index = Math.min(centered, Math.max(0, count - 1));
+  const index = Math.min(spot.centered, Math.max(0, count - 1));
   const idsKey = useMemo(() => items.map((item) => item.id).join("\n"), [items]);
 
   useEffect(() => {
@@ -113,9 +139,12 @@ function ReelStrip({ items, names, loading, onUse }: ReelLayoutProps) {
         });
         // Между кадрами (ни один не в центре) активным остаётся прежний.
         if (best < 0) return;
+        // Картинку кадр под пальцем получает сразу; ролик и часы ждут, пока лента встанет.
+        const led = target.current;
+        setSpot((was) => stripSeen(was, led, best, cards.length));
         clearTimeout(timer);
         timer = setTimeout(() => {
-          setCentered(best);
+          setSpot((was) => stripSettled(was, best));
           // Доехали, куда вели, — часы снова идут, уже у нового кадра и с нуля.
           if (jumpDone(target.current, best)) endJump();
         }, SETTLE_MS);
@@ -141,7 +170,7 @@ function ReelStrip({ items, names, loading, onUse }: ReelLayoutProps) {
       target.current = to;
       clearTimeout(jumpTimer.current);
       jumpTimer.current = setTimeout(endJump, JUMP_MS);
-      setJumping(true);
+      setAim(to);
     }
     const left = card.offsetLeft - (box.clientWidth - card.offsetWidth) / 2;
     box.scrollTo({ left, behavior: prefersReducedMotion() ? "auto" : "smooth" });
@@ -174,7 +203,7 @@ function ReelStrip({ items, names, loading, onUse }: ReelLayoutProps) {
     t("home.reel.frame", { defaultValue: "Кадр {{n}} из {{total}}", n: i + 1, total: count });
   const running = auto && count > 1;
   const studio = isStudioReel(items);
-  const held = pause.paused || touching || jumping;
+  const held = pause.paused || touching || aim !== null;
   // С последнего кадра лента возвращается к первому.
   const autoNext = () => toCard(index + 1 < count ? index + 1 : 0);
 
@@ -205,12 +234,15 @@ function ReelStrip({ items, names, loading, onUse }: ReelLayoutProps) {
                 const on = i === index;
                 const name = names[i] ?? "";
                 const ours = item.source === "vstudio";
+                const live = stripLive(i, index, aim ?? spot.passing, count);
                 return (
                   <div
                     key={item.id}
                     data-reel-card={i}
                     role="group"
                     aria-label={frame(i)}
+                    // Пустую рамку скринридеру не читаем: все ролики названы в ряду под лентой.
+                    aria-hidden={live ? undefined : true}
                     // Ролик студии в центре: нажатие на сам кадр — то же, что его золотая кнопка.
                     onClick={
                       on && ours
@@ -221,23 +253,28 @@ function ReelStrip({ items, names, loading, onUse }: ReelLayoutProps) {
                     }
                     className={vx(CARD, CARD_LIVE, on ? CARD_ON : CARD_OFF, on && ours && "group/frame cursor-pointer")}
                   >
-                    <LazyClip
-                      src={item.video}
-                      poster={item.poster}
-                      mode="active"
-                      active={on}
-                      alt=""
-                      className="absolute inset-0"
-                      rounded="rounded-2xl"
-                      // Вертикальный ролик студии — целиком, с полями (как на сцене).
-                      fit={ours && isPortrait(item.aspect) ? "contain" : "cover"}
-                    />
+                    {live ? (
+                      <LazyClip
+                        src={item.video}
+                        poster={item.poster}
+                        mode="active"
+                        active={on}
+                        alt=""
+                        className="absolute inset-0"
+                        rounded="rounded-2xl"
+                        // Вертикальный ролик студии — целиком, с полями (как на сцене).
+                        fit={ours && isPortrait(item.aspect) ? "contain" : "cover"}
+                      />
+                    ) : (
+                      // Дальний кадр длинной ленты — та же рамка, что у кадра, чья картинка ещё не пришла.
+                      <span aria-hidden className={vx("absolute inset-0 rounded-2xl", CLIP_BLANK)} />
+                    )}
                     <span
                       aria-hidden
                       className="pointer-events-none absolute inset-0 rounded-2xl border border-vs-ink/10"
                     />
-                    <ReelCaption item={item} name={name} shown={on} quick onUse={onUse} />
-                    {!on && (
+                    {live && <ReelCaption item={item} name={name} shown={on} quick onUse={onUse} />}
+                    {live && !on && (
                       // Листать с клавиатуры — стрелками; сосед-кнопка нужен пальцу и мыши.
                       <button
                         type="button"

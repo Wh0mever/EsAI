@@ -505,18 +505,20 @@ class ModelsView(PublicStudioView):
 
 
 class ShowcaseView(PublicStudioView):
-    """GET showcase/ — {items}: работы для первого экрана, отобранные владельцем.
+    """GET showcase/ — {items, reel_size}: работы для первого экрана, отобранные владельцем.
 
     Открыто всем, как и models/: первый экран показывает их гостю до входа.
     Что именно уходит наружу — vstudio.showcase.public_json. Студия выключена
-    (off) — витрины нет.
+    (off) — витрины нет. reel_size — сколько работ берёт карусель (настройка
+    панели): в кэш списка не входит и читается на каждый ответ, иначе новое
+    значение ждало бы на сайте до пяти минут.
     """
 
     scopes = {"GET": SCOPE_READ}
 
     def get(self, request):
         items = [] if studio_mode() == "off" else showcase.public_items()
-        return Response({"items": items})
+        return Response({"items": items, "reel_size": showcase.reel_size()})
 
 
 # ---------------------------------------------------------------- цена

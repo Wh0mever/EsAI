@@ -3,15 +3,17 @@
  *
  * Источники (§0.6): работы самой видеостудии (GET vstudio/showcase/, их
  * отбирает владелец в админке) и превью сцен мультстудии (GET cartoon/presets/).
- * В карусели они не смешиваются: либо ролики студии — по одному на сценарий
- * (scenarios.ts), либо, пока их меньше пяти, сцены мультстудии со своей
- * подписью и дорогой в /studio. Чужого и постановочного здесь нет.
+ * В карусели они не смешиваются: либо ролики студии — сначала по одному на
+ * сценарий (scenarios.ts), затем остальные, всего столько, сколько задал
+ * владелец (reel_size, от 5 до 48), — либо, пока их меньше пяти, сцены
+ * мультстудии со своей подписью и дорогой в /studio. Чужого и постановочного
+ * здесь нет.
  *
  * Ответы разбираем как «чужие руки»: поле не того типа или карточка без
  * единого кадра не должны уронить первый экран — такая запись просто
- * пропускается. Сервер может быть и прежней версии: без needs_photo и
- * start_frame_url, со старыми ключами сценариев. Модуль чистый (без React и
- * сети): его проверяет node-тест home.test.mjs.
+ * пропускается. Сервер может быть и прежней версии: без needs_photo,
+ * start_frame_url и reel_size, со старыми ключами сценариев. Модуль чистый
+ * (без React и сети): его проверяет node-тест home.test.mjs.
  */
 import { SCENARIOS, isScenario, type ScenarioKey } from "./scenarios";
 
@@ -47,7 +49,7 @@ export type ReelItem = {
 };
 
 export type ShowreelData = {
-  /** Карусель: до REEL_SIZE кадров одного источника. */
+  /** Карусель: кадры одного источника. Роликов студии — сколько задал владелец (до REEL_MAX), сцен мультстудии — до REEL_SIZE. */
   reel: ReelItem[];
   /** Чьи кадры в карусели; null — показать нечего. */
   source: ReelItem["source"] | null;
@@ -55,9 +57,12 @@ export type ShowreelData = {
   cartoonPoster: string | null;
 };
 
+/** Размер карусели, пока владелец не задал свой (и у сервера, который его ещё не присылает). */
 export const REEL_SIZE = 12;
 /** Меньше кадров — у карусели нет «крыльев» по обе стороны от активного. */
 export const REEL_MIN = 5;
+/** Больше работ сервер сайту не отдаёт (showcase.MAX_PUBLIC). */
+export const REEL_MAX = 48;
 export const CARTOON_HREF = "/studio";
 
 export const EMPTY_SHOWREEL: ShowreelData = { reel: [], source: null, cartoonPoster: null };
@@ -89,6 +94,22 @@ function showcaseParams(v: unknown): ReelItem["params"] {
 
 function scenarioOf(category: string): ScenarioKey | null {
   return isScenario(category) ? category : (LEGACY_SCENARIOS.get(category) ?? null);
+}
+
+/**
+ * Размер карусели роликов студии — настройка владельца (vstudio_reel_size).
+ * Годится только целое от REEL_MIN до REEL_MAX. Всё остальное — строка, дробь,
+ * число за границами, пустота — даёт REEL_SIZE, а не ближайшую границу: такое
+ * значение говорит, что настройки нет, а не что владелец просил «побольше».
+ */
+export function clampReelSize(value: unknown): number {
+  const ok = typeof value === "number" && Number.isInteger(value) && value >= REEL_MIN && value <= REEL_MAX;
+  return ok ? value : REEL_SIZE;
+}
+
+/** Размер карусели из ответа GET vstudio/showcase/ (reel_size); сервер прежней версии его не присылает. */
+export function reelSizeOf(payload: unknown): number {
+  return clampReelSize(isRow(payload) ? payload.reel_size : undefined);
 }
 
 /** Ответ GET vstudio/showcase/ → карточки. Всё непонятное пропускаем. */
@@ -171,10 +192,10 @@ export function cartoonItems(payload: unknown): ReelItem[] {
 
 /**
  * Ролики студии для карусели: сначала по одному на сценарий, в порядке списка
- * сценариев, затем остальные — как их расставил владелец. Картинки в карусель
- * не идут: она про видео.
+ * сценариев, затем остальные — как их расставил владелец; всего не больше size.
+ * Картинки в карусель не идут: она про видео.
  */
-function studioReel(studio: ReelItem[]): ReelItem[] {
+function studioReel(studio: ReelItem[], size: number): ReelItem[] {
   const videos = studio.filter((item) => item.kind === "video");
   const lead = new Map<ScenarioKey, ReelItem>();
   for (const item of videos) {
@@ -182,11 +203,12 @@ function studioReel(studio: ReelItem[]): ReelItem[] {
   }
   const first = SCENARIOS.flatMap((key) => lead.get(key) ?? []);
   const taken = new Set(first);
-  return [...first, ...videos.filter((item) => !taken.has(item))].slice(0, REEL_SIZE);
+  return [...first, ...videos.filter((item) => !taken.has(item))].slice(0, size);
 }
 
 /**
- * Сцены мультстудии для карусели: выбор редакции, не больше REEL_SIZE. Если
+ * Сцены мультстудии для карусели: выбор редакции, не больше REEL_SIZE — размер,
+ * который задаёт владелец, их не касается: он про ролики студии. Если
  * отмеченных сцен мало и карусель вышла бы без «крыльев», добираем до REEL_MIN
  * обычными сценами: сначала из разделов, которых в карусели ещё нет, — чтобы
  * рядом не стояли пять похожих кадров.
@@ -209,8 +231,13 @@ function cartoonReel(cartoon: ReelItem[]): ReelItem[] {
   return reel;
 }
 
-export function buildShowreel(studio: ReelItem[], cartoon: ReelItem[]): ShowreelData {
-  const own = studioReel(studio);
+/**
+ * size — сколько роликов студии встаёт в карусель (reelSizeOf). Негодный размер
+ * здесь тоже даёт REEL_SIZE: карусель короче REEL_MIN ушла бы к мультстудии,
+ * хотя своих роликов хватает.
+ */
+export function buildShowreel(studio: ReelItem[], cartoon: ReelItem[], size: number = REEL_SIZE): ShowreelData {
+  const own = studioReel(studio, clampReelSize(size));
   const scenes = cartoonReel(cartoon);
   // Роликов студии мало — карусель целиком отдаём мультстудии. Но если сцен
   // нет вовсе (их запрос не ответил), два своих ролика лучше пустого экрана.

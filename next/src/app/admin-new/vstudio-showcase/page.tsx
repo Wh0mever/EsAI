@@ -2,11 +2,12 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { FiExternalLink, FiRefreshCw } from "react-icons/fi";
-import { REEL_MIN, REEL_SIZE } from "@/components/vstudio/home/showreelData";
+import { REEL_MIN } from "@/components/vstudio/home/showreelData";
 import { fetchData } from "@/tools/fetchData";
 import AddDialog from "./AddDialog";
 import CandidateCard from "./CandidateCard";
 import ItemRow from "./ItemRow";
+import ReelSizeControl from "./ReelSizeControl";
 import ScenarioBoard from "./ScenarioBoard";
 import { CARD, INPUT, Notices, Skeleton, btn, chip, useNotices } from "./parts";
 import {
@@ -25,28 +26,34 @@ import {
   placesOf,
   planMove,
   previousOf,
+  reelSizeBody,
+  reelSizeError,
+  reelSizeHint,
+  savedReelSize,
   sortForNew,
   type AddForm,
   type Candidate,
   type Category,
   type ItemChanges,
+  type ReelSize,
   type ShowcaseItem,
 } from "./showcaseAdmin";
 
 /**
  * Витрина видеостудии.
  *
- * Первый экран /video-studio показывает карусель настоящих роликов студии — по
- * одному на сценарий («Киносцена», «Реклама товара»…). Что увидят посетители,
- * решает владелец здесь: сверху — какие сценарии уже заняты, под ними сама
- * витрина (название, сценарий, порядок, показ запроса), ниже — готовые дубли,
- * которые в неё можно поставить. По умолчанию кандидаты — работы сотрудников:
- * их снимают для витрины, и вопроса о согласии автора нет. Работу пользователя
+ * Первый экран /video-studio показывает карусель настоящих роликов студии:
+ * сначала по одному на сценарий («Киносцена», «Реклама товара»…), затем
+ * остальные. Что увидят посетители, решает владелец здесь: сверху — какие
+ * сценарии уже заняты и сколько роликов в карусели, под ними сама витрина
+ * (название, сценарий, порядок, показ запроса), ниже — готовые дубли, которые
+ * в неё можно поставить. По умолчанию кандидаты — работы сотрудников: их
+ * снимают для витрины, и вопроса о согласии автора нет. Работу пользователя
  * сервер в витрину пока не примет: в адресе её файла виден номер аккаунта
  * автора.
  */
 
-type Board = { items: ShowcaseItem[]; categories: Category[]; publicLimit: number };
+type Board = { items: ShowcaseItem[]; categories: Category[]; publicLimit: number; reelSize: ReelSize };
 
 type Candidates = {
   /** Каким запросом получен список; не совпадает с текущим — идёт загрузка. */
@@ -58,6 +65,8 @@ type Candidates = {
 };
 
 const NO_CANDIDATES: Candidates = { key: null, rows: [], count: 0, pageSize: 50, error: null };
+
+const withReelSize = (board: Board, value: number): Board => ({ ...board, reelSize: { ...board.reelSize, value } });
 
 export default function AdminVStudioShowcasePage() {
   const [staffOnly, setStaffOnly] = useState(true);
@@ -71,6 +80,7 @@ export default function AdminVStudioShowcasePage() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [busy, setBusy] = useState<ReadonlySet<number>>(new Set());
   const [ordering, setOrdering] = useState(false);
+  const [sizing, setSizing] = useState(false);
   const [adding, setAdding] = useState<Candidate | null>(null);
   const { list: notices, notify, close } = useNotices();
 
@@ -83,7 +93,12 @@ export default function AdminVStudioShowcasePage() {
       if (!alive) return;
       const data = res.ok ? parseList(res.data) : null;
       if (data) {
-        setBoard({ items: data.items, categories: data.categories, publicLimit: data.publicLimit });
+        setBoard({
+          items: data.items,
+          categories: data.categories,
+          publicLimit: data.publicLimit,
+          reelSize: data.reelSize,
+        });
         setList({ key, rows: data.candidates, count: data.count, pageSize: data.pageSize, error: null });
       } else {
         setList({ ...NO_CANDIDATES, key, error: errorText(res, "Не удалось загрузить витрину") });
@@ -106,12 +121,19 @@ export default function AdminVStudioShowcasePage() {
   }, []);
 
   // Карусель считаем здесь тем же правилом, что сайт: сервер знает только,
-  // отдана ли работа, а кто из отданных попал в двенадцать — решает первый экран.
+  // отдана ли работа и сколько в карусели мест, а кто из отданных их занял —
+  // решает первый экран.
   const reel = useMemo(
-    () => carousel(board?.items ?? [], { limit: board?.publicLimit ?? 0, size: REEL_SIZE, min: REEL_MIN }),
+    () =>
+      carousel(board?.items ?? [], {
+        limit: board?.publicLimit ?? 0,
+        size: board?.reelSize.value ?? 0,
+        min: REEL_MIN,
+      }),
     [board],
   );
   const places = useMemo(() => placesOf(board?.items ?? [], board?.publicLimit ?? 0, reel), [board, reel]);
+  const frames = useMemo(() => new Map(reel.queue.map((id, index) => [id, index + 1])), [reel]);
 
   const loading = list.key !== key;
   const reload = () => setTick((value) => value + 1);
@@ -171,6 +193,24 @@ export default function AdminVStudioShowcasePage() {
       // Нумерация всего списка шла долго: сверяемся с сервером, вдруг витрину правили рядом.
       reload();
     }
+  };
+
+  const resize = async (value: number) => {
+    if (!board || sizing || value === board.reelSize.value) return;
+    const before = board.reelSize.value;
+    setSizing(true);
+    setBoard((prev) => prev && withReelSize(prev, value));
+    const res = await fetchData<unknown>(SHOWCASE_PATH, "PATCH", reelSizeBody(value), true);
+    setSizing(false);
+    if (!res.ok) {
+      // Откатываем только своё число: витрину за это время могли перечитать.
+      setBoard((prev) => (prev && prev.reelSize.value === value ? withReelSize(prev, before) : prev));
+      notify("fail", reelSizeError(res));
+      return;
+    }
+    // Сервер отвечает тем, что записал, — на экране должно стоять его число.
+    const saved = savedReelSize(res.data) ?? value;
+    setBoard((prev) => prev && withReelSize(prev, saved));
   };
 
   const remove = async (item: ShowcaseItem) => {
@@ -242,9 +282,10 @@ export default function AdminVStudioShowcasePage() {
         <div className="min-w-0 max-w-3xl">
           <h1 className="text-xl font-bold">Витрина видеостудии</h1>
           <p className="mt-1 text-sm text-muted-2">
-            Ролики карусели на первом экране видеостудии. В ней {REEL_SIZE} мест: верхний ролик каждого
-            сценария, на свободные — остальные по порядку списка. Ставьте сюда удачные дубли из кандидатов
-            ниже. Новые посетители видят изменения сразу, в уже открытой вкладке студии — в течение 10 минут.
+            Ролики карусели на первом экране видеостудии: верхний ролик каждого сценария, на свободные места —
+            остальные по порядку списка. Сколько их всего, задаёт «Роликов в карусели». Ставьте сюда удачные
+            дубли из кандидатов ниже. Новые посетители видят изменения сразу, в уже открытой вкладке студии — в
+            течение 10 минут.
           </p>
         </div>
         <a
@@ -285,16 +326,25 @@ export default function AdminVStudioShowcasePage() {
         <>
           <ScenarioBoard carousel={reel} min={REEL_MIN} />
 
+          <ReelSizeControl
+            size={board.reelSize}
+            saving={sizing}
+            hint={reelSizeHint(reel, { size: board.reelSize.value, min: REEL_MIN })}
+            onChange={(value) => void resize(value)}
+          />
+
           <div className="grid grid-cols-3 gap-3">
             <Stat label="В витрине" value={items.length} />
-            <Stat label="В карусели" value={shown.length} hint={`из ${REEL_SIZE}`} />
+            <Stat label="В карусели" value={shown.length} hint={`из ${board.reelSize.value}`} />
             <Stat label="С запросом" value={shown.filter((item) => item.showPrompt && item.prompt).length} />
           </div>
 
           <section className="flex flex-col gap-3">
             <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
               <h2 className="text-base font-semibold">В витрине</h2>
-              <span className="text-xs text-muted-2">Из роликов одного сценария в карусель идёт верхний.</span>
+              <span className="text-xs text-muted-2">
+                Из роликов одного сценария первым в карусель идёт верхний; номер кадра — на метке работы.
+              </span>
               {ordering && (
                 <span role="status" className="text-xs text-status-wait">
                   Сохраняю порядок…
@@ -315,6 +365,8 @@ export default function AdminVStudioShowcasePage() {
                     index={index}
                     total={items.length}
                     place={places.get(item.id) ?? "out"}
+                    frame={frames.get(item.id) ?? 0}
+                    reelSize={board.reelSize.value}
                     categories={board.categories}
                     busy={busy.has(item.id)}
                     orderLocked={ordering}

@@ -15,7 +15,10 @@
 - в витрину ставятся только работы сотрудников: в адресах файлов виден номер
   аккаунта автора;
 - лёгкая копия ролика: собирается после фиксации, не ломает ни панель, ни
-  сайт, уходит вместе со строкой и с результатом (ffmpeg в тестах подменён).
+  сайт, уходит вместе со строкой и с результатом (ffmpeg в тестах подменён);
+- размер карусели (reel_size): настройка панели от 5 до 48, сайт получает её
+  рядом со списком, а не из его кэша; мусор в базе не роняет первый экран;
+  правка — только целым числом в границах, со строкой в журнале.
 """
 import importlib
 import json
@@ -26,7 +29,7 @@ from django.apps import apps as django_apps
 from django.core.cache import cache
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
-from django.db import connection, migrations
+from django.db import DatabaseError, connection, migrations
 from django.test import TestCase, override_settings
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
@@ -34,6 +37,8 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 from rest_framework.throttling import ScopedRateThrottle, SimpleRateThrottle
 
+from adminapi.models import AppSetting
+from adminapi.runtime import CACHE_PREFIX, KEYS, set_runtime
 from audit.models import AdminActionLog
 
 from .. import showcase, tasks, views
@@ -63,6 +68,8 @@ SCENARIO_NAMES = {
     "vertical": "Reels / TikTok", "other": "Другое"}
 OLD_CATEGORIES = ["film", "ad", "social", "anime", "music", "other"]
 FIRST, LAST = "first_frame", "last_frame"
+REEL_KEY = "vstudio_reel_size"
+REEL_RANGE = "Роликов в карусели — целое число от 5 до 48"
 
 
 @override_settings(CACHES=CACHES, VSTUDIO_MODE="on")
@@ -101,7 +108,7 @@ class ShowcaseCase(TestCase):
     def public(self, client=None) -> list:
         res = (client or self.guest).get(PUBLIC)
         self.assertEqual(res.status_code, 200, res.content)
-        self.assertEqual(set(res.json()), {"items"})
+        self.assertEqual(set(res.json()), {"items", "reel_size"})
         return res.json()["items"]
 
     def ids(self, client=None) -> list:
@@ -826,15 +833,18 @@ class PanelPermissionTests(ShowcaseCase):
         item = self.item()
         take = self.work()
         calls = (("get", PANEL, None), ("post", PANEL, {"take": take.uid}),
+                 ("patch", PANEL, {"reel_size": 24}),
                  ("patch", f"{PANEL}{item.pk}/", {"title": "x"}),
                  ("delete", f"{PANEL}{item.pk}/", None))
         for client, code in ((self.guest, 401), (self.client_for(self.author), 403)):
             for method, url, body in calls:
-                with self.subTest(code=code, method=method):
+                with self.subTest(code=code, method=method, url=url):
                     res = getattr(client, method)(url, body, format="json")
                     self.assertEqual(res.status_code, code)
         item.refresh_from_db()
         self.assertEqual((item.title, ShowcaseItem.objects.count()), ("", 1))
+        self.assertEqual((showcase.reel_size(), AppSetting.objects.filter(key=REEL_KEY).exists()),
+                         (12, False))
         self.assertEqual(AdminActionLog.objects.count(), 0)
 
     def test_routes(self):
@@ -856,8 +866,11 @@ class PanelListTests(ShowcaseCase):
                          created_by=self.staff)
         self.work()
         data = self.get()
-        self.assertEqual(set(data), {"items", "candidates", "scope", "categories", "public_limit"})
+        self.assertEqual(set(data), {"items", "candidates", "scope", "categories", "public_limit",
+                                     "reel_size", "reel_size_min", "reel_size_max"})
         self.assertEqual((data["scope"], data["public_limit"]), ("staff", 48))
+        self.assertEqual((data["reel_size"], data["reel_size_min"], data["reel_size_max"]),
+                         (12, 5, 48))
         # Сценарии — в порядке карусели, «Другое» последним; подписи — как на сайте.
         self.assertEqual([c["key"] for c in data["categories"]], SCENARIOS + ["other"])
         self.assertEqual({c["key"]: c["label"] for c in data["categories"]}, SCENARIO_NAMES)
@@ -1097,6 +1110,279 @@ class PanelWriteTests(ShowcaseCase):
                     call()
         item.refresh_from_db()
         self.assertEqual((item.title, ShowcaseItem.objects.count()), ("Было", 1))
+
+
+# ---------------------------------------------------------------- размер карусели
+
+class ReelSizeCase(ShowcaseCase):
+    def stored(self):
+        """Что лежит в настройках: строка значения или None, если её не писали."""
+        return AppSetting.objects.filter(key=REEL_KEY).values_list("value", flat=True).first()
+
+    def store(self, raw: str) -> None:
+        """Положить значение в обход панели — так мусор и попадает в базу."""
+        AppSetting.objects.update_or_create(key=REEL_KEY, defaults={"value": raw})
+        cache.clear()
+
+    def site(self, client=None) -> int:
+        res = (client or self.guest).get(PUBLIC)
+        self.assertEqual(res.status_code, 200, res.content)
+        return res.json()["reel_size"]
+
+    def reel_logs(self):
+        # Настройка — не строка витрины: у записи журнала нет объекта.
+        return AdminActionLog.objects.filter(target_type="").order_by("pk")
+
+
+class ReelSizeTests(ReelSizeCase):
+    def test_agreed_key_and_bounds(self):
+        self.assertEqual((showcase.REEL_SIZE_KEY, showcase.REEL_SIZE_MIN, showcase.REEL_SIZE_MAX,
+                          showcase.REEL_SIZE_DEFAULT), (REEL_KEY, 5, 48, 12))
+        # Больше, чем сайт получает работ, карусели взять неоткуда.
+        self.assertEqual(showcase.REEL_SIZE_MAX, showcase.MAX_PUBLIC)
+        self.assertIn(REEL_KEY, KEYS)
+
+    def test_default_until_the_owner_sets_it(self):
+        self.assertEqual((showcase.reel_size(), self.stored()), (12, None))
+        self.assertEqual(self.site(), 12)
+        # Так поле ищет проверка после выкладки (docs/UPDATE.md).
+        self.assertIn(b'"reel_size":12', self.guest.get(PUBLIC).content)
+
+    def test_stored_value_is_clamped_and_garbage_falls_back(self):
+        cases = {
+            "24": 24, "5": 5, "48": 48, " 36 ": 36,
+            # Вне границ — ближайшая граница.
+            "4": 5, "0": 5, "-7": 5, "49": 48, "100000": 48,
+            # Не целое число — размер по умолчанию.
+            "": 12, "abc": 12, "12.5": 12, "24.0": 12, "1e2": 12, "True": 12, "None": 12,
+            "[24]": 12, "9" * 5000: 12,
+        }
+        for raw, expected in cases.items():
+            with self.subTest(raw=raw[:12]):
+                self.store(raw)
+                self.assertEqual(showcase.reel_size(), expected)
+                self.assertEqual(self.site(), expected)
+
+    def test_wrong_type_from_the_settings_layer(self):
+        cases = ((True, 12), (False, 12), ("24", 12), (None, 12), (24.0, 12), ([24], 12),
+                 (7, 7), (3, 5), (500, 48))
+        for value, expected in cases:
+            with self.subTest(value=value), \
+                    mock.patch("adminapi.runtime.get_runtime", return_value=value):
+                self.assertEqual(showcase.reel_size(), expected)
+
+    def test_never_raises(self):
+        with mock.patch("adminapi.runtime.get_runtime", side_effect=RuntimeError("настройки")):
+            self.assertEqual(showcase.reel_size(), 12)
+        with mock.patch.object(showcase.cache, "get", side_effect=OSError("кэш недоступен")):
+            self.assertEqual(showcase.reel_size(), 12)
+        with mock.patch.object(showcase.transaction, "atomic", side_effect=DatabaseError("база")):
+            self.assertEqual(showcase.reel_size(), 12)
+
+    def test_site_survives_an_unreadable_settings_table(self):
+        item = self.item()
+        self.store("24")
+        with mock.patch.object(AppSetting.objects, "filter",
+                               side_effect=DatabaseError("таблицы настроек нет")):
+            res = self.guest.get(PUBLIC)
+        self.assertEqual(res.status_code, 200, res.content)
+        # Работы на месте, размер — по умолчанию: настройки первый экран не роняют.
+        self.assertEqual(([row["id"] for row in res.json()["items"]], res.json()["reel_size"]),
+                         ([item.pk], 12))
+
+    def test_settings_read_is_fenced_and_cached(self):
+        self.store("24")
+        with CaptureQueriesContext(connection) as cold:
+            self.assertEqual(showcase.reel_size(), 24)
+        sql = [query["sql"] for query in cold]
+        # Чтение настроек — внутри savepoint: в PostgreSQL упавший запрос иначе
+        # оставил бы транзакцию запроса сломанной до конца.
+        self.assertEqual(len(sql), 3, sql)
+        self.assertTrue(sql[0].startswith("SAVEPOINT") and sql[2].startswith("RELEASE"), sql)
+        self.assertIn("adminapi_appsetting", sql[1])
+        self.assertIn(REEL_KEY, sql[1])
+        # Дальше полминуты значение отдаёт кэш настроек: за ним в таблицу не ходят.
+        with CaptureQueriesContext(connection) as warm:
+            self.assertEqual(showcase.reel_size(), 24)
+            self.assertEqual(self.site(), 24)
+        self.assertFalse([query["sql"] for query in warm if REEL_KEY in query["sql"]])
+
+    def test_site_gets_it_beside_the_list_not_from_its_cache(self):
+        item = self.item()
+        self.assertEqual((self.ids(), self.site()), ([item.pk], 12))
+        cached = cache.get(showcase.CACHE_KEY)
+        set_runtime(REEL_KEY, 24)
+        # Список по-прежнему из кэша на пять минут, а размер уже новый.
+        self.assertEqual(self.site(), 24)
+        self.assertEqual(cache.get(showcase.CACHE_KEY), cached)
+        self.assertEqual(set(cached[0]), PUBLIC_KEYS)
+
+    def test_every_visitor_gets_it_in_every_mode(self):
+        self.item()
+        set_runtime(REEL_KEY, 36)
+        for mode in views.MODES:
+            for client in (self.guest, self.client_for(self.author), self.panel):
+                with self.subTest(mode=mode), override_settings(VSTUDIO_MODE=mode):
+                    res = client.get(PUBLIC)
+                    self.assertEqual(res.status_code, 200, res.content)
+                    self.assertEqual(set(res.json()), {"items", "reel_size"})
+                    self.assertEqual(res.json()["reel_size"], 36)
+                    # Студия выключена — витрины нет, но ответ той же формы.
+                    self.assertEqual(bool(res.json()["items"]), mode != "off")
+
+
+class ReelSizePanelTests(ReelSizeCase):
+    def patch(self, body, **extra):
+        return self.panel.patch(PANEL, body, format="json", **extra)
+
+    def panel_size(self) -> tuple:
+        data = self.panel.get(PANEL).json()
+        return data["reel_size"], data["reel_size_min"], data["reel_size_max"]
+
+    def test_panel_shows_the_value_and_its_bounds(self):
+        self.assertEqual(self.panel_size(), (12, 5, 48))
+        self.store("1000")
+        # Панель видит то же, что сайт: зажатое в границы значение.
+        self.assertEqual(self.panel_size(), (48, 5, 48))
+
+    def test_set(self):
+        res = self.patch({"reel_size": 24}, HTTP_X_FORWARDED_FOR="203.0.113.7")
+        self.assertEqual((res.status_code, res.json()), (200, {"reel_size": 24}))
+        self.assertEqual((self.stored(), showcase.reel_size()), ("24", 24))
+        self.assertEqual((self.panel_size(), self.site()), ((24, 5, 48), 24))
+
+        log = self.reel_logs().get()
+        self.assertEqual((log.actor, log.action, log.target_type, log.target_id, log.ip),
+                         (self.staff, "settings.edit", "", "", "203.0.113.7"))
+        self.assertEqual((log.before, log.after), ({REEL_KEY: 12}, {REEL_KEY: 24}))
+        self.assertEqual(AdminActionLog.objects.count(), 1)
+
+    def test_both_bounds_are_allowed(self):
+        for size, before in ((5, 12), (48, 5)):
+            with self.subTest(size=size):
+                res = self.patch({"reel_size": size})
+                self.assertEqual((res.status_code, res.json()), (200, {"reel_size": size}))
+                self.assertEqual((showcase.reel_size(), self.site()), (size, size))
+                log = self.reel_logs().last()
+                self.assertEqual((log.before, log.after), ({REEL_KEY: before}, {REEL_KEY: size}))
+        self.assertEqual(self.reel_logs().count(), 2)
+
+    def test_only_a_real_integer_in_range(self):
+        self.patch({"reel_size": 24})
+        bodies = ({"reel_size": True}, {"reel_size": False}, {"reel_size": "24"},
+                  {"reel_size": " 24"}, {"reel_size": 4}, {"reel_size": 49}, {"reel_size": 0},
+                  {"reel_size": -12}, {"reel_size": 10 ** 9}, {"reel_size": 24.0},
+                  {"reel_size": 12.5}, {"reel_size": None}, {"reel_size": [36]},
+                  {"reel_size": {"value": 36}})
+        for body in bodies:
+            with self.subTest(body=body):
+                res = self.patch(body)
+                self.assertEqual(res.status_code, 400, res.content)
+                self.assertEqual(res.json(), {"detail": REEL_RANGE})
+        # Форма шлёт числа строками — строка числом не считается.
+        res = self.panel.patch(PANEL, {"reel_size": "36"}, format="multipart")
+        self.assertEqual((res.status_code, res.json()), (400, {"detail": REEL_RANGE}))
+        self.assertEqual((self.stored(), showcase.reel_size(), self.reel_logs().count()),
+                         ("24", 24, 1))
+
+    def test_unknown_or_missing_fields_are_refused(self):
+        item = self.item(title="Было")
+        unknown = ({"reel_size": 24, "title": "Стало"}, {"reel_size": 24, "public_limit": 12},
+                   {"size": 24}, {REEL_KEY: 24}, {"title": "Стало"}, {"reel_size_max": 96})
+        for body in unknown:
+            with self.subTest(body=body):
+                res = self.patch(body)
+                self.assertEqual(res.status_code, 400, res.content)
+                self.assertEqual(set(res.json()), {"detail"})
+                self.assertIn("reel_size", res.json()["detail"])
+        for body in ({}, [24], 24, "24", None):
+            with self.subTest(body=body):
+                res = self.patch(body)
+                self.assertEqual((res.status_code, res.json()), (400, {"detail": "Нечего менять"}))
+        item.refresh_from_db()
+        self.assertEqual((item.title, self.stored(), showcase.reel_size(),
+                          AdminActionLog.objects.count()), ("Было", None, 12, 0))
+
+    def test_same_value_writes_nothing(self):
+        # Значение по умолчанию «поставить» тоже нечем: оно и так действует.
+        res = self.patch({"reel_size": 12})
+        self.assertEqual((res.status_code, res.json()), (200, {"reel_size": 12}))
+        self.assertEqual((self.stored(), self.reel_logs().count()), (None, 0))
+
+        self.patch({"reel_size": 24})
+        stamp = AppSetting.objects.get(key=REEL_KEY).updated_at
+        with self.captureOnCommitCallbacks() as callbacks:
+            res = self.patch({"reel_size": 24})
+        self.assertEqual((res.status_code, res.json()), (200, {"reel_size": 24}))
+        self.assertEqual(callbacks, [])
+        self.assertEqual((AppSetting.objects.get(key=REEL_KEY).updated_at,
+                          self.reel_logs().count()), (stamp, 1))
+
+    def test_no_log_no_change(self):
+        with mock.patch("vstudio.showcase.log_admin_action", side_effect=RuntimeError("журнал")):
+            with self.assertRaises(RuntimeError):
+                self.patch({"reel_size": 24})
+            self.assertEqual((self.stored(), showcase.reel_size()), (None, 12))
+            self.store("36")
+            with self.assertRaises(RuntimeError):
+                self.patch({"reel_size": 24})
+            self.assertEqual((self.stored(), showcase.reel_size()), ("36", 36))
+            # То же без транзакции запроса вокруг: настройка и журнал — одно целое
+            # и для того, кто зовёт правку не из вьюхи.
+            with self.assertRaises(RuntimeError):
+                showcase.set_reel_size({"reel_size": 24}, actor=self.staff)
+        self.assertEqual((self.stored(), showcase.reel_size(), self.site()), ("36", 36, 36))
+        self.assertEqual(AdminActionLog.objects.count(), 0)
+
+    def test_stale_settings_cache_does_not_hide_a_real_change(self):
+        self.store("24")
+        # В кэше настроек осталось прежнее значение: по нему «12» сошло бы за повтор.
+        cache.set(CACHE_PREFIX + REEL_KEY, "12", 30)
+        res = self.patch({"reel_size": 12})
+        self.assertEqual((res.status_code, res.json()), (200, {"reel_size": 12}))
+        self.assertEqual((self.stored(), showcase.reel_size()), ("12", 12))
+        log = self.reel_logs().get()
+        self.assertEqual((log.before, log.after), ({REEL_KEY: 24}, {REEL_KEY: 12}))
+
+    def test_settings_cache_is_dropped_again_after_commit(self):
+        with self.captureOnCommitCallbacks() as callbacks:
+            self.assertEqual(self.patch({"reel_size": 24}).status_code, 200)
+        # Сосед прочитал базу до фиксации и положил в кэш прежнее значение.
+        cache.set(CACHE_PREFIX + REEL_KEY, "12", 30)
+        self.assertEqual(showcase.reel_size(), 12)
+        self.assertTrue(callbacks)
+        for callback in callbacks:
+            callback()
+        self.assertEqual((showcase.reel_size(), self.site()), (24, 24))
+
+    def test_cache_failure_after_commit_is_not_an_error(self):
+        with self.captureOnCommitCallbacks() as callbacks:
+            self.assertEqual(self.patch({"reel_size": 24}).status_code, 200)
+        with mock.patch.object(showcase.cache, "delete", side_effect=OSError("кэш недоступен")), \
+                self.assertLogs("vstudio", level="WARNING"):
+            for callback in callbacks:
+                callback()
+        self.assertEqual(showcase.reel_size(), 24)
+
+    def test_garbage_in_the_table_can_be_fixed_from_the_panel(self):
+        self.store("сорок")
+        self.assertEqual(self.panel_size(), (12, 5, 48))
+        res = self.patch({"reel_size": 18})
+        self.assertEqual((res.status_code, self.stored(), showcase.reel_size()), (200, "18", 18))
+        log = self.reel_logs().get()
+        self.assertEqual((log.before, log.after), ({REEL_KEY: 12}, {REEL_KEY: 18}))
+
+    def test_list_cache_and_items_are_untouched(self):
+        item = self.item(title="Ночной город")
+        self.assertEqual(self.ids(), [item.pk])
+        cached = cache.get(showcase.CACHE_KEY)
+        stamp = item.updated_at
+        with self.captureOnCommitCallbacks(execute=True):
+            self.assertEqual(self.patch({"reel_size": 5}).status_code, 200)
+        # Размер — не часть списка: кэш работ ради него не пересобирается.
+        self.assertEqual(cache.get(showcase.CACHE_KEY), cached)
+        item.refresh_from_db()
+        self.assertEqual((item.updated_at, self.logs().count()), (stamp, 0))
 
 
 # ---------------------------------------------------------------- Django-админка

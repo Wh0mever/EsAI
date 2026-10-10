@@ -4,8 +4,10 @@
  *
  *   GET    manage/vstudio/showcase/?scope=staff|all&q=&page=
  *            → { items: [работа], candidates: { count, page_size, results: [дубль] },
- *                categories: [{ key, label }], public_limit }
+ *                categories: [{ key, label }], public_limit,
+ *                reel_size, reel_size_min, reel_size_max }
  *   POST   manage/vstudio/showcase/       { take, title, category, show_prompt, sort? } → работа
+ *   PATCH  manage/vstudio/showcase/       { reel_size } → { reel_size }
  *   PATCH  manage/vstudio/showcase/<id>/  { title?, category?, sort?, is_active?, show_prompt? } → работа
  *   DELETE manage/vstudio/showcase/<id>/  → 204
  *
@@ -14,9 +16,12 @@
  * запись без id или с полем не того типа страницу не роняет, а пропускается.
  * category — сценарий ролика: под его именем работа стоит в карусели первого
  * экрана. Какие работы в неё попадут, сервер не знает — это правило сайта, и
- * панель повторяет его здесь же (carousel, placesOf).
+ * панель повторяет его здесь же (carousel, placesOf). Размер карусели
+ * (reel_size) — настройка сервера, но сколько из неё покажет сайт, решает он
+ * сам: число читаем его же функцией, границы — не шире его границ.
  * Модуль чистый (без React и сети) — его проверяет showcaseAdmin.test.mjs.
  */
+import { REEL_MAX, REEL_MIN, clampReelSize } from "@/components/vstudio/home/showreelData";
 
 export const SHOWCASE_PATH = "manage/vstudio/showcase/";
 export const itemPath = (id: number): string => `${SHOWCASE_PATH}${id}/`;
@@ -111,6 +116,9 @@ export type Candidate = ShowcaseMedia & {
   publishable: boolean;
 };
 
+/** «Роликов в карусели»: сколько их сейчас и в каких пределах число можно менять. */
+export type ReelSize = { value: number; min: number; max: number };
+
 export type ShowcaseList = {
   items: ShowcaseItem[];
   candidates: Candidate[];
@@ -119,6 +127,7 @@ export type ShowcaseList = {
   pageSize: number;
   categories: Category[];
   publicLimit: number;
+  reelSize: ReelSize;
 };
 
 /* ------------------------------------------------------------------ */
@@ -192,6 +201,29 @@ function parseCategories(value: unknown): Category[] {
   return out.length ? out : CATEGORIES;
 }
 
+/** Целое, которое сайт умеет показать как размер карусели; иначе null. */
+function reelInt(v: unknown): number | null {
+  const n = num(v);
+  return n !== null && Number.isInteger(n) && n >= REEL_MIN && n <= REEL_MAX ? n : null;
+}
+
+/**
+ * Настройка «Роликов в карусели». Сервер прежней версии её не присылает —
+ * тогда размер и границы как у сайта. Размер читаем функцией сайта: доска
+ * обязана показать то же, что увидит посетитель.
+ */
+function parseReelSize(payload: Row): ReelSize {
+  const value = clampReelSize(payload.reel_size);
+  const min = reelInt(payload.reel_size_min) ?? REEL_MIN;
+  const max = reelInt(payload.reel_size_max) ?? REEL_MAX;
+  return min <= max ? { value, min, max } : { value, min: REEL_MIN, max: REEL_MAX };
+}
+
+/** Ответ PATCH с размером — что сервер записал; null — ответ не разобрать. */
+export function savedReelSize(payload: unknown): number | null {
+  return isRow(payload) ? reelInt(payload.reel_size) : null;
+}
+
 /** Ответ GET; null — вместо панели ответил кто-то другой (страница nginx, не JSON). */
 export function parseList(payload: unknown): ShowcaseList | null {
   if (!isRow(payload)) return null;
@@ -221,6 +253,7 @@ export function parseList(payload: unknown): ShowcaseList | null {
     pageSize: pageSize !== null && pageSize >= 1 ? Math.trunc(pageSize) : PAGE_SIZE,
     categories: parseCategories(payload.categories),
     publicLimit: limit !== null && limit > 0 ? limit : PUBLIC_LIMIT,
+    reelSize: parseReelSize(payload),
   };
 }
 
@@ -315,6 +348,18 @@ export function errorText(res: { status: number; data?: unknown }, fallback: str
   const data = isRow(res.data) ? res.data : null;
   const told = data ? text(data.detail) || text(data.error) || text(data.message) : "";
   return told || `${fallback} (HTTP ${res.status})`;
+}
+
+/** Тело PATCH с размером карусели: настоящее целое, строку сервер не примет. */
+export const reelSizeBody = (value: number): Record<string, unknown> => ({ reel_size: value });
+
+/**
+ * Отказ сохранить размер. 405 отвечает сервер прежней версии: настройки у
+ * него ещё нет, а его «Метод PATCH не разрешён» владельцу ничего не скажет.
+ */
+export function reelSizeError(res: { status: number; data?: unknown }): string {
+  if (res.status === 405) return "Сервер ещё не обновлён: размер карусели на нём пока не меняется.";
+  return errorText(res, "Не удалось сохранить размер карусели");
 }
 
 /* ------------------------------------------------------------------ */
@@ -427,6 +472,8 @@ export type ScenarioSlot = {
   label: string;
   /** Ролик, которым карусель показывает сценарий; null — пусто. */
   item: ShowcaseItem | null;
+  /** Ролик сценария вошёл в карусель. Снятый сценарий может и не войти: мест меньше, чем занятых сценариев перед ним. */
+  fits: boolean;
   /** Сколько ещё роликов сценария отдано сайту: в карусель они идут после первых, на свободные места. */
   spare: number;
 };
@@ -438,13 +485,20 @@ export type Carousel = {
   filled: number;
   /** Роликов студии на сайте — вместе с теми, что без сценария. */
   videos: number;
-  /** id роликов в порядке карусели, не больше её размера. */
+  /** id всех этих роликов в порядке карусели: кому хватит места, решает её размер. */
+  queue: number[];
+  /** id тех, кому хватило: начало очереди, не больше размера карусели. */
   order: number[];
+  /** Ролики карусели после сценариев — в порядке витрины. */
+  tail: ShowcaseItem[];
   /** false — роликов меньше, чем карусели нужно: вместо них идут сцены мультстудии. */
   studio: boolean;
 };
 
-/** limit — сколько работ сервер отдаёт сайту; size и min — размер карусели и её порог (REEL_SIZE, REEL_MIN). */
+/**
+ * limit — сколько работ сервер отдаёт сайту; size — размер карусели (настройка
+ * сервера, ReelSize.value); min — её порог, правило сайта (REEL_MIN).
+ */
 export type ReelRule = { limit: number; size: number; min: number };
 
 /**
@@ -463,24 +517,35 @@ export function carousel(items: readonly ShowcaseItem[], rule: ReelRule): Carous
     const key = RENAMED.get(item.category) ?? item.category;
     byScenario.set(key, [...(byScenario.get(key) ?? []), item]);
   }
+  const heads = SCENARIOS.flatMap(({ key }) => byScenario.get(key)?.slice(0, 1) ?? []);
+  const taken = new Set(heads.map((item) => item.id));
+  const queue = [...heads, ...videos.filter((item) => !taken.has(item.id))];
+  const shown = queue.slice(0, rule.size);
+  const fits = new Set(shown.map((item) => item.id));
   const slots = SCENARIOS.map(({ key, label }): ScenarioSlot => {
     const own = byScenario.get(key) ?? [];
-    return { key, label, item: own[0] ?? null, spare: Math.max(own.length - 1, 0) };
+    const item = own[0] ?? null;
+    return { key, label, item, fits: item !== null && fits.has(item.id), spare: Math.max(own.length - 1, 0) };
   });
-  const heads = slots.flatMap((slot) => (slot.item ? [slot.item] : []));
-  const taken = new Set(heads.map((item) => item.id));
-  const order = [...heads, ...videos.filter((item) => !taken.has(item.id))].slice(0, rule.size).map((item) => item.id);
-  return { slots, filled: heads.length, videos: videos.length, order, studio: order.length >= rule.min };
+  return {
+    slots,
+    filled: heads.length,
+    videos: videos.length,
+    queue: queue.map((item) => item.id),
+    order: shown.map((item) => item.id),
+    tail: shown.slice(heads.length),
+    studio: shown.length >= rule.min,
+  };
 }
 
 /** Где работа сейчас на сайте. */
-export type Place = "reel" | "wait" | "out" | "hidden" | "over" | "nofile";
+export type Place = "reel" | "wait" | "out" | "image" | "hidden" | "over" | "nofile";
 
 /**
  * Что с каждой работой на сайте. Кроме карусели, первый экран работ студии
  * не показывает, поэтому «отдана сайту» ещё не значит «видна»: ролик ждёт,
- * пока карусель наберёт свой минимум ("wait"), а картинка и ролик сверх
- * размера карусели в неё не попадают ("out").
+ * пока карусель наберёт свой минимум ("wait"), или стоит в её очереди дальше
+ * выбранного размера ("out"); картинок карусель не берёт вовсе ("image").
  */
 export function placesOf(
   items: readonly ShowcaseItem[],
@@ -493,8 +558,76 @@ export function placesOf(
     if (!item.available) return "nofile";
     if (!item.visible) return "hidden";
     if (!sent.has(item.id)) return "over";
+    if (item.kind !== "video") return "image";
     if (!shown.has(item.id)) return "out";
     return reel.studio ? "reel" : "wait";
   };
   return new Map(items.map((item) => [item.id, place(item)]));
+}
+
+/* ------------------------------------------------------------------ */
+/* Размер карусели                                                     */
+/* ------------------------------------------------------------------ */
+
+/** Значения для выбора одним нажатием — их назвал владелец. */
+const REEL_QUICK: readonly number[] = [12, 18, 24, 36, 48];
+
+const fitReelSize = (value: number, size: ReelSize): number => Math.min(Math.max(value, size.min), size.max);
+
+/** Быстрые значения, которые сервер примет. */
+export const reelSizeQuick = (size: ReelSize): number[] => REEL_QUICK.filter((n) => n >= size.min && n <= size.max);
+
+/** Размер после кнопки − или + (by — на сколько); null — дальше границы некуда. */
+export function reelSizeStep(size: ReelSize, by: number): number | null {
+  const next = fitReelSize(size.value + by, size);
+  return next === size.value ? null : next;
+}
+
+/** Набранное в поле → размер в границах; null — не число: человек передумал. */
+export function reelSizeTyped(typed: string, size: ReelSize): number | null {
+  const digits = typed.trim();
+  return /^\d+$/.test(digits) ? fitReelSize(Number(digits), size) : null;
+}
+
+/**
+ * Набранное в поле — если это уже размер, без подгонки к границе; иначе null.
+ * Так поле сохраняется, когда из него просто ушли (кликнули мимо, сменили
+ * окно): «4», набранное на пути к «48», иначе записалось бы пятью — и на сайт
+ * ушла бы карусель из пяти роликов. К границе подгоняет только Enter
+ * (reelSizeTyped). От этого же числа шагают − и +.
+ */
+export function reelSizeExact(typed: string | null, size: ReelSize): number | null {
+  if (typed === null) return null;
+  const value = reelSizeTyped(typed, size);
+  return value !== null && value === Number(typed.trim()) ? value : null;
+}
+
+/** «1 ролик» / «3 ролика» / «12 роликов»: число теперь любое, одной формой не обойтись. */
+function plural(n: number, one: string, few: string, many: string): string {
+  const m10 = n % 10;
+  const m100 = n % 100;
+  if (m10 === 1 && m100 !== 11) return `${n} ${one}`;
+  if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return `${n} ${few}`;
+  return `${n} ${many}`;
+}
+
+export type ReelHint = {
+  /** Правило карусели и сколько роликов ей сейчас доступно. */
+  text: string;
+  /** Чем это число расходится с выбранным размером; null — сходится. */
+  note: string | null;
+};
+
+/** Подсказка под «Роликов в карусели». */
+export function reelSizeHint(reel: Pick<Carousel, "videos" | "studio">, rule: Pick<ReelRule, "size" | "min">): ReelHint {
+  const { videos } = reel;
+  const have = plural(videos, "включённый ролик", "включённых ролика", "включённых роликов");
+  const text = `Карусель берёт верхний ролик каждого сценария, затем остальные по порядку списка. Сейчас в витрине ${have}.`;
+  // Пока роликов меньше порога, карусель не показывает их вовсе — «покажет N» было бы неправдой.
+  if (!reel.studio) return { text, note: `Роликов меньше ${rule.min}: карусель пока показывает сцены мультстудии.` };
+  if (videos < rule.size) return { text, note: `Роликов меньше, чем мест: карусель покажет ${videos}.` };
+  if (videos > rule.size) {
+    return { text, note: `Не вошло роликов: ${videos - rule.size} — в списке они помечены «Вне карусели».` };
+  }
+  return { text, note: null };
 }

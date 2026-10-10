@@ -19,6 +19,8 @@
 
 Правила панели живут здесь, а не во вьюхах: проверка полей, запись в журнал
 действий (audit.AdminActionLog) в одной транзакции с правкой, сброс кэша.
+Сколько работ из списка берёт карусель, тоже решает панель — настройка
+reel_size; в список и его кэш она не входит.
 
 Ролики первый экран крутит сам, поэтому у каждой работы есть лёгкая копия
 (ShowcaseItem.clip, рецепт cartoon.clips). Её собирает задача в общей очереди
@@ -54,8 +56,15 @@ logger = logging.getLogger("vstudio")
 
 CACHE_KEY = "vstudio:showcase:v1"
 CACHE_S = 300
-# Больше первый экран не покажет: карусель берёт 12, остальное — запас на замену.
+# Больше первый экран не покажет: карусель берёт reel_size() работ, остальное —
+# запас на замену.
 MAX_PUBLIC = 48
+# Размер карусели — настройка панели (runtime-ключ). Меньше пяти у карусели нет
+# «крыльев» по бокам, больше MAX_PUBLIC сайт всё равно не получит.
+REEL_SIZE_KEY = "vstudio_reel_size"
+REEL_SIZE_MIN = 5
+REEL_SIZE_MAX = MAX_PUBLIC
+REEL_SIZE_DEFAULT = 12
 # Что нужно кнопке «Снять похожее». Сид и негативный промпт наружу не идут.
 PARAM_KEYS = ("duration", "resolution", "aspect_ratio")
 SCOPES = ("staff", "all")
@@ -280,6 +289,47 @@ def _item_changed(sender, **kwargs) -> None:
     # Сигнал, а не вызов из вьюхи: строку меняют и панель, и Django-админка,
     # а удаление дубля или аккаунта уносит её каскадом.
     drop_cache()
+
+
+# ---------------------------------------------------------------- размер карусели
+
+def _reel_clamp(value) -> int:
+    """Число — в границы карусели; не целое число — размер по умолчанию."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        return REEL_SIZE_DEFAULT
+    return min(max(value, REEL_SIZE_MIN), REEL_SIZE_MAX)
+
+
+def reel_size() -> int:
+    """Сколько роликов берёт карусель первого экрана: от REEL_SIZE_MIN до REEL_SIZE_MAX.
+
+    Не бросает никогда — её зовёт открытая всем витрина. Настройки не
+    прочитались или в базе не число — размер по умолчанию; число вне границ —
+    ближайшая граница. В кэш списка работ значение не входит: у настроек свой,
+    на полминуты (adminapi.runtime), так что в базу чтение ходит редко.
+    Чтение — в savepoint, как у studio_mode: сбой запроса к настройкам не
+    должен ломать транзакцию запроса.
+    """
+    try:
+        from adminapi.runtime import get_runtime
+
+        with transaction.atomic():
+            value = get_runtime(REEL_SIZE_KEY, REEL_SIZE_DEFAULT)
+    except Exception:
+        logger.debug("vstudio showcase: размер карусели не прочитался", exc_info=True)
+        return REEL_SIZE_DEFAULT
+    return _reel_clamp(value)
+
+
+def _forget_reel_size() -> None:
+    """Забыть размер в кэше настроек: следующее чтение пойдёт в базу."""
+    try:
+        from adminapi.runtime import CACHE_PREFIX
+
+        cache.delete(CACHE_PREFIX + REEL_SIZE_KEY)
+    except Exception:
+        logger.warning("vstudio showcase: кэш размера карусели не сбросился, значение "
+                       "обновится само в течение полминуты", exc_info=True)
 
 
 # ---------------------------------------------------------------- лёгкая копия
@@ -605,12 +655,51 @@ def remove(item: ShowcaseItem, *, actor, request=None) -> None:
         item.delete()
 
 
+def _clean_reel_size(data) -> int:
+    """Новый размер карусели из тела запроса. Все проверки — до первой записи."""
+    if any(name != "reel_size" for name in data):
+        raise ShowcaseError("Здесь меняется только размер карусели — поле reel_size")
+    if "reel_size" not in data:
+        raise ShowcaseError("Нечего менять")
+    size = data["reel_size"]
+    # Только настоящее целое: строку "24" шлёт форма, а True для Python тоже int.
+    if (isinstance(size, bool) or not isinstance(size, int)
+            or not REEL_SIZE_MIN <= size <= REEL_SIZE_MAX):
+        raise ShowcaseError(
+            f"Роликов в карусели — целое число от {REEL_SIZE_MIN} до {REEL_SIZE_MAX}")
+    return size
+
+
+def set_reel_size(data, *, actor, request=None) -> int:
+    """Поменять размер карусели. То же значение — ни записи в базу, ни строки в журнале."""
+    from adminapi.runtime import set_runtime
+
+    size = _clean_reel_size(data)
+    # «Было» читаем мимо кэша настроек: по устаревшему значению настоящая
+    # правка сошла бы за повтор и не записалась.
+    _forget_reel_size()
+    before = reel_size()
+    if before == size:
+        return size
+    with transaction.atomic():
+        set_runtime(REEL_SIZE_KEY, size)
+        # В журнал — в той же транзакции: не записалось, откатится и настройка.
+        log_admin_action(actor, LOG_ACTION, before={REEL_SIZE_KEY: before},
+                         after={REEL_SIZE_KEY: size}, request=request)
+    # Пока транзакция запроса открыта, сосед мог прочитать из базы прежнее
+    # значение и положить его в кэш настроек — после фиксации сбрасываем ещё раз.
+    transaction.on_commit(_forget_reel_size)
+    return size
+
+
 __all__ = [
     "CACHE_KEY", "CACHE_S", "MAX_PUBLIC", "SCOPES", "CATEGORY_CHOICES", "CATEGORIES", "SCENARIOS",
+    "REEL_SIZE_KEY", "REEL_SIZE_MIN", "REEL_SIZE_MAX", "REEL_SIZE_DEFAULT",
     "ShowcaseError",
     "needs_photo", "start_frame_url",
     "public_qs", "public_json", "public_items", "drop_cache", "forget_assets", "revive_assets",
+    "reel_size",
     "enqueue_clip", "request_clip", "build_clip", "can_publish",
     "take_row", "staff_json", "staff_items", "get_item", "parse_scope", "candidates_qs",
-    "add", "edit", "remove",
+    "add", "edit", "remove", "set_reel_size",
 ]

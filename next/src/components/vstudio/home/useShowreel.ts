@@ -7,6 +7,7 @@
  * сцен переводит сервер, поэтому запрос несёт язык). Каждый может не ответить
  * сам по себе: тогда его часть считается пустой, а первый экран живёт на
  * второй. Разбор ответов и выбор кадров карусели делает showreelData.ts.
+ * Вместе с работами студии приходит и размер карусели — настройка владельца.
  *
  * Кэш общий для вкладки и привязан к языку: первый экран монтируется заново
  * при каждом возврате к «Новой генерации», а сцены за 10 минут не меняются.
@@ -23,8 +24,10 @@ import { apiLang, type ApiLang } from "@/lib/apiLang";
 import { fetchData } from "@/tools/fetchData";
 import {
   EMPTY_SHOWREEL,
+  REEL_SIZE,
   buildShowreel,
   cartoonItems,
+  reelSizeOf,
   studioItems,
   type ReelItem,
   type ShowreelData,
@@ -49,6 +52,8 @@ type Entry = {
   ok: boolean;
   studio: ReelItem[];
   cartoon: ReelItem[];
+  /** Сколько роликов студии владелец отвёл карусели (reel_size в ответе витрины). */
+  size: number;
   /** Отпечаток содержимого: тот же ответ не должен перерисовывать карусель. */
   sig: string;
 };
@@ -124,10 +129,14 @@ export function loadShowreel(lang: ApiLang, retryFailed = false): Promise<void> 
       // должен стереть ролики, которые уже на экране: берём прежние.
       const studio = showcase.ok ? studioItems(showcase.data) : (prev?.studio ?? []);
       const cartoon = presets.ok ? cartoonItems(presets.data) : (prev?.cartoon ?? []);
-      const sig = JSON.stringify([studio, cartoon]);
-      const view = prev && prev.sig === sig ? prev.view : { ...buildShowreel(studio, cartoon), loading: false };
+      // Размер карусели приходит тем же ответом, что и ролики: не ответил — держим
+      // прежний, иначе на время сбоя карусель из 24 роликов сжалась бы до 12.
+      const size = showcase.ok ? reelSizeOf(showcase.data) : (prev?.size ?? REEL_SIZE);
+      // Размер — в отпечатке: владелец мог сменить его, не тронув ни одного ролика.
+      const sig = JSON.stringify([studio, cartoon, size]);
+      const view = prev && prev.sig === sig ? prev.view : { ...buildShowreel(studio, cartoon, size), loading: false };
       const ok = showcase.ok && presets.ok;
-      cache.set(lang, { view, at: Date.now(), ok, studio, cartoon, sig });
+      cache.set(lang, { view, at: Date.now(), ok, studio, cartoon, size, sig });
       lastView = view;
       if (ok) attempts.delete(lang);
       else if (isTransient(showcase) || isTransient(presets)) planRetry(lang);
@@ -137,7 +146,7 @@ export function loadShowreel(lang: ApiLang, retryFailed = false): Promise<void> 
       // показываем пустую витрину, а не вечную загрузку.
       if (cache.has(lang)) return;
       const view = { ...EMPTY_SHOWREEL, loading: false };
-      cache.set(lang, { view, at: Date.now(), ok: false, studio: [], cartoon: [], sig: "" });
+      cache.set(lang, { view, at: Date.now(), ok: false, studio: [], cartoon: [], size: REEL_SIZE, sig: "" });
     })
     .finally(() => {
       inflight.delete(lang);
