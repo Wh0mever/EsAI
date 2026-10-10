@@ -652,6 +652,14 @@ test("модель под замком, а в панели картинка: в�
   // Вид до нажатия не назвали — считаем, что он тот же: слова прежние.
   assert.equal(A.applyNotice(work({ model: LOCKED }), FIXTURE_MODELS, "filled_locked"), "locked_filled");
   assert.equal(A.applyNotice(work({ model: LOCKED }), FIXTURE_MODELS, "locked", "video"), "locked_kept");
+  // Модель примера уже выбрана в панели (гость: модель по умолчанию под замком) —
+  // «модель осталась ваша» было бы про неё же; о замке молчим.
+  const lockedId = work({ model: LOCKED }).modelId;
+  assert.equal(A.applyNotice(work({ model: LOCKED }), FIXTURE_MODELS, "filled_locked", "video", lockedId), null);
+  assert.equal(A.applyNotice(work({ model: LOCKED }), FIXTURE_MODELS, "locked", "video", lockedId), "kept");
+  assert.equal(A.applyNotice(work({ model: LOCKED }), FIXTURE_MODELS, "filled_locked", "video", "other/model"), "locked_filled");
+  // Вид переключился — модель подобрал стор, совпадение прежней модели ничего не значит.
+  assert.equal(A.applyNotice(work({ model: LOCKED }), FIXTURE_MODELS, "filled_locked", "image", lockedId), "locked_switched");
   // Замка нет — смена вида видна и так, отдельных слов для неё нет.
   assert.deepEqual(studio(onImage).use(work()), ["filled", null]);
 });

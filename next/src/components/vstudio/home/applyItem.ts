@@ -151,16 +151,26 @@ export type ApplyNotice =
  * — ролик), вид переключился и модель с ценой подобрал стор: «модель осталась
  * ваша» там неправда, говорим о переключении. Модель под замком в списке есть,
  * значит, и переключиться было на что.
+ *
+ * modelBefore — модель в панели до нажатия: если это и есть модель примера, о
+ * замке молчим (см. ниже).
  */
 export function applyNotice(
   item: ReelItem,
   models: VsState["models"],
   outcome: ApplyOutcome,
   kindBefore: VsKind = item.kind,
+  modelBefore: string | null = null,
 ): ApplyNotice {
   if (outcome === "filled_locked" || outcome === "locked") {
     // Запрос у работы был, но не лёг — значит, в панели свой текст.
     const ownText = outcome === "locked" && item.prompt !== null;
+    // Модель примера уже стояла в панели (у гостя это модель по умолчанию, тоже под
+    // замком): «модель осталась ваша» было бы про ту же самую модель. Замок виден на
+    // её кнопке, говорить остаётся только про нетронутый текст.
+    if (item.kind === kindBefore && item.modelId !== null && item.modelId === modelBefore) {
+      return ownText ? "kept" : null;
+    }
     if (item.kind !== kindBefore) return ownText ? "locked_switched_kept" : "locked_switched";
     if (outcome === "filled_locked") return "locked_filled";
     return ownText ? "locked_kept" : "locked";
