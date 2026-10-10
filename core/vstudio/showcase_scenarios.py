@@ -60,11 +60,11 @@ SCENARIOS: tuple[Scenario, ...] = (
         title="Киносцена",
         models=("Veo 3.1", "Seedance 2.5", "Seedance 2.0"),
         prompt=(
-            "Cinematic night scene. A detective in a long dark coat walks down a rain-soaked alley "
-            "lit by neon signs, steam rising from the grates, reflections shimmering on the wet "
-            "asphalt. Slow dolly-in from behind, then he glances over his shoulder. Anamorphic "
-            "lens, teal and amber palette, shallow depth of field, 35mm film grain, moody and "
-            "quiet. No text, no captions, no logos, no watermark."
+            "Cinematic night scene. A detective in a long dark coat walks down a narrow "
+            "rain-soaked alley glowing with teal and amber neon light, steam rising from the "
+            "grates, reflections shimmering on the wet asphalt. Slow dolly-in from behind, then he "
+            "glances over his shoulder. Anamorphic lens, shallow depth of field, 35mm film grain, "
+            "moody and quiet. No signs, no lettering, no text, no captions, no logos, no watermark."
         ),
     ),
     Scenario(
@@ -95,10 +95,11 @@ SCENARIOS: tuple[Scenario, ...] = (
         title="Автомобиль",
         models=("Seedance 2.0",),
         prompt=(
-            "A dark graphite sports coupe drives fast along a winding mountain road at sunrise. "
-            "Low tracking shot from the front three-quarter, wet asphalt reflections, motion blur "
-            "on the wheels, mist in the valley below, cinematic colour grade. Unbranded car "
-            "without badges, blank licence plate. No text, no logos, no watermark."
+            "A dark graphite concept sports coupe of an original fictional design drives fast "
+            "along a winding mountain road at sunrise. Low tracking shot from the front "
+            "three-quarter, wet asphalt reflections, motion blur on the wheels, mist in the valley "
+            "below, cinematic colour grade. Smooth hood and grille with no emblem and no badges, "
+            "blank licence plate. No text, no logos, no watermark."
         ),
     ),
     Scenario(
