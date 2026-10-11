@@ -33,6 +33,7 @@ import { useIsMobile } from "../settings/SettingsSheet";
 import { MAX_ROLE_CHARS } from "../store";
 import { VS_FOCUS, VS_INPUT, VS_MENU_ITEM, vx } from "../ui/skin";
 import { ct } from "./composerText";
+import { useDockHold } from "./dockHold";
 import AnchoredPopover from "./Popover";
 
 export type ChipActions = {
@@ -328,6 +329,8 @@ function AssetChip(props: AssetChipProps) {
   const { item, label, flagged, compact } = props;
   const mobile = useIsMobile();
   const [open, setOpen] = useState(false);
+  // Телефон: действия — в шторке, а не в окошке, которое держит панель само (Popover).
+  useDockHold(open && mobile);
   const anchor = useRef<HTMLDivElement | null>(null);
   const press = useRef<{ timer: ReturnType<typeof setTimeout> | null; x: number; y: number; fired: boolean }>({
     timer: null,

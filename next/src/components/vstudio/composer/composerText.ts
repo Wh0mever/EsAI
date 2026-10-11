@@ -17,6 +17,8 @@ export const COMPOSER_RU = {
   "composer.library": "Мои материалы",
   "composer.expand": "Развернуть",
   "composer.collapse": "Свернуть",
+  "composer.foldShow": "Показать весь запрос",
+  "composer.foldHide": "Свернуть запрос",
   "composer.run": "Создать · {{credits}} кр",
   "composer.runShort": "Создать · {{credits}}",
   "composer.runImage": "Создать картинку · {{credits}} кр",
@@ -131,7 +133,8 @@ export const COMPOSER_RU = {
   "price.total": "Итого {{credits}} кр",
   "price.note": "Спишется только за готовый результат",
   "price.balance": "На балансе {{balance}} кр",
-  "price.reserved": "из них {{reserved}} кр ждут результата",
+  "price.available": "Свободно {{available}} кр",
+  "price.held": "Ещё {{reserved}} кр в резерве, пока идёт генерация. Всего на балансе {{balance}} кр.",
   "price.after": "останется {{after}} кр",
   "price.missing": "Не хватает {{n}} кр",
 

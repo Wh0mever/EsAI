@@ -7,6 +7,23 @@
  */
 import type { MentionVia, PromptEditorProps, Uid } from "@/lib/vstudio/types";
 
+/**
+ * Свёрнутый вид поля (панель запроса, см. useFoldClip). Когда сворачивать,
+ * решает родитель; редактор обрезает то же самое поле и сообщает, есть ли что
+ * обрезать.
+ */
+export type PromptFoldProps = {
+  /** Панель просит свёрнутый вид. Обрезается поле, только если тексту есть что прятать (cut). */
+  compact: boolean;
+  /** Сколько строк остаётся на виду. */
+  lines: number;
+  /** Тексту есть что прятать в свёрнутом поле: тогда у него кнопка, а в свёрнутом виде — затухание у среза. */
+  cut: boolean;
+  onCut: (cut: boolean) => void;
+  /** Кнопка «Показать весь запрос» / «Свернуть запрос». */
+  onToggle: () => void;
+};
+
 export type PromptEditorExtraProps = {
   /**
    * Запасная textarea (§9.5): сырой текст для prompt_text — теги разберёт
@@ -19,6 +36,8 @@ export type PromptEditorExtraProps = {
   /** aria-label поля (по умолчанию — placeholder). */
   ariaLabel?: string;
   className?: string;
+  /** Без этого пропса поле не сворачивается вовсе. */
+  fold?: PromptFoldProps;
 };
 
 export type VsPromptEditorProps = PromptEditorProps & PromptEditorExtraProps;

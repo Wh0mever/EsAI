@@ -24,6 +24,8 @@ import {
   findModel,
   indexTakesByShot,
   isNearBottom,
+  keepsBottom,
+  resultScrollTop,
   openTakeUids,
   shotDomId,
   shotOfTake,
@@ -95,6 +97,10 @@ type Scroller = {
   target: HTMLElement | Window;
   metrics: () => { scrollTop: number; clientHeight: number; scrollHeight: number };
   toBottom: (smooth: boolean) => void;
+  /** Прокрутить к месту от начала содержимого. */
+  to: (top: number, smooth: boolean) => void;
+  /** Верх элемента от начала прокручиваемого содержимого. */
+  topOf: (el: HTMLElement) => number;
   by: (dy: number) => void;
 };
 
@@ -103,6 +109,8 @@ function boxScroller(box: HTMLElement): Scroller {
     target: box,
     metrics: () => ({ scrollTop: box.scrollTop, clientHeight: box.clientHeight, scrollHeight: box.scrollHeight }),
     toBottom: (smooth) => box.scrollTo({ top: box.scrollHeight, behavior: smooth ? "smooth" : "auto" }),
+    to: (top, smooth) => box.scrollTo({ top, behavior: smooth ? "smooth" : "auto" }),
+    topOf: (el) => el.getBoundingClientRect().top - box.getBoundingClientRect().top + box.scrollTop,
     by: (dy) => box.scrollBy({ top: dy, behavior: "auto" }),
   };
 }
@@ -116,6 +124,8 @@ function findScroller(node: HTMLElement | null, preferred?: HTMLElement | null):
     target: window,
     metrics: () => ({ scrollTop: doc.scrollTop, clientHeight: window.innerHeight, scrollHeight: doc.scrollHeight }),
     toBottom: (smooth) => window.scrollTo({ top: doc.scrollHeight, behavior: smooth ? "smooth" : "auto" }),
+    to: (top, smooth) => window.scrollTo({ top, behavior: smooth ? "smooth" : "auto" }),
+    topOf: (el) => el.getBoundingClientRect().top + doc.scrollTop,
     by: (dy) => window.scrollBy({ top: dy, behavior: "auto" }),
   };
 }
@@ -265,24 +275,48 @@ function RunThreadView({
   // «Человек внизу» отслеживаем постоянно: после обновления DOM мерить поздно.
   useEffect(() => {
     let s = findScroller(rootRef.current, scrollPrefRef.current?.current ?? null);
+    let height = 0;
     const onScroll = () => {
       atBottomRef.current = isNearBottom(s.metrics());
+    };
+    // Колонка ленты стала ниже без прокрутки: панель запроса выросла (развернули поле, пришли
+    // подсказки) или открылась клавиатура. Кто стоял на самом низу, остаётся внизу — последний
+    // ролик не уходит под панель. Сразу, а не плавно: колонка меняется каждым кадром движения
+    // панели. Остальных не двигаем, но «человек внизу» пересчитываем в обе стороны: события
+    // scroll при смене высоты колонки нет, а по этому флагу лента докручивает к готовому ролику.
+    const ro =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(() => {
+            const m = s.metrics();
+            const was = height;
+            height = m.clientHeight;
+            if (keepsBottom(m, was)) s.toBottom(false);
+            onScroll();
+          });
+    const watch = () => {
+      height = s.metrics().clientHeight;
+      if (s.target instanceof HTMLElement) ro?.observe(s.target);
     };
     const onResize = () => {
       const next = findScroller(rootRef.current, scrollPrefRef.current?.current ?? null);
       if (next.target !== s.target) {
         s.target.removeEventListener("scroll", onScroll);
+        ro?.disconnect();
         s = next;
         s.target.addEventListener("scroll", onScroll, { passive: true });
+        watch();
       }
       onScroll();
     };
     s.target.addEventListener("scroll", onScroll, { passive: true });
     window.addEventListener("resize", onResize);
+    watch();
     onScroll();
     return () => {
       s.target.removeEventListener("scroll", onScroll);
       window.removeEventListener("resize", onResize);
+      ro?.disconnect();
     };
   }, []);
 
@@ -425,9 +459,21 @@ function RunThreadView({
   const onSettled = useCallback(
     (settled: SettledTake[]) => {
       if (!atBottomRef.current) return;
-      if (!settled.some((s) => shots.has(s.take.shot))) return;
+      const mine = settled.find((s) => shots.has(s.take.shot));
+      if (!mine) return;
       // Два кадра анимации: сначала React вставит плеер, потом меряем высоту.
-      requestAnimationFrame(() => requestAnimationFrame(() => scroller().toBottom(true)));
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => {
+          const s = scroller();
+          const card = document.getElementById(shotDomId(mine.take.shot));
+          if (!card) {
+            s.toBottom(true);
+            return;
+          }
+          // Высокая карточка встаёт верхом — роликом, а не кнопками под ним.
+          s.to(resultScrollTop(s.topOf(card), card.offsetHeight, s.metrics()), true);
+        }),
+      );
     },
     [shots, scroller],
   );

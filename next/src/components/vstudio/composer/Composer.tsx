@@ -10,6 +10,9 @@
  * чипы параметров (SettingsPills), «@» и кнопка «Создать · N кр». На телефоне
  * — полоса материалов, поле и строка «чип параметров · @ · Создать».
  *
+ * Длинный запрос не держит панель в пол-экрана: пока человек не работает в
+ * ней, поле свёрнуто до пары строк (usePromptFold; правила — promptFold.ts).
+ *
  * Первый экран зовёт панель через composerBus: открыть выбор файла, «Создать
  * картинку», показать слоты кадров, поставить фокус в поле.
  *
@@ -61,12 +64,15 @@ import { ct } from "./composerText";
 import ComposerHints, { ScriptBanner } from "./ComposerHints";
 import CondenseDiffDialog, { type CondenseResult } from "./CondenseDiffDialog";
 import ConflictBanner from "./ConflictBanner";
+import { holdDockForFileDialog } from "./dockHold";
 import FrameSlots, { showFrameSlots } from "./FrameSlots";
 import ImageGenMini from "./ImageGenMini";
+import { lastKnown } from "./promptFold";
 import PromptMeter from "./PromptMeter";
 import RunButton, { PriceInfoButton, quietReason, runTexts } from "./RunButton";
 import SettingsPills from "./SettingsPills";
 import { useBalanceRequote } from "./useBalanceRequote";
+import { usePromptFold } from "./usePromptFold";
 
 /** Сколько держим «Сейчас снимается 2…» после 409 too_many_open, если вкладка не видит этих дублей. */
 const LIMIT_HOLD_MS = 20_000;
@@ -158,6 +164,39 @@ export default function Composer() {
   const isScript = Boolean(hints.script) || (!fresh && looksLikeScript(plainText(composer.doc)));
   const showScript = isScript && scriptDismissed !== scriptBucket;
 
+  /* ---------- свёрнутое поле ---------- */
+
+  // То, что мешает запуску и о чём человеку надо видеть запрос целиком: красные подсказки,
+  // конфликт кадров и референсов, «Сжать с ИИ».
+  const hintProblem = Boolean(hints.conflict) || hints.list.some((h) => h.tone === "error");
+  // Сменили модель, параметр или материал — подсказок нет, пока не придёт ответ с ценой. До него
+  // держим прошлое «мешает»: поле не сворачивается и не разворачивается обратно на каждый клик.
+  const quoteKnown = Boolean(shownQuote) || !quote.loading;
+  const [knownProblem, setKnownProblem] = useState(false);
+  if (quoteKnown && knownProblem !== hintProblem) setKnownProblem(hintProblem);
+  const problem = lastKnown(quoteKnown, hintProblem, knownProblem) || condense.status !== "idle";
+  // Шторки и окна, о которых знает стор или сам композер. Окошки у кнопок, выбор «@» и выбор
+  // файла держат поле сами (dockHold). Параметры с 1280 px — колонка: там их флаг ничего не открывает.
+  const overlay =
+    ui.panels.library ||
+    ui.panels.picker ||
+    (ui.panels.settings && breakpoint !== "desktop") ||
+    ui.topup ||
+    ui.auth ||
+    Boolean(ui.paywall) ||
+    imageGen !== null ||
+    condense.status === "ready";
+  const fold = usePromptFold({
+    fold: ui.promptFold,
+    dispatch,
+    mobile,
+    fullscreen: ui.fullscreen,
+    overlay,
+    problem,
+    projectUid: state.project?.uid ?? null,
+  });
+  const { open: foldOpen, ran: foldRan } = fold;
+
   /* ---------- свежие значения для обработчиков ---------- */
 
   const live = useRef({ state, quote, view, model, labels, text, summary });
@@ -193,10 +232,15 @@ export default function Composer() {
   }, [mobile]);
 
   // Карточка ленты заполнила композер («Изменить», «Другая модель», пример) — фокус в поле.
+  // Разворачиваем его и сами: выключенное поле («Сжать с ИИ» ещё работает) фокус не возьмёт.
   useEffect(() => {
-    window.addEventListener(COMPOSER_FILLED_EVENT, focusPrompt);
-    return () => window.removeEventListener(COMPOSER_FILLED_EVENT, focusPrompt);
-  }, [focusPrompt]);
+    const onFilled = () => {
+      foldOpen("filled");
+      focusPrompt();
+    };
+    window.addEventListener(COMPOSER_FILLED_EVENT, onFilled);
+    return () => window.removeEventListener(COMPOSER_FILLED_EVENT, onFilled);
+  }, [focusPrompt, foldOpen]);
 
   // «Первый и последний кадр» с первого экрана: слоты в поле зрения, подсвечены, фокус на первом.
   const focusFrames = useCallback(() => {
@@ -238,7 +282,14 @@ export default function Composer() {
     [addAsset],
   );
 
-  const onEditorUpload = useCallback((files: File[]) => addFiles(files, { slot: "reference" }), [addFiles]);
+  const onEditorUpload = useCallback(
+    (files: File[], via: "paste" | "drop" | "picker") => {
+      // Файл бросили прямо в текст: чип встанет в точку броска — показываем запрос целиком.
+      if (via === "drop") foldOpen("drop");
+      return addFiles(files, { slot: "reference" });
+    },
+    [addFiles, foldOpen],
+  );
 
   /* ---------- загрузка и библиотека ---------- */
 
@@ -249,6 +300,8 @@ export default function Composer() {
       const input = fileInput.current;
       if (!input) return;
       input.multiple = slot === "reference";
+      // Пока открыт выбор файла, поле запроса не сворачивается.
+      holdDockForFileDialog();
       input.click();
     },
     [actions],
@@ -357,11 +410,12 @@ export default function Composer() {
 
   /* ---------- запуск ---------- */
 
-  const startRun = useCallback(async () => {
+  const startRun = useCallback(async (fromKeys: boolean) => {
     const { quote: q0, model: m, summary: sum, text: txt } = live.current;
     const v = live.current.view;
     if (!m) return;
     if (!actions.requireAuth()) return;
+    const startedAt = performance.now();
     const shown = v.kind === "run" || v.kind === "quoting" ? v.credits : null;
     // Тело и его ключ — на момент клика: запуск уйдёт ровно с тем, что оценено.
     const body = q0.body;
@@ -421,6 +475,8 @@ export default function Composer() {
       actions.refreshBalance();
       setCooldown(true);
       later(() => setCooldown(false), RUN_COOLDOWN_MS);
+      // Запуск принят: дальше человек смотрит на результат — поле уступает ему место.
+      foldRan(fromKeys, startedAt);
       return;
     }
     const err = out.error;
@@ -451,9 +507,11 @@ export default function Composer() {
       default:
         actions.handleError(err);
     }
-  }, [actions, dispatch, later, t]);
+  }, [actions, dispatch, later, t, foldRan]);
 
-  const onRun = useCallback(() => {
+  // fromKeys — запуск с клавиатуры (Ctrl/⌘+Enter): курсор остаётся в поле, человек пишет дальше.
+  // Сверяем с true: кнопка, повешенная напрямую, передала бы сюда событие клика.
+  const onRun = useCallback((fromKeys = false) => {
     const v = live.current.view;
     switch (v.kind) {
       case "signin":
@@ -478,12 +536,13 @@ export default function Composer() {
         return;
       case "run":
       case "quoting":
-        void startRun();
+        void startRun(fromKeys === true);
         return;
       default:
         return;
     }
   }, [actions, dispatch, startRun]);
+  const onRunKeys = useCallback(() => onRun(true), [onRun]);
 
   // Баланс пополнили, а цена на кнопке несёт старый остаток: она так и звала бы «Пополнить» и снова
   // открывала окно оплаты. Спрашиваем заново — но только если по этой цене не хватало: тот же сигнал
@@ -515,7 +574,11 @@ export default function Composer() {
   useEffect(
     () =>
       registerComposer({
-        upload: (files, opts) => addFiles(files, { slot: opts?.slot ?? "reference" }),
+        upload: (files, opts) => {
+          // Файл бросили на колонку (DropOverlay): запрос, к которому он лёг, показываем целиком.
+          if (opts?.via === "drop") foldOpen("drop");
+          return addFiles(files, { slot: opts?.slot ?? "reference" });
+        },
         pick: (asset, slot) => {
           if (!addAsset(asset, slot ?? "reference")) actions.toast(ct(t, "composer.alreadyInRequest"), "info");
         },
@@ -524,7 +587,7 @@ export default function Composer() {
         focusFrames,
         focusPrompt,
       }),
-    [addFiles, addAsset, actions, t, pickFiles, openImageGen, focusFrames, focusPrompt],
+    [addFiles, addAsset, actions, t, pickFiles, openImageGen, focusFrames, focusPrompt, foldOpen],
   );
 
   /* ---------- раскладка ---------- */
@@ -586,7 +649,10 @@ export default function Composer() {
   const mentionButton = (
     <button
       type="button"
-      onClick={() => editor.current?.openPicker()}
+      onClick={() => {
+        foldOpen("mention");
+        editor.current?.openPicker();
+      }}
       aria-label={ct(t, "composer.mentionShort")}
       title={ct(t, "composer.mentionShort")}
       className={VS_ICON_BTN}
@@ -596,7 +662,8 @@ export default function Composer() {
   );
 
   return (
-    <div className="flex flex-col gap-2" data-vs-composer="">
+    // Фокус, нажатия, набор через IME и перетаскивание доходят сюда и из окошек панели (порталы).
+    <div className="flex flex-col gap-2" data-vs-composer="" {...fold.root}>
       {(hints.list.length > 0 || hints.conflict || showScript) && (
         // На телефоне — доля видимой части окна (--vvh), а не vh: с открытой
         // клавиатурой подсказки иначе съедали место кнопки «Создать».
@@ -644,12 +711,13 @@ export default function Composer() {
           onPickLibrary={onPickLibrary}
           onUpload={onEditorUpload}
           onGenerate={() => openImageGen("editor")}
-          onSubmit={onRun}
+          onSubmit={onRunKeys}
           fullscreen={ui.fullscreen}
           onFullscreenChange={(open) => dispatch({ type: "ui/fullscreen", open })}
           disabled={condensing}
           onPromptText={setPromptText}
           handleRef={editor}
+          fold={fold.editor}
         />
 
         {mobile ? (

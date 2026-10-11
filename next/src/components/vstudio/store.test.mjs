@@ -618,6 +618,29 @@ test("ui: панели, окна, тосты (не больше четырёх),
   assert.equal(s.ui.page, "not_found");
 });
 
+test("ui/promptFold: поле запроса свёрнуто само, развёрнуто или свёрнуто кнопкой — только в памяти стора", () => {
+  let s = loaded();
+  // Новая вкладка и перезагрузка начинают с правила по умолчанию.
+  assert.equal(s.ui.promptFold, "rest");
+  assert.equal(reducer(s, { type: "ui/promptFold", fold: "rest" }), s);
+  s = reducer(s, { type: "ui/promptFold", fold: "open" });
+  assert.equal(s.ui.promptFold, "open");
+  const same = reducer(s, { type: "ui/promptFold", fold: "open" });
+  assert.equal(same, s);
+  s = reducer(s, { type: "ui/promptFold", fold: "shut" });
+  assert.equal(s.ui.promptFold, "shut");
+  // Остальной интерфейс и запрос действие не трогает.
+  const before = reducer(loaded(), { type: "ui/fullscreen", open: true });
+  const after = reducer(before, { type: "ui/promptFold", fold: "open" });
+  assert.equal(after.ui.fullscreen, true);
+  assert.equal(after.composer, before.composer);
+  assert.equal(after.ui.panels, before.ui.panels);
+  // Текст и запуск состояние поля не меняют: сворачивает и разворачивает его только композер.
+  s = reducer(s, { type: "composer/doc", doc: { v: 1, blocks: [[{ t: "text", v: "длинный запрос" }]] } });
+  s = reducer(s, { type: "run/start", clientRequestId: "c1" });
+  assert.equal(s.ui.promptFold, "shut");
+});
+
 test("неизвестное действие не ломает стор", () => {
   const s = createInitialState();
   assert.equal(reducer(s, { type: "nope/nope" }), s);

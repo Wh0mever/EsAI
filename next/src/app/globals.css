@@ -726,6 +726,71 @@ body {
   pointer-events: none;
   background: linear-gradient(to bottom, transparent, var(--background));
 }
+/* Свёрнутое поле запроса (editor/useFoldClip): то же поле, обрезанное до пары
+   строк. data-fold — панель просит свернуть, data-fold-cut — тексту есть что
+   прятать; короткий запрос второго не получает, и для него не меняется ничего.
+   Высоту считает хук по строке и полям самого поля; текст у среза гаснет маской,
+   а не цветом — она одна на обе темы. */
+.vs-fold[data-fold][data-fold-cut] {
+  max-height: var(--vs-fold-h, 3.25rem);
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 1.25rem), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 1.25rem), transparent);
+}
+/* Запасная textarea прокручивается сама в себе: в свёрнутом виде её полоса лишняя. */
+.vs-fold[data-fold][data-fold-cut] > textarea {
+  overflow: hidden;
+}
+/* Пока высота едет от одного вида к другому, полоса прокрутки не мигает. */
+.vs-fold[data-fold-moving] {
+  overflow: hidden;
+}
+/* Правое поле текста (editor/EditorFrame): ⤢ сверху, «Свернуть запрос» снизу.
+   Двум кнопкам нужно 2 × 36 px (на телефоне 2 × 44) — запрос меряет колонку
+   без её полей, то есть высоту самого поля. Пока поле ниже, место одно. Обычно
+   оно у кнопки сворачивания: в первые кадры разворота она стоит под указателем
+   и не должна под ним мигать. Но когда курсор в тексте, а высота уже не едет —
+   поле зажато клавиатурой телефона, и так всё время набора, — место отдаётся
+   ⤢: длинный запрос в окне на три строки править иначе нечем, а свернуть поле
+   можно и уходом из панели. ⤢ под фокусом с клавиатуры себя не прячет.
+   Браузер без :has() эти два правила отбросит и оставит кнопку сворачивания. */
+.vs-fold-rail {
+  container-type: size;
+}
+@container (max-height: 71.9px) {
+  .vs-fold-zoom:not(:only-child) {
+    display: none;
+  }
+  :has(> * [data-vs-prompt]:focus-within, > .vs-fold-rail > .vs-fold-zoom:focus-visible):not(:has(> * [data-fold-moving]))
+    > .vs-fold-rail
+    > .vs-fold-zoom:not(:only-child) {
+    display: grid;
+  }
+  :has(> * [data-vs-prompt]:focus-within, > .vs-fold-rail > .vs-fold-zoom:focus-visible):not(:has(> * [data-fold-moving]))
+    > .vs-fold-rail
+    > .vs-fold-zoom
+    ~ button {
+    display: none;
+  }
+}
+@media (max-width: 767.98px) {
+  @container (max-height: 87.9px) {
+    .vs-fold-zoom:not(:only-child) {
+      display: none;
+    }
+    :has(> * [data-vs-prompt]:focus-within, > .vs-fold-rail > .vs-fold-zoom:focus-visible):not(:has(> * [data-fold-moving]))
+      > .vs-fold-rail
+      > .vs-fold-zoom:not(:only-child) {
+      display: grid;
+    }
+    :has(> * [data-vs-prompt]:focus-within, > .vs-fold-rail > .vs-fold-zoom:focus-visible):not(:has(> * [data-fold-moving]))
+      > .vs-fold-rail
+      > .vs-fold-zoom
+      ~ button {
+      display: none;
+    }
+  }
+}
 
 @keyframes vs-breathe {
   from { opacity: 0.72; transform: scale(1); }

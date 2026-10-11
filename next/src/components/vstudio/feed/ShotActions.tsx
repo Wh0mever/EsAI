@@ -29,6 +29,7 @@ import type {
   VsAction,
   VsError,
 } from "@/lib/vstudio/types";
+import { retryBalance } from "../composer/priceText";
 import { useBalanceRequote } from "../composer/useBalanceRequote";
 import { MOBILE_QUERY } from "../editor/inputHelpers";
 import { openModelPicker } from "../settings/ModelPicker";
@@ -344,6 +345,17 @@ function ShotActions({ shot, take, takes, model, dispatch, onComposerFilled }: S
       ? retry.credits - balance.available
       : 0;
   const retryWarnings = confirming ? (retry.quote?.warnings || []).slice(0, 2) : [];
+  // При резерве «баланс из верхней строки − цена» с остатком не сходится: впереди называем
+  // свободную сумму, из которой цена и вычитается (то же правило, что в раскладке цены).
+  const left = confirming ? retryBalance(balance, retry.credits) : null;
+  const leftText = left
+    ? [
+        left.free != null && tr("price.available", { defaultValue: "Свободно {{available}} кр", available: left.free }),
+        tr("run.retryAfter", { defaultValue: "останется {{n}} кр", n: left.after }),
+      ]
+        .filter(Boolean)
+        .join(" → ")
+    : "";
 
   // Остаток пришёл вместе с ценой повтора: после оплаты блок так и звал бы «Пополнить». Спрашиваем цену
   // заново — только пока ждём подтверждения и кредитов не хватало (оплата при этом ещё не отправлялась).
@@ -446,9 +458,7 @@ function ShotActions({ shot, take, takes, model, dispatch, onComposerFilled }: S
               ))}
               <p className="text-xs leading-snug text-muted">
                 {t("price.note", { defaultValue: "Спишется только за готовый результат" })}
-                {balance && balance.after != null && missing === 0
-                  ? ` · ${tr("run.retryAfter", { defaultValue: "останется {{n}} кр", n: balance.after })}`
-                  : ""}
+                {leftText && ` · ${leftText}`}
               </p>
             </>
           )}
