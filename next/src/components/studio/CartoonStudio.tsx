@@ -11,9 +11,7 @@ import {
   MAX_DRAFT_SCENES,
   clearDraft,
   emptyDraft,
-  isFreeTryUsed,
   loadDraft,
-  markFreeTryUsed,
   newSceneKey,
   recallProject,
   rememberProject,
@@ -155,9 +153,6 @@ export default function CartoonStudio() {
   // сцены и видит результат — а войти просим, когда ему уже есть что терять.
   // Живёт в браузере и после входа переезжает в настоящий проект.
   const [draft, setDraft] = useState<StudioDraft | null>(null);
-  // Одна бесплатная примерка на устройство. Решает сервер, здесь только
-  // подпись кнопки: «бесплатно» или обычная.
-  const [freeTryUsed, setFreeTryUsed] = useState(false);
   const pollRef = useRef<number | null>(null);
   const heroRef = useRef<HTMLDivElement | null>(null);
   const timelineRef = useRef<HTMLDivElement | null>(null);
@@ -353,19 +348,11 @@ export default function CartoonStudio() {
       if (aspectRef.current === wanted) {
         setFramesByChar((prev) => ({ ...prev, [heroId]: { ...(prev[heroId] || {}), [preset.id]: image } }));
       }
-      if (res.data.free) {
-        markFreeTryUsed();
-        setFreeTryUsed(true);
-      }
       if (res.data.charged) void loadBalance();
       return;
     }
     const d = res.data as any;
     if (d?.need_auth) {
-      if (d.reason === "used") {
-        markFreeTryUsed();
-        setFreeTryUsed(true);
-      }
       openAuth("tryon");
       return;
     }
@@ -489,7 +476,6 @@ export default function CartoonStudio() {
           const hero = chars.find((x) => x.id === saved.character_id);
           if (hero) setCharacter(hero);
         }
-        setFreeTryUsed(isFreeTryUsed());
         setLoading(false);
         return;
       }
@@ -1556,13 +1542,9 @@ export default function CartoonStudio() {
                           ) : (
                             <FiUser />
                           )}
-                          {/* Цена — до нажатия (просьба клиента). Гостю первая
-                              примерка бесплатна, и об этом кнопка говорит прямо. */}
-                          {authed
-                            ? t("studio_ui.try_on_price", { credits: p.tryon_credits ?? 4 })
-                            : freeTryUsed
-                            ? t("studio_ui.try_on")
-                            : t("studio_ui.try_on_free")}
+                          {/* Цена — до нажатия (просьба клиента), гостю тоже:
+                              бесплатной примерки без входа больше нет (11.10.2026). */}
+                          {t("studio_ui.try_on_price", { credits: p.tryon_credits ?? 4 })}
                         </button>
                       )}
                       <button
@@ -1663,13 +1645,7 @@ export default function CartoonStudio() {
                   : undefined
               }
               tryingOnId={tryingOn}
-              tryOnLabel={
-                authed
-                  ? t("studio_ui.try_on_price", { credits: presets[0]?.tryon_credits ?? 4 })
-                  : freeTryUsed
-                  ? t("studio_ui.try_on")
-                  : t("studio_ui.try_on_free")
-              }
+              tryOnLabel={t("studio_ui.try_on_price", { credits: presets[0]?.tryon_credits ?? 4 })}
             />
 
             {/* Гость дособрал ленту: одна понятная кнопка вместо «Собрать» и
