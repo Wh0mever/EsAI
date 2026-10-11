@@ -12,6 +12,7 @@
  */
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
+import { useDockHold } from "./dockHold";
 
 export type PopoverPlacement = "top-start" | "top-end" | "top-center";
 
@@ -93,6 +94,8 @@ export default function AnchoredPopover({
   useLayoutEffect(() => {
     onCloseRef.current = onClose;
   });
+  // Окошко стоит у своего якоря в панели: пока оно открыто, поле запроса не сворачивается — панель под ним не едет.
+  useDockHold(open);
 
   // Функция замера живёт в ref: слушатели окна и ResizeObserver зовут её свежей.
   const placeRef = useRef<() => void>(() => undefined);

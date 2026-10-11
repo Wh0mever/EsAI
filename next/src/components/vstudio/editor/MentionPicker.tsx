@@ -18,6 +18,7 @@ import { IoClose, IoCloudUploadOutline, IoImageOutline, IoSparklesOutline } from
 import { BACKEND } from "@/tools/fetchData";
 import { filterPickerItems } from "@/lib/vstudio/labels";
 import type { PickerItem, RefLabels } from "@/lib/vstudio/types";
+import { useDockHold } from "../composer/dockHold";
 import { VS_FOCUS, VS_LABEL, VS_MENU } from "../ui/skin";
 import { chipClassName } from "./chipStyle";
 
@@ -113,6 +114,8 @@ export default function MentionPicker({
   const anchorRef = useRef(anchor);
   const [active, setActive] = useState(0);
   const inset = useKeyboardInset(open && mobile);
+  // Список стоит у курсора: пока он открыт, поле запроса не сворачивается.
+  useDockHold(open);
 
   // Новый фильтр или новое открытие — снова первый пункт.
   const resetKey = `${open ? 1 : 0}|${query}`;

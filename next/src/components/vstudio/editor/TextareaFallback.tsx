@@ -13,23 +13,27 @@
  * Наложение поверх textarea и свой contentEditable не используем — это и есть
  * «самый надёжный» режим. Ничего не обрезается: сверх предела ввод не принимается.
  */
-import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { trackVs } from "@/lib/vstudio/api";
 import { copyTagFor, inputsFromLabels, serverLabels } from "@/lib/vstudio/labels";
 import { cpLength, docKey, fromText, renderText, sanitizeDoc } from "@/lib/vstudio/promptDoc";
 import { PROMPT_MAX_CHARS } from "@/lib/vstudio/types";
 import type { MentionVia, PickerItem, PromptDoc, RefLabels, Uid } from "@/lib/vstudio/types";
+import { holdDockForFileDialog } from "../composer/dockHold";
 import EditorFrame from "./EditorFrame";
 import type { VsPromptEditorProps } from "./editorTypes";
 // Только модули без TipTap: textarea живёт в основном куске страницы.
 import { atBeforeCaret, imageFiles, MOBILE_QUERY } from "./inputHelpers";
 import MentionPicker, { type MentionPickerHandle, type PickerAction } from "./MentionPicker";
+import { readFoldBox, useFoldClip } from "./useFoldClip";
 
 type AtState = { query: string; from: number; to: number; via: MentionVia };
 
 /** Сколько ждать, пока родитель положит загруженное фото в лоток и у него появится номер. */
 const TAG_WAIT_MS = 5000;
+/** Высота пустого поля в строках: ниже textarea не бывает, значит, и свёрнутый вид не ниже. */
+const AREA_ROWS = 2;
 
 function docText(doc: PromptDoc, labels: RefLabels): string {
   return renderText(sanitizeDoc(doc), serverLabels(labels));
@@ -328,6 +332,8 @@ export default function TextareaFallback(props: VsPromptEditorProps) {
       if (s) insertAt("", { from: s.from, to: s.to });
       if (action === "upload") {
         uploadVia.current = s?.via ?? "button";
+        // Пока открыт выбор файла, поле запроса не сворачивается.
+        holdDockForFileDialog();
         fileInput.current?.click();
       } else {
         propsRef.current.onGenerate();
@@ -402,6 +408,20 @@ export default function TextareaFallback(props: VsPromptEditorProps) {
   const placeholder =
     props.placeholder || tx("composer.placeholder", "Опишите, что происходит в кадре… Нажмите @, чтобы вставить фото");
 
+  /* ---------------- свёрнутый вид ---------------- */
+
+  const clipRef = useRef<HTMLDivElement | null>(null);
+  const foldId = useId();
+  // Высота текста — scrollHeight: само поле выше 40 % окна не растёт и дальше прокручивается в себе.
+  const foldBox = useCallback(() => {
+    const el = areaRef.current;
+    if (!el || !el.isConnected) return null;
+    return readFoldBox(el, el.scrollHeight, AREA_ROWS);
+  }, []);
+  // Прокрутку поля хук не трогает (revealCaret не даём): в свёрнутом виде видны строки, на
+  // которых человек остановился, — и курсор после разворота там же, где был.
+  useFoldClip({ fold: props.fold, fullscreen, clip: clipRef, box: foldBox, target: pickerOwner });
+
   return (
     <EditorFrame
       fullscreen={fullscreen}
@@ -411,28 +431,36 @@ export default function TextareaFallback(props: VsPromptEditorProps) {
       max={maxChars}
       hostRef={hostRef}
       onMoved={() => areaRef.current?.focus()}
+      fold={props.fold}
+      foldId={foldId}
       className={props.className}
     >
-      <textarea
-        ref={areaRef}
-        value={text}
-        onChange={onChangeText}
-        onKeyDown={onKeyDown}
-        onSelect={onSelect}
-        onPaste={onPaste}
-        onDrop={onDrop}
-        disabled={props.disabled}
-        rows={2}
-        spellCheck
-        enterKeyHint="enter"
-        aria-label={props.ariaLabel || placeholder}
-        placeholder={placeholder}
-        // 15 px — только с мышью: на сенсорном экране iOS приближает страницу при фокусе в поле мельче 16 px.
-        className={`block w-full resize-none bg-transparent px-1.5 py-1.5 pr-11 text-base leading-relaxed text-foreground caret-vs-accent outline-none placeholder:text-muted-2 md:pointer-fine:text-[15px] max-md:pr-12 ${
-          fullscreen ? "min-h-0 flex-1" : "min-h-[3.25rem]"
-        }`}
-      />
-      <div className="px-1.5 pb-1 text-[11px] text-muted-2">
+      {/* Обрезается этот блок, а не сама textarea (vs-fold, атрибуты ставит useFoldClip): её
+          высоту ведёт эффект выше. data-vs-prompt — по нему панель узнаёт фокус в тексте. */}
+      <div ref={clipRef} id={foldId} data-vs-prompt="" className={fullscreen ? "flex min-h-0 flex-1 flex-col" : "vs-fold"}>
+        <textarea
+          ref={areaRef}
+          value={text}
+          onChange={onChangeText}
+          onKeyDown={onKeyDown}
+          onSelect={onSelect}
+          onPaste={onPaste}
+          onDrop={onDrop}
+          disabled={props.disabled}
+          rows={AREA_ROWS}
+          spellCheck
+          enterKeyHint="enter"
+          aria-label={props.ariaLabel || placeholder}
+          placeholder={placeholder}
+          // 15 px — только с мышью: на сенсорном экране iOS приближает страницу при фокусе в поле мельче 16 px.
+          className={`block w-full resize-none bg-transparent px-1.5 py-1.5 pr-11 text-base leading-relaxed text-foreground caret-vs-accent outline-none placeholder:text-muted-2 md:pointer-fine:text-[15px] max-md:pr-12 ${
+            fullscreen ? "min-h-0 flex-1" : "min-h-[3.25rem]"
+          }`}
+        />
+      </div>
+      {/* Справа — то же поле, что у текста: колонка кнопок (⤢, «Свернуть запрос») тянется и вдоль
+          этой строки, и кнопка у нижнего края иначе легла бы на её конец. Во весь экран колонки нет. */}
+      <div className={`px-1.5 pb-1 text-[11px] text-muted-2 ${fullscreen ? "" : "pr-11 max-md:pr-12"}`}>
         {tx("editor.fallbackHint", "Упрощённый редактор: пишите теги как @Image 1 — они распознаются при отправке.")}
       </div>
       <input

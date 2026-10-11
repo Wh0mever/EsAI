@@ -106,6 +106,7 @@ export function createInitialState(seed?: Partial<Pick<VsState, "mode" | "availa
       toasts: [],
       focusTake: null,
       fullscreen: false,
+      promptFold: "rest",
     },
   };
   if (!seed) return state;
@@ -948,6 +949,8 @@ export function reducer(state: VsState, action: VsAction): VsState {
       return state.ui.focusTake === action.take ? state : { ...state, ui: { ...state.ui, focusTake: action.take } };
     case "ui/fullscreen":
       return state.ui.fullscreen === action.open ? state : { ...state, ui: { ...state.ui, fullscreen: action.open } };
+    case "ui/promptFold":
+      return state.ui.promptFold === action.fold ? state : { ...state, ui: { ...state.ui, promptFold: action.fold } };
 
     default: {
       // Новый тип действия без обработки — tsc покажет здесь.

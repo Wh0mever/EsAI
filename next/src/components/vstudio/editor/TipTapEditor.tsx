@@ -28,7 +28,7 @@ import { UndoRedo } from "@tiptap/extensions/undo-redo";
 import { Selection } from "@tiptap/pm/state";
 import type { EditorView } from "@tiptap/pm/view";
 import { EditorContent, useEditor } from "@tiptap/react";
-import { useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { trackVs } from "@/lib/vstudio/api";
 import { indexFromLabels } from "@/lib/vstudio/labels";
@@ -43,6 +43,7 @@ import {
 } from "@/lib/vstudio/promptDoc";
 import { PROMPT_MAX_CHARS } from "@/lib/vstudio/types";
 import type { MentionVia, PickerItem, PromptDoc, Uid } from "@/lib/vstudio/types";
+import { holdDockForFileDialog } from "../composer/dockHold";
 import EditorFrame from "./EditorFrame";
 import type { VsPromptEditorProps } from "./editorTypes";
 import { MOBILE_QUERY } from "./inputHelpers";
@@ -66,6 +67,7 @@ import {
 } from "./pasteRelink";
 import { RefStore, VsRef } from "./vsRef";
 import { closeMention, isMentionActive, openAt, VsMention, type MentionBridge, type MentionSession } from "./suggestion";
+import { readFoldBox, useFoldClip } from "./useFoldClip";
 
 /**
  * Стили, которых нет в Tailwind-классах: курсор, плейсхолдер, подчёркивание тегов, метка загрузки.
@@ -529,6 +531,8 @@ export default function TipTapPromptEditor(props: VsPromptEditorProps) {
       if (action === "upload") {
         if (uploadAt.current) takePending(view, uploadAt.current.id);
         uploadAt.current = { id: addPending(view, s.range.from, ""), via };
+        // Пока открыт выбор файла, поле запроса не сворачивается.
+        holdDockForFileDialog();
         fileInput.current?.click();
       } else {
         propsRef.current.onGenerate();
@@ -620,6 +624,25 @@ export default function TipTapPromptEditor(props: VsPromptEditorProps) {
     if (ed && !ed.isDestroyed) ed.commands.focus();
   }, []);
 
+  /* ---------------- свёрнутый вид ---------------- */
+
+  const clipRef = useRef<HTMLDivElement | null>(null);
+  const foldId = useId();
+  // Высота текста — у самого поля редактора: обрезает его блок-родитель, а оно остаётся в полный рост.
+  const foldBox = useCallback(() => {
+    const dom = pickerOwner();
+    if (!dom || !dom.isConnected) return null;
+    return readFoldBox(dom, dom.getBoundingClientRect().height);
+  }, [pickerOwner]);
+  // Следим за обёрткой редактора, а не за самим полем: она в документе с первого рендера и
+  // растёт вместе с текстом, а поле TipTap вставляет в неё позже.
+  const foldTarget = useCallback(() => clipRef.current?.firstElementChild ?? null, []);
+  const revealCaret = useCallback(() => {
+    const ed = editorRef.current;
+    if (ed && !ed.isDestroyed) ed.commands.scrollIntoView();
+  }, []);
+  useFoldClip({ fold: props.fold, fullscreen, clip: clipRef, box: foldBox, target: foldTarget, targetKey: editor, revealCaret });
+
   return (
     <EditorFrame
       fullscreen={fullscreen}
@@ -629,18 +652,26 @@ export default function TipTapPromptEditor(props: VsPromptEditorProps) {
       max={maxChars}
       hostRef={hostRef}
       onMoved={refocus}
+      fold={props.fold}
+      foldId={foldId}
       className={props.className}
     >
       <style href="vs-prompt-editor" precedence="default">
         {EDITOR_CSS}
       </style>
       {/* Высота — от видимой части окна (--vvh): vh не уменьшается, когда на
-          телефоне открыта клавиатура, и поле выталкивало «Создать» за край. */}
+          телефоне открыта клавиатура, и поле выталкивало «Создать» за край.
+          Этот же блок обрезается в свёрнутом виде (vs-fold, атрибуты ставит
+          useFoldClip); data-vs-prompt — по нему панель узнаёт, что фокус
+          пришёл в текст. */}
       <div
+        ref={clipRef}
+        id={foldId}
+        data-vs-prompt=""
         className={
           fullscreen
             ? "min-h-0 flex-1 overflow-y-auto"
-            : "max-h-[40vh] overflow-y-auto overscroll-contain max-md:max-h-[calc(var(--vvh,100dvh)*0.3)]"
+            : "vs-fold max-h-[40vh] overflow-y-auto overscroll-contain max-md:max-h-[calc(var(--vvh,100dvh)*0.3)]"
         }
       >
         {/* Во весь экран поле тянется до низа: клик в пустоту под текстом ставит курсор. */}

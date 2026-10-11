@@ -327,6 +327,31 @@ test("прокрутка: «внизу» и поиск кадра по дубл�
   assert.equal(L.shotOfTake(U(0xffff), takes, shots), null);
 });
 
+test("панель запроса выросла: кто стоял на самом низу ленты, остаётся внизу; остальных не двигаем", () => {
+  // Колонка была 800 px, стала 560 (поле запроса развернули): до этого лента стояла у самого низа.
+  assert.equal(L.keepsBottom({ scrollTop: 1000, clientHeight: 560, scrollHeight: 1800 }, 800), true);
+  // «На самом низу» считается по старой высоте, с запасом на дробные пиксели прокрутки — не больше.
+  assert.equal(L.keepsBottom({ scrollTop: 1000 - L.PINNED_BOTTOM_PX, clientHeight: 560, scrollHeight: 1800 }, 800), true);
+  assert.equal(L.keepsBottom({ scrollTop: 1000 - L.PINNED_BOTTOM_PX - 1, clientHeight: 560, scrollHeight: 1800 }, 800), false);
+  // Отлистал на 100 px вверх — посмотреть начало последнего ролика. Для автопрокрутки к готовому
+  // результату это ещё «внизу», но докрутка сдвинула бы ленту разом на эти 100 px: не двигаем.
+  const up100 = { scrollTop: 900, clientHeight: 560, scrollHeight: 1800 };
+  assert.equal(L.keepsBottom(up100, 800), false);
+  // Прокрутка у него та же, а «внизу» ли он, зависит от высоты колонки: панель выросла — до низа
+  // уже 340 px; свернулась — снова 100. Поэтому лента пересчитывает это при каждой смене высоты.
+  assert.equal(L.isNearBottom(up100), false);
+  assert.equal(L.isNearBottom({ ...up100, clientHeight: 800 }), true);
+  // Человек листает старые кадры — панель растёт поверх низа ленты, а то, на что он смотрит, стоит на месте.
+  assert.equal(L.keepsBottom({ scrollTop: 100, clientHeight: 560, scrollHeight: 1800 }, 800), false);
+  // Ленту не прокручивали (один кадр, всё помещалось): верх остаётся на виду.
+  assert.equal(L.keepsBottom({ scrollTop: 0, clientHeight: 560, scrollHeight: 700 }, 800), false);
+  // Колонка выросла (поле свернули) или не изменилась — низ браузер держит сам.
+  assert.equal(L.keepsBottom({ scrollTop: 1000, clientHeight: 800, scrollHeight: 1800 }, 560), false);
+  assert.equal(L.keepsBottom({ scrollTop: 1000, clientHeight: 800, scrollHeight: 1800 }, 800), false);
+  // Первый замер: прежней высоты ещё нет.
+  assert.equal(L.keepsBottom({ scrollTop: 1000, clientHeight: 800, scrollHeight: 1800 }, 0), false);
+});
+
 /* ---------- примеры ---------- */
 
 test("примеры: 4 штуки, один сценарий — одна сцена, текст → prompt_doc", () => {
@@ -386,4 +411,20 @@ test("пример не ставит пропорцию, которой нет �
   assert.equal(L.exampleAspect("16:9", null, "video", "v1"), null);
   assert.equal(L.exampleAspect(undefined, models, "video", "v1"), null);
   assert.equal(L.COMPOSER_FILLED_EVENT, "vstudio:composer-filled");
+});
+
+test("resultScrollTop: высокий результат встаёт верхом, невысокий — лента идёт к низу", () => {
+  const m = { clientHeight: 555, scrollHeight: 2000 };
+  // Карточка помещается целиком — к самому низу, как раньше.
+  assert.equal(L.resultScrollTop(1500, 500, m), 2000 - 555);
+  // Не помещается — её верх с зазором, чтобы ролик был виден с начала.
+  assert.equal(L.resultScrollTop(1100, 900, m), 1100 - L.RESULT_TOP_GAP_PX);
+  // Граница: карточка плюс зазор ровно в высоту колонки — ещё «помещается».
+  assert.equal(L.resultScrollTop(1445, 555 - L.RESULT_TOP_GAP_PX, m), 2000 - 555);
+  assert.equal(L.resultScrollTop(1444, 556 - L.RESULT_TOP_GAP_PX, m), 1444 - L.RESULT_TOP_GAP_PX);
+  // Дальше низа и выше нуля не уезжаем.
+  assert.equal(L.resultScrollTop(1900, 900, m), 2000 - 555);
+  assert.equal(L.resultScrollTop(5, 900, m), 0);
+  // Лента короче колонки — крутить некуда.
+  assert.equal(L.resultScrollTop(0, 900, { clientHeight: 800, scrollHeight: 600 }), 0);
 });

@@ -13,10 +13,14 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type MutableRefObject, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
-import { IoContractOutline, IoExpandOutline } from "react-icons/io5";
+import { IoChevronDown, IoChevronUp, IoContractOutline, IoExpandOutline } from "react-icons/io5";
 import { VS_FOCUS } from "../ui/skin";
+import type { PromptFoldProps } from "./editorTypes";
 
 type Box = { top: number; height: number };
+
+/** Кнопка в правом поле текста: ⤢ и «свернуть / показать весь запрос». */
+const GUTTER_BTN = `pointer-events-auto grid size-9 shrink-0 cursor-pointer place-items-center rounded-full text-base transition-colors hover:bg-vs-ink/[0.08] hover:text-foreground max-md:size-11 ${VS_FOCUS}`;
 
 /** Видимая часть окна (над клавиатурой телефона). */
 function useViewportBox(active: boolean): Box | null {
@@ -51,6 +55,9 @@ export type EditorFrameProps = {
   hostRef?: MutableRefObject<HTMLDivElement | null>;
   /** После переезда в оверлей и обратно — вернуть фокус в поле. */
   onMoved?: () => void;
+  /** Свёрнутый вид поля: кнопка у нижнего края. foldId — id блока, который она сворачивает. */
+  fold?: PromptFoldProps;
+  foldId?: string;
   className?: string;
   children: ReactNode;
 };
@@ -63,6 +70,8 @@ export default function EditorFrame({
   max = 0,
   hostRef,
   onMoved,
+  fold,
+  foldId,
   className = "",
   children,
 }: EditorFrameProps) {
@@ -142,23 +151,59 @@ export default function EditorFrame({
 
   const expandLabel = tx("composer.expand", "Развернуть");
   const collapseLabel = tx("composer.collapse", "Свернуть");
+  const foldShowLabel = tx("composer.foldShow", "Показать весь запрос");
+  const foldHideLabel = tx("composer.foldHide", "Свернуть запрос");
+  // Кнопка есть, только когда тексту есть что прятать: короткий запрос её не видит.
+  const folding = Boolean(fold?.cut);
+  const compact = folding && Boolean(fold?.compact);
+  const foldLabel = compact ? foldShowLabel : foldHideLabel;
 
   return (
     <>
       <div className={`relative flex min-w-0 flex-col ${className}`}>
-        <div ref={inlineSlot} className="flex min-h-0 min-w-0 flex-col" />
-        {!fullscreen && (
-          <button
-            type="button"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => onFullscreenChange(true)}
-            className={`absolute right-0 top-0 grid size-9 cursor-pointer place-items-center rounded-full text-base text-muted-2 transition-colors hover:bg-vs-ink/[0.08] hover:text-foreground max-md:size-11 ${VS_FOCUS}`}
-            aria-label={expandLabel}
-            title={expandLabel}
-          >
-            <IoExpandOutline aria-hidden />
-          </button>
-        )}
+        <div className="relative flex min-w-0 flex-col">
+          <div ref={inlineSlot} className="flex min-h-0 min-w-0 flex-col" />
+          {!fullscreen && (
+            // Правое поле текста. ⤢ — у верхнего края, кнопка сворачивания — у нижнего: панель прижата
+            // к низу окна, и нижний край поля стоит на месте при любой его высоте — кнопка не уезжает
+            // из-под указателя. Пока двум кнопкам тесно (первые кадры разворота, поле, зажатое
+            // клавиатурой телефона), одну из них прячет vs-fold-rail (globals.css): кнопка под
+            // указателем не должна мигать. Перенос колонки — запас для браузеров без @container: лишняя
+            // кнопка уходит во вторую колонку, а та обрезана. Поля в 4 px — под кольцо фокуса; сама
+            // колонка нажатий не ловит, клик в правое поле текста по-прежнему ставит курсор.
+            // С 768 px колонка отступает от края на ширину полосы прокрутки (8 px): у длинного запроса
+            // полоса есть всегда, и кнопка поверх её нижнего конца сворачивала бы поле вместо прокрутки.
+            // На телефоне полоса рисуется поверх текста и нажатий не ловит — там кнопки у самого края.
+            <div className="vs-fold-rail pointer-events-none absolute -inset-y-1 right-1 flex w-11 flex-col flex-wrap content-start gap-x-2 overflow-hidden p-1 max-md:-right-1 max-md:w-[3.25rem]">
+              {/* В свёрнутом поле место одно, и оно — кнопке «Показать весь запрос». */}
+              {!compact && (
+                <button
+                  type="button"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => onFullscreenChange(true)}
+                  className={`${GUTTER_BTN} vs-fold-zoom text-muted-2`}
+                  aria-label={expandLabel}
+                  title={expandLabel}
+                >
+                  <IoExpandOutline aria-hidden />
+                </button>
+              )}
+              {folding && fold && (
+                <button
+                  type="button"
+                  onClick={fold.onToggle}
+                  className={`${GUTTER_BTN} mt-auto ${compact ? "text-muted" : "text-muted-2"}`}
+                  aria-expanded={!compact}
+                  aria-controls={foldId}
+                  aria-label={foldLabel}
+                  title={foldLabel}
+                >
+                  {compact ? <IoChevronDown aria-hidden /> : <IoChevronUp aria-hidden />}
+                </button>
+              )}
+            </div>
+          )}
+        </div>
         {!fullscreen && footer}
       </div>
       {fullscreen &&

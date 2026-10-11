@@ -27,6 +27,8 @@ export const FEED_PAGE_SIZE = 20;
 export const SLOW_FACTOR = 1.5;
 /** Насколько близко к низу ленты человек «внизу» и его можно докрутить к новому. */
 export const NEAR_BOTTOM_PX = 160;
+/** Лента «стоит на самом низу» и едет вместе с панелью запроса; запас — на дробные пиксели прокрутки. */
+export const PINNED_BOTTOM_PX = 8;
 
 /* ------------------------------------------------------------------ */
 /* Дубли                                                               */
@@ -435,6 +437,46 @@ export function isNearBottom(
   threshold = NEAR_BOTTOM_PX,
 ): boolean {
   return m.scrollHeight - (m.scrollTop + m.clientHeight) <= threshold;
+}
+
+/**
+ * Колонка ленты стала ниже: панель запроса выросла (развернули поле, пришли
+ * подсказки) или открылась клавиатура. Докручивать ли ленту к низу — да, если
+ * до этого она стояла на самом низу: иначе последний ролик ушёл бы под панель.
+ * Именно на самом низу (PINNED_BOTTOM_PX), а не «почти внизу»: кто отлистал
+ * хоть немного вверх, смотрит на своё место — докрутка сдвинула бы его разом
+ * на весь этот отступ, а после сворачивания панели он остался бы внизу, а не
+ * там, где был. prevClientHeight — высота колонки до изменения. Ленту, которую
+ * не прокручивали (всё помещалось или человек наверху), не трогаем; когда
+ * колонка растёт, браузер держит низ сам.
+ */
+export function keepsBottom(
+  m: { scrollTop: number; clientHeight: number; scrollHeight: number },
+  prevClientHeight: number,
+): boolean {
+  if (!(prevClientHeight > m.clientHeight) || m.scrollTop <= 0) return false;
+  return isNearBottom({ scrollTop: m.scrollTop, clientHeight: prevClientHeight, scrollHeight: m.scrollHeight }, PINNED_BOTTOM_PX);
+}
+
+/** Зазор над карточкой готового результата, когда она встаёт своим верхом. */
+export const RESULT_TOP_GAP_PX = 12;
+
+/**
+ * Куда прокрутить ленту, когда результат готов. Карточка, которая не помещается
+ * в колонку целиком, встаёт своим верхом: там ролик, ради него человек и ждал, —
+ * при прокрутке «к низу» от высокого ролика оставались бы нижняя половина и
+ * кнопки (жалоба клиента: «готовый результат плохо видно»). Помещается — к
+ * самому низу, как раньше. cardTop — верх карточки от начала прокручиваемого
+ * содержимого.
+ */
+export function resultScrollTop(
+  cardTop: number,
+  cardHeight: number,
+  m: { clientHeight: number; scrollHeight: number },
+): number {
+  const bottom = Math.max(0, m.scrollHeight - m.clientHeight);
+  if (cardHeight + RESULT_TOP_GAP_PX <= m.clientHeight) return bottom;
+  return Math.max(0, Math.min(bottom, Math.round(cardTop - RESULT_TOP_GAP_PX)));
 }
 
 /**

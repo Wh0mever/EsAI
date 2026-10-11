@@ -630,6 +630,13 @@ export type FeedState = { next: string | null; loading: boolean; loaded: boolean
 export type PageStatus = "loading" | "ready" | "not_found" | "offline" | "disabled" | "error";
 export type PanelName = "rail" | "settings" | "library" | "picker";
 
+/**
+ * Поле запроса в панели: rest — свёрнуто само, пока человек не работает в
+ * панели; open — развёрнуто; shut — свернул сам кнопкой (подсказки и
+ * брошенный файл его уже не развернут, только фокус в поле или та же кнопка).
+ */
+export type PromptFold = "rest" | "open" | "shut";
+
 export type Toast = {
   id: string;
   tone: "info" | "ok" | "error";
@@ -651,6 +658,8 @@ export type UiState = {
   focusTake: Uid | null;
   /** Полноэкранный редактор (⤢). */
   fullscreen: boolean;
+  /** Свёрнуто ли поле запроса. Только в памяти вкладки: после перезагрузки — снова rest. */
+  promptFold: PromptFold;
 };
 
 export type VsState = {
@@ -732,7 +741,8 @@ export type VsAction =
   | { type: "ui/toast"; toast: Toast }
   | { type: "ui/toastDismiss"; id: string }
   | { type: "ui/focusTake"; take: Uid | null }
-  | { type: "ui/fullscreen"; open: boolean };
+  | { type: "ui/fullscreen"; open: boolean }
+  | { type: "ui/promptFold"; fold: PromptFold };
 
 export type VsActionType = VsAction["type"];
 
