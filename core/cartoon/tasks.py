@@ -544,6 +544,19 @@ def fail_stale_work() -> dict:
     return out
 
 
+@shared_task(ignore_result=True, soft_time_limit=330, time_limit=360)
+def build_preset_preview(preset_id, source) -> bool:
+    """Лёгкая копия, обложка и миниатюра превью сцены из панели (panel.build_preview).
+
+    Маршрута нет — общая очередь, как у копий витрины видеостудии: ffmpeg не
+    должен занимать слот media, в котором ждёт оплаченная съёмка. Лимит — с
+    запасом над потолком самого ffmpeg (300 с в clips.make_clip).
+    """
+    from .panel import build_preview
+
+    return build_preview(preset_id, source)
+
+
 def _notify_scene(scene, ok: bool) -> None:
     """Сказать человеку в Telegram, что сцена готова (или нет)."""
     try:

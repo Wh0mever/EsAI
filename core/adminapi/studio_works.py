@@ -1,9 +1,12 @@
 """Работы пользователей студии: отбор удачных для витрины и рекламы.
 
 Клиент: пары «герой + сцена» создают сами пользователи, а самые удачные работы
-потом идут в библиотеку и в рекламу. Здесь их видно все разом, и две кнопки:
+потом идут в библиотеку и в рекламу. Здесь их видно все разом, и три кнопки:
 - «Для рекламы» — отметка, по которой такие ролики потом легко найти;
-- «Превью сцены» — ролик становится превью сцены в библиотеке для всех.
+- «Превью сцены» — ролик становится превью сцены в библиотеке для всех;
+- «Опубликовать как новую сцену» — своя сцена пользователя становится новой
+  сценой библиотеки (снятой с публикации: владелец правит названия и
+  публикует её в «Сценах мультстудии»). Что туда пускается — cartoon.panel.
 
 Ролики со СВОИМИ персонажами пользователей (загруженными или нарисованными по
 описанию) ни туда ни туда не пускаются: на загруженном фото может быть живой
@@ -19,6 +22,7 @@ from django.utils import timezone
 from rest_framework import status
 from rest_framework.response import Response
 
+from cartoon import panel
 from cartoon.models import CartoonProject, CartoonScene
 
 from .views import StaffAPIView, _paginate
@@ -32,10 +36,21 @@ def _hero(scene):
     return scene.character or scene.project.character
 
 
-def _scene_row(s: CartoonScene) -> dict:
+def _scene_row(s: CartoonScene, frames: dict | None = None, copies: dict | None = None) -> dict:
+    """frames и copies — panel.frame_sources и panel.library_copies для страницы
+    сцен; None — посчитать для этой."""
     hero = _hero(s)
     own = bool(hero and hero.user_id is not None)
     custom = bool(s.custom_text)
+    block = ""
+    copy = None
+    if custom:
+        if frames is None:
+            frames = panel.frame_sources([s])
+        if copies is None:
+            copies = panel.library_copies([s.pk])
+        block = panel.publish_block(s, frames.get(s.pk))
+        copy = copies.get(s.pk)
     return {
         "kind": "scene",
         "id": s.pk,
@@ -55,6 +70,12 @@ def _scene_row(s: CartoonScene) -> dict:
         "public_ok": bool(hero) and not own,
         # Превью сцены библиотеки можно ставить только из сцены библиотеки.
         "can_preview": bool(hero) and not own and not custom,
+        # Новой сценой библиотеки — только своя сцена без личного в кадре и звуке.
+        "can_publish_scene": custom and not block,
+        "publish_scene_note": block if custom else "",
+        # Сцена библиотеки, уже сделанная из этой: вместо кнопки — ссылка на неё,
+        # и после перезагрузки страницы, и у другого сотрудника.
+        "library_scene_id": copy,
     }
 
 
@@ -121,7 +142,11 @@ class StudioWorksView(StaffAPIView):
         if query:
             qs = qs.filter(project__user__email__icontains=query)
         count, page = _paginate(qs, request)
-        return Response({"count": count, "results": [_scene_row(s) for s in page]})
+        page = list(page)
+        # Чем рисовались кадры своих сцен и какие уже в библиотеке — запросом на страницу.
+        frames = panel.frame_sources(page)
+        copies = panel.library_copies([s.pk for s in page if s.custom_text])
+        return Response({"count": count, "results": [_scene_row(s, frames, copies) for s in page]})
 
 
 class StudioWorkFeatureView(StaffAPIView):
@@ -215,3 +240,17 @@ class StudioWorkSetPreviewView(StaffAPIView):
         row = _scene_row(scene)
         row["notes"] = notes
         return Response(row)
+
+
+class StudioWorkPublishSceneView(StaffAPIView):
+    """POST — своя сцена пользователя становится новой сценой библиотеки.
+
+    Сцена создаётся снятой с публикации: владелец правит названия и публикует
+    её в «Сценах мультстудии». Повторный клик отдаёт уже созданную (200).
+    Отказ, если в кадр или звук могло попасть личное, — 400 с причиной.
+    """
+
+    def post(self, request, pk):
+        preset, created = panel.publish_from_scene(pk, actor=request.user, request=request)
+        return Response({"created": created, "preset": panel.scene_row(preset)},
+                        status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)

@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import blocks, creators, generations, openrouter, studio_works, views, vstudio
+from . import blocks, creators, generations, openrouter, studio_scenes, studio_works, views, vstudio
 
 app_name = "adminapi"
 
@@ -58,6 +58,18 @@ urlpatterns = [
          name="studio-work-feature"),
     path("studio/works/scene/<int:pk>/set-preview/", studio_works.StudioWorkSetPreviewView.as_view(),
          name="studio-work-set-preview"),
+    path("studio/works/scene/<int:pk>/publish-scene/",
+         studio_works.StudioWorkPublishSceneView.as_view(), name="studio-work-publish-scene"),
+    # Библиотека мультстудии: сцены и разделы, которые владелец ведёт сам.
+    path("studio/scenes/", studio_scenes.StudioScenesView.as_view(), name="studio-scenes"),
+    path("studio/scenes/<int:pk>/", studio_scenes.StudioSceneView.as_view(), name="studio-scene"),
+    path("studio/scenes/<int:pk>/preview/", studio_scenes.StudioScenePreviewView.as_view(),
+         name="studio-scene-preview"),
+    path("studio/scenes/<int:pk>/preview/rebuild/",
+         studio_scenes.StudioScenePreviewRebuildView.as_view(), name="studio-scene-preview-rebuild"),
+    path("studio/sections/", studio_scenes.StudioSectionsView.as_view(), name="studio-sections"),
+    path("studio/sections/<int:pk>/", studio_scenes.StudioSectionView.as_view(),
+         name="studio-section"),
     # Программа EsAI Creators. Все адреса с фиксированным хвостом объявлены
     # раньше creators/<int:pk>/.
     path("creators/applications/", creators.ApplicationsListView.as_view(),
