@@ -3,32 +3,22 @@ set -euo pipefail
 
 # Issue Let's Encrypt certificates via webroot challenge.
 # Usage:
-#   scripts/issue-cert.sh            # production
-#   scripts/issue-cert.sh --staging  # staging (test-cert)
+#   EMAIL=you@example.com scripts/issue-cert.sh            # production
+#   EMAIL=you@example.com scripts/issue-cert.sh --staging  # staging (test-cert)
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR/.."
 
-EMAIL_DEFAULT="you@example.com"
-EMAIL="${EMAIL:-$EMAIL_DEFAULT}"
+# Contact e-mail for the Let's Encrypt account (required, no default).
+EMAIL="${EMAIL:?Set EMAIL=you@example.com (ACME account contact e-mail)}"
 # Lineage (certificate name) to ensure files land under /etc/letsencrypt/live/<CERT_NAME>
-CERT_NAME="${CERT_NAME:-vokalo.online}"
+CERT_NAME="${CERT_NAME:-esai.kg}"
 
-# Domains: by default request a single SAN certificate for all sites
+# Domains: one SAN certificate for all listed names (comma or space separated).
 # Override with env DOMAINS to customize.
-# Example: DOMAINS="vokalo.online,www.vokalo.online" ./scripts/issue-cert.sh
-if [[ -n "${DOMAINS:-}" ]]; then
-  # split by comma or space
-  IFS=', ' read -r -a DOMAINS <<< "${DOMAINS}"
-else
-  # IMPORTANT: first domain becomes the certificate lineage directory under /etc/letsencrypt/live/<first>
-  # Keep vokalo.online first so nginx ssl paths like /etc/letsencrypt/live/vokalo.online/... resolve
-  DOMAINS=(
-    "vokalo.online" "www.vokalo.online"
-    "vokalo.ru"     "www.vokalo.ru"
-    "vokalo.kg"     "www.vokalo.kg"
-  )
-fi
+# Example: DOMAINS="esai.kg,www.esai.kg" CERT_NAME="esai.kg" EMAIL="you@example.com" ./scripts/issue-cert.sh
+# Keep CERT_NAME in sync with the ssl paths in nginx/nginx-ssl.conf (/etc/letsencrypt/live/esai.kg/...).
+IFS=', ' read -r -a DOMAINS <<< "${DOMAINS:-esai.kg,www.esai.kg}"
 WEBROOT="/var/www/certbot"
 
 STAGING_FLAG=""
