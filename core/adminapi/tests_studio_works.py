@@ -70,6 +70,31 @@ class StudioWorksTests(TestCase):
         response = self._call(StudioWorkFeatureView, kind="movie", pk=project.pk)
         self.assertEqual(response.status_code, 400)
 
+    def test_list_says_which_custom_scenes_can_become_library_scenes(self):
+        from plans.models import TokenTransaction
+
+        library = self._scene(self.lib)
+        clean = self._scene(None, custom_text="кот прыгает", custom_prompt="The character jumps",
+                            video_prompt="0-5s: the character jumps")
+        talking = self._scene(None, custom_text="кот поёт", custom_prompt="The character sings",
+                              dialogue="Мама, смотри!")
+        linked = self._scene(None, custom_text="кот спит", custom_prompt="The character sleeps",
+                             video_prompt="0-5s: the character sleeps")
+        for scene, extra in ((clean, {"custom": True}), (talking, {"custom": True}),
+                             (linked, {"linked": True})):
+            TokenTransaction.objects.create(user=self.user, delta=-4, reason="cartoon_keyframe",
+                                            balance_after=0,
+                                            meta={"scene": scene.pk, "character": self.lib.pk, **extra})
+        rows = {r["id"]: r for r in self._call(StudioWorksView, "get", "/w/").data["results"]}
+        self.assertEqual((rows[library.pk]["can_publish_scene"], rows[library.pk]["publish_scene_note"]),
+                         (False, ""))
+        self.assertEqual((rows[clean.pk]["can_publish_scene"], rows[clean.pk]["publish_scene_note"]),
+                         (True, ""))
+        self.assertFalse(rows[talking.pk]["can_publish_scene"])
+        self.assertIn("реплика", rows[talking.pk]["publish_scene_note"])
+        self.assertFalse(rows[linked.pk]["can_publish_scene"])
+        self.assertIn("прошлую сцену", rows[linked.pk]["publish_scene_note"])
+
     def test_set_preview_swaps_library_video_only_for_library_hero(self):
         own = self._scene(self.mine)
         self.assertEqual(self._call(StudioWorkSetPreviewView, pk=own.pk).status_code, 400)

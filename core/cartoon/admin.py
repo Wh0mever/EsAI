@@ -8,7 +8,17 @@
 from django.contrib import admin
 from django.utils.html import format_html
 
-from .models import CartoonCharacter, CartoonPreset, CartoonProject, CartoonScene
+from .models import CartoonCategory, CartoonCharacter, CartoonPreset, CartoonProject, CartoonScene
+
+
+@admin.register(CartoonCategory)
+class CartoonCategoryAdmin(admin.ModelAdmin):
+    """Разделы библиотеки. Основное место правки — admin-new «Сцены мультстудии»;
+    здесь — запасной путь, правки тоже защищены от seed_presets."""
+    list_display = ("title", "slug", "emoji", "sort_order", "is_active")
+    list_editable = ("sort_order", "is_active")
+    search_fields = ("title", "title_en", "title_kg", "slug")
+    ordering = ("sort_order", "id")
 
 
 @admin.register(CartoonPreset)
@@ -22,8 +32,9 @@ class CartoonPresetAdmin(admin.ModelAdmin):
     ordering = ("sort_order", "id")
     fieldsets = (
         ("Что видит пользователь", {
-            "fields": ("title", "subtitle", "slug", "preview_video", "preview_poster",
-                       "is_active", "sort_order"),
+            "fields": ("title", "title_en", "title_kg", "subtitle", "subtitle_en", "subtitle_kg",
+                       "slug", "preview_video", "preview_poster", "category", "audience",
+                       "is_pick", "is_active", "sort_order"),
             "description": "Промпты и модели пользователю не показываются — он выбирает сцену по превью.",
         }),
         ("Что уходит моделям", {

@@ -26,6 +26,7 @@ import {
   FiActivity,
   FiAward,
   FiVideo,
+  FiLayers,
 } from "react-icons/fi";
 
 const NAV = [
@@ -36,6 +37,7 @@ const NAV = [
   { href: "/admin-new/payments", label: "Платежи", icon: FiCreditCard },
   { href: "/admin-new/funnel", label: "Воронка", icon: FiFilter },
   { href: "/admin-new/studio-works", label: "Работы", icon: FiFilm },
+  { href: "/admin-new/studio-scenes", label: "Сцены мультстудии", icon: FiLayers },
   { href: "/admin-new/vstudio-showcase", label: "Витрина", icon: FiVideo },
   { href: "/admin-new/generations", label: "Генерации", icon: FiActivity },
   { href: "/admin-new/blocks", label: "Блокировки", icon: FiShield },
@@ -188,16 +190,17 @@ function AdminLoginCard({ onSuccess }: { onSuccess: () => void }) {
     setBusy(true);
     setErr(null);
     try {
-      const res = await fetchData<{ access: string; refresh: string }>(
+      // Отказ приходит тем же адресом, только с detail вместо токенов.
+      const res = await fetchData<{ access?: string; refresh?: string; detail?: string }>(
         "manage/login/", "POST", { email: email.trim(), password }, false
       );
-      const data = res?.data as any;
+      const data = res.data;
       if (res.ok && data?.access) {
         Cookies.set("access", data.access, { expires: 7 });
         if (data.refresh) Cookies.set("refresh", data.refresh, { expires: 15 });
         onSuccess();
       } else {
-        setErr((data?.detail as string) || "Неверный email или пароль.");
+        setErr(data?.detail || "Неверный email или пароль.");
       }
     } catch {
       setErr("Не удалось выполнить вход. Попробуйте ещё раз.");

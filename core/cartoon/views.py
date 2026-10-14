@@ -323,9 +323,11 @@ class PresetsView(StudioPublicAPIView):
         # Сортировка по разделу нужна и во вкладке «Все»: там сцены идут одной
         # лентой, и без неё финал соседствует с началом.
         # Без превью сцену не показываем: карточка с пустым прямоугольником
-        # хуже её отсутствия, а библиотека наполняется постепенно.
+        # хуже её отсутствия, а библиотека наполняется постепенно. Скрытый в
+        # панели раздел прячет и свои сцены — иначе они оставались во «Всех».
         qs = CartoonPreset.objects.filter(is_active=True).exclude(
-            preview_video="").select_related(
+            preview_video="").filter(
+            Q(category__isnull=True) | Q(category__is_active=True)).select_related(
             "image_model", "video_model", "category").order_by(
             "category__sort_order", "sort_order", "id")
         lang = _lang(request)
