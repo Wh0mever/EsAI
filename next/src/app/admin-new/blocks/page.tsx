@@ -129,7 +129,11 @@ export default function AdminBlocksPage() {
   }, []);
 
   useEffect(() => {
-    void load();
+    // Первая загрузка — следующей задачей, а не в теле эффекта: load меняет состояние,
+    // а синхронный setState в эффекте — лишний проход рендера. Отмена таймера заодно
+    // не даёт StrictMode в разработке отправить запрос дважды.
+    const timer = setTimeout(() => void load());
+    return () => clearTimeout(timer);
   }, [load]);
 
   const create = async (override?: { kind: KindKey; value: string }) => {
@@ -149,7 +153,7 @@ export default function AdminBlocksPage() {
     );
     setCreating(false);
     if (!res.ok || !res.data) {
-      setCreateError((res.data as any)?.detail || res.error || "Не удалось создать правило");
+      setCreateError((res.data as { detail?: string } | null)?.detail || res.error || "Не удалось создать правило");
       return;
     }
     const blocked = res.data.just_blocked || [];
