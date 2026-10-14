@@ -4,24 +4,27 @@
  *
  *   GET    manage/vstudio/showcase/?scope=staff|all&q=&page=
  *            → { items: [работа], candidates: { count, page_size, results: [дубль] },
- *                categories: [{ key, label }], public_limit,
- *                reel_size, reel_size_min, reel_size_max }
- *   POST   manage/vstudio/showcase/       { take, title, category, show_prompt, sort? } → работа
+ *                categories: [{ key, label }], placements: [{ key, label }],
+ *                public_limit, trends_limit, reel_size, reel_size_min, reel_size_max }
+ *   POST   manage/vstudio/showcase/       { take, title, category, placement, show_prompt, sort? } → работа
  *   PATCH  manage/vstudio/showcase/       { reel_size } → { reel_size }
- *   PATCH  manage/vstudio/showcase/<id>/  { title?, category?, sort?, is_active?, show_prompt? } → работа
+ *   PATCH  manage/vstudio/showcase/<id>/  { title?, category?, placement?, sort?, is_active?, show_prompt? } → работа
  *   DELETE manage/vstudio/showcase/<id>/  → 204
  *
  * Страница работает с ShowcaseItem и Candidate и имён полей сервера не знает:
  * поменялось имя — правится только здесь. Ответы разбираем как «чужие руки»:
  * запись без id или с полем не того типа страницу не роняет, а пропускается.
- * category — сценарий ролика: под его именем работа стоит в карусели первого
- * экрана. Какие работы в неё попадут, сервер не знает — это правило сайта, и
- * панель повторяет его здесь же (carousel, placesOf). Размер карусели
+ * placement — где работа на первом экране: в карусели или в «Трендах». Одна
+ * работа — одно место; у каждого места свой потолок (public_limit,
+ * trends_limit), и сайту сервер отдаёт два отдельных списка. category —
+ * сценарий ролика: под его именем работа стоит в карусели. Какие работы в неё
+ * попадут, сервер не знает — это правило сайта, и панель повторяет его здесь
+ * же (carousel, placesOf); «Тренды» сайт показывает подряд (trendsOf). Размер карусели
  * (reel_size) — настройка сервера, но сколько из неё покажет сайт, решает он
  * сам: число читаем его же функцией, границы — не шире его границ.
  * Модуль чистый (без React и сети) — его проверяет showcaseAdmin.test.mjs.
  */
-import { REEL_MAX, REEL_MIN, clampReelSize } from "@/components/vstudio/home/showreelData";
+import { REEL_MAX, REEL_MIN, TRENDS_MAX, clampReelSize } from "@/components/vstudio/home/showreelData";
 
 export const SHOWCASE_PATH = "manage/vstudio/showcase/";
 export const itemPath = (id: number): string => `${SHOWCASE_PATH}${id}/`;
@@ -62,6 +65,18 @@ const OTHER = "other";
 /** Запасной список: сценарии присылает сервер, этот — на случай ответа без них. */
 const CATEGORIES: Category[] = [...SCENARIOS, { key: OTHER, label: "Другое" }];
 
+/** Где работа стоит на первом экране (ShowcaseItem.placement). */
+export type Placement = "reel" | "trends";
+export type PlacementOption = { key: Placement; label: string };
+
+/** Запасной список мест: его присылает сервер, этот — на случай ответа без него. */
+const PLACEMENTS: PlacementOption[] = [
+  { key: "reel", label: "Карусель" },
+  { key: "trends", label: "Тренды" },
+];
+
+export const isPlacement = (v: unknown): v is Placement => v === "reel" || v === "trends";
+
 /** Ключи до переименования: сервер, который ещё не обновили, отдаёт работы с ними. */
 const RENAMED: ReadonlyMap<string, string> = new Map([
   ["social", "vertical"],
@@ -100,6 +115,8 @@ export type ShowcaseItem = ShowcaseMedia & {
   id: number;
   title: string;
   category: string;
+  /** Карусель или «Тренды»; сервер прежней версии места не знает — тогда карусель. */
+  placement: Placement;
   sort: number;
   visible: boolean;
   showPrompt: boolean;
@@ -126,7 +143,11 @@ export type ShowcaseList = {
   count: number;
   pageSize: number;
   categories: Category[];
+  placements: PlacementOption[];
+  /** Сколько работ уходит сайту в карусель (до её правила и размера). */
   publicLimit: number;
+  /** Сколько работ уходит сайту в «Тренды». */
+  trendsLimit: number;
   reelSize: ReelSize;
 };
 
@@ -177,6 +198,7 @@ export function parseItem(payload: unknown): ShowcaseItem | null {
     id,
     title: text(payload.title),
     category: text(payload.category) || OTHER,
+    placement: isPlacement(payload.placement) ? payload.placement : "reel",
     sort: num(payload.sort) ?? 0,
     visible: payload.is_active !== false,
     showPrompt: payload.show_prompt === true,
@@ -199,6 +221,17 @@ function parseCategories(value: unknown): Category[] {
     if (key && !out.some((c) => c.key === key)) out.push({ key, label: text(row.label) || key });
   }
   return out.length ? out : CATEGORIES;
+}
+
+/** Места с сервера, в его порядке и с его подписями. Список неполный или чужой — берём свой. */
+function parsePlacements(value: unknown): PlacementOption[] {
+  const out: PlacementOption[] = [];
+  for (const row of rows(value)) {
+    const key = text(row.key);
+    if (!isPlacement(key) || out.some((p) => p.key === key)) continue;
+    out.push({ key, label: text(row.label) || key });
+  }
+  return out.length === PLACEMENTS.length ? out : PLACEMENTS;
 }
 
 /** Целое, которое сайт умеет показать как размер карусели; иначе null. */
@@ -245,6 +278,7 @@ export function parseList(payload: unknown): ShowcaseList | null {
     candidates.push(candidate);
   }
   const limit = num(payload.public_limit);
+  const trendsLimit = num(payload.trends_limit);
   const pageSize = num(page.page_size);
   return {
     items,
@@ -252,7 +286,9 @@ export function parseList(payload: unknown): ShowcaseList | null {
     count: Math.max(num(page.count) ?? 0, candidates.length),
     pageSize: pageSize !== null && pageSize >= 1 ? Math.trunc(pageSize) : PAGE_SIZE,
     categories: parseCategories(payload.categories),
+    placements: parsePlacements(payload.placements),
     publicLimit: limit !== null && limit > 0 ? limit : PUBLIC_LIMIT,
+    trendsLimit: trendsLimit !== null && trendsLimit >= 1 ? Math.trunc(trendsLimit) : TRENDS_MAX,
     reelSize: parseReelSize(payload),
   };
 }
@@ -275,16 +311,28 @@ export function listPath(query: { staffOnly: boolean; search: string; page: numb
   return `${SHOWCASE_PATH}?${params.toString()}`;
 }
 
-export type AddForm = { title: string; category: string; showPrompt: boolean };
+export type AddForm = { title: string; category: string; placement: Placement; showPrompt: boolean };
 
 /**
  * С чем открывается окно «В витрину». Запрос показываем сразу: по нему
  * работает «Снять похожее», ради которого ролик и стоит в карусели. Запрос
  * сотрудника — рабочий материал студии; запрос пользователя — его находка,
- * такую галочку ставит только сам владелец.
+ * такую галочку ставит только сам владелец. Место — карусель: «Тренды»
+ * владелец выбирает сам.
  */
 export function addDefaults(candidate: Pick<Candidate, "staff" | "prompt">): AddForm {
-  return { title: "", category: "", showPrompt: candidate.staff && candidate.prompt !== "" };
+  return { title: "", category: "", placement: "reel", showPrompt: candidate.staff && candidate.prompt !== "" };
+}
+
+/** «Тренды» — сетка роликов: картинку туда сервер не примет. */
+export const trendsAllowed = (media: Pick<ShowcaseMedia, "kind">): boolean => media.kind === "video";
+
+/**
+ * Окно можно отправлять: есть название, а у карусели — ещё и сценарий (под
+ * его именем ролик в ней и стоит). Работе «Трендов» сценарий не нужен.
+ */
+export function addReady(form: Pick<AddForm, "title" | "category" | "placement">): boolean {
+  return form.title.trim() !== "" && (form.placement === "trends" || form.category !== "");
 }
 
 /**
@@ -300,25 +348,32 @@ export function titleForScenario(title: string, key: string, categories: readonl
   return named.find((category) => category.key === key)?.label ?? "";
 }
 
-/** sort — куда поставить новую работу (см. sortForNew); без него сервер ставит 0. */
+/**
+ * sort — куда поставить новую работу (см. sortForNew); без него сервер ставит 0.
+ * Работа «Трендов» без сценария уходит «Другим»: пустой сценарий сервер не примет.
+ */
 export function addBody(takeUid: string, form: AddForm, sort?: number): Record<string, unknown> {
   const body: Record<string, unknown> = {
     take: takeUid,
     title: form.title.trim(),
-    category: form.category,
+    category: form.category || OTHER,
+    placement: form.placement,
     show_prompt: form.showPrompt,
   };
   if (sort !== undefined) body.sort = sort;
   return body;
 }
 
-export type ItemChanges = Partial<Pick<ShowcaseItem, "title" | "category" | "sort" | "visible" | "showPrompt">>;
+export type ItemChanges = Partial<
+  Pick<ShowcaseItem, "title" | "category" | "placement" | "sort" | "visible" | "showPrompt">
+>;
 
 /** Тело PATCH: только то, что меняем. Флаги — настоящие true/false, строку сервер не примет. */
 export function patchBody(changes: ItemChanges): Record<string, unknown> {
   const body: Record<string, unknown> = {};
   if (changes.title !== undefined) body.title = changes.title.trim();
   if (changes.category !== undefined) body.category = changes.category;
+  if (changes.placement !== undefined) body.placement = changes.placement;
   if (changes.sort !== undefined) body.sort = changes.sort;
   if (changes.visible !== undefined) body.is_active = changes.visible;
   if (changes.showPrompt !== undefined) body.show_prompt = changes.showPrompt;
@@ -330,6 +385,7 @@ export function previousOf(item: ShowcaseItem, changes: ItemChanges): ItemChange
   const before: ItemChanges = {};
   if (changes.title !== undefined) before.title = item.title;
   if (changes.category !== undefined) before.category = item.category;
+  if (changes.placement !== undefined) before.placement = item.placement;
   if (changes.sort !== undefined) before.sort = item.sort;
   if (changes.visible !== undefined) before.visible = item.visible;
   if (changes.showPrompt !== undefined) before.showPrompt = item.showPrompt;
@@ -427,14 +483,32 @@ export function planMove(
   return { order, sorts };
 }
 
+/**
+ * Перестановка на экране. План считают по списку одного места (planMove), а
+ * применяют к витрине целиком: работы плана встают в его порядке на те же
+ * позиции, которые занимали, остальные — карусель при перестановке «Трендов»
+ * и наоборот — не двигаются.
+ */
 export function applyMove(items: readonly ShowcaseItem[], plan: MovePlan): ShowcaseItem[] {
   const byId = new Map(items.map((item) => [item.id, item]));
-  const out: ShowcaseItem[] = [];
+  const queue: ShowcaseItem[] = [];
   for (const id of plan.order) {
     const item = byId.get(id);
-    if (item) out.push({ ...item, sort: plan.sorts.get(id) ?? item.sort });
+    if (item) queue.push({ ...item, sort: plan.sorts.get(id) ?? item.sort });
   }
-  return out;
+  const moved = new Set(queue.map((item) => item.id));
+  let next = 0;
+  return items.map((item) => (moved.has(item.id) ? queue[next++] : item));
+}
+
+/** Работы одного места — в том порядке, в каком они стоят в витрине. */
+export const itemsIn = (items: readonly ShowcaseItem[], placement: Placement): ShowcaseItem[] =>
+  items.filter((item) => item.placement === placement);
+
+/** У работы нет сценария карусели («Другое» или незнакомый ключ): в карусели она идёт после сценариев. */
+export function scenarioless(item: Pick<ShowcaseItem, "category">): boolean {
+  const key = RENAMED.get(item.category) ?? item.category;
+  return !SCENARIOS.some((scenario) => scenario.key === key);
 }
 
 /**
@@ -453,7 +527,11 @@ export function insertItem(items: readonly ShowcaseItem[], item: ShowcaseItem): 
   return at < 0 ? [...rest, item] : [...rest.slice(0, at), item, ...rest.slice(at)];
 }
 
-/** Что сервер отдаёт сайту прямо сейчас, по порядку: первые `limit` видимых работ с живым файлом. */
+/**
+ * Что сервер отдаёт сайту прямо сейчас, по порядку: первые `limit` видимых
+ * работ с живым файлом. Считается по списку одного места: у карусели и
+ * «Трендов» потолки свои, и чужие работы места не занимают.
+ */
 export function publicOrder(items: readonly ShowcaseItem[], limit: number): number[] {
   const out: number[] = [];
   for (const item of items) {
@@ -507,11 +585,13 @@ export type ReelRule = { limit: number; size: number; min: number };
  * отданные сайту: сначала верхний ролик каждого сценария в порядке
  * SCENARIOS, затем остальные в порядке витрины, всего не больше `size`.
  * Картинки карусель не берёт. Набралось меньше `min` — студию она не
- * показывает вовсе: с мультстудией ролики не смешиваются.
+ * показывает вовсе: с мультстудией ролики не смешиваются. Работы «Трендов»
+ * в карусели не бывает: витрину можно отдать целиком, они не в счёт.
  */
 export function carousel(items: readonly ShowcaseItem[], rule: ReelRule): Carousel {
-  const sent = new Set(publicOrder(items, rule.limit));
-  const videos = items.filter((item) => item.kind === "video" && sent.has(item.id));
+  const own = itemsIn(items, "reel");
+  const sent = new Set(publicOrder(own, rule.limit));
+  const videos = own.filter((item) => item.kind === "video" && sent.has(item.id));
   const byScenario = new Map<string, ShowcaseItem[]>();
   for (const item of videos) {
     const key = RENAMED.get(item.category) ?? item.category;
@@ -538,21 +618,22 @@ export function carousel(items: readonly ShowcaseItem[], rule: ReelRule): Carous
   };
 }
 
-/** Где работа сейчас на сайте. */
-export type Place = "reel" | "wait" | "out" | "image" | "hidden" | "over" | "nofile";
+/** Где работа сейчас на сайте; "trend" — видна в «Трендах». */
+export type Place = "reel" | "wait" | "out" | "image" | "hidden" | "over" | "nofile" | "trend";
 
 /**
- * Что с каждой работой на сайте. Кроме карусели, первый экран работ студии
- * не показывает, поэтому «отдана сайту» ещё не значит «видна»: ролик ждёт,
- * пока карусель наберёт свой минимум ("wait"), или стоит в её очереди дальше
- * выбранного размера ("out"); картинок карусель не берёт вовсе ("image").
+ * Что с каждой работой карусели на сайте. «Отдана сайту» ещё не значит
+ * «видна»: ролик ждёт, пока карусель наберёт свой минимум ("wait"), или стоит
+ * в её очереди дальше выбранного размера ("out"); картинок карусель не берёт
+ * вовсе ("image"). Работы «Трендов» здесь не считаются — у них trendsOf.
  */
 export function placesOf(
   items: readonly ShowcaseItem[],
   limit: number,
   reel: Pick<Carousel, "order" | "studio">,
 ): Map<number, Place> {
-  const sent = new Set(publicOrder(items, limit));
+  const own = itemsIn(items, "reel");
+  const sent = new Set(publicOrder(own, limit));
   const shown = new Set(reel.order);
   const place = (item: ShowcaseItem): Place => {
     if (!item.available) return "nofile";
@@ -562,7 +643,42 @@ export function placesOf(
     if (!shown.has(item.id)) return "out";
     return reel.studio ? "reel" : "wait";
   };
-  return new Map(items.map((item) => [item.id, place(item)]));
+  return new Map(own.map((item) => [item.id, place(item)]));
+}
+
+/* ------------------------------------------------------------------ */
+/* «Тренды»                                                            */
+/* ------------------------------------------------------------------ */
+
+export type Trends = {
+  /** id роликов, которые сайт показывает в «Трендах», в его порядке. */
+  order: number[];
+  /** Что с каждой работой «Трендов» на сайте. */
+  places: Map<number, Place>;
+};
+
+/**
+ * «Тренды» глазами панели. Сервер отдаёт сайту первые `limit` видимых работ
+ * с живым файлом; сайт берёт из них только ролики (showreelData.trendItems) и
+ * показывает подряд, без сценариев и без порога, не больше своего TRENDS_MAX.
+ * Картинку сервер в «Тренды» не ставит; если она там всё же окажется, место у
+ * сервера она займёт, а на сайте её не будет ("image").
+ */
+export function trendsOf(items: readonly ShowcaseItem[], limit: number): Trends {
+  const own = itemsIn(items, "trends");
+  const sent = new Set(publicOrder(own, limit));
+  const order = own
+    .filter((item) => sent.has(item.id) && item.kind === "video")
+    .slice(0, TRENDS_MAX)
+    .map((item) => item.id);
+  const shown = new Set(order);
+  const place = (item: ShowcaseItem): Place => {
+    if (!item.available) return "nofile";
+    if (!item.visible) return "hidden";
+    if (item.kind !== "video" && sent.has(item.id)) return "image";
+    return shown.has(item.id) ? "trend" : "over";
+  };
+  return { order, places: new Map(own.map((item) => [item.id, place(item)])) };
 }
 
 /* ------------------------------------------------------------------ */
@@ -603,7 +719,7 @@ export function reelSizeExact(typed: string | null, size: ReelSize): number | nu
 }
 
 /** «1 ролик» / «3 ролика» / «12 роликов»: число теперь любое, одной формой не обойтись. */
-function plural(n: number, one: string, few: string, many: string): string {
+export function plural(n: number, one: string, few: string, many: string): string {
   const m10 = n % 10;
   const m100 = n % 100;
   if (m10 === 1 && m100 !== 11) return `${n} ${one}`;

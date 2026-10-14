@@ -129,7 +129,7 @@ test("оба источника молчат — пустая витрина, а
   routes["vstudio/showcase/"] = "offline";
   routes["cartoon/presets/"] = "offline";
   await R.loadShowreel("ru");
-  assert.deepEqual(R.peekShowreel("ru"), { reel: [], source: null, cartoonPoster: null, loading: false });
+  assert.deepEqual(R.peekShowreel("ru"), { reel: [], source: null, cartoonPoster: null, trends: [], loading: false });
 
   R.resetShowreelCache();
   routes["vstudio/showcase/"] = () => new Response("<html>502</html>", { status: 200, headers: { "content-type": "text/html" } });
@@ -294,4 +294,77 @@ test("язык: своя витрина на каждый; пока новая �
   assert.equal(R.peekShowreel("en"), en);
   assert.equal(R.peekShowreel("ru").reel[0].title, "ru:1");
   assert.ok(calls.includes("/api/cartoon/presets/?lang=en"));
+});
+
+/* ---------- «Тренды» ---------- */
+
+/** Ответ витрины с «Трендами»: свой список рядом с items, та же карточка. */
+const withTrends = (reelIds, trendIds) => ({ ...showcaseBody(reelIds), trends: showcaseBody(trendIds).items });
+
+test("«Тренды» приходят тем же ответом витрины, своим списком — в карусель не попадают", async () => {
+  assert.deepEqual(R.peekShowreel("ru").trends, [], "пока витрина в пути — пусто");
+  routes["vstudio/showcase/"] = () => json(200, withTrends([1, 2, 3, 4, 5], [11, 12]));
+  await R.loadShowreel("ru");
+  const view = R.peekShowreel("ru");
+  assert.deepEqual(view.reel.map((i) => i.id), ["vs:1", "vs:2", "vs:3", "vs:4", "vs:5"]);
+  assert.deepEqual(view.trends.map((i) => i.id), ["vs:11", "vs:12"]);
+  assert.equal(calls.length, 2, "отдельного запроса за «Трендами» нет");
+
+  // Сервер прежней версии ключа не присылает — «Трендов» нет, карусель та же.
+  R.resetShowreelCache();
+  routes["vstudio/showcase/"] = () => json(200, showcaseBody([1, 2, 3, 4, 5]));
+  await R.loadShowreel("ru");
+  assert.deepEqual(R.peekShowreel("ru").trends, []);
+  assert.equal(R.peekShowreel("ru").reel.length, 5);
+});
+
+test("«Тренды» не зависят от карусели: ролики студии ушли мультстудии, а «Тренды» на месте", async () => {
+  routes["vstudio/showcase/"] = () => json(200, withTrends([1], [11, 12, 13]));
+  await R.loadShowreel("ru");
+  const view = R.peekShowreel("ru");
+  assert.equal(view.source, "cartoon");
+  assert.deepEqual(view.trends.map((i) => i.id), ["vs:11", "vs:12", "vs:13"]);
+});
+
+test("владелец поменял «Тренды», не тронув карусели, — витрина перерисовывается; тот же ответ — нет", async () => {
+  let now = 1_000_000;
+  Date.now = () => now;
+  let trends = [11, 12];
+  routes["vstudio/showcase/"] = () => json(200, withTrends([1, 2, 3, 4, 5], trends));
+  await R.loadShowreel("ru");
+  const first = R.peekShowreel("ru");
+
+  now += R.SHOWREEL_TTL_MS + 1;
+  await R.loadShowreel("ru");
+  assert.equal(R.peekShowreel("ru"), first, "ответ тот же — тот же объект");
+
+  trends = [12, 11, 13];
+  now += R.SHOWREEL_TTL_MS + 1;
+  await R.loadShowreel("ru");
+  const next = R.peekShowreel("ru");
+  assert.notEqual(next, first);
+  assert.deepEqual(next.trends.map((i) => i.id), ["vs:12", "vs:11", "vs:13"]);
+  assert.deepEqual(next.reel.map((i) => i.id), first.reel.map((i) => i.id));
+});
+
+test("витрина не ответила при обновлении: «Тренды» остаются прежними, а не пропадают", async () => {
+  let now = 1_000_000;
+  Date.now = () => now;
+  routes["vstudio/showcase/"] = () => json(200, withTrends([1, 2, 3, 4, 5], [11, 12]));
+  await R.loadShowreel("ru");
+  const before = R.peekShowreel("ru");
+
+  now += R.SHOWREEL_TTL_MS + 1;
+  routes["vstudio/showcase/"] = () => json(503, {});
+  routes["cartoon/presets/"] = () => json(200, presetsBody("ru", 9));
+  await R.loadShowreel("ru");
+  const after = R.peekShowreel("ru");
+  assert.notEqual(after, before, "сцены мультстудии сменились — витрина собрана заново");
+  assert.deepEqual(after.trends.map((i) => i.id), ["vs:11", "vs:12"]);
+
+  // Витрина не ответила с самого начала — «Трендов» нет, но и не вечная загрузка.
+  R.resetShowreelCache();
+  await R.loadShowreel("ru");
+  assert.deepEqual(R.peekShowreel("ru").trends, []);
+  assert.equal(R.peekShowreel("ru").loading, false);
 });

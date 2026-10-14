@@ -12,17 +12,21 @@ const {
   SHOWCASE_PATH,
   addBody,
   addDefaults,
+  addReady,
   applyMove,
   carousel,
   errorText,
   insertItem,
+  isPlacement,
   itemPath,
+  itemsIn,
   listPath,
   nextPage,
   parseItem,
   parseList,
   patchBody,
   placesOf,
+  plural,
   planMove,
   previousOf,
   publicOrder,
@@ -34,8 +38,11 @@ const {
   reelSizeStep,
   reelSizeTyped,
   savedReelSize,
+  scenarioless,
   sortForNew,
   titleForScenario,
+  trendsAllowed,
+  trendsOf,
 } = await import("./showcaseAdmin.ts");
 
 // Строки в том виде, как их собирает core/vstudio/showcase.py (take_row, staff_json).
@@ -67,6 +74,7 @@ const row = (over = {}) => ({
   id: 12,
   title: "Ночной город",
   category: "film",
+  placement: "reel",
   sort: 0,
   is_active: true,
   show_prompt: true,
@@ -86,7 +94,12 @@ const listBody = (over = {}) => ({
     { key: "film", label: "Киносцена" },
     { key: "music", label: "Музыкальный клип" },
   ],
+  placements: [
+    { key: "reel", label: "Карусель" },
+    { key: "trends", label: "Тренды" },
+  ],
   public_limit: 48,
+  trends_limit: 24,
   reel_size: 24,
   reel_size_min: 5,
   reel_size_max: 48,
@@ -144,6 +157,7 @@ test("parseList: витрина, кандидаты, категории и ли�
     id: 12,
     title: "Ночной город",
     category: "film",
+    placement: "reel",
     sort: 0,
     visible: true,
     showPrompt: true,
@@ -158,6 +172,11 @@ test("parseList: витрина, кандидаты, категории и ли�
   assert.equal(data.count, 73);
   assert.equal(data.pageSize, 50);
   assert.equal(data.publicLimit, 48);
+  assert.equal(data.trendsLimit, 24);
+  assert.deepEqual(data.placements, [
+    { key: "reel", label: "Карусель" },
+    { key: "trends", label: "Тренды" },
+  ]);
   assert.deepEqual(data.reelSize, { value: 24, min: 5, max: 48 });
   assert.deepEqual(data.categories.map((c) => c.label), ["Киносцена", "Музыкальный клип"]);
 });
@@ -460,9 +479,25 @@ test("запросы: адреса и тела — теми именами, чт
     "manage/vstudio/showcase/?scope=all&q=%D0%BD%D0%BE%D1%87%D0%BD%D0%BE%D0%B9+%D0%B3%D0%BE%D1%80%D0%BE%D0%B4&page=3",
   );
 
-  const form = { title: "  Ночной город ", category: "film", showPrompt: true };
-  assert.deepEqual(addBody("u1", form), { take: "u1", title: "Ночной город", category: "film", show_prompt: true });
+  const form = { title: "  Ночной город ", category: "film", placement: "reel", showPrompt: true };
+  assert.deepEqual(addBody("u1", form), {
+    take: "u1",
+    title: "Ночной город",
+    category: "film",
+    placement: "reel",
+    show_prompt: true,
+  });
   assert.deepEqual(addBody("u1", form, -10).sort, -10);
+  // «Тренды» без сценария — «Другое»: пустой сценарий сервер не примет.
+  assert.deepEqual(addBody("u1", { ...form, category: "", placement: "trends" }), {
+    take: "u1",
+    title: "Ночной город",
+    category: "other",
+    placement: "trends",
+    show_prompt: true,
+  });
+  assert.equal(addBody("u1", { ...form, placement: "trends" }).category, "film", "выбранный сценарий не теряем");
+  assert.deepEqual(patchBody({ placement: "trends", sort: -10 }), { placement: "trends", sort: -10 });
 
   assert.deepEqual(patchBody({ visible: false }), { is_active: false });
   assert.deepEqual(patchBody({ showPrompt: true, title: " А ", category: "ad", sort: 30 }), {
@@ -478,6 +513,7 @@ test("previousOf: откатываем только то, что меняли", 
   const it = item(1, 20, { title: "Старое", visible: true, showPrompt: false });
   assert.deepEqual(previousOf(it, { title: "Новое" }), { title: "Старое" });
   assert.deepEqual(previousOf(it, { visible: false, showPrompt: true }), { visible: true, showPrompt: false });
+  assert.deepEqual(previousOf(it, { placement: "trends", sort: -10 }), { placement: "reel", sort: 20 });
   assert.deepEqual(previousOf(it, {}), {});
 });
 
@@ -938,7 +974,12 @@ test("placesOf: где работа сейчас на сайте", () => {
 });
 
 test("окно «В витрину»: запрос сотрудника показываем сразу", () => {
-  assert.deepEqual(addDefaults({ staff: true, prompt: "Ночной город, неон" }), { title: "", category: "", showPrompt: true });
+  assert.deepEqual(addDefaults({ staff: true, prompt: "Ночной город, неон" }), {
+    title: "",
+    category: "",
+    placement: "reel",
+    showPrompt: true,
+  });
   assert.equal(addDefaults({ staff: true, prompt: "" }).showPrompt, false, "показывать нечего");
   assert.equal(addDefaults({ staff: false, prompt: "Находка пользователя" }).showPrompt, false, "чужой запрос — только явной галочкой");
   assert.equal(addDefaults(parseList(listBody()).candidates[0]).showPrompt, true);
@@ -970,15 +1011,235 @@ test("titleForScenario: пустое название получает имя с
   assert.equal(titleForScenario("Киносцена", "ad", server), "Киносцена");
 });
 
+test("plural: число и слово согласованы — подсказка «Не поместилась» у «Трендов»", () => {
+  const forms = ["видимый ролик", "видимых ролика", "видимых роликов"];
+  assert.deepEqual(
+    [1, 3, 11, 12, 21, 22, 24, 25, 111, 124].map((n) => plural(n, ...forms)),
+    [
+      "1 видимый ролик",
+      "3 видимых ролика",
+      "11 видимых роликов",
+      "12 видимых роликов",
+      "21 видимый ролик",
+      "22 видимых ролика",
+      "24 видимых ролика",
+      "25 видимых роликов",
+      "111 видимых роликов",
+      "124 видимых ролика",
+    ],
+  );
+  // Потолок «Трендов» — 24: строка должна склонять его, а не писать «24 видимых роликов».
+  const row = readFileSync(new URL("./ItemRow.tsx", import.meta.url), "utf8");
+  assert.match(row, /первые \$\{plural\(size, "видимый ролик", "видимых ролика", "видимых роликов"\)\}/);
+});
+
 test("имена полей сервера знает только showcaseAdmin.ts", () => {
   // Обещание модуля: сменилось имя поля — правится один файл. Сторожим его:
   // компоненты страницы не должны читать ответ сервера сами.
   const dir = new URL("./", import.meta.url);
   const server =
-    /\b(is_active|show_prompt|user_email|user_is_staff|public_ok|poster_url|video_url|image_url|start_frame_url|created_by_email|page_size|public_limit|reel_size|reel_size_min|reel_size_max)\b/;
+    /\b(is_active|show_prompt|user_email|user_is_staff|public_ok|poster_url|video_url|image_url|start_frame_url|created_by_email|page_size|public_limit|trends_limit|reel_size|reel_size_min|reel_size_max)\b/;
   for (const name of readdirSync(dir)) {
     if (!name.endsWith(".tsx")) continue;
     const source = readFileSync(new URL(name, dir), "utf8");
     assert.equal(server.test(source), false, `${name} читает поле сервера напрямую`);
   }
+});
+
+/* ---------- «Тренды»: место работы ---------- */
+
+/** Работа «Трендов»: тот же ролик витрины, другое место. */
+const trendClip = (id, over = {}) => clip(id, "other", { placement: "trends", ...over });
+
+test("место работы: с сервера — reel или trends, остальное — карусель, как у сервера прежней версии", () => {
+  assert.equal(parseItem(row()).placement, "reel");
+  assert.equal(parseItem(row({ placement: "trends" })).placement, "trends");
+  for (const junk of [undefined, null, "", "Trends", "gallery", 1, true, {}]) {
+    assert.equal(parseItem(row({ placement: junk })).placement, "reel", String(junk));
+  }
+  assert.deepEqual(["reel", "trends", "Reel", "", null].map(isPlacement), [true, true, false, false, false]);
+
+  // Списка мест и потолка «Трендов» нет (сервер прежней версии) или они битые — свои.
+  const bare = parseList({});
+  assert.deepEqual(bare.placements, [
+    { key: "reel", label: "Карусель" },
+    { key: "trends", label: "Тренды" },
+  ]);
+  assert.equal(bare.trendsLimit, 24);
+  for (const placements of [[], [{ key: "reel", label: "К" }], [{ key: "gallery", label: "Г" }, { key: "reel" }], "x"]) {
+    assert.deepEqual(parseList({ placements }).placements.map((p) => p.key), ["reel", "trends"], JSON.stringify(placements));
+  }
+  for (const bad of [0, -3, "24", null, Number.NaN]) assert.equal(parseList({ trends_limit: bad }).trendsLimit, 24, String(bad));
+  assert.equal(parseList({ trends_limit: 12 }).trendsLimit, 12);
+  // Подписи — сервера; без подписи — ключ.
+  const told = parseList({
+    placements: [
+      { key: "trends", label: "В тренде" },
+      { key: "reel", label: "" },
+    ],
+  }).placements;
+  assert.deepEqual(told, [
+    { key: "trends", label: "В тренде" },
+    { key: "reel", label: "reel" },
+  ]);
+});
+
+test("окно «В витрину»: «Тренды» без сценария можно, карусель без сценария — нет; картинку в «Тренды» не ставим", () => {
+  assert.equal(addReady({ title: "Кот", category: "", placement: "reel" }), false);
+  assert.equal(addReady({ title: "Кот", category: "film", placement: "reel" }), true);
+  assert.equal(addReady({ title: "Кот", category: "", placement: "trends" }), true);
+  assert.equal(addReady({ title: "  ", category: "film", placement: "trends" }), false, "название нужно везде");
+  assert.equal(trendsAllowed({ kind: "video" }), true);
+  assert.equal(trendsAllowed({ kind: "image" }), false);
+});
+
+test("без сценария: «Другое» и незнакомый ключ; старые ключи сервера — сценарии", () => {
+  for (const key of SCENARIOS.map((c) => c.key)) assert.equal(scenarioless({ category: key }), false, key);
+  assert.equal(scenarioless({ category: "social" }), false);
+  assert.equal(scenarioless({ category: "anime" }), false);
+  for (const key of ["other", "", "чужой"]) assert.equal(scenarioless({ category: key }), true, key);
+});
+
+test("карусель «Трендов» не видит: ни места, ни сценария, ни порога они не занимают", () => {
+  const keys = SCENARIOS.map((c) => c.key);
+  const reelOnly = keys.slice(0, 4).map((key, i) => clip(i + 1, key));
+  // Четыре ролика карусели и пять «Трендов» сверху: роликов студии в карусели по-прежнему четыре.
+  const list = [...[11, 12, 13, 14, 15].map((id) => trendClip(id, { category: "film" })), ...reelOnly];
+  const reel = carousel(list, RULE);
+  assert.deepEqual(reel, carousel(reelOnly, RULE));
+  assert.equal(reel.studio, false, "порог карусели «Тренды» не добирают");
+  assert.equal(reel.slots[0].item.id, 1, "сценарий занимает ролик карусели, а не тренд того же сценария");
+
+  // Потолок сервера у карусели свой: «Тренды» сверху его не съедают.
+  const tight = [...Array.from({ length: 6 }, (_, i) => trendClip(i + 21)), ...keys.slice(0, 6).map((key, i) => clip(i + 1, key))];
+  assert.deepEqual(carousel(tight, { ...RULE, limit: 6 }).order, [1, 2, 3, 4, 5, 6]);
+
+  // Метки карусели — только у её работ.
+  const places = placesOf(tight, 6, carousel(tight, { ...RULE, limit: 6 }));
+  assert.deepEqual([...places.keys()].sort((a, b) => a - b), [1, 2, 3, 4, 5, 6]);
+  assert.ok([...places.values()].every((place) => place === "reel"));
+});
+
+test("trendsOf: «Тренды» на сайте — первые видимые ролики своего места, по порядку списка", () => {
+  const list = [
+    clip(1, "film"),
+    trendClip(2),
+    trendClip(3, { visible: false }),
+    clip(4, "ad"),
+    trendClip(5, { available: false }),
+    trendClip(6, PICTURE),
+    trendClip(7),
+    trendClip(8),
+  ];
+  const view = trendsOf(list, 4);
+  // Сервер отдаёт четыре: 2, 6, 7, 8 (скрытая и без файла не в счёт); картинку сайт не показывает.
+  assert.deepEqual(view.order, [2, 7, 8]);
+  assert.deepEqual(
+    [...view.places],
+    [[2, "trend"], [3, "hidden"], [5, "nofile"], [6, "image"], [7, "trend"], [8, "trend"]],
+  );
+  assert.deepEqual(trendsOf(list, 2).order, [2], "потолок режет и картинку, и ролики за ней");
+  assert.equal(trendsOf(list, 2).places.get(7), "over");
+  assert.deepEqual(trendsOf([], 24), { order: [], places: new Map() });
+  assert.deepEqual(trendsOf([clip(1, "film")], 24).order, [], "работы карусели — не «Тренды»");
+
+  // Сервер отдал бы больше, чем берёт сайт (его TRENDS_MAX), — лишние для посетителя не видны.
+  const thirty = Array.from({ length: 30 }, (_, i) => trendClip(i + 1));
+  const wide = trendsOf(thirty, 30);
+  assert.equal(wide.order.length, 24);
+  assert.deepEqual([wide.places.get(24), wide.places.get(25)], ["trend", "over"]);
+});
+
+test("порядок по местам: план считают по одному месту, работы другого не двигаются", () => {
+  // Вперемешку, как их отдаёт сервер: общий sort, у каждого места — свой порядок.
+  const all = [item(1, 10), item(2, 20, { placement: "trends" }), item(3, 30), item(4, 40, { placement: "trends" }), item(5, 50)];
+  assert.deepEqual(itemsIn(all, "reel").map((x) => x.id), [1, 3, 5]);
+  assert.deepEqual(itemsIn(all, "trends").map((x) => x.id), [2, 4]);
+
+  const plan = planMove(itemsIn(all, "trends"), 4, 0);
+  assert.deepEqual(plan.order, [4, 2]);
+  assert.deepEqual([...plan.sorts], [[4, 10]], "сосед — тренд 2 (sort 20), а не работа карусели между ними");
+  const next = applyMove(all, plan);
+  assert.deepEqual(next.map((x) => x.id), [1, 4, 3, 2, 5], "работы карусели на своих местах");
+  assert.deepEqual(itemsIn(next, "trends").map((x) => [x.id, x.sort]), [[4, 10], [2, 20]]);
+  assert.deepEqual(itemsIn(next, "reel"), itemsIn(all, "reel"));
+  // На сервере то же: в каждом месте — порядок экрана.
+  for (const placement of ["reel", "trends"]) {
+    const own = itemsIn(next, placement);
+    assert.deepEqual(serverOrder(own).map((x) => x.id), own.map((x) => x.id), placement);
+  }
+
+  // Новая работа и перенесённая встают первыми в своём месте — по его соседям.
+  assert.equal(sortForNew(itemsIn(next, "trends")), 0);
+  assert.equal(sortForNew(itemsIn(next, "reel")), 0);
+  const moved = { ...item(5, 50), placement: "trends", sort: sortForNew(itemsIn(next, "trends")) };
+  const after = insertItem(next, moved);
+  assert.deepEqual(itemsIn(after, "trends").map((x) => x.id), [5, 4, 2]);
+  assert.deepEqual(itemsIn(after, "reel").map((x) => x.id), [1, 3]);
+});
+
+test("«Тренды»: панель видит их так же, как первый экран", async () => {
+  const site = await import("../../../components/vstudio/home/showreelData.ts");
+  // Что сервер отдаёт сайту (showcase.public_showcase): по списку на место, у каждого свой потолок.
+  const card = (x) => ({
+    id: x.id,
+    title: x.title,
+    category: x.category,
+    kind: x.kind,
+    model: { id: "bytedance/seedance-2.0", name: x.modelName },
+    aspect_ratio: x.aspect,
+    duration_s: x.duration,
+    video_url: x.video,
+    image_url: x.image,
+    poster_url: x.poster,
+    prompt: null,
+    params: null,
+  });
+  const payload = (list, limits) => {
+    const sent = (placement, limit) => {
+      const own = itemsIn(list, placement);
+      const ids = new Set(publicOrder(own, limit));
+      return own.filter((x) => ids.has(x.id)).map(card);
+    };
+    return { items: sent("reel", limits.reel), trends: sent("trends", limits.trends), reel_size: 12 };
+  };
+  const scenes = site.cartoonItems({
+    presets: Array.from({ length: 6 }, (_, i) => ({ slug: `s-${i}`, preview_poster: `/c/${i}.jpg`, is_pick: true })),
+  });
+
+  const keys = SCENARIOS.map((c) => c.key);
+  let seed = 20261014;
+  const rnd = (n) => {
+    seed = (seed * 1103515245 + 12345) % 2147483648;
+    return seed % n;
+  };
+  let withTrends = 0;
+  for (let round = 0; round < 300; round++) {
+    const limits = { reel: round % 3 === 0 ? 7 : 48, trends: round % 4 === 0 ? 5 : 24 };
+    const list = Array.from({ length: rnd(60) }, (_, i) =>
+      clip(i + 1, keys[rnd(keys.length)], {
+        ...(rnd(5) === 0 ? PICTURE : {}),
+        placement: rnd(3) === 0 ? "trends" : "reel",
+        visible: rnd(7) !== 0,
+        available: rnd(9) !== 0,
+      }),
+    );
+    const body = payload(list, limits);
+    const trends = trendsOf(list, limits.trends);
+    assert.deepEqual(
+      site.trendItems(body).map((x) => x.id),
+      trends.order.map((id) => `vs:${id}`),
+      `раунд ${round}: «Тренды»`,
+    );
+    if (trends.order.length) withTrends++;
+    // Карусель на сайте собирается без «Трендов» — так же, как у панели.
+    const reel = carousel(list, { limit: limits.reel, size: 12, min: site.REEL_MIN });
+    const view = site.buildShowreel(site.studioItems(body), scenes, site.reelSizeOf(body));
+    if (reel.studio) assert.deepEqual(view.reel.map((x) => x.id), reel.order.map((id) => `vs:${id}`), `раунд ${round}`);
+    else assert.equal(view.source, "cartoon", `раунд ${round}`);
+    // Ни одна работа не стоит в обоих местах.
+    const inReel = new Set(view.reel.map((x) => x.id));
+    assert.ok(site.trendItems(body).every((x) => !inReel.has(x.id)), `раунд ${round}: тренд в карусели`);
+  }
+  assert.ok(withTrends > 200, "проверены витрины с «Трендами»");
 });

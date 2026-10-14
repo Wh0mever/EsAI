@@ -820,9 +820,9 @@ export type PromptEditorProps = {
 export type VsFunnelMeta = {
   /** Шлётся, когда студией уже можно пользоваться. home — человек на первом экране, а не в проекте. */
   vstudio_view: { authed: boolean; home: boolean };
-  /** Нажатие на первом экране: what — секция, id — кадр карусели, сценарий, модель, инструмент или проект. */
+  /** Нажатие на первом экране: what — секция, id — кадр карусели или «Трендов», сценарий, модель, инструмент или проект. */
   vstudio_home_pick: {
-    what: "reel" | "template" | "model" | "tool" | "continue";
+    what: "reel" | "template" | "model" | "tool" | "continue" | "trend";
     id: string;
   };
   vstudio_upload: { ok: boolean; code?: string };

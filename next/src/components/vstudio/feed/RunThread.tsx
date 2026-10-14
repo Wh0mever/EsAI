@@ -181,8 +181,10 @@ function HomeSlot({ onStarter }: { onStarter: (starter: VsStarter) => void }) {
   /** false — запрос не тронут: в нём свой текст. */
   const start = useCallback((starter: VsStarter): boolean => {
     const cur = live.current;
-    // Карусель берём из кэша витрины (запроса нет): сам хук живёт в StudioHome.
-    const starters = homeStarters(cur.t, peekShowreel(cur.lang).reel);
+    // Карусель и «Тренды» берём из кэша витрины (запроса нет): сам хук живёт в StudioHome.
+    // Запрос примера из «Трендов» тоже наш, и сценарий вправе его заменить.
+    const view = peekShowreel(cur.lang);
+    const starters = homeStarters(cur.t, [...view.reel, ...view.trends]);
     if (!starterReplaceable(cur.doc, starters)) {
       cur.toast(cur.kept, "info");
       return false;

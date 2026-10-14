@@ -9,6 +9,10 @@
  * мультстудии со своей подписью и дорогой в /studio. Чужого и постановочного
  * здесь нет.
  *
+ * Тем же ответом витрины приходят и «Тренды» (trends): ролики, которые
+ * владелец поставил не в карусель, а в сетку под инструментами. Карточка у них
+ * та же, а в карусель они не попадают никогда — у сервера это отдельный список.
+ *
  * Ответы разбираем как «чужие руки»: поле не того типа или карточка без
  * единого кадра не должны уронить первый экран — такая запись просто
  * пропускается. Сервер может быть и прежней версии: без needs_photo,
@@ -63,6 +67,8 @@ export const REEL_SIZE = 12;
 export const REEL_MIN = 5;
 /** Больше работ сервер сайту не отдаёт (showcase.MAX_PUBLIC). */
 export const REEL_MAX = 48;
+/** Больше роликов в «Тренды» сервер не отдаёт (showcase.TRENDS_MAX). */
+export const TRENDS_MAX = 24;
 export const CARTOON_HREF = "/studio";
 
 export const EMPTY_SHOWREEL: ShowreelData = { reel: [], source: null, cartoonPoster: null };
@@ -112,11 +118,11 @@ export function reelSizeOf(payload: unknown): number {
   return clampReelSize(isRow(payload) ? payload.reel_size : undefined);
 }
 
-/** Ответ GET vstudio/showcase/ → карточки. Всё непонятное пропускаем. */
-export function studioItems(payload: unknown): ReelItem[] {
+/** Список работ из ответа витрины (items или trends) → карточки. Всё непонятное пропускаем. */
+function showcaseCards(list: unknown): ReelItem[] {
   const out: ReelItem[] = [];
   const seen = new Set<string>();
-  for (const row of rows(isRow(payload) ? payload.items : null)) {
+  for (const row of rows(list)) {
     if (typeof row.id !== "number" && typeof row.id !== "string") continue;
     const id = `vs:${row.id}`;
     if (seen.has(id)) continue;
@@ -152,6 +158,22 @@ export function studioItems(payload: unknown): ReelItem[] {
     });
   }
   return out;
+}
+
+/** Ответ GET vstudio/showcase/ → работы карусели (items). */
+export function studioItems(payload: unknown): ReelItem[] {
+  return showcaseCards(isRow(payload) ? payload.items : null);
+}
+
+/**
+ * «Тренды» из того же ответа (trends), в порядке сервера. Сервер прежней
+ * версии ключа не присылает — тогда их нет, и блока на первом экране тоже.
+ * Только ролики: сетка «Трендов» — это видео, и «Снять похожее» там, как в
+ * карусели, всегда про видео. Больше TRENDS_MAX не берём, что бы ни пришло.
+ */
+export function trendItems(payload: unknown): ReelItem[] {
+  const cards = showcaseCards(isRow(payload) ? payload.trends : null);
+  return cards.filter((item) => item.kind === "video").slice(0, TRENDS_MAX);
 }
 
 /** Ответ GET cartoon/presets/ → карточки сцен (в порядке сервера). */
