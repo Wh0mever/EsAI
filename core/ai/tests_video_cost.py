@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""Цена видео не ниже себестоимости (жалоба 23.09: 4 ролика 1080p — минус $22 на OpenRouter)."""
+"""Цена видео не ниже себестоимости провайдера с учётом маржи."""
 from unittest.mock import patch
 
 from django.core.cache import cache
@@ -142,7 +142,7 @@ class FallbackPricingTests(TestCase):
                                               max_tokens=1000, is_active=True)
 
     def test_no_catalog_does_not_fall_back_to_flat_720p_price(self):
-        # Каталог недоступен: 1080p не может стоить как 720p (убыток 23.09).
+        # Каталог недоступен: 1080p не может стоить как 720p.
         self.assertGreater(video_credits(self.model, {}, "1080p", 15), 480 * 2)
         self.assertEqual(video_credits(self.model, {}, "720p", 15), 480)
 

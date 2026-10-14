@@ -1,19 +1,58 @@
 venv/
+.venv/
 *.pyc
 *.log
-static/
+# Django collectstatic output (root ./static is mounted into the containers,
+# core/static is the STATIC_ROOT of a local run). Anchored on purpose: the
+# sources in core/core/static/ must stay in git.
+/static/
+/core/static/
+# Накопительная статика Next для nginx (см. compose.https.yaml)
+/next-static/
 media/
+# README images and GIFs are part of the repo (unlike user uploads in media/)
+!/docs/media/
 logs/
 __pycache__/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Секреты и локальные настройки окружения
 .env
 .env.*
 !.env.example
-db_backup.sql
+*.local
+*.pem
+*.key
 .env.bak.*
+
+# Дампы и локальные базы
+db_backup.sql
+*.sql
+*.sql.gz
+*.dump
+*.sqlite
+*.sqlite3
+*.db
+# тестовая SQLite-база от settings_localtest (core/test_esai_local и т. п.)
+/core/test_*_local
 _deploy_backup*/
 backups/
 *.tgz
 *.testcopy
+*.bak
+
+# Редакторы, IDE, агенты, мусор ОС
+.vscode/
+.idea/
+*.code-workspace
+.claude/
+.DS_Store
+Thumbs.db
+*Zone.Identifier
 
 # Локальные настройки для прогона тестов на машине разработчика.
 core/core/settings_localtest.py

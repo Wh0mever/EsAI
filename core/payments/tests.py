@@ -23,7 +23,7 @@ from users.models import UserCardBind
     FREEDOM_PAY_API_BASE="https://example.test/v1",
     FREEDOM_PAY_MERCHANT_ID="000000",
     FREEDOM_PAY_TOKEN="secret",
-    SITE_BASE_URL="https://vokalo.test",
+    SITE_BASE_URL="https://esai.test",
 )
 class FreedomPayTests(TestCase):
     def setUp(self):

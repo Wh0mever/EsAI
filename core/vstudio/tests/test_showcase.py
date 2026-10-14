@@ -1165,7 +1165,7 @@ class ReelSizeTests(ReelSizeCase):
     def test_default_until_the_owner_sets_it(self):
         self.assertEqual((showcase.reel_size(), self.stored()), (12, None))
         self.assertEqual(self.site(), 12)
-        # Так поле ищет проверка после выкладки (docs/UPDATE.md).
+        # Так поле ищет проверка после выкладки (curl … | grep '"reel_size":N').
         self.assertIn(b'"reel_size":12', self.guest.get(PUBLIC).content)
 
     def test_stored_value_is_clamped_and_garbage_falls_back(self):

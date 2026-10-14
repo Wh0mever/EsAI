@@ -25,7 +25,7 @@ type Props = {
   belowComposerSlot?: ReactNode;
   /**
    * Показывать чипы готовых промптов (QUICK_PROMPTS) под композером.
-   * По просьбе клиента (24.07.2026) — ТОЛЬКО на /dashboard/text-chat
+   * По просьбе владельца продукта — ТОЛЬКО на /dashboard/text-chat
    * (экран после «Начать бесплатно» для авторизованного визитора), НЕ на
    * главной странице — там уже достаточно контента (Hero, «Почему EsAI»).
    */
@@ -51,8 +51,8 @@ type QuickPrompt = {
   promptDefault: string;
 };
 
-// Готовые примеры запросов под полем ввода — просьба клиента
-// (24.07.2026): пустой стартовый экран не вёл пользователя к первому
+// Готовые примеры запросов под полем ввода — просьба владельца продукта:
+// пустой стартовый экран не вёл пользователя к первому
 // сообщению. Клик подставляет промпт в поле ввода (onUsePrompt), не
 // отправляет сразу — пользователь успевает уточнить/дополнить.
 const QUICK_PROMPTS: QuickPrompt[] = [
@@ -88,12 +88,12 @@ const STUDIO_CARD_ARROW = "shrink-0 text-base text-accent transition-transform g
  * pitch/branding is now carried by HomeHero + the chat's own top bar (both
  * already above this component on the home page) — repeating a second big
  * logo here read as redundant. The old quick-actions pills grid, however,
- * is BACK (see QUICK_PROMPTS above) — the product owner asked for it explicitly
- * (24.07.2026): on /dashboard/text-chat (reached after "Начать бесплатно"
+ * is BACK (see QUICK_PROMPTS above) — the product owner asked for it
+ * explicitly: on /dashboard/text-chat (reached after "Начать бесплатно"
  * for an authenticated visitor — see app/dashboard/[[...slug]]/page.tsx,
  * ChatWorkspace mounted there with no heroSlot/belowComposerSlot) this
  * screen had nothing but the composer, centered in a tall empty box. Gated
- * behind showQuickPrompts — the product owner then asked (same day) to keep them OFF the
+ * behind showQuickPrompts — the product owner then asked to keep them OFF the
  * home page, where Hero/WhyEsAI already carry the pitch.
  */
 export default function StartScreen({ onUsePrompt, composerSlot, belowComposerSlot, showQuickPrompts, bottomAligned, keyboardOpen }: Props) {

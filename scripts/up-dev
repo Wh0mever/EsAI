@@ -44,11 +44,26 @@ if ! curl -fsS http://localhost/ >/dev/null 2>&1; then
 fi
 
 echo "Ensuring dev superuser exists ..."
-if ! docker compose "${FILES[@]}" exec -T core python manage.py shell -c "
+# Local dev admin account. Override with env, e.g.:
+#   DEV_SUPERUSER_EMAIL=me@example.com DEV_SUPERUSER_PASSWORD=change-me ./scripts/up-dev
+# Without DEV_SUPERUSER_PASSWORD a random password is generated for a new
+# account, and an existing account keeps its current password.
+DEV_SUPERUSER_EMAIL="${DEV_SUPERUSER_EMAIL:-admin@example.com}"
+DEV_SUPERUSER_SET_PASSWORD=1
+if [[ -z "${DEV_SUPERUSER_PASSWORD:-}" ]]; then
+  DEV_SUPERUSER_PASSWORD="$(openssl rand -hex 12 2>/dev/null || od -An -N12 -tx1 /dev/urandom | tr -d ' \n')"
+  DEV_SUPERUSER_SET_PASSWORD=0
+fi
+if SUPERUSER_STATUS="$(docker compose "${FILES[@]}" exec -T \
+  -e DEV_SUPERUSER_EMAIL="$DEV_SUPERUSER_EMAIL" \
+  -e DEV_SUPERUSER_PASSWORD="$DEV_SUPERUSER_PASSWORD" \
+  -e DEV_SUPERUSER_SET_PASSWORD="$DEV_SUPERUSER_SET_PASSWORD" \
+  core python manage.py shell -c "
+import os
 from django.contrib.auth import get_user_model
 User = get_user_model()
-email = 'admin@example.com'
-password = 'change-me'
+email = os.environ['DEV_SUPERUSER_EMAIL']
+password = os.environ['DEV_SUPERUSER_PASSWORD']
 u = User.objects.filter(email=email).first()
 if u is None:
     try:
@@ -62,11 +77,21 @@ else:
     u.is_staff = True
     u.is_superuser = True
     u.is_active = True
-    u.set_password(password)
-    u.save(update_fields=['is_staff', 'is_superuser', 'is_active', 'password'])
+    fields = ['is_staff', 'is_superuser', 'is_active']
+    if os.environ.get('DEV_SUPERUSER_SET_PASSWORD') == '1':
+        u.set_password(password)
+        fields.append('password')
+    u.save(update_fields=fields)
     print('updated')
-"; then
-  echo "Warning: failed to ensure dev superuser (admin@example.com)."
+")"; then
+  echo "$SUPERUSER_STATUS"
+  if [[ "$DEV_SUPERUSER_SET_PASSWORD" == "0" && "$SUPERUSER_STATUS" == *created* ]]; then
+    echo "Dev superuser: $DEV_SUPERUSER_EMAIL, generated password: $DEV_SUPERUSER_PASSWORD (local stack only)"
+  else
+    echo "Dev superuser: $DEV_SUPERUSER_EMAIL"
+  fi
+else
+  echo "Warning: failed to ensure dev superuser ($DEV_SUPERUSER_EMAIL)."
 fi
 
 cat <<'EOF'
