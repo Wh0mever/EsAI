@@ -9,6 +9,9 @@
   «Показывать запрос» и только если он один, готов, не удалён и принадлежит
   тому же сотруднику; всё остальное из присланного человеком — никогда;
 - порядок (sort, затем новые) и потолок в 48 работ;
+- «Тренды» (placement=trends): отдельный список trends рядом с items — в
+  items только карусель, как у прежнего фронта; та же карточка и те же
+  правила показа, свой потолок в 24 работы, только ролики;
 - кэш на 5 минут сбрасывает любая правка — но после фиксации транзакции;
 - гостевые запросы первого экрана не тратят общий anon-счётчик сайта;
 - панель: только staff, каждая запись — со строкой в журнале действий;
@@ -56,8 +59,9 @@ PUBLIC_KEYS = {"id", "title", "category", "kind", "model", "aspect_ratio", "dura
 TAKE_KEYS = (PUBLIC_KEYS - {"id", "title", "category", "full_url", "needs_photo"}) | {
     "uid", "status", "own_photos", "public_ok", "user_email", "user_is_staff", "created_at",
     "finished_at"}
-ITEM_KEYS = {"id", "title", "category", "sort", "is_active", "show_prompt", "state",
+ITEM_KEYS = {"id", "title", "category", "placement", "sort", "is_active", "show_prompt", "state",
              "created_by_email", "created_at", "updated_at", "take"}
+RESPONSE_KEYS = {"items", "trends", "reel_size"}
 # Порядок карусели — тот же список у фронта (home/scenarios.ts).
 SCENARIOS = ["film", "ad", "person", "car", "action", "scifi", "fashion", "music", "i2v", "anim",
              "real", "vertical"]
@@ -108,7 +112,7 @@ class ShowcaseCase(TestCase):
     def public(self, client=None) -> list:
         res = (client or self.guest).get(PUBLIC)
         self.assertEqual(res.status_code, 200, res.content)
-        self.assertEqual(set(res.json()), {"items", "reel_size"})
+        self.assertEqual(set(res.json()), RESPONSE_KEYS)
         return res.json()["items"]
 
     def ids(self, client=None) -> list:
@@ -380,11 +384,12 @@ class StartFrameTests(ShowcaseCase):
             return len(ctx)
 
         self.item(self.frame_work()[0], show_prompt=True)
-        # Список и материалы его запросов — сколько бы работ ни было.
-        self.assertEqual(queries(), 2)
+        # Карусель, «Тренды» и материалы запросов обоих — сколько бы работ ни было.
+        self.assertEqual(queries(), 3)
         for _ in range(3):
             self.item(self.frame_work()[0], show_prompt=True)
-        self.assertEqual(queries(), 2)
+        self.item(self.frame_work()[0], show_prompt=True, placement="trends")
+        self.assertEqual(queries(), 3)
 
     def test_panel_sees_the_frame_before_it_goes_public(self):
         take, frame = self.frame_work()
@@ -535,12 +540,19 @@ class OrderAndLimitTests(ShowcaseCase):
 class CacheTests(ShowcaseCase):
     def test_five_minutes_under_the_agreed_key(self):
         self.item(title="Первая")
-        self.assertEqual((showcase.CACHE_KEY, showcase.CACHE_S), ("vstudio:showcase:v1", 300))
+        self.item(title="Тренд", placement="trends")
+        # v2: в кэше оба списка; прежний ключ со списком одной карусели не читается.
+        self.assertEqual((showcase.CACHE_KEY, showcase.CACHE_S), ("vstudio:showcase:v2", 300))
+        cache.set("vstudio:showcase:v1", [{"id": 0}], 300)
         with mock.patch.object(showcase.cache, "set", wraps=showcase.cache.set) as store:
-            first = showcase.public_items()
+            first = showcase.public_showcase()
         store.assert_called_once_with(showcase.CACHE_KEY, first, 300)
+        self.assertEqual(set(first), {"items", "trends"})
+        self.assertEqual(([row["title"] for row in first["items"]],
+                          [row["title"] for row in first["trends"]]), (["Первая"], ["Тренд"]))
         with self.assertNumQueries(0):
-            self.assertEqual(showcase.public_items(), first)
+            self.assertEqual(showcase.public_showcase(), first)
+            self.assertEqual(showcase.public_items(), first["items"])
         self.assertEqual(cache.get(showcase.CACHE_KEY), first)
 
     def test_panel_change_is_visible_right_after_commit(self):
@@ -866,9 +878,13 @@ class PanelListTests(ShowcaseCase):
                          created_by=self.staff)
         self.work()
         data = self.get()
-        self.assertEqual(set(data), {"items", "candidates", "scope", "categories", "public_limit",
-                                     "reel_size", "reel_size_min", "reel_size_max"})
-        self.assertEqual((data["scope"], data["public_limit"]), ("staff", 48))
+        self.assertEqual(set(data), {"items", "candidates", "scope", "categories", "placements",
+                                     "public_limit", "trends_limit", "reel_size", "reel_size_min",
+                                     "reel_size_max"})
+        self.assertEqual((data["scope"], data["public_limit"], data["trends_limit"]),
+                         ("staff", 48, 24))
+        self.assertEqual(data["placements"], [{"key": "reel", "label": "Карусель"},
+                                              {"key": "trends", "label": "Тренды"}])
         self.assertEqual((data["reel_size"], data["reel_size_min"], data["reel_size_max"]),
                          (12, 5, 48))
         # Сценарии — в порядке карусели, «Другое» последним; подписи — как на сайте.
@@ -878,9 +894,11 @@ class PanelListTests(ShowcaseCase):
 
         row = data["items"][0]
         self.assertEqual(set(row), ITEM_KEYS)
-        self.assertEqual((row["id"], row["title"], row["category"], row["sort"], row["is_active"],
-                          row["show_prompt"], row["state"], row["created_by_email"]),
-                         (item.pk, "Ночной город", "film", 3, True, True, "live", self.staff.email))
+        self.assertEqual((row["id"], row["title"], row["category"], row["placement"], row["sort"],
+                          row["is_active"], row["show_prompt"], row["state"],
+                          row["created_by_email"]),
+                         (item.pk, "Ночной город", "film", "reel", 3, True, True, "live",
+                          self.staff.email))
         self.assertEqual(set(row["take"]), TAKE_KEYS)
         self.assertEqual(row["take"]["uid"], take.uid)
         self.assertEqual(row["take"]["video_url"], take.result_asset.url)
@@ -987,13 +1005,14 @@ class PanelWriteTests(ShowcaseCase):
                          (self.staff, "settings.edit", str(item.pk), "203.0.113.7"))
         self.assertEqual(log.before, {"vstudio_showcase": None})
         self.assertEqual(log.after, {"vstudio_showcase": {
-            "take": take.uid, "title": "Ночной город", "category": "film", "sort": 2,
-            "is_active": True, "show_prompt": True}})
+            "take": take.uid, "title": "Ночной город", "category": "film", "placement": "reel",
+            "sort": 2, "is_active": True, "show_prompt": True}})
 
     def test_defaults_keep_the_prompt_private(self):
         row = self.post({"take": self.work().uid}).json()
-        self.assertEqual((row["title"], row["category"], row["sort"], row["is_active"],
-                          row["show_prompt"]), ("", "other", 0, True, False))
+        self.assertEqual((row["title"], row["category"], row["placement"], row["sort"],
+                          row["is_active"], row["show_prompt"]),
+                         ("", "other", "reel", 0, True, False))
 
     def test_same_take_twice_is_one_row(self):
         take = self.work()
@@ -1035,7 +1054,8 @@ class PanelWriteTests(ShowcaseCase):
         take = self.work()
         item = self.item(title="Было")
         for body in ({"title": "я" * 81}, {"title": 5}, {"category": "nonsense"},
-                     {"category": None}, {"sort": "3"}, {"sort": True}, {"sort": 1.5},
+                     {"category": None}, {"placement": "Trends"}, {"placement": None},
+                     {"placement": ["trends"]}, {"sort": "3"}, {"sort": True}, {"sort": 1.5},
                      {"sort": 100_001}, {"is_active": "false"}, {"show_prompt": 1}):
             with self.subTest(body=body):
                 self.refused(self.post({"take": take.uid, **body}))
@@ -1215,7 +1235,7 @@ class ReelSizeTests(ReelSizeCase):
         # Список по-прежнему из кэша на пять минут, а размер уже новый.
         self.assertEqual(self.site(), 24)
         self.assertEqual(cache.get(showcase.CACHE_KEY), cached)
-        self.assertEqual(set(cached[0]), PUBLIC_KEYS)
+        self.assertEqual(set(cached["items"][0]), PUBLIC_KEYS)
 
     def test_every_visitor_gets_it_in_every_mode(self):
         self.item()
@@ -1225,7 +1245,7 @@ class ReelSizeTests(ReelSizeCase):
                 with self.subTest(mode=mode), override_settings(VSTUDIO_MODE=mode):
                     res = client.get(PUBLIC)
                     self.assertEqual(res.status_code, 200, res.content)
-                    self.assertEqual(set(res.json()), {"items", "reel_size"})
+                    self.assertEqual(set(res.json()), RESPONSE_KEYS)
                     self.assertEqual(res.json()["reel_size"], 36)
                     # Студия выключена — витрины нет, но ответ той же формы.
                     self.assertEqual(bool(res.json()["items"]), mode != "off")
@@ -1407,22 +1427,24 @@ class DjangoAdminTests(ShowcaseCase):
     def test_add_remembers_who_and_take_is_fixed_afterwards(self):
         take = self.work()
         res = self.client.post(reverse("admin:vstudio_showcaseitem_add"), {
-            "take": take.pk, "title": "Из админки", "category": "ad", "sort": 1, "is_active": "on"})
+            "take": take.pk, "title": "Из админки", "placement": "reel", "category": "ad",
+            "sort": 1, "is_active": "on"})
         self.assertEqual(res.status_code, 302)
         item = ShowcaseItem.objects.get()
         self.assertEqual((item.take, item.created_by, item.category), (take, self.admin_user, "ad"))
 
         other = self.work()
         res = self.client.post(reverse("admin:vstudio_showcaseitem_change", args=[item.pk]), {
-            "take": other.pk, "title": "Переименовали", "category": "ad", "sort": 1})
+            "take": other.pk, "title": "Переименовали", "placement": "reel", "category": "ad",
+            "sort": 1})
         self.assertEqual(res.status_code, 302)
         item.refresh_from_db()
         self.assertEqual((item.take, item.title, item.is_active), (take, "Переименовали", False))
 
     def test_user_work_is_refused_here_too(self):
         res = self.client.post(reverse("admin:vstudio_showcaseitem_add"), {
-            "take": self.work(self.author).pk, "title": "Чужая", "category": "ad", "sort": 1,
-            "is_active": "on"})
+            "take": self.work(self.author).pk, "title": "Чужая", "placement": "reel",
+            "category": "ad", "sort": 1, "is_active": "on"})
         self.assertContains(res, "только работы сотрудников")
         self.assertFalse(ShowcaseItem.objects.exists())
 
@@ -1434,8 +1456,8 @@ class DjangoAdminTests(ShowcaseCase):
         self.assertNotContains(page, '<option value="social"')
         self.assertContains(page, "станет виден и этот кадр")
 
-        res = self.client.post(add, {"take": self.work().pk, "category": "vertical", "sort": 0,
-                                     "is_active": "on"})
+        res = self.client.post(add, {"take": self.work().pk, "placement": "reel",
+                                     "category": "vertical", "sort": 0, "is_active": "on"})
         self.assertEqual(res.status_code, 302)
         item = ShowcaseItem.objects.get()
         self.assertEqual(item.category, "vertical")
@@ -1443,7 +1465,7 @@ class DjangoAdminTests(ShowcaseCase):
             with self.subTest(key=key):
                 res = self.client.post(
                     reverse("admin:vstudio_showcaseitem_change", args=[item.pk]),
-                    {"title": "x", "category": key, "sort": 0})
+                    {"title": "x", "placement": "reel", "category": key, "sort": 0})
                 self.assertEqual(res.status_code, 200)   # форма с ошибкой, а не сохранение
                 self.assertTrue(res.context["adminform"].form.errors["category"])
         item.refresh_from_db()
@@ -1484,3 +1506,242 @@ class DjangoAdminTests(ShowcaseCase):
             self.assertEqual(self.ids(), expected)
         # Вернули результат — лёгкую копию собираем заново.
         self.clip_task.assert_called_once_with(args=[item.pk])
+
+
+# ---------------------------------------------------------------- «Тренды»
+
+TRENDS = "trends"
+VIDEO_ONLY = "В «Тренды» ставятся только ролики"
+BAD_PLACEMENT = "Куда: reel (карусель) или trends (тренды)"
+
+
+class TrendsPublicTests(ShowcaseCase):
+    def lists(self, client=None) -> tuple[list, list]:
+        res = (client or self.guest).get(PUBLIC)
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(set(res.json()), RESPONSE_KEYS)
+        data = res.json()
+        return [row["id"] for row in data["items"]], [row["id"] for row in data["trends"]]
+
+    def test_items_stay_the_reel_and_trends_go_beside_it(self):
+        reel = self.item(title="Карусель", category="film")
+        trend = self.item(title="Тренд", placement=TRENDS)
+        self.assertEqual(self.lists(), ([reel.pk], [trend.pk]))
+        data = self.guest.get(PUBLIC).json()
+        # Карточка карусели — та же, что до «Трендов»: прежний фронт её не отличит.
+        take = reel.take
+        self.assertEqual(data["items"], [{
+            "id": reel.pk, "title": "Карусель", "category": "film", "kind": "video",
+            "model": {"id": f.VIDEO_MODEL_REF, "name": "Seedance 2.0"},
+            "aspect_ratio": "16:9", "duration_s": 5, "width": 1280, "height": 720,
+            "video_url": take.result_asset.url, "image_url": None,
+            "poster_url": take.result_asset.thumb_url, "full_url": take.result_asset.url,
+            "prompt": None, "params": None, "needs_photo": False, "start_frame_url": None,
+        }])
+        # У тренда та же карточка; места в ней нет — сайт знает его по списку.
+        self.assertEqual(set(data["trends"][0]), PUBLIC_KEYS)
+        self.assertEqual((data["trends"][0]["title"], data["trends"][0]["category"]),
+                         ("Тренд", "other"))
+
+    def test_same_privacy_rules(self):
+        frame = f.make_asset(self.staff)
+        take = self.work(inputs=[(frame, FIRST)])
+        item = self.item(take, placement=TRENDS)
+        card = self.guest.get(PUBLIC).json()["trends"][0]
+        self.assertEqual((card["prompt"], card["params"], card["needs_photo"],
+                          card["start_frame_url"]), (None, None, False, None))
+        self.assertNotIn(frame.uid, json.dumps(card))
+        ShowcaseItem.objects.filter(pk=item.pk).update(show_prompt=True)
+        cache.clear()
+        card = self.guest.get(PUBLIC).json()["trends"][0]
+        self.assertEqual((card["prompt"], card["needs_photo"], card["start_frame_url"]),
+                         ("Девушка идёт по крыше", True, frame.thumb_url))
+        dump = json.dumps(card, ensure_ascii=False)
+        for secret in (take.uid, take.shot.uid, self.staff.email):
+            self.assertNotIn(secret, dump)
+
+    def test_only_active_items_with_a_live_result(self):
+        good = self.item(placement=TRENDS)
+        self.item(placement=TRENDS, is_active=False)
+        self.item(self.work(status="failed"), placement=TRENDS)
+        self.item(self.work(asset=f.make_asset(self.staff, kind="video",
+                                               deleted_at=timezone.now())), placement=TRENDS)
+        self.assertEqual(self.lists(), ([], [good.pk]))
+
+    def test_sort_then_newest_first_at_most_24(self):
+        take = self.work()
+        older = self.item(self.work(asset=take.result_asset), placement=TRENDS, sort=0)
+        newer = self.item(self.work(asset=take.result_asset), placement=TRENDS, sort=0)
+        first = self.item(self.work(asset=take.result_asset), placement=TRENDS, sort=-1)
+        ShowcaseItem.objects.filter(pk=older.pk).update(created_at=timezone.now() - timedelta(days=1))
+        self.assertEqual(self.lists()[1], [first.pk, newer.pk, older.pk])
+
+        rest = [self.item(self.work(asset=take.result_asset), placement=TRENDS, sort=10 + n)
+                for n in range(showcase.TRENDS_MAX)]
+        cache.clear()
+        self.assertEqual(showcase.TRENDS_MAX, 24)
+        self.assertEqual(self.lists()[1],
+                         [first.pk, newer.pk, older.pk] + [item.pk for item in rest[:21]])
+
+    def test_each_place_has_its_own_limit(self):
+        take = self.work()
+        reel = [self.item(self.work(asset=take.result_asset), sort=n) for n in range(3)]
+        trends = [self.item(self.work(asset=take.result_asset), placement=TRENDS, sort=n)
+                  for n in range(3)]
+        with mock.patch.object(showcase, "MAX_PUBLIC", 2), \
+                mock.patch.object(showcase, "TRENDS_MAX", 2):
+            # «Тренды» стоят выше по порядку, но мест карусели не занимают — и наоборот.
+            self.assertEqual(self.lists(), ([reel[0].pk, reel[1].pk],
+                                            [trends[0].pk, trends[1].pk]))
+
+    def test_off_means_both_empty_staff_mode_shows_both(self):
+        reel = self.item()
+        trend = self.item(placement=TRENDS)
+        with override_settings(VSTUDIO_MODE="off"):
+            self.assertEqual(self.lists(), ([], []))
+            self.assertEqual(self.lists(self.panel), ([], []))
+        with override_settings(VSTUDIO_MODE="staff"):
+            self.assertEqual(self.lists(self.client_for(self.author)), ([reel.pk], [trend.pk]))
+        self.assertEqual(self.lists(), ([reel.pk], [trend.pk]))
+
+    def test_moving_a_work_is_visible_right_after_commit(self):
+        item = self.item()
+        self.assertEqual(self.lists(), ([item.pk], []))
+        with self.captureOnCommitCallbacks(execute=False) as callbacks:
+            res = self.panel.patch(f"{PANEL}{item.pk}/", {"placement": TRENDS}, format="json")
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(self.lists(), ([item.pk], []))   # до фиксации — прежний кэш
+        for callback in callbacks:
+            callback()
+        self.assertEqual(self.lists(), ([], [item.pk]))
+
+
+class TrendsPanelTests(ShowcaseCase):
+    def post(self, body):
+        return self.panel.post(PANEL, body, format="json")
+
+    def patch(self, item, body):
+        return self.panel.patch(f"{PANEL}{item.pk}/", body, format="json")
+
+    def refused(self, res, detail):
+        self.assertEqual(res.status_code, 400, res.content)
+        self.assertEqual(res.json(), {"detail": detail})
+
+    def test_add_to_trends_without_a_scenario(self):
+        take = self.work()
+        res = self.post({"take": take.uid, "placement": TRENDS, "title": "Тренд"})
+        self.assertEqual(res.status_code, 201, res.content)
+        row = res.json()
+        self.assertEqual(set(row), ITEM_KEYS)
+        self.assertEqual((row["placement"], row["category"], row["state"]),
+                         (TRENDS, "other", "live"))
+        item = ShowcaseItem.objects.get()
+        self.assertEqual(item.placement, TRENDS)
+        log = self.logs().get()
+        self.assertEqual(log.after["vstudio_showcase"]["placement"], TRENDS)
+
+    def test_move_logs_the_place(self):
+        item = self.item(title="Было")
+        res = self.patch(item, {"placement": TRENDS})
+        self.assertEqual((res.status_code, res.json()["placement"]), (200, TRENDS))
+        log = self.logs().get()
+        self.assertEqual((log.before, log.after), ({"vstudio_showcase": {"placement": "reel"}},
+                                                   {"vstudio_showcase": {"placement": TRENDS}}))
+        # Тот же ответ ещё раз — ни записи, ни строки в журнале.
+        self.assertEqual(self.patch(item, {"placement": TRENDS}).status_code, 200)
+        self.assertEqual(self.logs().count(), 1)
+        res = self.patch(item, {"placement": "reel"})
+        self.assertEqual((res.status_code, res.json()["placement"]), (200, "reel"))
+
+    def test_unknown_place_is_refused(self):
+        item = self.item()
+        take = self.work()
+        for value in ("Trends", "trend", "", None, 1, ["trends"], {"key": "trends"}):
+            with self.subTest(value=value):
+                self.refused(self.post({"take": take.uid, "placement": value}), BAD_PLACEMENT)
+                self.refused(self.patch(item, {"placement": value}), BAD_PLACEMENT)
+        item.refresh_from_db()
+        self.assertEqual((item.placement, ShowcaseItem.objects.count(), self.logs().count()),
+                         ("reel", 1, 0))
+
+    def test_only_videos_go_to_trends(self):
+        picture = self.work(kind="image")
+        self.refused(self.post({"take": picture.uid, "placement": TRENDS}), VIDEO_ONLY)
+        self.assertFalse(ShowcaseItem.objects.exists())
+        # В карусель картинку поставить можно, как и раньше, — но не перенести в «Тренды».
+        res = self.post({"take": picture.uid})
+        self.assertEqual(res.status_code, 201, res.content)
+        item = ShowcaseItem.objects.get()
+        self.refused(self.patch(item, {"placement": TRENDS, "title": "Стало"}), VIDEO_ONLY)
+        item.refresh_from_db()
+        self.assertEqual((item.placement, item.title, self.logs().count()), ("reel", "", 1))
+
+    def test_state_counts_each_place_in_its_own_limit(self):
+        reel = self.item(sort=5)
+        live = self.item(placement=TRENDS, sort=0)
+        beyond = self.item(placement=TRENDS, sort=1)
+        hidden = self.item(placement=TRENDS, is_active=False)
+        with mock.patch.object(showcase, "TRENDS_MAX", 1):
+            data = self.panel.get(PANEL).json()
+        rows = {row["id"]: (row["placement"], row["state"]) for row in data["items"]}
+        self.assertEqual(rows, {reel.pk: ("reel", "live"), live.pk: (TRENDS, "live"),
+                                beyond.pk: (TRENDS, "over_limit"), hidden.pk: (TRENDS, "hidden")})
+
+
+class TrendsDjangoAdminTests(ShowcaseCase):
+    def setUp(self):
+        super().setUp()
+        self.client.force_login(f.make_user(is_staff=True, is_superuser=True))
+        self.add_url = reverse("admin:vstudio_showcaseitem_add")
+
+    def form(self, take, **kw):
+        return {"take": take.pk, "title": "", "placement": TRENDS, "category": "other", "sort": 0,
+                "is_active": "on", **kw}
+
+    def test_column_and_filter(self):
+        reel = self.item(title="Карусель")
+        trend = self.item(title="Тренд", placement=TRENDS)
+        changelist = reverse("admin:vstudio_showcaseitem_changelist")
+        page = self.client.get(changelist)
+        self.assertContains(page, "Куда")
+        for value, expected in ((TRENDS, [trend]), ("reel", [reel])):
+            with self.subTest(value=value):
+                listed = self.client.get(changelist, {"placement__exact": value})
+                self.assertEqual(list(listed.context["cl"].result_list), expected)
+        page = self.client.get(reverse("admin:vstudio_showcaseitem_change", args=[trend.pk]))
+        self.assertContains(page, '<option value="trends" selected')
+
+    def test_add_to_trends_and_pictures_are_refused(self):
+        res = self.client.post(self.add_url, self.form(self.work()))
+        self.assertEqual(res.status_code, 302)
+        self.assertEqual(ShowcaseItem.objects.get().placement, TRENDS)
+
+        res = self.client.post(self.add_url, self.form(self.work(kind="image")))
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.context["adminform"].form.errors["placement"], [VIDEO_ONLY + "."])
+        self.assertEqual(ShowcaseItem.objects.count(), 1)
+
+        picture = self.item(self.work(kind="image"))
+        change = reverse("admin:vstudio_showcaseitem_change", args=[picture.pk])
+        res = self.client.post(change, {"title": "", "placement": TRENDS, "category": "other",
+                                        "sort": 0, "is_active": "on"})
+        self.assertEqual(res.status_code, 200)
+        self.assertTrue(res.context["adminform"].form.errors["placement"])
+        picture.refresh_from_db()
+        self.assertEqual(picture.placement, "reel")
+
+
+class PlacementMigrationTests(ShowcaseCase):
+    def test_wired_into_the_migration(self):
+        module = importlib.import_module("vstudio.migrations.0005_showcaseitem_placement")
+        migration = module.Migration
+        self.assertEqual(migration.dependencies, [("vstudio", "0004_showcase_scenarios")])
+        (add,) = migration.operations
+        self.assertIsInstance(add, migrations.AddField)
+        self.assertEqual((add.model_name, add.name), ("showcaseitem", "placement"))
+        # Прежние строки встают в карусель: так они и стояли.
+        self.assertEqual((add.field.default, add.field.max_length, add.field.verbose_name),
+                         ("reel", 8, "Куда"))
+        self.assertEqual(add.field.choices, ShowcaseItem.PLACEMENT_CHOICES)
+        self.assertEqual(showcase.PLACEMENTS, ("reel", "trends"))
+        self.assertEqual(ShowcaseItem().placement, "reel")

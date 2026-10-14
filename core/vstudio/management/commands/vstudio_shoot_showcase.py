@@ -913,7 +913,10 @@ class Command(BaseCommand):
         sc = track.scenario
         active, note = self._publish, ""
         try:
-            if active and (ShowcaseItem.objects.filter(category=sc.key, is_active=True)
+            # Только карусель: работа, перенесённая в «Тренды», сохраняет свой сценарий,
+            # но его место в карусели уже пустое.
+            if active and (ShowcaseItem.objects.filter(category=sc.key, is_active=True,
+                                                       placement=ShowcaseItem.PLACEMENT_REEL)
                            .exclude(take=take).exists()):
                 # Работу, которая уже показывается, не подменяем: какая лучше,
                 # владелец решит в панели.
@@ -921,7 +924,8 @@ class Command(BaseCommand):
                 note = " — в сценарии уже есть включённая работа, новая оставлена скрытой"
             item, created = showcase.add(
                 {"take": take.uid, "title": sc.title, "category": sc.key, "sort": sort_for(sc.key),
-                 "show_prompt": True, "is_active": active}, actor=self._user)
+                 "placement": ShowcaseItem.PLACEMENT_REEL, "show_prompt": True, "is_active": active},
+                actor=self._user)
         except Exception as exc:
             # Ролик снят и оплачен: сбой витрины не должен обрывать остальные сценарии.
             self._unlisted += 1

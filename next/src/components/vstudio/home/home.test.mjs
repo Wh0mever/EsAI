@@ -222,6 +222,34 @@ test("кривой ответ витрины не роняет первый эк
   assert.equal(loose.params, null);
 });
 
+/* ---------- «Тренды» ---------- */
+
+test("«Тренды»: свой список ответа витрины, та же карточка, что у карусели", () => {
+  const payload = {
+    items: [showcase({ id: 1 })],
+    trends: [showcase({ id: 7, title: "Тренд", category: "other" }), showcase({ id: 8, category: "film" })],
+  };
+  assert.deepEqual(ids(S.studioItems(payload)), ["vs:1"], "карусель «Трендов» не видит");
+  const trends = S.trendItems(payload);
+  assert.deepEqual(ids(trends), ["vs:7", "vs:8"], "порядок сервера");
+  assert.deepEqual(trends[1], S.studioItems({ items: [showcase({ id: 8, category: "film" })] })[0]);
+  assert.equal(trends[0].scenario, null, "сценарий «Трендам» не нужен");
+  assert.equal(trends[0].title, "Тренд");
+});
+
+test("«Тренды»: только ролики, не больше 24; сервер прежней версии и кривой ответ — пусто", () => {
+  for (const bad of [null, undefined, "", 42, [], {}, { items: [showcase()] }, { trends: null }, { trends: "x" }, { trends: [null, 1, []] }]) {
+    assert.deepEqual(S.trendItems(bad), [], JSON.stringify(bad));
+  }
+  const picture = showcase({ id: 2, kind: "image", video_url: null, image_url: "/media/vstudio/p.png" });
+  const mixed = S.trendItems({ trends: [showcase({ id: 1 }), picture, showcase({ id: 1 }), showcase({ id: 3 })] });
+  assert.deepEqual(ids(mixed), ["vs:1", "vs:3"], "картинка и повтор отброшены");
+
+  assert.equal(S.TRENDS_MAX, 24);
+  const many = S.trendItems({ trends: Array.from({ length: 30 }, (_, i) => showcase({ id: i + 1 })) });
+  assert.deepEqual(ids(many), Array.from({ length: 24 }, (_, i) => `vs:${i + 1}`));
+});
+
 test("сцена мультстудии → карточка-ссылка в /studio; без кадра не берём", () => {
   const items = S.cartoonItems({
     categories: [{ slug: "tales", title: "Сказки", emoji: "🧚" }],
@@ -611,6 +639,35 @@ test("пример за примером: поправленный текст п
 
   // Свой текст с нуля — тем более.
   assert.equal(studio([{ type: "composer/doc", doc: exampleDoc("мой сценарий") }]).apply(LATTE, STARTERS), "kept");
+});
+
+test("пример из «Трендов» за примером из карусели и наоборот: текст прошлого заменяется", () => {
+  // StudioHome кладёт в заготовки запросы и карусели, и «Трендов».
+  const TREND = S.trendItems({
+    trends: [
+      showcase({
+        id: 31,
+        model: { id: SEEDANCE, name: "Seedance 2.0" },
+        prompt: "Кот в очках читает газету в кафе",
+        params: { duration: 5, resolution: "720p", aspect_ratio: "16:9" },
+      }),
+    ],
+  })[0];
+  const both = St.homeStarters(ruT, [NIGHT, LATTE, TREND]);
+  const s = studio();
+  assert.equal(s.apply(NIGHT, both), "filled");
+  assert.deepEqual(s.use(TREND, both), ["filled", null]);
+  assert.equal(s.composer.model, SEEDANCE);
+  assert.equal(plainText(s.composer.doc), TREND.prompt);
+  assert.deepEqual(s.use(LATTE, both), ["filled", null]);
+  assert.equal(plainText(s.composer.doc), LATTE.prompt);
+
+  // Без запросов «Трендов» текст тренда сошёл бы за свой: модель сменилась бы, а текст — нет.
+  const s2 = studio();
+  s2.apply(TREND, both);
+  assert.deepEqual(s2.use(LATTE, STARTERS), ["kept", "kept"]);
+  // Заготовкой текст тренда становится и для чипов сценариев.
+  assert.equal(starterReplaceable(s2.composer.doc, both), true);
 });
 
 test("пример и сценарий «С чего начать» заменяют друг друга, пока текст не тронут", () => {

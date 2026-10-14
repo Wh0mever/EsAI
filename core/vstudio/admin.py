@@ -489,7 +489,9 @@ class ShowcaseItemForm(forms.ModelForm):
         fields = "__all__"
         help_texts = {
             "category": "Под этим именем ролик стоит в карусели первого экрана. "
-                        "«Другое» — своего места в ней нет.",
+                        "«Другое» — своего места в ней нет; «Трендам» сценарий не нужен.",
+            "placement": "Карусель — ролики по сценариям вверху первого экрана; «Тренды» — "
+                         "сетка роликов ниже, новые выше. Работа стоит в одном месте.",
             "show_prompt": "По запросу работает кнопка «Снять похожее». У работы, снятой с "
                            "первого кадра, вместе с запросом всем станет виден и этот кадр.",
         }
@@ -501,21 +503,30 @@ class ShowcaseItemForm(forms.ModelForm):
             raise forms.ValidationError("В витрину пока ставятся только работы сотрудников.")
         return take
 
+    def clean(self):
+        cleaned = super().clean()
+        # После добавления поля take в форме нет — работа та, что уже в строке.
+        take = cleaned.get("take") or (self.instance.take if self.instance.take_id else None)
+        if (take is not None and cleaned.get("placement") == ShowcaseItem.PLACEMENT_TRENDS
+                and take.kind != Take.KIND_VIDEO):
+            self.add_error("placement", "В «Тренды» ставятся только ролики.")
+        return cleaned
+
 
 @admin.register(ShowcaseItem)
 class ShowcaseItemAdmin(admin.ModelAdmin):
     form = ShowcaseItemForm
-    list_display = ("preview", "title_or_dash", "category", "sort", "is_active", "show_prompt",
-                    "has_clip", "take_link", "author", "created_at")
+    list_display = ("preview", "title_or_dash", "placement", "category", "sort", "is_active",
+                    "show_prompt", "has_clip", "take_link", "author", "created_at")
     list_display_links = ("preview", "title_or_dash")
-    list_filter = ("is_active", "category", "show_prompt")
+    list_filter = ("placement", "is_active", "category", "show_prompt")
     search_fields = ("title", "take__uid", "take__user__email")
     list_select_related = ("take__result_asset", "take__user")
     ordering = ("sort", "-created_at")
     raw_id_fields = ("take",)
     actions = ("rebuild_clip",)
-    fields = ("preview_large", "take", "title", "category", "sort", "is_active", "show_prompt",
-              "first_frame", "clip_link", "created_by", "created_at", "updated_at")
+    fields = ("preview_large", "take", "title", "placement", "category", "sort", "is_active",
+              "show_prompt", "first_frame", "clip_link", "created_by", "created_at", "updated_at")
     # Лёгкую копию собирает задача — руками файл не подкладывают.
     readonly_fields = ("preview_large", "first_frame", "clip_link", "created_by", "created_at",
                        "updated_at")

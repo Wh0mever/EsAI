@@ -456,7 +456,7 @@ class Take(models.Model):
 
 
 class ShowcaseItem(models.Model):
-    """Работа в витрине первого экрана (карусель «12 сценариев»).
+    """Работа в витрине первого экрана: карусель «12 сценариев» или блок «Тренды».
 
     Строка — разрешение показать результат одного готового дубля всем, включая
     гостей; ставит её владелец в /admin-new. Своего ролика у строки нет:
@@ -503,6 +503,15 @@ class ShowcaseItem(models.Model):
         CATEGORY_REAL, CATEGORY_VERTICAL,
     )
 
+    # Где работа стоит на первом экране. Место одно: «Тренды» — отдельный
+    # список, прежний фронт его не знает и в карусель не возьмёт.
+    PLACEMENT_REEL = "reel"
+    PLACEMENT_TRENDS = "trends"
+    PLACEMENT_CHOICES = [
+        (PLACEMENT_REEL, "Карусель"),
+        (PLACEMENT_TRENDS, "Тренды"),
+    ]
+
     # Один дубль — одна строка: второй раз ту же работу в витрину не поставить.
     # Дубль уходит (удалили аккаунт) — уходит и строка.
     take = models.OneToOneField(Take, on_delete=models.CASCADE, related_name="showcase",
@@ -510,6 +519,9 @@ class ShowcaseItem(models.Model):
     title = models.CharField(max_length=80, blank=True, default="", verbose_name="Название")
     category = models.CharField(max_length=8, choices=CATEGORY_CHOICES, default=CATEGORY_OTHER,
                                 verbose_name="Сценарий")
+    # По умолчанию — карусель: так стояли все строки до «Трендов».
+    placement = models.CharField(max_length=8, choices=PLACEMENT_CHOICES, default=PLACEMENT_REEL,
+                                 verbose_name="Куда")
     # Меньше — выше; при равных выше та, что добавлена позже.
     sort = models.IntegerField(default=0, verbose_name="Порядок")
     is_active = models.BooleanField(default=True, verbose_name="Показывать")

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { FiExternalLink, FiRefreshCw } from "react-icons/fi";
 import { REEL_MIN } from "@/components/vstudio/home/showreelData";
+import { TRENDS_PAGE } from "@/components/vstudio/home/trends/trendsLogic";
 import { fetchData } from "@/tools/fetchData";
 import AddDialog from "./AddDialog";
 import CandidateCard from "./CandidateCard";
@@ -18,6 +19,7 @@ import {
   errorText,
   insertItem,
   itemPath,
+  itemsIn,
   listPath,
   nextPage,
   parseItem,
@@ -30,11 +32,16 @@ import {
   reelSizeError,
   reelSizeHint,
   savedReelSize,
+  scenarioless,
   sortForNew,
+  trendsOf,
   type AddForm,
   type Candidate,
   type Category,
   type ItemChanges,
+  type Place,
+  type Placement,
+  type PlacementOption,
   type ReelSize,
   type ShowcaseItem,
 } from "./showcaseAdmin";
@@ -42,18 +49,32 @@ import {
 /**
  * Витрина видеостудии.
  *
- * Первый экран /video-studio показывает карусель настоящих роликов студии:
- * сначала по одному на сценарий («Киносцена», «Реклама товара»…), затем
- * остальные. Что увидят посетители, решает владелец здесь: сверху — какие
- * сценарии уже заняты и сколько роликов в карусели, под ними сама витрина
- * (название, сценарий, порядок, показ запроса), ниже — готовые дубли, которые
- * в неё можно поставить. По умолчанию кандидаты — работы сотрудников: их
- * снимают для витрины, и вопроса о согласии автора нет. Работу пользователя
- * сервер в витрину пока не примет: в адресе её файла виден номер аккаунта
- * автора.
+ * Первый экран /video-studio показывает настоящие ролики студии в двух местах:
+ * в карусели — сначала по одному на сценарий («Киносцена», «Реклама товара»…),
+ * затем остальные — и в «Трендах», сетке под инструментами режиссёра. Каждая
+ * работа стоит в одном из них. Что увидят посетители, решает владелец здесь:
+ * сверху — какие сценарии карусели уже заняты и сколько в ней роликов, под
+ * ними работы карусели и «Трендов» (название, место, сценарий, порядок, показ
+ * запроса), ниже — готовые дубли, которые можно поставить. По умолчанию
+ * кандидаты — работы сотрудников: их снимают для витрины, и вопроса о согласии
+ * автора нет. Работу пользователя сервер в витрину пока не примет: в адресе
+ * её файла виден номер аккаунта автора.
  */
 
-type Board = { items: ShowcaseItem[]; categories: Category[]; publicLimit: number; reelSize: ReelSize };
+type Board = {
+  items: ShowcaseItem[];
+  categories: Category[];
+  placements: PlacementOption[];
+  publicLimit: number;
+  trendsLimit: number;
+  reelSize: ReelSize;
+};
+
+/** Где работа встала в списке своего места — хвост сообщения о добавлении или переносе. */
+function placeNote(items: ShowcaseItem[], item: ShowcaseItem): string {
+  const at = itemsIn(insertItem(items, item), item.placement).findIndex((x) => x.id === item.id) + 1;
+  return at === 1 ? " Стоит первой — переставьте, если нужно." : at > 1 ? ` Место в списке: ${at}.` : "";
+}
 
 type Candidates = {
   /** Каким запросом получен список; не совпадает с текущим — идёт загрузка. */
@@ -79,7 +100,8 @@ export default function AdminVStudioShowcasePage() {
   const [list, setList] = useState<Candidates>(NO_CANDIDATES);
   const [loadingMore, setLoadingMore] = useState(false);
   const [busy, setBusy] = useState<ReadonlySet<number>>(new Set());
-  const [ordering, setOrdering] = useState(false);
+  // Чей порядок сейчас сохраняется: карусели или «Трендов»; null — ничей.
+  const [ordering, setOrdering] = useState<Placement | null>(null);
   const [sizing, setSizing] = useState(false);
   const [adding, setAdding] = useState<Candidate | null>(null);
   const { list: notices, notify, close } = useNotices();
@@ -96,7 +118,9 @@ export default function AdminVStudioShowcasePage() {
         setBoard({
           items: data.items,
           categories: data.categories,
+          placements: data.placements,
           publicLimit: data.publicLimit,
+          trendsLimit: data.trendsLimit,
           reelSize: data.reelSize,
         });
         setList({ key, rows: data.candidates, count: data.count, pageSize: data.pageSize, error: null });
@@ -122,7 +146,7 @@ export default function AdminVStudioShowcasePage() {
 
   // Карусель считаем здесь тем же правилом, что сайт: сервер знает только,
   // отдана ли работа и сколько в карусели мест, а кто из отданных их занял —
-  // решает первый экран.
+  // решает первый экран. Работы «Трендов» в карусели не считаются, и наоборот.
   const reel = useMemo(
     () =>
       carousel(board?.items ?? [], {
@@ -132,8 +156,16 @@ export default function AdminVStudioShowcasePage() {
       }),
     [board],
   );
-  const places = useMemo(() => placesOf(board?.items ?? [], board?.publicLimit ?? 0, reel), [board, reel]);
-  const frames = useMemo(() => new Map(reel.queue.map((id, index) => [id, index + 1])), [reel]);
+  const trends = useMemo(() => trendsOf(board?.items ?? [], board?.trendsLimit ?? 0), [board]);
+  const places = useMemo(
+    () => new Map<number, Place>([...placesOf(board?.items ?? [], board?.publicLimit ?? 0, reel), ...trends.places]),
+    [board, reel, trends],
+  );
+  // Номер на метке: кадр в очереди карусели или место в сетке «Трендов».
+  const frames = useMemo(() => {
+    const numbered = (ids: number[]) => ids.map((id, index): [number, number] => [id, index + 1]);
+    return new Map([...numbered(reel.queue), ...numbered(trends.order)]);
+  }, [reel, trends]);
 
   const loading = list.key !== key;
   const reload = () => setTick((value) => value + 1);
@@ -168,12 +200,45 @@ export default function AdminVStudioShowcasePage() {
     if (saved) editItems((items) => items.map((x) => (x.id === saved.id ? { ...saved, sort: x.sort } : x)));
   };
 
+  /**
+   * Перенос в другое место. Там работа встаёт первой: её переносят, чтобы
+   * показать, — как и новую работу. Место и порядок уходят одной записью.
+   */
+  const relocate = async (item: ShowcaseItem, placement: Placement) => {
+    if (!board || item.placement === placement) return;
+    const sort = sortForNew(itemsIn(board.items, placement));
+    const changes: ItemChanges = sort === undefined ? { placement } : { placement, sort };
+    const moved = { ...item, ...changes };
+    const note = placeNote(board.items, moved);
+    lock(item.id, true);
+    // Строка переходит в список другого места — туда, где её поставит сервер.
+    editItems((items) => insertItem(items, moved));
+    const res = await fetchData<unknown>(itemPath(item.id), "PATCH", patchBody(changes), true);
+    lock(item.id, false);
+    if (!res.ok) {
+      editItems((items) => insertItem(items, { ...moved, ...previousOf(item, changes) }));
+      notify("fail", errorText(res, "Не удалось перенести работу"));
+      return;
+    }
+    const saved = parseItem(res.data);
+    if (saved) editItems((items) => items.map((x) => (x.id === saved.id ? { ...saved, sort: x.sort } : x)));
+    const name = item.title ? `«${item.title}»` : "работа без названия";
+    if (placement === "trends") {
+      notify("ok", `Перенесено в «Тренды»: ${name}.${note}`);
+      return;
+    }
+    // Без сценария ролик в карусели идёт после сценариев — об этом лучше сказать сразу.
+    const scenario = scenarioless(saved ?? moved) ? " Выберите сценарий — без него ролик идёт после сценариев." : "";
+    notify("ok", `Перенесено в карусель: ${name}.${note}${scenario}`);
+  };
+
   const move = async (item: ShowcaseItem, index: number) => {
     if (!board) return;
     const before = board.items;
-    const plan = planMove(before, item.id, index);
+    // Порядок у каждого места свой: соседи — только работы того же места.
+    const plan = planMove(itemsIn(before, item.placement), item.id, index);
     if (!plan) return;
-    setOrdering(true);
+    setOrdering(item.placement);
     editItems((items) => applyMove(items, plan));
     let failure: string | null = null;
     for (const [id, sort] of plan.sorts) {
@@ -183,7 +248,7 @@ export default function AdminVStudioShowcasePage() {
         break;
       }
     }
-    setOrdering(false);
+    setOrdering(null);
     if (failure) {
       // Часть записей могла пройти — как теперь стоит витрина, знает только сервер.
       notify("fail", failure);
@@ -230,7 +295,7 @@ export default function AdminVStudioShowcasePage() {
   };
 
   const add = async (candidate: Candidate, form: AddForm): Promise<string | null> => {
-    const body = addBody(candidate.takeUid, form, sortForNew(board?.items ?? []));
+    const body = addBody(candidate.takeUid, form, sortForNew(itemsIn(board?.items ?? [], form.placement)));
     const res = await fetchData<unknown>(SHOWCASE_PATH, "POST", body, true);
     if (!res.ok) return errorText(res, "Не удалось добавить в витрину");
     const saved = parseItem(res.data);
@@ -242,12 +307,12 @@ export default function AdminVStudioShowcasePage() {
     });
     // 200 вместо 201 — дубль успел поставить кто-то другой: его строка осталась как была.
     if (res.status !== 201) {
-      notify("ok", "Этот дубль уже стоит в витрине — название и сценарий остались прежними.");
+      notify("ok", "Этот дубль уже стоит в витрине — название, место и сценарий остались прежними.");
       return null;
     }
-    const place = saved ? insertItem(board?.items ?? [], saved).findIndex((x) => x.id === saved.id) + 1 : 0;
-    const where = place === 1 ? " Стоит первой — переставьте, если нужно." : place > 1 ? ` Место в списке: ${place}.` : "";
-    notify("ok", `В витрине: «${saved?.title || form.title.trim()}».${where}`);
+    const where = saved ? placeNote(board?.items ?? [], saved) : "";
+    const title = saved?.title || form.title.trim();
+    notify("ok", `${form.placement === "trends" ? "В «Трендах»" : "В карусели"}: «${title}».${where}`);
     return null;
   };
 
@@ -274,7 +339,41 @@ export default function AdminVStudioShowcasePage() {
   };
 
   const items = board?.items ?? [];
-  const shown = items.filter((item) => places.get(item.id) === "reel");
+  const onSite = items.filter((item) => places.get(item.id) === "reel" || places.get(item.id) === "trend");
+
+  const rows = (placement: Placement, size: number) => {
+    const list = itemsIn(items, placement);
+    return (
+      <ul className="flex flex-col gap-3">
+        {list.map((item, index) => (
+          <ItemRow
+            key={item.id}
+            item={item}
+            index={index}
+            total={list.length}
+            place={places.get(item.id) ?? "hidden"}
+            frame={frames.get(item.id) ?? 0}
+            size={size}
+            categories={board?.categories ?? []}
+            placements={board?.placements ?? []}
+            busy={busy.has(item.id)}
+            orderLocked={ordering !== null}
+            onPatch={(target, changes) => void patch(target, changes)}
+            onPlace={(target, to) => void relocate(target, to)}
+            onMove={(target, to) => void move(target, to)}
+            onRemove={(target) => void remove(target)}
+          />
+        ))}
+      </ul>
+    );
+  };
+
+  const saving = (placement: Placement) =>
+    ordering === placement && (
+      <span role="status" className="text-xs text-status-wait">
+        Сохраняю порядок…
+      </span>
+    );
 
   return (
     <div className="flex flex-col gap-6">
@@ -282,10 +381,11 @@ export default function AdminVStudioShowcasePage() {
         <div className="min-w-0 max-w-3xl">
           <h1 className="text-xl font-bold">Витрина видеостудии</h1>
           <p className="mt-1 text-sm text-muted-2">
-            Ролики карусели на первом экране видеостудии: верхний ролик каждого сценария, на свободные места —
-            остальные по порядку списка. Сколько их всего, задаёт «Роликов в карусели». Ставьте сюда удачные
-            дубли из кандидатов ниже. Новые посетители видят изменения сразу, в уже открытой вкладке студии — в
-            течение 10 минут.
+            Ролики первого экрана видеостудии. Каждая работа стоит в одном месте («Куда»): в карусели — верхний
+            ролик каждого сценария, на свободные места остальные по порядку списка, всего столько, сколько задано
+            в «Роликов в карусели», — или в «Трендах», сетке роликов под инструментами режиссёра. Ставьте сюда
+            удачные дубли из кандидатов ниже. Новые посетители видят изменения сразу, в уже открытой вкладке
+            студии — в течение 10 минут.
           </p>
         </div>
         <a
@@ -302,8 +402,8 @@ export default function AdminVStudioShowcasePage() {
       {!board && loading && (
         <div className="flex flex-col gap-4" aria-busy="true">
           <Skeleton className="h-64" />
-          <div className="grid grid-cols-3 gap-3">
-            {[0, 1, 2].map((i) => (
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            {[0, 1, 2, 3].map((i) => (
               <Skeleton key={i} className="h-20" />
             ))}
           </div>
@@ -333,49 +433,47 @@ export default function AdminVStudioShowcasePage() {
             onChange={(value) => void resize(value)}
           />
 
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <Stat label="В витрине" value={items.length} />
-            <Stat label="В карусели" value={shown.length} hint={`из ${board.reelSize.value}`} />
-            <Stat label="С запросом" value={shown.filter((item) => item.showPrompt && item.prompt).length} />
+            <Stat label="В карусели" value={reel.studio ? reel.order.length : 0} hint={`из ${board.reelSize.value}`} />
+            <Stat label="В трендах" value={trends.order.length} hint={`из ${board.trendsLimit}`} />
+            <Stat label="С запросом" value={onSite.filter((item) => item.showPrompt && item.prompt).length} />
           </div>
 
           <section className="flex flex-col gap-3">
             <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-              <h2 className="text-base font-semibold">В витрине</h2>
+              <h2 className="text-base font-semibold">Карусель</h2>
               <span className="text-xs text-muted-2">
                 Из роликов одного сценария первым в карусель идёт верхний; номер кадра — на метке работы.
               </span>
-              {ordering && (
-                <span role="status" className="text-xs text-status-wait">
-                  Сохраняю порядок…
-                </span>
-              )}
+              {saving("reel")}
             </div>
-            {items.length === 0 ? (
+            {itemsIn(items, "reel").length === 0 ? (
               <div className={`${CARD} p-6 text-center text-sm text-muted-2`}>
-                В витрине пока пусто — на первом экране идут только сцены мультстудии. Поставьте первую работу
+                В карусели пока пусто — на первом экране идут только сцены мультстудии. Поставьте первую работу
                 из кандидатов ниже.
               </div>
             ) : (
-              <ul className="flex flex-col gap-3">
-                {items.map((item, index) => (
-                  <ItemRow
-                    key={item.id}
-                    item={item}
-                    index={index}
-                    total={items.length}
-                    place={places.get(item.id) ?? "out"}
-                    frame={frames.get(item.id) ?? 0}
-                    reelSize={board.reelSize.value}
-                    categories={board.categories}
-                    busy={busy.has(item.id)}
-                    orderLocked={ordering}
-                    onPatch={(target, changes) => void patch(target, changes)}
-                    onMove={(target, to) => void move(target, to)}
-                    onRemove={(target) => void remove(target)}
-                  />
-                ))}
-              </ul>
+              rows("reel", board.reelSize.value)
+            )}
+          </section>
+
+          <section className="flex flex-col gap-3">
+            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+              <h2 className="text-base font-semibold">Тренды</h2>
+              <span className="text-xs text-muted-2">
+                Сетка роликов под инструментами режиссёра, по порядку списка: сразу видно {TRENDS_PAGE}, остальные —
+                по «Показать ещё», всего до {board.trendsLimit}. Только ролики, сценарий не нужен.
+              </span>
+              {saving("trends")}
+            </div>
+            {itemsIn(items, "trends").length === 0 ? (
+              <div className={`${CARD} p-6 text-center text-sm text-muted-2`}>
+                В «Трендах» пока пусто — на первом экране этого блока нет. Поставьте ролик из кандидатов ниже и
+                выберите «Тренды» или перенесите работу из карусели полем «Куда».
+              </div>
+            ) : (
+              rows("trends", board.trendsLimit)
             )}
           </section>
 
@@ -484,6 +582,9 @@ export default function AdminVStudioShowcasePage() {
           key={adding.takeUid}
           candidate={adding}
           categories={board.categories}
+          placements={board.placements}
+          trendsLimit={board.trendsLimit}
+          trendsPage={TRENDS_PAGE}
           onSubmit={(form) => add(adding, form)}
           onClose={closeDialog}
         />

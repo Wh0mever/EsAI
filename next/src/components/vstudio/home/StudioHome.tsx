@@ -15,6 +15,7 @@ import type { VsStarter, VsTemplate } from "./templates";
 import ToolCards from "./ToolCards";
 import { focusComposer } from "./tools/dock";
 import { useFramesFocus } from "./tools/useFramesFocus";
+import Trends from "./Trends";
 import TrustStrip from "./TrustStrip";
 import { useShowreel, type ReelItem } from "./useShowreel";
 
@@ -27,9 +28,9 @@ export type StudioHomeProps = {
 /**
  * Первый экран студии (§2.2): пока проекта нет, лента показывает его вместо
  * пустого состояния. Секции независимы и каждая рисует себя сама; здесь —
- * только их порядок, кадры карусели и то, что происходит по нажатию на пример
- * в ней и по выбору сценария. Ничего не запускается и не тратится: любое
- * нажатие лишь готовит панель запроса.
+ * только их порядок, кадры карусели и «Трендов» и то, что происходит по
+ * нажатию на пример в них и по выбору сценария. Ничего не запускается и не
+ * тратится: любое нажатие лишь готовит панель запроса.
  */
 function StudioHome({ onStarter, disabled }: StudioHomeProps) {
   const { t } = useTranslation("vstudio", { useSuspense: false });
@@ -60,7 +61,7 @@ function StudioHome({ onStarter, disabled }: StudioHomeProps) {
           defaultValue: "Пример снят на {{model}} — она доступна на платном тарифе. Модель осталась ваша.",
           model,
         });
-      // В карусели только ролики, поэтому вид меняется всегда на видео.
+      // В карусели и «Трендах» только ролики, поэтому вид меняется всегда на видео.
       case "locked_switched":
         return t("home.use.lockedSwitched", {
           defaultValue:
@@ -79,20 +80,22 @@ function StudioHome({ onStarter, disabled }: StudioHomeProps) {
 
   // Обработчики отдаём секциям неизменными (карусель тяжёлая, перерисовывать
   // её на каждую букву в запросе незачем), а свежее состояние читаем отсюда.
-  const live = useRef({ state, dispatch, actions, onStarter, disabled, say, photoTip, t, reel: show.reel });
+  const live = useRef({ state, dispatch, actions, onStarter, disabled, say, photoTip, t, show });
   useLayoutEffect(() => {
-    live.current = { state, dispatch, actions, onStarter, disabled, say, photoTip, t, reel: show.reel };
+    live.current = { state, dispatch, actions, onStarter, disabled, say, photoTip, t, show };
   });
 
-  const onReelUse = useCallback(
+  // Пример из карусели и из «Трендов» применяется одинаково; различается только шаг воронки.
+  const takeExample = useCallback(
     (item: ReelItem) => {
-      trackHomePick("reel", item.id);
       // Сцена мультстудии — ссылка в /studio: переход делает сама карточка.
       if (item.source !== "vstudio") return;
       const cur = live.current;
       if (cur.disabled) return;
       // Текст прошлого примера или сценария новый пример заменяет, свой текст человека — нет.
-      const outcome = applyReelItem(item, cur.state, cur.dispatch, homeStarters(cur.t, cur.reel));
+      // Прошлый пример мог быть и из карусели, и из «Трендов».
+      const starters = homeStarters(cur.t, [...cur.show.reel, ...cur.show.trends]);
+      const outcome = applyReelItem(item, cur.state, cur.dispatch, starters);
       const notice = applyNotice(item, cur.state.models, outcome, cur.state.composer.kind, cur.state.composer.model);
       if (notice) cur.actions.toast(cur.say(notice, reelModelName(item, cur.state.models)), "info");
       if (!wantsPhoto(item, cur.state.composer)) {
@@ -105,6 +108,22 @@ function StudioHome({ onStarter, disabled }: StudioHomeProps) {
       showFramesSoon();
     },
     [showFramesSoon],
+  );
+
+  const onReelUse = useCallback(
+    (item: ReelItem) => {
+      trackHomePick("reel", item.id);
+      takeExample(item);
+    },
+    [takeExample],
+  );
+
+  const onTrendUse = useCallback(
+    (item: ReelItem) => {
+      trackHomePick("trend", item.id);
+      takeExample(item);
+    },
+    [takeExample],
   );
 
   const onTemplate = useCallback((template: VsTemplate, text: string) => {
@@ -132,6 +151,7 @@ function StudioHome({ onStarter, disabled }: StudioHomeProps) {
       <TemplateChips onPick={onTemplate} disabled={disabled} />
       <ModelStrip />
       <ToolCards cartoonPoster={show.cartoonPoster} />
+      <Trends items={show.trends} onUse={onTrendUse} />
       <TrustStrip />
     </div>
   );

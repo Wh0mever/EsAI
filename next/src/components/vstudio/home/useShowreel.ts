@@ -1,13 +1,14 @@
 "use client";
 
 /**
- * Витрина первого экрана: настоящие ролики для карусели.
+ * Витрина первого экрана: настоящие ролики для карусели и «Трендов».
  *
  * Два публичных запроса — работы видеостудии и сцены мультстудии (названия
  * сцен переводит сервер, поэтому запрос несёт язык). Каждый может не ответить
  * сам по себе: тогда его часть считается пустой, а первый экран живёт на
  * второй. Разбор ответов и выбор кадров карусели делает showreelData.ts.
- * Вместе с работами студии приходит и размер карусели — настройка владельца.
+ * Вместе с работами студии приходят «Тренды» и размер карусели — настройка
+ * владельца.
  *
  * Кэш общий для вкладки и привязан к языку: первый экран монтируется заново
  * при каждом возврате к «Новой генерации», а сцены за 10 минут не меняются.
@@ -29,6 +30,7 @@ import {
   cartoonItems,
   reelSizeOf,
   studioItems,
+  trendItems,
   type ReelItem,
   type ShowreelData,
 } from "./showreelData";
@@ -36,6 +38,8 @@ import {
 export type { ReelItem } from "./showreelData";
 
 export type Showreel = ShowreelData & {
+  /** «Тренды»: ролики, которые владелец поставил в сетку под инструментами, а не в карусель. */
+  trends: ReelItem[];
   /** Показать пока нечего: первый запрос ещё в пути. */
   loading: boolean;
 };
@@ -54,11 +58,12 @@ type Entry = {
   cartoon: ReelItem[];
   /** Сколько роликов студии владелец отвёл карусели (reel_size в ответе витрины). */
   size: number;
+  trends: ReelItem[];
   /** Отпечаток содержимого: тот же ответ не должен перерисовывать карусель. */
   sig: string;
 };
 
-const LOADING: Showreel = { ...EMPTY_SHOWREEL, loading: true };
+const LOADING: Showreel = { ...EMPTY_SHOWREEL, trends: [], loading: true };
 
 const cache = new Map<ApiLang, Entry>();
 const inflight = new Map<ApiLang, Promise<void>>();
@@ -132,11 +137,14 @@ export function loadShowreel(lang: ApiLang, retryFailed = false): Promise<void> 
       // Размер карусели приходит тем же ответом, что и ролики: не ответил — держим
       // прежний, иначе на время сбоя карусель из 24 роликов сжалась бы до 12.
       const size = showcase.ok ? reelSizeOf(showcase.data) : (prev?.size ?? REEL_SIZE);
+      // «Тренды» приходят тем же ответом: не ответил — тоже держим прежние.
+      const trends = showcase.ok ? trendItems(showcase.data) : (prev?.trends ?? []);
       // Размер — в отпечатке: владелец мог сменить его, не тронув ни одного ролика.
-      const sig = JSON.stringify([studio, cartoon, size]);
-      const view = prev && prev.sig === sig ? prev.view : { ...buildShowreel(studio, cartoon, size), loading: false };
+      const sig = JSON.stringify([studio, cartoon, size, trends]);
+      const view =
+        prev && prev.sig === sig ? prev.view : { ...buildShowreel(studio, cartoon, size), trends, loading: false };
       const ok = showcase.ok && presets.ok;
-      cache.set(lang, { view, at: Date.now(), ok, studio, cartoon, size, sig });
+      cache.set(lang, { view, at: Date.now(), ok, studio, cartoon, size, trends, sig });
       lastView = view;
       if (ok) attempts.delete(lang);
       else if (isTransient(showcase) || isTransient(presets)) planRetry(lang);
@@ -145,8 +153,8 @@ export function loadShowreel(lang: ApiLang, retryFailed = false): Promise<void> 
       // fetchData не бросает; сюда попадём только при ошибке разбора — тогда
       // показываем пустую витрину, а не вечную загрузку.
       if (cache.has(lang)) return;
-      const view = { ...EMPTY_SHOWREEL, loading: false };
-      cache.set(lang, { view, at: Date.now(), ok: false, studio: [], cartoon: [], size: REEL_SIZE, sig: "" });
+      const view = { ...EMPTY_SHOWREEL, trends: [], loading: false };
+      cache.set(lang, { view, at: Date.now(), ok: false, studio: [], cartoon: [], size: REEL_SIZE, trends: [], sig: "" });
     })
     .finally(() => {
       inflight.delete(lang);

@@ -1,7 +1,7 @@
 /**
  * Заготовки первого экрана — тексты, которые в запрос подставили мы, а не
  * набрал человек: сценарии «С чего начать» (templates.ts) и запросы роликов
- * карусели.
+ * карусели и «Трендов».
  *
  * Запрос, в котором одна из них стоит нетронутой, можно заменить другой: между
  * примерами человек переключается свободно (feed/examples.starterReplaceable).
@@ -18,7 +18,8 @@ import { VS_TEMPLATES } from "./templates";
 /** t из useTranslation("vstudio") или простая функция (тесты). */
 type Translate = TFunction | ((key: string, options?: Record<string, unknown>) => unknown);
 
-export function homeStarters(t: Translate, reel: readonly Pick<ReelItem, "prompt">[]): string[] {
+/** examples — ролики первого экрана, чьи запросы можно подставить: карусель и «Тренды». */
+export function homeStarters(t: Translate, examples: readonly Pick<ReelItem, "prompt">[]): string[] {
   const fn = t as (key: string, options?: Record<string, unknown>) => unknown;
   const out: string[] = [];
   for (const tpl of VS_TEMPLATES) {
@@ -28,6 +29,6 @@ export function homeStarters(t: Translate, reel: readonly Pick<ReelItem, "prompt
     if (typeof translated === "string" && translated !== tpl.prompt) out.push(translated);
   }
   // Запрос есть только у роликов студии, и то если владелец разрешил его показывать.
-  for (const item of reel) if (item.prompt) out.push(item.prompt);
+  for (const item of examples) if (item.prompt) out.push(item.prompt);
   return out;
 }

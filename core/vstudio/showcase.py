@@ -1,5 +1,10 @@
 """Витрина первого экрана: настоящие работы видеостудии, отобранные владельцем.
 
+Мест на первом экране два (ShowcaseItem.placement): карусель сценариев и блок
+«Тренды» ниже. Сайт получает их отдельными списками (items и trends): прежний
+фронт знает только items и тренды в карусель не возьмёт. Правила показа у
+обоих мест одни; своё у каждого только число работ (place_limit).
+
 У одного списка две стороны:
 - сайт (GET /api/vstudio/showcase/) открыт всем, включая гостей, поэтому наружу
   идёт только перечисленное в public_json: файл результата, обложка, название,
@@ -38,7 +43,7 @@ from django.core.cache import cache
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
 from django.db import IntegrityError, transaction
-from django.db.models import F, Prefetch, Q
+from django.db.models import F, Prefetch, Q, prefetch_related_objects
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 from rest_framework import status as http
@@ -54,11 +59,19 @@ from .models import TAKE_DONE, Asset, ShotInput, ShowcaseItem, Take
 
 logger = logging.getLogger("vstudio")
 
-CACHE_KEY = "vstudio:showcase:v1"
+# v2: в кэше оба списка ({"items", "trends"}), а не один — прежний ключ
+# процессы старой версии ещё читают во время выкладки.
+CACHE_KEY = "vstudio:showcase:v2"
 CACHE_S = 300
 # Больше первый экран не покажет: карусель берёт reel_size() работ, остальное —
 # запас на замену.
 MAX_PUBLIC = 48
+# Столько «Трендов» сайт получает, новые выше (порядок — как у карусели).
+TRENDS_MAX = 24
+PLACEMENT_REEL = ShowcaseItem.PLACEMENT_REEL
+PLACEMENT_TRENDS = ShowcaseItem.PLACEMENT_TRENDS
+PLACEMENT_CHOICES = ShowcaseItem.PLACEMENT_CHOICES
+PLACEMENTS = tuple(key for key, _label in PLACEMENT_CHOICES)
 # Размер карусели — настройка панели (runtime-ключ). Меньше пяти у карусели нет
 # «крыльев» по бокам, больше MAX_PUBLIC сайт всё равно не получит.
 REEL_SIZE_KEY = "vstudio_reel_size"
@@ -212,17 +225,28 @@ def start_frame_url(take: Take) -> str | None:
     return asset.thumb_url or asset.url or None
 
 
+def _inputs(prefix: str = "") -> Prefetch:
+    return Prefetch(f"{prefix}shot__inputs", queryset=ShotInput.objects.select_related("asset"))
+
+
 def _with_inputs(qs, prefix: str = ""):
     """Материалы запросов — одним заходом на весь список: по ним ищется первый кадр."""
-    return qs.prefetch_related(Prefetch(f"{prefix}shot__inputs",
-                                        queryset=ShotInput.objects.select_related("asset")))
+    return qs.prefetch_related(_inputs(prefix))
 
 
 # ---------------------------------------------------------------- сайт
 
-def public_qs():
-    """Что видно всем: включённые строки с готовым, не удалённым результатом."""
-    return (ShowcaseItem.objects.filter(_ready_q("take__"), is_active=True)
+def place_limit(placement: str) -> int:
+    """Сколько работ одного места получает сайт.
+
+    Читается при вызове, а не таблицей на загрузке: потолки подменяют тесты.
+    """
+    return TRENDS_MAX if placement == PLACEMENT_TRENDS else MAX_PUBLIC
+
+
+def public_qs(placement: str = PLACEMENT_REEL):
+    """Что видно всем в одном месте: включённые строки с готовым, не удалённым результатом."""
+    return (ShowcaseItem.objects.filter(_ready_q("take__"), is_active=True, placement=placement)
             .select_related("take__user", "take__result_asset", "take__shot__model")
             .order_by(*_ORDER))
 
@@ -250,20 +274,38 @@ def public_json(item: ShowcaseItem) -> dict:
     return out
 
 
-def public_items() -> list[dict]:
-    """Список для первого экрана. Кэш 5 минут, правка витрины сбрасывает его сразу."""
+def _public_rows() -> dict:
+    """Строки обоих мест, каждое в своём потолке; материалы запросов — одним заходом на оба."""
+    rows = {place: list(public_qs(place)[:place_limit(place)]) for place in PLACEMENTS}
+    prefetch_related_objects([item for items in rows.values() for item in items],
+                             _inputs("take__"))
+    return rows
+
+
+def public_showcase() -> dict:
+    """Оба списка первого экрана: {"items": карусель, "trends": «Тренды»}.
+
+    Кэш 5 минут — один на оба, правка витрины сбрасывает его сразу.
+    """
     try:
         cached = cache.get(CACHE_KEY)
     except Exception:
         cached = None
-    if cached is not None:
+    if isinstance(cached, dict):
         return cached
-    items = [public_json(item) for item in _with_inputs(public_qs(), "take__")[:MAX_PUBLIC]]
+    rows = _public_rows()
+    data = {"items": [public_json(item) for item in rows[PLACEMENT_REEL]],
+            "trends": [public_json(item) for item in rows[PLACEMENT_TRENDS]]}
     try:
-        cache.set(CACHE_KEY, items, CACHE_S)
+        cache.set(CACHE_KEY, data, CACHE_S)
     except Exception:
         pass
-    return items
+    return data
+
+
+def public_items() -> list[dict]:
+    """Карусель первого экрана — прежний список items, без «Трендов»."""
+    return public_showcase()["items"]
 
 
 def _forget() -> None:
@@ -486,7 +528,8 @@ def take_row(take: Take) -> dict:
 
 
 def _live_ids() -> set:
-    return set(public_qs().values_list("pk", flat=True)[:MAX_PUBLIC])
+    return {pk for place in PLACEMENTS
+            for pk in public_qs(place).values_list("pk", flat=True)[:place_limit(place)]}
 
 
 def _state(item: ShowcaseItem, live: set) -> str:
@@ -503,6 +546,7 @@ def staff_json(item: ShowcaseItem, live: set | None = None) -> dict:
         "id": item.pk,
         "title": item.title,
         "category": item.category,
+        "placement": item.placement,
         "sort": item.sort,
         "is_active": item.is_active,
         "show_prompt": item.show_prompt,
@@ -574,6 +618,10 @@ def _clean(data) -> dict:
         if data["category"] not in CATEGORIES:
             raise ShowcaseError("Сценарий: " + ", ".join(CATEGORIES))
         out["category"] = data["category"]
+    if "placement" in data:
+        if data["placement"] not in PLACEMENTS:
+            raise ShowcaseError("Куда: reel (карусель) или trends (тренды)")
+        out["placement"] = data["placement"]
     if "sort" in data:
         sort = data["sort"]
         if isinstance(sort, bool) or not isinstance(sort, int) or abs(sort) > SORT_LIMIT:
@@ -589,9 +637,16 @@ def _clean(data) -> dict:
     return out
 
 
+def _check_place(take: Take, placement: str) -> None:
+    """«Тренды» — сетка роликов: картинка там не сыграет и не встанет в ряд."""
+    if placement == PLACEMENT_TRENDS and take.kind != Take.KIND_VIDEO:
+        raise ShowcaseError("В «Тренды» ставятся только ролики")
+
+
 def _snapshot(item: ShowcaseItem) -> dict:
     return {"take": item.take.uid, "title": item.title, "category": item.category,
-            "sort": item.sort, "is_active": item.is_active, "show_prompt": item.show_prompt}
+            "placement": item.placement, "sort": item.sort, "is_active": item.is_active,
+            "show_prompt": item.show_prompt}
 
 
 def add(data, *, actor, request=None) -> tuple[ShowcaseItem, bool]:
@@ -613,6 +668,7 @@ def add(data, *, actor, request=None) -> tuple[ShowcaseItem, bool]:
     if not can_publish(take):
         raise ShowcaseError("В витрину пока ставятся только работы сотрудников")
     fields = _clean(data)
+    _check_place(take, fields.get("placement", PLACEMENT_REEL))
     try:
         with transaction.atomic():
             item = ShowcaseItem.objects.create(take=take, created_by=actor, **fields)
@@ -636,6 +692,8 @@ def edit(item: ShowcaseItem, data, *, actor, request=None) -> ShowcaseItem:
     changed = {name: value for name, value in new.items() if getattr(item, name) != value}
     if not changed:
         return item
+    if "placement" in changed:
+        _check_place(item.take, changed["placement"])
     before = {name: getattr(item, name) for name in changed}
     with transaction.atomic():
         for name, value in changed.items():
@@ -693,11 +751,13 @@ def set_reel_size(data, *, actor, request=None) -> int:
 
 
 __all__ = [
-    "CACHE_KEY", "CACHE_S", "MAX_PUBLIC", "SCOPES", "CATEGORY_CHOICES", "CATEGORIES", "SCENARIOS",
+    "CACHE_KEY", "CACHE_S", "MAX_PUBLIC", "TRENDS_MAX", "SCOPES", "CATEGORY_CHOICES", "CATEGORIES",
+    "SCENARIOS", "PLACEMENT_REEL", "PLACEMENT_TRENDS", "PLACEMENT_CHOICES", "PLACEMENTS",
     "REEL_SIZE_KEY", "REEL_SIZE_MIN", "REEL_SIZE_MAX", "REEL_SIZE_DEFAULT",
     "ShowcaseError",
     "needs_photo", "start_frame_url",
-    "public_qs", "public_json", "public_items", "drop_cache", "forget_assets", "revive_assets",
+    "place_limit", "public_qs", "public_json", "public_showcase", "public_items", "drop_cache",
+    "forget_assets", "revive_assets",
     "reel_size",
     "enqueue_clip", "request_clip", "build_clip", "can_publish",
     "take_row", "staff_json", "staff_items", "get_item", "parse_scope", "candidates_qs",

@@ -677,6 +677,13 @@
 			"seconds": "{{n}} s",
 			"show": "Show: {{title}}"
 		},
+		"trends": {
+			"title": "Trending",
+			"sub": "Clips made in EsAI Video Studio",
+			"more": "Show more",
+			"shown": "Showing {{shown}} of {{total}}",
+			"untitled": "Video Studio clip"
+		},
 		"scenario": {
 			"action": "Action",
 			"ad": "Product ad",

@@ -9,13 +9,16 @@ p90 времени, кредиты, себестоимость, маржа, ча
 admin-new — Фаза 1.5; до неё ответ читают глазами или скриптом.
 
   GET    vstudio/showcase/?scope=staff|all[&q=][&page=]   витрина и кандидаты
-  POST   vstudio/showcase/ {take, title, category, …}     поставить дубль
+  POST   vstudio/showcase/ {take, title, category, placement, …}  поставить дубль
   PATCH  vstudio/showcase/ {reel_size}                    сколько роликов в карусели
-  PATCH  vstudio/showcase/<id>/                           название, сценарий, порядок, показ
+  PATCH  vstudio/showcase/<id>/                           название, сценарий, место, порядок, показ
   DELETE vstudio/showcase/<id>/                           убрать из витрины
 
-Витрину (карусель первого экрана) видят все посетители студии. category —
-сценарий ролика; список в ответе GET (categories) идёт в порядке карусели,
+Витрину (карусель и «Тренды» первого экрана) видят все посетители студии.
+placement — где стоит работа: reel (карусель, по умолчанию) или trends
+(«Тренды», только ролики); список мест — в ответе GET (placements), потолки —
+public_limit у карусели и trends_limit у «Трендов». category — сценарий
+ролика в карусели; список в ответе GET (categories) идёт в порядке карусели,
 последним — «Другое». reel_size — сколько работ карусель берёт; GET отдаёт
 его вместе с границами (reel_size_min, reel_size_max), PATCH принимает только
 целое число в этих границах и отвечает {"reel_size": N}. Что можно показывать,
@@ -93,7 +96,10 @@ class VStudioShowcaseView(StaffAPIView):
                            "results": [showcase.take_row(take) for take in page]},
             "scope": scope,
             "categories": [{"key": key, "label": label} for key, label in showcase.CATEGORY_CHOICES],
+            "placements": [{"key": key, "label": label}
+                           for key, label in showcase.PLACEMENT_CHOICES],
             "public_limit": showcase.MAX_PUBLIC,
+            "trends_limit": showcase.TRENDS_MAX,
             "reel_size": showcase.reel_size(),
             "reel_size_min": showcase.REEL_SIZE_MIN,
             "reel_size_max": showcase.REEL_SIZE_MAX,

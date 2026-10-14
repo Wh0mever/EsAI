@@ -734,6 +734,23 @@ class ShootTests(ShootCase):
         self.assertIn("В витрине: показываются — 1, скрыты — 1. Посмотреть и включить: "
                       "/admin-new/vstudio-showcase", out)
 
+    def test_publish_ignores_a_work_of_the_scenario_moved_to_trends(self):
+        # Работу «car» перенесли в «Тренды»: сценарий в карусели пуст, новую надо показать.
+        old = f.make_take(f.make_shot(self.staff), status="done", result_asset=f.make_asset(
+            self.staff, kind="video", source=Asset.SOURCE_GENERATED_VIDEO))
+        trend = ShowcaseItem.objects.create(take=old, category="car", is_active=True,
+                                            placement=ShowcaseItem.PLACEMENT_TRENDS, sort=7)
+        self.clip_task.reset_mock()
+
+        out = self.run_command("--only", "car", "--publish")
+        car = ShowcaseItem.objects.get(take=self.take_of("car"))
+        self.assertTrue(car.is_active)
+        self.assertEqual(car.placement, ShowcaseItem.PLACEMENT_REEL)
+        self.assertNotIn("новая оставлена скрытой", out)
+        trend.refresh_from_db()
+        self.assertEqual((trend.placement, trend.is_active, trend.category, trend.sort),
+                         (ShowcaseItem.PLACEMENT_TRENDS, True, "car", 7))
+
     def test_publish_on_a_rerun_does_not_claim_hidden_rows_are_shown(self):
         first = self.run_command("--only", "ad,car")
         self.assertIn("В витрине: показываются — 0, скрыты — 2.", first)

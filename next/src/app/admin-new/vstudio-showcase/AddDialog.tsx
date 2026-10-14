@@ -6,15 +6,18 @@ import { INPUT_LG, Preview, StartFrame, btn, chip, mediaFacts } from "./parts";
 import {
   TITLE_MAX,
   addDefaults,
+  addReady,
   titleForScenario,
+  trendsAllowed,
   type AddForm,
   type Candidate,
   type Category,
+  type PlacementOption,
 } from "./showcaseAdmin";
 
 /**
- * «В витрину»: какой сценарий карусели работа показывает, как она называется
- * и можно ли показывать её запрос.
+ * «В витрину»: куда работа идёт — в карусель или в «Тренды», какой сценарий
+ * карусели она показывает, как называется и можно ли показывать её запрос.
  *
  * Окно своё, а не Modal из components/dialog: тот рисуется в document.body,
  * мимо обёртки data-theme="dark" панели, и при светлой теме сайта вышел бы
@@ -23,13 +26,26 @@ import {
 type Props = {
   candidate: Candidate;
   categories: Category[];
+  placements: PlacementOption[];
+  /** Сколько роликов «Тренды» отдают сайту — для подсказки. */
+  trendsLimit: number;
+  /** Сколько карточек «Трендов» видно сразу, до «Показать ещё». */
+  trendsPage: number;
   /** null — добавлено (окно закроется), иначе текст отказа сервера. */
   onSubmit: (form: AddForm) => Promise<string | null>;
   onClose: () => void;
 };
 
-export default function AddDialog({ candidate, categories, onSubmit, onClose }: Props) {
-  const [{ title, category, showPrompt }, setForm] = useState(() => addDefaults(candidate));
+export default function AddDialog({
+  candidate,
+  categories,
+  placements,
+  trendsLimit,
+  trendsPage,
+  onSubmit,
+  onClose,
+}: Props) {
+  const [{ title, category, placement, showPrompt }, setForm] = useState(() => addDefaults(candidate));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -67,13 +83,21 @@ export default function AddDialog({ candidate, categories, onSubmit, onClose }: 
 
   if (typeof document === "undefined") return null;
 
-  const ready = title.trim() !== "" && category !== "";
+  const ready = addReady({ title, category, placement });
+  const trends = placement === "trends";
+  const videoOnly = !trendsAllowed(candidate);
+  const placeHint = trends
+    ? `Сетка роликов под инструментами режиссёра, по порядку списка: сразу видно ${trendsPage}, ` +
+      `остальные — по «Показать ещё», всего до ${trendsLimit}. Сценарий не нужен.`
+    : videoOnly
+      ? "Первый экран показывает только ролики: картинку не будет видно ни в карусели, ни в «Трендах». Добавить можно, но посетители её не увидят."
+      : "Карусель первого экрана: верхний ролик каждого сценария, затем остальные.";
 
   const submit = async () => {
     if (!ready || busy) return;
     setBusy(true);
     setError(null);
-    const failure = await onSubmit({ title, category, showPrompt });
+    const failure = await onSubmit({ title, category, placement, showPrompt });
     setBusy(false);
     if (failure) setError(failure);
     else onClose();
@@ -115,6 +139,29 @@ export default function AddDialog({ candidate, categories, onSubmit, onClose }: 
           <div className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-5 py-4">
             <Preview media={candidate} className="rounded-xl" />
 
+            <div className="text-sm">
+              <span className="text-muted">Куда</span>
+              <div role="group" aria-label="Куда" className="mt-1.5 flex flex-wrap gap-2">
+                {placements.map((option) => {
+                  const off = option.key === "trends" && videoOnly;
+                  return (
+                    <button
+                      key={option.key}
+                      type="button"
+                      aria-pressed={placement === option.key}
+                      disabled={off}
+                      title={off ? "В «Тренды» ставятся только ролики" : undefined}
+                      onClick={() => setForm((prev) => ({ ...prev, placement: option.key }))}
+                      className={`${chip(placement === option.key)} disabled:cursor-not-allowed disabled:opacity-50`}
+                    >
+                      {option.label}
+                    </button>
+                  );
+                })}
+              </div>
+              <span className="mt-1 block text-xs text-muted-2">{placeHint}</span>
+            </div>
+
             <label className="block text-sm">
               <span className="text-muted">Название *</span>
               <input
@@ -129,11 +176,14 @@ export default function AddDialog({ candidate, categories, onSubmit, onClose }: 
                 className={`${INPUT_LG} mt-1.5 w-full`}
               />
               <span className="mt-1 block text-xs text-muted-2">
-                Пустое поле заполнится названием сценария: им ролик и подписан в карусели.
+                {trends
+                  ? "Название стоит под роликом в «Трендах»."
+                  : "Пустое поле заполнится названием сценария: им ролик и подписан в карусели."}
               </span>
             </label>
 
-            <div className="text-sm">
+            {/* Сценарий нужен только карусели: «Тренды» идут подряд, без него. */}
+            <div className={trends ? "hidden" : "text-sm"}>
               <span className="text-muted">Сценарий *</span>
               <div role="group" aria-label="Сценарий" className="mt-1.5 flex flex-wrap gap-2">
                 {categories.map((option) => (
