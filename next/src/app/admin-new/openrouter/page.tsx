@@ -47,6 +47,8 @@ const INPUT =
 const LOW_BALANCE = 15;
 
 type Payload = { accounts: Account[]; auto_switch_below: number };
+/** Отказ панели: вместо данных приходит текст причины. */
+type Detail = { detail?: string };
 
 function money(v: number | null): string {
   return v === null || v === undefined ? "—" : `$${v.toFixed(2)}`;
@@ -104,7 +106,11 @@ export default function AdminOpenRouterPage() {
   };
 
   useEffect(() => {
-    void load();
+    // Первая загрузка — следующей задачей, а не в теле эффекта: load меняет состояние,
+    // а синхронный setState в эффекте — лишний проход рендера. Отмена таймера заодно
+    // не даёт StrictMode в разработке отправить запрос дважды.
+    const timer = setTimeout(() => void load());
+    return () => clearTimeout(timer);
   }, [load]);
 
   const add = async () => {
@@ -121,7 +127,7 @@ export default function AdminOpenRouterPage() {
       setKey("");
       void load();
     } else {
-      setAddError((res.data as any)?.detail || res.error || "Не удалось подключить");
+      setAddError((res.data as Detail | null)?.detail || res.error || "Не удалось подключить");
     }
   };
 
@@ -129,7 +135,7 @@ export default function AdminOpenRouterPage() {
     setBusy(`act-${a.id}`);
     const res = await fetchData<Payload>(`manage/openrouter/${a.id}/activate/`, "POST", {}, true);
     setBusy("");
-    if (!(res.ok && apply(res.data))) alert((res.data as any)?.detail || "Не удалось переключиться");
+    if (!(res.ok && apply(res.data))) alert((res.data as Detail | null)?.detail || "Не удалось переключиться");
   };
 
   const refresh = async (a?: Account) => {
@@ -146,7 +152,7 @@ export default function AdminOpenRouterPage() {
     const res = await fetchData(`manage/openrouter/${a.id}/`, "DELETE", null, true);
     setBusy("");
     if (res.ok) setAccounts((prev) => prev.filter((x) => x.id !== a.id));
-    else alert((res.data as any)?.detail || "Не удалось убрать");
+    else alert((res.data as Detail | null)?.detail || "Не удалось убрать");
   };
 
   if (loading) {

@@ -161,7 +161,11 @@ function GenerationsJournal() {
   );
 
   useEffect(() => {
-    void load(1, false);
+    // Первая загрузка — следующей задачей, а не в теле эффекта: load меняет состояние,
+    // а синхронный setState в эффекте — лишний проход рендера. Отмена таймера заодно
+    // не даёт StrictMode в разработке отправить запрос дважды.
+    const timer = setTimeout(() => void load(1, false));
+    return () => clearTimeout(timer);
   }, [load]);
 
   const markReviewed = async (g: Generation) => {
