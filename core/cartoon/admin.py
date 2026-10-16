@@ -50,18 +50,25 @@ class CartoonPresetAdmin(admin.ModelAdmin):
                        "resolution", "credits_override"),
             "description": (
                 "Модель кадра ОБЯЗАНА поддерживать референс — иначе персонаж не перенесётся "
-                "в сцену. Проверено: Nano Banana подходит, FLUX Flex слишком медленный."
+                "в сцену. Проверено: Nano Banana подходит, FLUX Flex слишком медленный. "
+                "«Цена вручную» действует только в режиме цен legacy: в режиме «наценка» "
+                "сцена стоит себестоимость кадра и видео с наценкой."
             ),
         }),
     )
 
     @admin.display(description="Цена, кр")
     def price(self, obj: CartoonPreset) -> str:
+        from ai.pricing import is_markup
+
         try:
             base = obj.estimated_credits()
         except Exception:
             return "—"
-        return f"{base}" + (" (вручную)" if obj.credits_override else "")
+        if not obj.credits_override:
+            return f"{base}"
+        # В режиме наценки ручная цена не участвует — пометка, чтобы её не приняли за цену сцены.
+        return f"{base}" + (" (ручная цена не действует)" if is_markup() else " (вручную)")
 
 
 @admin.register(CartoonCharacter)

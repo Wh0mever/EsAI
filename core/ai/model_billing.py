@@ -35,15 +35,41 @@ def is_flux_image_model(model_ref: Any) -> bool:
     return name.startswith("black-forest-labs/") or ("flux.2" in name)
 
 
-def flux_charge_credits(model_obj: Any) -> int:
-    """Плоское списание за ОДНУ FLUX-картинку = max(1, int(markup_coefficient)).
+# Сколько входных фото считать, когда вызывающий их не назвал (refs=None). Чат
+# (ai/handlers.py) пока зовёт без refs, хотя отдаёт FLUX все приложенные фото, а
+# FLUX Flex берёт деньги за каждое: по нулю фото правка в режиме «наценка» шла
+# дешевле себестоимости. Обычная правка — одно фото; моделям без платы за фото
+# (ref_cost_usd пуст) это ничего не меняет.
+UNKNOWN_REFS = 1
 
-    У image-моделей markup_coefficient задан как КРЕДИТОВ ЗА КАРТИНКУ (в сиде),
-    поэтому за генерацию списываем ровно столько (минимум 1). Токенов у images-API
-    нет — токенный биллинг тут неприменим.
+# Больше фото ai.handlers._flux_generate_image провайдеру не шлёт.
+FLUX_MAX_REFS = 8
+
+
+def flux_ref_count(references: Any) -> int:
+    """Сколько приложенных фото на самом деле уйдёт в FLUX — за столько и берём деньги.
+
+    Тот же отбор, что в ai.handlers._flux_generate_image: только абсолютные
+    http(s)-URL и не больше FLUX_MAX_REFS. Иначе девятое фото или битая ссылка
+    попали бы в цену, хотя провайдер их не получает.
     """
-    try:
-        coeff = float(getattr(model_obj, "markup_coefficient", 1) or 1)
-    except Exception:
-        coeff = 1.0
-    return max(1, int(coeff))
+    urls = [u for u in (references or []) if isinstance(u, str) and u.startswith("http")]
+    return min(len(urls), FLUX_MAX_REFS)
+
+
+def flux_charge_credits(model_obj: Any, refs: int | None = None) -> int:
+    """Списание за ОДНУ FLUX-картинку.
+
+    legacy: max(1, int(markup_coefficient)) — у image-моделей тариф задан как
+    КРЕДИТОВ ЗА КАРТИНКУ (в сиде). markup: себестоимость картинки и refs входных
+    фото с наценкой (ai.pricing.image_credits; без unit_cost_usd — прежняя плоская
+    цена). refs=None — число фото неизвестно, считаем UNKNOWN_REFS; без фото — 0.
+    Чату число фото даёт flux_ref_count(список URL, которые уйдут в FLUX).
+    Токенов у images-API нет — токенный биллинг тут неприменим.
+
+    ai.pricing импортируется лениво: этот модуль подключают на уровне модуля и
+    plans, и ai.handlers (см. докстринг модуля).
+    """
+    from ai.pricing import image_credits
+
+    return image_credits(model_obj, UNKNOWN_REFS if refs is None else refs)

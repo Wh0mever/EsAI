@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { fetchData } from "@/tools/fetchData";
 import { FiCheck } from "react-icons/fi";
@@ -135,6 +136,13 @@ export default function AdminPackagesPage() {
         <h1 className="text-2xl font-semibold">Пакеты кредитов</h1>
         <p className="mt-1 text-sm text-muted">
           Цены и наполнение пакетов, которые видят пользователи на странице пополнения.
+        </p>
+        {/* Правка пакета сдвигает сразу все цены «по наценке» — пусть это видно здесь. */}
+        <p className="mt-1 text-xs text-muted-2">
+          Самый дешёвый кредит среди пакетов — основа всех цен в режиме «наценка».{" "}
+          <Link href="/admin-new/settings#pricing" className="text-accent underline-offset-2 hover:underline">
+            Цены и наценка
+          </Link>
         </p>
       </div>
 

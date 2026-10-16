@@ -1,4 +1,5 @@
 from django.core.exceptions import ValidationError
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from users.models import User
 from django.utils import timezone
@@ -138,8 +139,31 @@ class GPTModels(models.Model):
         help_text="Top-p (0..1). Пусто — использовать значение по умолчанию")
     markup_coefficient = models.DecimalField(
         max_digits=6, decimal_places=3, default=1.0,
-        help_text="ТАРИФ: сколько кредитов списывать за 1000 токенов "
-                  "(списание = total_tokens × тариф ÷ 1000). Напр. 17 = 17 кр/1000 токенов.")
+        help_text="ТАРИФ: текст — кредитов за 1000 токенов (списание = total_tokens × тариф ÷ 1000); "
+                  "FLUX — кредитов за картинку; другие картинки (Nano Banana) — в чате кредитов за 1000 "
+                  "токенов, в студиях кредитов за картинку; видео — кредитов за секунду 720p. "
+                  "В режиме цен «наценка» видео и картинки с себестоимостью считаются без тарифа — "
+                  "кроме картинок Nano Banana в чате: там тариф действует всегда.")
+    # Цена по себестоимости (режим markup, ai/pricing.py). Пусто — общая наценка
+    # из настроек; ниже общего порога цена всё равно не опустится.
+    markup_pct = models.DecimalField(
+        max_digits=6, decimal_places=2, null=True, blank=True,
+        validators=[MinValueValidator(0), MaxValueValidator(1000)],
+        verbose_name="Наценка, %",
+        help_text="Своя наценка к себестоимости OpenRouter. Пусто — общая из настроек цен.")
+    # Себестоимость картинки заранее не известна (OpenRouter сообщает её только
+    # после генерации), поэтому для картинок она хранится здесь.
+    unit_cost_usd = models.DecimalField(
+        max_digits=10, decimal_places=6, null=True, blank=True,
+        validators=[MinValueValidator(0)],
+        verbose_name="Себестоимость картинки, $",
+        help_text="Сколько OpenRouter берёт за одну картинку. Пусто — в режиме «наценка» "
+                  "остаётся прежняя плоская цена.")
+    ref_cost_usd = models.DecimalField(
+        max_digits=10, decimal_places=6, null=True, blank=True,
+        validators=[MinValueValidator(0)],
+        verbose_name="Себестоимость входного фото, $",
+        help_text="Доплата OpenRouter за каждое входное фото (FLUX Flex). Пусто — бесплатно.")
     free_tier = models.BooleanField(
         default=False,
         help_text="Доступна гостям и бесплатным пользователям. НЕ зависит от тарифа: "

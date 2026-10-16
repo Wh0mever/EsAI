@@ -49,7 +49,10 @@ type Preset = {
   preview_poster: string;
   duration: number;
   aspect_ratio: string;
-  credits: number;
+  /** Цена сцены под формат мультфильма. null — цены сейчас нет (в режиме цен
+   *  «наценка» неизвестна себестоимость модели), сервер ставит и price_unavailable. */
+  credits: number | null;
+  price_unavailable?: boolean;
   /** Цена примерки героя — показываем на кнопке до запуска. */
   tryon_credits?: number;
   category: string;
@@ -186,6 +189,10 @@ export default function CartoonStudio() {
   // Формат, под который запрошены кадры героев: ответ, пришедший для прежнего
   // формата, выкидываем — иначе в вертикальную ленту встали бы горизонтальные кадры.
   const aspectRef = useRef<string | null>(null);
+  // Цены сцен витрины считаются под формат мультфильма (в режиме цен «наценка»
+  // квадрат дешевле 16:9): под какой формат посчитан список и какой нужен сейчас.
+  const [pricedAspect, setPricedAspect] = useState<string | null>(null);
+  const priceAspectRef = useRef("16:9");
 
   useEffect(() => {
     // Системная просьба «меньше движения» и режим экономии трафика — повод не
@@ -445,15 +452,17 @@ export default function CartoonStudio() {
       // Язык нужен серверу: названия сцен и героев лежат в базе и переводятся
       // там же, поэтому витрина просит их сразу на нужном языке.
       const lang = apiLang(i18n.language);
+      const pricedFor = priceAspectRef.current;
       const [p, c, mine] = await Promise.all([
         fetchData<{ categories: Category[]; presets: Preset[]; popular: string[] }>(
-          `cartoon/presets/?lang=${lang}`, "GET", null, true),
+          `cartoon/presets/?lang=${lang}&aspect_ratio=${encodeURIComponent(pricedFor)}`, "GET", null, true),
         fetchData<StudioCharacter[]>(`cartoon/characters/?lang=${lang}`, "GET", null, true),
         fetchData<Project[]>(`cartoon/projects/?lang=${lang}`, "GET", null, true),
       ]);
       if (!alive) return;
       if (p.ok && p.data) {
         setPresets(p.data.presets || []);
+        setPricedAspect(pricedFor);
         setCategories(p.data.categories || []);
         setPopular(p.data.popular || []);
       }
@@ -548,6 +557,26 @@ export default function CartoonStudio() {
       alive = false;
     };
   }, [loadBalance, i18n.language, showProject, t]);
+
+  // Мультфильм открыли или переключили в другой формат, а витрина посчитана под
+  // прежний — перезапрашиваем цены сцен под нынешний.
+  useEffect(() => {
+    priceAspectRef.current = aspect;
+    if (pricedAspect === null || pricedAspect === aspect) return;
+    let alive = true;
+    void (async () => {
+      const res = await fetchData<{ presets: Preset[] }>(
+        `cartoon/presets/?lang=${apiLang(i18n.language)}&aspect_ratio=${encodeURIComponent(aspect)}`,
+        "GET", null, true
+      );
+      if (!alive || !res.ok || !res.data) return;
+      setPresets(res.data.presets || []);
+      setPricedAspect(aspect);
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [aspect, pricedAspect, i18n.language]);
 
   useEffect(() => {
     void (async () => {
@@ -904,11 +933,18 @@ export default function CartoonStudio() {
   const retryScene = async (scene: StudioScene) => {
     if (!project) return;
     if (scene.status === "ready") {
-      const credits = scene.render_credits ?? scene.preset.credits ?? 0;
-      if (!window.confirm(t("studio_ui.reshoot_confirm", {
-        defaultValue: "Переснять сцену заново? Спишется {{credits}} кр., нынешний ролик заменится новым.",
-        credits,
-      }))) return;
+      // Цены нет (себестоимость модели неизвестна) — «спишется 0 кр.» было бы
+      // неправдой: спрашиваем без суммы, сервер сам откажет и ничего не спишет.
+      const credits = scene.render_credits ?? scene.preset.credits;
+      const question = credits != null
+        ? t("studio_ui.reshoot_confirm", {
+            defaultValue: "Переснять сцену заново? Спишется {{credits}} кр., нынешний ролик заменится новым.",
+            credits,
+          })
+        : t("studio_ui.reshoot_confirm_no_price", {
+            defaultValue: "Переснять сцену заново? Нынешний ролик заменится новым.",
+          });
+      if (!window.confirm(question)) return;
     }
     setError("");
     markBusy(scene.id, true);
@@ -1027,6 +1063,9 @@ export default function CartoonStudio() {
   // Лента гостя в том же виде, что и сцены проекта: так её рисует та же
   // SceneTimeline, и гость видит ровно то, что увидит после входа.
   const presetById = new Map(presets.map((p) => [p.id, p]));
+  // Кадр своей сцены стоит как примерка первой сцены библиотеки. Витрины нет —
+  // цены тоже нет: «4 кр» по памяти разошлось бы с ценой в админке.
+  const frameCredits = presets[0]?.tryon_credits;
   const charById = new Map(characters.map((c) => [c.id, c]));
   const guestScenes: StudioScene[] =
     !authed && draft
@@ -1044,7 +1083,7 @@ export default function CartoonStudio() {
               id: s.preset_id,
               title: custom ? (s.custom_text || "").slice(0, 60) : p?.title || "…",
               // Своя сцена стоит как готовая: те же кадр и видео.
-              credits: custom ? presets[0]?.credits : p?.credits,
+              credits: (custom ? presets[0]?.credits : p?.credits) ?? undefined,
               duration: custom ? presets[0]?.duration : p?.duration,
               poster: custom ? "" : p?.preview_poster,
               clip: custom ? "" : p?.preview_video,
@@ -1527,7 +1566,9 @@ export default function CartoonStudio() {
                     <div className="mt-auto flex flex-col gap-1.5 pt-2">
                       <span className="inline-flex items-center gap-1 text-[11px] text-muted">
                         <FiZap className="text-accent" />
-                        {t("studio_ui.price", { credits: p.credits, duration: p.duration })}
+                        {p.credits != null
+                          ? t("studio_ui.price", { credits: p.credits, duration: p.duration })
+                          : t("studio_ui.price_unavailable", { defaultValue: "Цена сейчас недоступна" })}
                       </span>
                       {character && !tryOn[p.id] && (
                         <button
@@ -1544,7 +1585,9 @@ export default function CartoonStudio() {
                           )}
                           {/* Цена — до нажатия (просьба клиента), гостю тоже:
                               бесплатной примерки без входа больше нет (11.10.2026). */}
-                          {t("studio_ui.try_on_price", { credits: p.tryon_credits ?? 4 })}
+                          {p.tryon_credits != null
+                            ? t("studio_ui.try_on_price", { credits: p.tryon_credits })
+                            : t("studio_ui.try_on")}
                         </button>
                       )}
                       <button
@@ -1632,7 +1675,7 @@ export default function CartoonStudio() {
               onPickCharacter={authed ? setSceneCharacter : guestPickCharacter}
               onFrame={frameScene}
               framingId={framingId}
-              frameCredits={presets[0]?.tryon_credits ?? 4}
+              frameCredits={frameCredits}
               onTryOn={tryOnTimelineScene}
               onRedraw={authed ? redrawFrame : undefined}
               onDialogue={authed ? setSceneDialogue : guestDialogue}
@@ -1645,7 +1688,7 @@ export default function CartoonStudio() {
                   : undefined
               }
               tryingOnId={tryingOn}
-              tryOnLabel={t("studio_ui.try_on_price", { credits: presets[0]?.tryon_credits ?? 4 })}
+              tryOnLabel={frameCredits != null ? t("studio_ui.try_on_price", { credits: frameCredits }) : undefined}
             />
 
             {/* Гость дособрал ленту: одна понятная кнопка вместо «Собрать» и

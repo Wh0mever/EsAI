@@ -267,15 +267,20 @@ export default function VideoParamsPanel({ model, value, onChange }: Props) {
 
   if (!params) return null;
 
-  const perSec = Number(params.credits_per_second) || 0;
   const dur = value.duration ?? params.default_duration;
   const res = value.resolution ?? params.default_resolution;
-  // Цена — из таблицы сервера (то же, что спишется); умножение — только запасной путь.
+  // Цена — только из таблицы сервера (то же, что спишется). Ячейки нет — цены нет:
+  // «секунды × тариф» у видео не цена (ниже себестоимости, а у Seedance тариф 0 давал «1 кр»).
   const tableFor = (r: string) =>
     (value.aspectRatio && params.price_table_by_aspect?.[value.aspectRatio]?.[r]) || params.price_table?.[r];
-  const priceOf = (seconds: number, r: string = res) =>
-    Number(tableFor(r)?.[String(seconds)]) || Math.max(1, Math.ceil(seconds * perSec));
+  const priceOf = (seconds: number, r: string = res): number | null => {
+    const n = Number(tableFor(r)?.[String(seconds)]);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  };
   const cost = priceOf(dur);
+  const noPrice = t("chat.video.price_unavailable", {
+    defaultValue: "Цена модели сейчас недоступна, попробуйте позже",
+  });
   const supportsLast = (params.frame_images || []).includes("last_frame");
 
   const chip = (active: boolean) =>
@@ -296,9 +301,12 @@ export default function VideoParamsPanel({ model, value, onChange }: Props) {
         <span className="text-xs font-semibold text-foreground">
           {t("chat.video.panel_title", { defaultValue: "Параметры видео" })}
         </span>
-        <span className="ml-auto inline-flex items-center gap-1 text-xs font-semibold text-accent-strong">
+        <span
+          className="ml-auto inline-flex items-center gap-1 text-xs font-semibold text-accent-strong"
+          title={cost == null ? noPrice : undefined}
+        >
           <IconSpark className="size-3" />
-          {cost}
+          {cost ?? "—"}
         </span>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}
           strokeLinecap="round" strokeLinejoin="round"
@@ -329,11 +337,15 @@ export default function VideoParamsPanel({ model, value, onChange }: Props) {
                     type="button"
                     onClick={() => onChange({ duration: d })}
                     className={chip(dur === d)}
-                    title={t("chat.video.duration_cost", {
-                      seconds: d,
-                      credits: priceOf(d),
-                      defaultValue: "{{seconds}} сек — {{credits}} кредитов",
-                    })}
+                    title={
+                      priceOf(d) == null
+                        ? noPrice
+                        : t("chat.video.duration_cost", {
+                            seconds: d,
+                            credits: priceOf(d),
+                            defaultValue: "{{seconds}} сек — {{credits}} кредитов",
+                          })
+                    }
                   >
                     {d}
                     {t("chat.video.sec_short", { defaultValue: "с" })}
@@ -359,7 +371,7 @@ export default function VideoParamsPanel({ model, value, onChange }: Props) {
                       {r}
                       {/* Цена прямо на кнопке: качество выше — ролик заметно дороже,
                           и человек должен видеть это до съёмки, а не после. */}
-                      {tableFor(r)?.[String(dur)] != null && (
+                      {priceOf(dur, r) != null && (
                         <span className="ml-1 font-normal opacity-70">· {priceOf(dur, r)}</span>
                       )}
                     </button>
@@ -408,11 +420,13 @@ export default function VideoParamsPanel({ model, value, onChange }: Props) {
             </div>
 
             <p className="text-[11px] text-muted-2 leading-snug">
-              {t("chat.video.cost_hint", {
-                seconds: dur,
-                credits: cost,
-                defaultValue: "Ролик {{seconds}} сек — спишется {{credits}} кредитов",
-              })}
+              {cost == null
+                ? noPrice
+                : t("chat.video.cost_hint", {
+                    seconds: dur,
+                    credits: cost,
+                    defaultValue: "Ролик {{seconds}} сек — спишется {{credits}} кредитов",
+                  })}
             </p>
           </div>
         </div>

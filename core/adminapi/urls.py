@@ -1,6 +1,6 @@
 from django.urls import path
 
-from . import blocks, creators, generations, openrouter, studio_scenes, studio_works, views, vstudio
+from . import blocks, creators, generations, openrouter, prices, studio_scenes, studio_works, views, vstudio
 
 app_name = "adminapi"
 
@@ -8,7 +8,16 @@ urlpatterns = [
     path("login/", views.AdminLoginAPIView.as_view(), name="login"),
     path("summary/", views.SummaryView.as_view(), name="summary"),
     path("models/", views.ModelsListView.as_view(), name="models-list"),
+    # «Добавить модель»: поиск в каталоге OpenRouter; пересчёт тарифов текста и
+    # тарифа картинок Nano Banana в чате.
+    path("models/catalog/", prices.ModelsCatalogView.as_view(), name="models-catalog"),
+    path("models/text-recompute/", prices.TextRecomputeView.as_view(), name="models-text-recompute"),
+    path("models/chat-image-recompute/", prices.ChatImageRecomputeView.as_view(),
+         name="models-chat-image-recompute"),
     path("models/<int:pk>/", views.ModelDetailView.as_view(), name="models-detail"),
+    # Цены и наценка: режим legacy/markup, наценка, порог, курс, примеры цен.
+    path("pricing/", prices.PricingView.as_view(), name="pricing"),
+    path("pricing/preview/", prices.PricingPreviewView.as_view(), name="pricing-preview"),
     path("packages/", views.PackagesListView.as_view(), name="packages-list"),
     path("packages/<int:pk>/", views.PackageDetailView.as_view(), name="packages-detail"),
     path("users/", views.UsersListView.as_view(), name="users-list"),

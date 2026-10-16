@@ -2,7 +2,6 @@
 """Раунд 2, видео: честная цена, повтор из старого сообщения, упавший каталог,
 двойная доставка ролика."""
 import asyncio
-import math
 from types import SimpleNamespace
 
 import pytest
@@ -129,28 +128,38 @@ def _callbacks(markup) -> list[str]:
 
 # ------------------------------------------------------ [A] честная цена ---
 
+VEO_PARAMS = {"durations": [5, 10], "default_duration": 5, "aspect_ratios": ["16:9", "9:16"],
+              "credits_per_second": 2.5, "price_table": {"720p": {"5": 13, "10": 25}}}
+
+
 class TestPriceLabel:
-    """Цена на кнопке должна совпадать с тем, что спишет ядро."""
+    """Цена на кнопке — из таблицы сервера, ровно то, что спишет ядро.
 
-    def test_fractional_price_is_not_truncated(self):
-        # Старое поведение: int(2.5) → «2 кр/с», а за 5 секунд списывали 13.
-        assert video._price_label({"markup_coefficient": 2.5}) == "2.5 кр/с"
+    Тариф модели («кр/с») ценой ролика не является: у видео нижняя граница по
+    себестоимости, а в режиме цен «наценка» тариф не участвует вовсе.
+    """
 
-    def test_whole_price_has_no_tail(self):
-        assert video._price_label({"markup_coefficient": 4.0}) == "4 кр/с"
-        assert video._price_label({"markup_coefficient": "6"}) == "6 кр/с"
+    def test_label_is_cheapest_server_price(self):
+        assert video._price_label("ru", VEO_PARAMS) == "от 13 кр"
+        assert video._price_label("en", VEO_PARAMS) == "from 13 cr"
 
-    def test_no_price_when_unknown(self):
-        assert video._price_label({}) == ""
-        assert video._price_label({"markup_coefficient": "abc"}) == ""
+    def test_no_price_when_server_gave_none(self):
+        assert video._price_label("ru", {}) == ""
+        assert video._price_label("ru", None) == ""
+        assert video._price_label("ru", {"credits_per_second": 4, "price_table": {}}) == ""
 
-    @pytest.mark.parametrize("coeff,duration", [(2.5, 5), (0.5, 8), (4, 5), (1.25, 10)])
-    def test_label_matches_cost(self, coeff, duration):
-        """Показанная цена × длительность = ровно то число, что в карточке."""
-        shown = float(video._price_label({"markup_coefficient": coeff}).split()[0])
-        assert math.ceil(shown * duration) == video._cost({"duration": duration, "cps": coeff})
+    def test_label_matches_cheapest_card(self):
+        """«От N» в списке = цена карточки на самой короткой длительности."""
+        label = video._price_label("ru", VEO_PARAMS)
+        draft = {"duration": 5, "prices": VEO_PARAMS["price_table"]}
+        assert label == f"от {video._cost(draft)} кр"
 
-    async def test_model_button_shows_fractional_price(self, store, monkeypatch):
+    @pytest.fixture
+    def params_api(self, monkeypatch):
+        monkeypatch.setattr(video, "api", SimpleNamespace(
+            video_params=lambda *a, **kw: _async(dict(VEO_PARAMS))))
+
+    async def test_model_button_shows_server_price(self, store, params_api, monkeypatch):
         monkeypatch.setattr(video, "_fetch", lambda *a, **kw: _async(
             [{"openrouter_id": "veo", "name": "Veo", "category": "video",
               "markup_coefficient": 2.5}]))
@@ -159,10 +168,12 @@ class TestPriceLabel:
         await video._pick_model(message, "tok", "ru", 42)
 
         markup = message.answers[0][1]["reply_markup"]
-        assert "Veo · 2.5 кр/с" in _button_texts(markup)
+        assert "Veo · от 13 кр" in _button_texts(markup)
 
     async def test_button_has_no_dangling_separator_without_price(self, store, monkeypatch):
-        """Тариф не задан — цену не показываем, но и разделитель не вешаем."""
+        """Сервер цены не дал — цену не показываем, но и разделитель не вешаем."""
+        monkeypatch.setattr(video, "api", SimpleNamespace(
+            video_params=lambda *a, **kw: _async({"durations": [5], "price_table": {}})))
         monkeypatch.setattr(video, "_fetch", lambda *a, **kw: _async(
             [{"openrouter_id": "veo", "name": "Veo", "category": "video",
               "markup_coefficient": 0, "short_label": "быстрая"}]))
@@ -172,7 +183,7 @@ class TestPriceLabel:
 
         assert _button_texts(message.answers[0][1]["reply_markup"])[0] == "Veo · быстрая"
 
-    async def test_prompt_invite_shows_fractional_price(self, store, monkeypatch):
+    async def test_prompt_invite_shows_server_price(self, store, params_api, monkeypatch):
         monkeypatch.setattr(video, "_fetch", lambda *a, **kw: _async(
             [{"openrouter_id": "veo", "name": "Veo", "category": "video",
               "markup_coefficient": 2.5}]))
@@ -180,7 +191,8 @@ class TestPriceLabel:
 
         await video.pick_model(FakeCall("v:m:0", message), "tok", "ru", FakeState())
 
-        assert "2.5 кр/с" in message.answers[0][0]
+        assert "<b>Veo</b> · от 13 кр" in message.answers[0][0]
+        assert "кр/с" not in message.answers[0][0]
 
 
 # ------------------------------------- [B] «Ещё вариант» из старого поста ---
@@ -199,9 +211,7 @@ class TestAgain:
     def api(self, monkeypatch):
         fake = SimpleNamespace(
             job=lambda *a, **kw: _async(_done_job()),
-            video_params=lambda *a, **kw: _async(
-                {"durations": [5, 10], "default_duration": 5, "aspect_ratios": ["16:9", "9:16"],
-                 "credits_per_second": 2.5}),
+            video_params=lambda *a, **kw: _async(dict(VEO_PARAMS)),
             balance=lambda *a, **kw: _async({"balance_tokens": 500}),
         )
         monkeypatch.setattr(video, "api", fake)

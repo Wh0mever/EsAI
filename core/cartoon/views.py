@@ -136,10 +136,17 @@ def _media(path: str) -> str:
     return default_storage.url(path) if path else ""
 
 
-def preset_json(p: CartoonPreset, lang: str = "ru") -> dict:
+def preset_json(p: CartoonPreset, lang: str = "ru", aspect: str | None = None) -> dict:
     """Пользователю — только витрина: название, превью, длительность и цена.
-    Промпты и модели наружу не отдаём: это внутренняя кухня студии."""
-    return {
+    Промпты и модели наружу не отдаём: это внутренняя кухня студии.
+
+    aspect — формат мультфильма человека: в режиме цен markup квадрат дешевле
+    16:9. Цены нет (себестоимость неизвестна) — credits None и price_unavailable.
+    """
+    from .pricing import scene_credits_or_none
+
+    credits = scene_credits_or_none(p, aspect=aspect)
+    row = {
         "id": p.id,
         "slug": p.slug,
         "title": _tr(p, "title", lang),
@@ -154,7 +161,7 @@ def preset_json(p: CartoonPreset, lang: str = "ru") -> dict:
                            else (p.preview_poster.url if p.preview_poster else "")),
         "duration": p.duration,
         "aspect_ratio": p.aspect_ratio,
-        "credits": p.estimated_credits(),
+        "credits": credits,
         # Цена примерки героя — её показываем на кнопке ДО запуска (просьба
         # клиента): тот же расчёт, что и списание в PresetTryOnView.
         "tryon_credits": _tryon_price(p),
@@ -162,11 +169,26 @@ def preset_json(p: CartoonPreset, lang: str = "ru") -> dict:
         "audience": p.audience,
         "is_pick": p.is_pick,
     }
+    if credits is None:
+        row["price_unavailable"] = True
+    return row
 
 
 def _tryon_price(preset) -> int:
     """Во сколько обходится кадр «герой в сцене». Одна формула на витрину и списание."""
-    return max(1, int(float(preset.image_model.markup_coefficient or 1))) if preset.image_model_id else 1
+    from .pricing import frame_credits
+
+    return frame_credits(preset.image_model) if preset.image_model_id else 1
+
+
+def _price_unavailable(exc) -> Response:
+    """Режим цен markup, себестоимости нет: не снимаем и ничего не списываем.
+
+    detail — для студии и бота (они показывают его как есть), error/error_code —
+    общая форма отказа, как у видео в чате и видеостудии.
+    """
+    return Response({"detail": exc.message, **exc.payload()},
+                    status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
 
 def category_json(c, lang: str = "ru") -> dict:
@@ -210,16 +232,22 @@ def _pair_videos_for(scenes) -> dict:
 
 
 def scene_json(s: CartoonScene, lang: str = "ru", pair_videos: dict | None = None) -> dict:
+    from ai.pricing import PriceUnavailable
+
     from .pricing import frame_credits, scene_video_credits
 
     hero_id = s.character_id or s.project.character_id
     if pair_videos is None:
         pair_videos = _pair_videos_for([s])
     custom = bool(s.custom_text)
-    # Та же формула, что у проверки баланса и списания (pricing.scene_credits).
-    video_price = scene_video_credits(s.preset) if s.preset_id else 0
+    # Та же формула, что у проверки баланса и списания (pricing.scene_credits),
+    # в формате мультфильма. Цены нет (markup без себестоимости) — None.
+    try:
+        video_price = scene_video_credits(s.preset, aspect=s.project.aspect_ratio) if s.preset_id else 0
+    except PriceUnavailable:
+        video_price = None
     frame_price = frame_credits(s.preset.image_model) if s.preset_id else 0
-    return {
+    row = {
         "id": s.id,
         "order": s.order,
         # Своя сцена: название — из описания человека, превью у неё нет.
@@ -235,7 +263,7 @@ def scene_json(s: CartoonScene, lang: str = "ru", pair_videos: dict | None = Non
                        else (s.preset.preview_video.url if s.preset.preview_video else "")),
                    # Цена нужна прямо в ленте: снимают оттуда, и человек должен
                    # видеть, во что обойдётся кнопка, до нажатия.
-                   "credits": frame_price + video_price,
+                   "credits": None if video_price is None else frame_price + video_price,
                    "duration": s.preset.duration if s.preset_id else 0,
                    # Обложка нужна черновику: своего кадра у него ещё нет, а
                    # пустой прямоугольник с крутилкой выглядит так, будто
@@ -261,8 +289,12 @@ def scene_json(s: CartoonScene, lang: str = "ru", pair_videos: dict | None = Non
         "credits_spent": s.credits_spent,
         # Сколько спишет съёмка прямо сейчас: с готовым кадром — только видео.
         # По этой цифре лента спрашивает подтверждение перед пересъёмкой.
-        "render_credits": video_price if s.keyframe else frame_price + video_price,
+        "render_credits": (None if video_price is None
+                           else video_price if s.keyframe else frame_price + video_price),
     }
+    if video_price is None:
+        row["price_unavailable"] = True
+    return row
 
 
 def project_json(p: CartoonProject, lang: str = "ru") -> dict:
@@ -331,7 +363,11 @@ class PresetsView(StudioPublicAPIView):
             "image_model", "video_model", "category").order_by(
             "category__sort_order", "sort_order", "id")
         lang = _lang(request)
-        presets = [preset_json(p, lang) for p in qs]
+        # Формат мультфильма человека (необязательно): в режиме markup от него
+        # зависит цена. Без него — формат самого пресета.
+        raw_aspect = request.query_params.get("aspect_ratio")
+        aspect = _aspect(raw_aspect) if raw_aspect else None
+        presets = [preset_json(p, lang, aspect) for p in qs]
         used = {p["category"] for p in presets}
         cats = CartoonCategory.objects.filter(is_active=True)
         return Response({
@@ -369,15 +405,22 @@ class PricingView(StudioPublicAPIView):
 
     def get(self, request):
         from ai.models import GPTModels
+        from ai.pricing import image_credits
+
+        from .pricing import scene_credits_or_none
 
         img = GPTModels.objects.filter(
             openrouter_id="google/gemini-2.5-flash-image", is_active=True).first()
-        character = max(1, int(float(img.markup_coefficient or 1))) if img else 4
+        character = image_credits(img) if img else 4
 
+        # Сцены без цены (режим markup, себестоимость неизвестна) не продаются —
+        # в диапазон «от и до» они не входят.
         prices = sorted(
-            p.estimated_credits()
-            for p in CartoonPreset.objects.filter(is_active=True).select_related(
-                "image_model", "video_model")
+            price for price in (
+                scene_credits_or_none(p)
+                for p in CartoonPreset.objects.filter(is_active=True).select_related(
+                    "image_model", "video_model"))
+            if price is not None
         )
         if not prices:
             prices = [0]
@@ -483,7 +526,9 @@ class CharacterGenerateView(StudioAPIView):
             return Response({"detail": "Модель для персонажей недоступна"},
                             status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
-        price = max(1, int(float(model.markup_coefficient or 1)))
+        from ai.pricing import image_credits
+
+        price = image_credits(model)
         balance = _free_balance(request.user)
         if balance < price:
             return Response({"detail": "Недостаточно кредитов", "required": price,
@@ -987,10 +1032,14 @@ def _scene_price(scene, *, keyframe_ready: bool) -> int:
     пересъёмке с ним платится только видео-часть. Считаем той же формулой,
     что и списание в задаче: разойдись гейт со счётом — человек либо не смог бы
     переснять при достаточном балансе, либо ушёл бы в минус.
+
+    В режиме markup цена — в формате мультфильма; без себестоимости —
+    PriceUnavailable.
     """
     from .pricing import scene_credits
 
-    return scene_credits(scene.preset, keyframe_ready=keyframe_ready)
+    return scene_credits(scene.preset, keyframe_ready=keyframe_ready,
+                         aspect=scene.project.aspect_ratio)
 
 
 def _human(exc, what: str = "image") -> str:
@@ -1057,6 +1106,7 @@ def _queue_render(request, scene, *, new_keyframe: bool = False) -> Response:
     from django.db import transaction
     from django.utils import timezone
 
+    from ai.pricing import PriceUnavailable
     from vstudio.reserve import vstudio_reserved  # дубли видеостудии в работе тоже держат баланс
 
     from .models import CartoonKeyframe
@@ -1068,7 +1118,10 @@ def _queue_render(request, scene, *, new_keyframe: bool = False) -> Response:
         # Кадр, который человек уже видел в примерке (и оплатил), съёмка возьмёт
         # из общего запаса — платить за кадр второй раз не придётся.
         _attach_ready_keyframe(scene)
-    need = _scene_price(scene, keyframe_ready=bool(scene.keyframe) and not new_keyframe)
+    try:
+        need = _scene_price(scene, keyframe_ready=bool(scene.keyframe) and not new_keyframe)
+    except PriceUnavailable as exc:
+        return _price_unavailable(exc)
     with transaction.atomic():
         # Строка пользователя под замком: два «Снять» разом иначе увидели бы
         # один и тот же свободный остаток.

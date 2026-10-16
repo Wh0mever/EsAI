@@ -22,7 +22,7 @@ from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMar
 from bot.config import settings
 from bot.keyboards.common import paywall, rows_of
 from bot.routers.chat import _session_gone, show_paywall, site_url
-from bot.routers.models import _fetch
+from bot.routers.models import _fetch, price_from
 from bot.services.api import ApiError, api
 from bot.services.state import store
 from bot.services.tg_format import esc
@@ -33,6 +33,9 @@ router = Router(name="video")
 
 POLL_INTERVAL = 5
 POLL_MAX_SECONDS = 15 * 60
+# Параметры и цены модели живут 10 минут, как в чате на сайте: курс, режим цен и
+# себестоимость меняются сами, а запуск всё равно сверяет цену заново.
+PARAMS_TTL = 600
 # Ядро само шлёт готовый ролик и отмечает это в задаче, но статус done ставит
 # раньше отметки, а при отказе Telegram отметку снимает обратно. Поэтому после
 # «done» смотрим на отметку не один раз: ждём её NOTIFY_ATTEMPTS раз по
@@ -62,12 +65,20 @@ CAPTION_LIMITS = (1024, 2048)
 register_texts({
     "ru": {
         "vid_pick_model": "🎬 <b>Видео</b>\nВыберите модель:",
-        "vid_ask_prompt": ("🎬 Модель: <b>{model}</b> · {price}\n"
+        "vid_ask_prompt": ("🎬 Модель: <b>{model}</b>{price}\n"
                            "Опишите, что должно происходить в ролике. Можно прислать фото с подписью — "
                            "оно станет первым кадром."),
         "vid_card": ("🎬 <b>{prompt}</b>\n\nМодель: <b>{model}</b>\n"
                      "Длительность: <b>{duration} с</b> · Пропорции: <b>{ar}</b>{res}\n"
                      "{first}Стоимость: <b>{cost} кр</b> · баланс {balance}"),
+        "vid_card_no_price": ("🎬 <b>{prompt}</b>\n\nМодель: <b>{model}</b>\n"
+                              "Длительность: <b>{duration} с</b> · Пропорции: <b>{ar}</b>{res}\n"
+                              "{first}Стоимость: <b>недоступна</b> · баланс {balance}\n"
+                              "Цена модели сейчас недоступна, попробуйте позже."),
+        "vid_price_from": "от {credits} кр",
+        "vid_refresh_price": "🔄 Обновить цену",
+        "vid_no_price": "Цена модели сейчас недоступна, попробуйте позже.",
+        "vid_price_changed": "Цена обновилась — проверьте и нажмите «Сгенерировать» ещё раз.",
         "vid_first_frame": "Первый кадр: ваше фото\n",
         "vid_extend": "Продолжение вашего ролика\n",
         "vid_go": "🎬 Сгенерировать ({cost} кр)",
@@ -104,12 +115,20 @@ register_texts({
     },
     "en": {
         "vid_pick_model": "🎬 <b>Video</b>\nPick a model:",
-        "vid_ask_prompt": ("🎬 Model: <b>{model}</b> · {price}\n"
+        "vid_ask_prompt": ("🎬 Model: <b>{model}</b>{price}\n"
                            "Describe what should happen in the clip. You can send a photo with a caption — "
                            "it becomes the first frame."),
         "vid_card": ("🎬 <b>{prompt}</b>\n\nModel: <b>{model}</b>\n"
                      "Duration: <b>{duration} s</b> · Aspect: <b>{ar}</b>{res}\n"
                      "{first}Cost: <b>{cost} cr</b> · balance {balance}"),
+        "vid_card_no_price": ("🎬 <b>{prompt}</b>\n\nModel: <b>{model}</b>\n"
+                              "Duration: <b>{duration} s</b> · Aspect: <b>{ar}</b>{res}\n"
+                              "{first}Cost: <b>unavailable</b> · balance {balance}\n"
+                              "The model's price is unavailable right now, please try again later."),
+        "vid_price_from": "from {credits} cr",
+        "vid_refresh_price": "🔄 Refresh price",
+        "vid_no_price": "The model's price is unavailable right now, please try again later.",
+        "vid_price_changed": "The price has changed — check it and press Generate again.",
         "vid_first_frame": "First frame: your photo\n",
         "vid_extend": "Continuation of your clip\n",
         "vid_go": "🎬 Generate ({cost} cr)",
@@ -147,11 +166,19 @@ register_texts({
     },
     "kg": {
         "vid_pick_model": "🎬 <b>Видео</b>\nМоделди тандаңыз:",
-        "vid_ask_prompt": ("🎬 Модель: <b>{model}</b> · {price}\n"
+        "vid_ask_prompt": ("🎬 Модель: <b>{model}</b>{price}\n"
                            "Роликте эмне болушу керектигин сүрөттөңүз. Сүрөт жөнөтсөңүз — ал биринчи кадр болот."),
         "vid_card": ("🎬 <b>{prompt}</b>\n\nМодель: <b>{model}</b>\n"
                      "Узактыгы: <b>{duration} с</b> · Пропорция: <b>{ar}</b>{res}\n"
                      "{first}Баасы: <b>{cost} кр</b> · баланс {balance}"),
+        "vid_card_no_price": ("🎬 <b>{prompt}</b>\n\nМодель: <b>{model}</b>\n"
+                              "Узактыгы: <b>{duration} с</b> · Пропорция: <b>{ar}</b>{res}\n"
+                              "{first}Баасы: <b>белгисиз</b> · баланс {balance}\n"
+                              "Моделдин баасы азыр жеткиликсиз, бир аздан кийин кайра аракет кылыңыз."),
+        "vid_price_from": "{credits} кр баштап",
+        "vid_refresh_price": "🔄 Баасын жаңыртуу",
+        "vid_no_price": "Моделдин баасы азыр жеткиликсиз, бир аздан кийин кайра аракет кылыңыз.",
+        "vid_price_changed": "Баасы өзгөрдү — текшерип, «Жаратуу» баскычын кайра басыңыз.",
         "vid_first_frame": "Биринчи кадр: сиздин сүрөт\n",
         "vid_extend": "Роликтин уландысы\n",
         "vid_go": "🎬 Жаратуу ({cost} кр)",
@@ -213,20 +240,25 @@ async def _models_or_report(message: Message, token: str, lang: str, chat_id: in
         return None
 
 
-def _price_label(model: dict) -> str:
-    """Цена на кнопке ровно та, по которой считается списание.
+def _price_label(lang: str, params: dict | None) -> str:
+    """«от N кр» из таблицы цен сервера — тех же чисел, по которым спишут ролик.
 
-    Дробный тариф нельзя усекать до целого: при 2.5 кр/с человек видел «2 кр/с»,
-    а за 5 секунд платил ceil(5×2.5)=13 кредитов вместо ожидаемых 10. «:g»
-    убирает пустой хвост у целых (4.0 → «4») и сохраняет дробные как есть.
+    Тариф модели (кр/с) ценой ролика не является: у видео нижняя граница по
+    себестоимости провайдера, а в режиме цен «наценка» тариф не участвует
+    вовсе (у Seedance он 0). Цены нет — нет и подписи, а не «0 кр/с».
     """
-    try:
-        coeff = float(model.get("markup_coefficient") or 0)
-    except (TypeError, ValueError):
-        return ""
-    if coeff <= 0:
-        return ""
-    return f"{coeff:g} кр/с"
+    credits = price_from(params)
+    return t(lang, "vid_price_from", credits=credits) if credits else ""
+
+
+def _known(draft: dict) -> bool:
+    """Модель черновика найдена в каталоге.
+
+    Раньше признаком служил тариф модели (cps), и тариф 0 у Seedance читался как
+    «модели нет»: «Ещё вариант» и «Продлить» отправляли выбирать модель заново.
+    cps остался в черновиках, сохранённых до этого, — их тоже считаем.
+    """
+    return bool(draft.get("known") or draft.get("cps"))
 
 
 async def _draft(chat_id: int) -> dict:
@@ -276,12 +308,16 @@ async def _pick_model(message: Message, token: str, lang: str, chat_id: int,
     if not models:
         await message.answer(t(lang, "vid_no_models"))
         return
+    shown = models[:12]
+    # Цены — из таблиц сервера, с тем же кэшем, что у карточки ролика.
+    params = await asyncio.gather(*(_params(token, lang, chat_id, str(m.get("openrouter_id")))
+                                    for m in shown))
     buttons = []
-    for index, m in enumerate(models[:12]):
-        # Части подписи склеиваем по непустым: без тарифа в подписи иначе
+    for index, (m, p) in enumerate(zip(shown, params)):
+        # Части подписи склеиваем по непустым: без цены в подписи иначе
         # повисал разделитель без числа — «Veo ·  · быстрая».
         parts = [f"{'🔒 ' if m.get('locked') else ''}{m.get('name')}",
-                 _price_label(m), (m.get("short_label") or "").strip()]
+                 _price_label(lang, p), (m.get("short_label") or "").strip()]
         label = " · ".join(p for p in parts if p)
         buttons.append(InlineKeyboardButton(text=label[:60], callback_data=f"v:m:{index}"))
     rows = rows_of(buttons, 1)
@@ -320,14 +356,15 @@ async def pick_model(call: CallbackQuery, token: str, lang: str, state: FSMConte
             draft.pop(key, None)
     draft["model"] = chosen.get("openrouter_id")
     draft["model_name"] = chosen.get("name")
-    draft["cps"] = float(chosen.get("markup_coefficient") or 0)
+    draft["known"] = True
     await _save(chat_id, draft)
     if draft.get("prompt"):
         await _show_card(call.message, token, lang, chat_id, draft)
         return
     await state.set_state(VideoWizard.prompt)
+    label = _price_label(lang, await _params(token, lang, chat_id, str(draft["model"])))
     await call.message.answer(t(lang, "vid_ask_prompt", model=esc(chosen.get("name")),
-                                price=_price_label(chosen)), parse_mode="HTML")
+                                price=f" · {label}" if label else ""), parse_mode="HTML")
 
 
 # Замки склейки промпта по (чат, человек). Апдейты aiogram обрабатывает
@@ -490,34 +527,49 @@ async def _params(token: str, lang: str, chat_id: int, model: str) -> dict:
     try:
         params = await api.video_params(token, model, lang=lang, telegram_id=chat_id)
     except ApiError:
-        params = {}
-    await store.set(chat_id, f"vparams:{model}", params, ttl=1800)
+        # Сбой не кэшируем: без таблицы цен карточка не даст запустить ролик, и
+        # минуты «цена недоступна» из-за одного неудачного ответа — перебор.
+        return {}
+    params = params if isinstance(params, dict) else {}
+    await store.set(chat_id, f"vparams:{model}", params, ttl=PARAMS_TTL)
     return params
 
 
-def _cost(draft: dict) -> int:
-    """Цена ролика: из таблицы сервера под выбранное разрешение, иначе по тарифу.
+def _price_tables(params: dict) -> dict:
+    """Таблицы цен из ответа ai/video-params — в том виде, в каком их держит черновик."""
+    table = params.get("price_table")
+    by_aspect = params.get("price_table_by_aspect")
+    return {"prices": table if isinstance(table, dict) else {},
+            "prices_ar": by_aspect if isinstance(by_aspect, dict) else {}}
 
-    Сервер знает себестоимость у провайдера (1080p у Seedance в 2,5 раза дороже
-    720p), поэтому своё «секунды × тариф» — только запасной путь для старого ядра.
+
+def _cost(draft: dict) -> int | None:
+    """Цена ролика из таблицы сервера под длительность, пропорции и разрешение.
+
+    None — ячейки нет: сервер цену не дал (в режиме цен «наценка» у модели нет
+    себестоимости) или не ответил. «Секунды × тариф» больше не считаем: у видео
+    тариф — не цена, и «1 кр» за ролик Seedance с тарифом 0 было бы неправдой.
     """
-    import math
-
     duration = int(draft.get("duration") or 5)
+    res = str(draft.get("res") or "")
     # У Seedance цена зависит и от пропорций (21:9 — на треть больше пикселей).
     by_aspect = (draft.get("prices_ar") or {}).get(str(draft.get("ar") or "")) or {}
-    table = (by_aspect or draft.get("prices") or {}).get(str(draft.get("res") or "")) or {}
+    plain = draft.get("prices") or {}
+    row = by_aspect.get(res) or plain.get(res)
+    if row is None and not res:
+        # Качество у модели не выбирается: таблица одна — под разрешение по умолчанию.
+        rows = by_aspect or plain
+        if len(rows) == 1:
+            row = next(iter(rows.values()))
     try:
-        exact = int(table.get(str(duration)) or 0)
-    except (TypeError, ValueError):
+        exact = int((row or {}).get(str(duration)) or 0)
+    except (TypeError, ValueError, AttributeError):
         exact = 0
-    if exact > 0:
-        return exact
-    return max(1, math.ceil(duration * float(draft.get("cps") or 0)))
+    return exact if exact > 0 else None
 
 
 async def _show_card(message: Message, token: str, lang: str, chat_id: int, draft: dict,
-                     *, edit: bool = False) -> None:
+                     *, edit: bool = False, note: str = "") -> None:
     params = await _params(token, lang, chat_id, draft.get("model", ""))
     durations = params.get("durations") or [5]
     if not draft.get("duration") or int(draft["duration"]) not in durations:
@@ -529,18 +581,16 @@ async def _show_card(message: Message, token: str, lang: str, chat_id: int, draf
     resolutions = params.get("resolutions") or []
     if resolutions and draft.get("res") not in resolutions:
         draft["res"] = params.get("default_resolution") or resolutions[0]
-    if params.get("credits_per_second"):
-        draft["cps"] = float(params["credits_per_second"])
-    draft["prices"] = params.get("price_table") if isinstance(params.get("price_table"), dict) else {}
-    draft["prices_ar"] = (params.get("price_table_by_aspect")
-                          if isinstance(params.get("price_table_by_aspect"), dict) else {})
+    draft.update(_price_tables(params))
+    cost = _cost(draft)
+    # Цена, которую человек видит на кнопке: перед запуском её сверяем со свежей.
+    draft["shown_cost"] = cost
     await _save(chat_id, draft)
 
     try:
         balance = int((await api.balance(token, lang=lang, telegram_id=chat_id)).get("balance_tokens", 0))
     except ApiError:
         balance = 0
-    cost = _cost(draft)
     first = ""
     if draft.get("extend"):
         first = t(lang, "vid_extend")
@@ -549,10 +599,13 @@ async def _show_card(message: Message, token: str, lang: str, chat_id: int, draf
     res = f" · {draft['res']}" if draft.get("res") and len(resolutions) > 1 else ""
     # Промпт пишет человек, название модели приходит из каталога: «<» в любом из
     # них Telegram считает открытым тегом и отвергает всё сообщение целиком.
-    text = t(lang, "vid_card", prompt=esc(draft.get("prompt", "")[:300]),
-             model=esc(draft.get("model_name", "")),
-             duration=draft["duration"], ar=draft["ar"], res=res, first=first, cost=cost,
-             balance=balance)
+    fields = {"prompt": esc(draft.get("prompt", "")[:300]), "model": esc(draft.get("model_name", "")),
+              "duration": draft["duration"], "ar": draft["ar"], "res": res, "first": first,
+              "balance": balance}
+    text = (t(lang, "vid_card_no_price", **fields) if cost is None
+            else t(lang, "vid_card", cost=cost, **fields))
+    if note:
+        text = f"{text}\n\n{note}"
 
     rows = []
     if len(durations) > 1:
@@ -567,7 +620,10 @@ async def _show_card(message: Message, token: str, lang: str, chat_id: int, draf
         rows += rows_of([InlineKeyboardButton(
             text=("• " if r == draft.get("res") else "") + r, callback_data=f"v:r:{i}")
             for i, r in enumerate(resolutions[:6])], 3)
-    if balance < cost:
+    if cost is None:
+        # Без цены запуск не предлагаем: списали бы сумму, которой человек не видел.
+        rows.append([InlineKeyboardButton(text=t(lang, "vid_refresh_price"), callback_data="v:rf")])
+    elif balance < cost:
         rows.append([InlineKeyboardButton(text=t(lang, "vid_not_enough", missing=cost - balance),
                                           callback_data="b:topup")])
     else:
@@ -631,6 +687,18 @@ async def cancel_wizard(call: CallbackQuery, lang: str, state: FSMContext) -> No
 
 # --------------------------------------------------------------- запуск ---
 
+@router.callback_query(F.data == "v:rf")
+async def refresh_price(call: CallbackQuery, token: str, lang: str) -> None:
+    """«Обновить цену»: прошлый ответ сервера пришёл без цены — спрашиваем заново."""
+    chat_id = call.message.chat.id
+    draft = await _draft(chat_id)
+    await call.answer()
+    if not draft.get("model"):
+        return
+    await store.drop(chat_id, f"vparams:{draft['model']}")
+    await _show_card(call.message, token, lang, chat_id, draft, edit=True)
+
+
 @router.callback_query(F.data == "v:go")
 async def go(call: CallbackQuery, token: str, lang: str) -> None:
     chat_id = call.message.chat.id
@@ -642,6 +710,15 @@ async def go(call: CallbackQuery, token: str, lang: str) -> None:
         await call.message.edit_reply_markup(reply_markup=None)
     except Exception:
         pass
+    # Карточка могла провисеть долго: курс, режим цен или себестоимость за это
+    # время поменялись, а ядро спишет цену на момент запуска. Сверяем свежую
+    # цену с той, что была на кнопке; разошлась — карточка заново, без запуска.
+    await store.drop(chat_id, f"vparams:{draft['model']}")
+    fresh = _cost({**draft, **_price_tables(await _params(token, lang, chat_id, draft["model"]))})
+    if fresh is None or fresh != draft.get("shown_cost"):
+        note = t(lang, "vid_price_changed") if fresh is not None else ""
+        await _show_card(call.message, token, lang, chat_id, draft, edit=True, note=note)
+        return
     await launch(call.message, token, lang, draft)
 
 
@@ -653,6 +730,10 @@ async def _launch_failed(message: Message, lang: str, exc: ApiError) -> None:
         await message.answer(t(lang, "vid_busy"))
     elif exc.code == "extend_not_owned":
         await message.answer(t(lang, "vid_extend_not_owned"))
+    elif exc.code == "price_unavailable":
+        # 503 от режима цен «наценка»: у модели нет себестоимости. Это не поломка
+        # сервера — «сервер не отвечает» было бы неправдой.
+        await message.answer(t(lang, "vid_no_price"))
     elif exc.status == 429:
         # Лимит запросов, а не поломка: «сервер не отвечает» тут было бы неправдой.
         await message.answer(t(lang, "rate_limited"))
@@ -953,13 +1034,13 @@ async def again(call: CallbackQuery, token: str, lang: str) -> None:
         await call.message.answer(t(lang, "vid_no_job"))
         return
     draft = {**draft, "extend": ""}
-    if not draft.get("cps"):
+    if not _known(draft):
         models = await _models_or_report(call.message, token, lang, chat_id)
         if models is None:
             return
         chosen = next((m for m in models if m.get("openrouter_id") == draft["model"]), None)
         if chosen:
-            draft["cps"] = float(chosen.get("markup_coefficient") or 0)
+            draft["known"] = True
             draft["model_name"] = chosen.get("name")
     if draft.pop("restored", False):
         # Сообщение с кнопкой живёт вечно, черновик — 7 дней. Исходные параметры
@@ -967,13 +1048,21 @@ async def again(call: CallbackQuery, token: str, lang: str) -> None:
         # запустить платную генерацию «по умолчанию» — значит списать кредиты за
         # не то, что человек нажимал. Показываем карточку и ждём подтверждения.
         await _save(chat_id, draft)
-        if not draft.get("cps"):
-            # Модели уже нет в каталоге: тариф взять неоткуда, и карточка
-            # посчитала бы стоимость по нулю — «1 кр» на кнопке запуска было бы
-            # неправдой. Как и в «Продлить», просим выбрать модель заново.
+        if not _known(draft):
+            # Модели уже нет в каталоге: цену взять неоткуда. Как и в «Продлить»,
+            # просим выбрать модель заново.
             await _pick_model(call.message, token, lang, chat_id)
             return
         await _show_card(call.message, token, lang, chat_id, draft)
+        return
+    # Черновик живёт неделю, а цена за это время могла смениться (курс, режим цен)
+    # или пропасть. Повторяем молча только по той же цене, иначе — карточка.
+    fresh = _cost({**draft, **_price_tables(await _params(token, lang, chat_id, draft["model"]))})
+    shown = draft.get("shown_cost")
+    if fresh is None or (shown is not None and fresh != shown):
+        await _save(chat_id, draft)
+        note = t(lang, "vid_price_changed") if fresh is not None else ""
+        await _show_card(call.message, token, lang, chat_id, draft, note=note)
         return
     await launch(call.message, token, lang, draft)
 
@@ -996,12 +1085,13 @@ async def extend(call: CallbackQuery, token: str, lang: str, state: FSMContext) 
         await call.message.answer(t(lang, "vid_no_job"))
         return
     await state.clear()
+    draft = draft or {}
     new = {"prompt": draft.get("prompt", ""), "model": draft.get("model"),
-           "model_name": draft.get("model_name", ""), "cps": draft.get("cps"),
+           "model_name": draft.get("model_name", ""), "known": _known(draft),
            "extend": url, "first_frame": None, "duration": draft.get("duration"),
            "ar": draft.get("ar")}
     await _save(chat_id, new)
-    if new["model"] and new.get("cps"):
+    if new["model"] and new["known"]:
         await _show_card(call.message, token, lang, chat_id, new)
     else:
         await _pick_model(call.message, token, lang, chat_id)

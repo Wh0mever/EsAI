@@ -95,7 +95,16 @@ KEYS = (
     # Студия: сколько бесплатных примерок героя гости получают за сутки.
     "studio_guest_tryon_daily_cap",
     # Студия: цена сцены мультфильма (5 с) в кредитах; 0 — по тарифу модели.
+    # Только режим цен legacy: в режиме markup не читается.
     "studio_scene_credits",
+    # Цены по себестоимости (ai/pricing.py): режим legacy/markup, общая наценка и
+    # нижний порог в процентах к себестоимости OpenRouter (0…1000), закреплённый
+    # курс сом/$ (пусто — живой). Проверка — ai.pricing.validate_setting, после
+    # сохранения — ai.pricing.invalidate_price_caches(), иначе цены ждут кэша.
+    "pricing_mode",
+    "price_markup_pct",
+    "price_floor_pct",
+    "price_kgs_per_usd",
     # Звук студии: ключ ElevenLabs и цены.
     "ELEVENLABS_API_KEY",
     "studio_voice_credits_per_1k",

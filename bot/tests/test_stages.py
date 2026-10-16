@@ -86,10 +86,11 @@ class TestKeyboards:
 
 
 class TestVideoLogic:
-    def test_cost_rounds_up(self):
-        assert _cost({"duration": 5, "cps": 4}) == 20
-        assert _cost({"duration": 6, "cps": 4.4}) == 27
-        assert _cost({"duration": 5, "cps": 0}) == 1
+    def test_cost_comes_only_from_server_table(self):
+        # «Секунды × тариф» больше не цена: тариф 0 давал «1 кр» за ролик.
+        assert _cost({"duration": 5, "cps": 4}) is None
+        assert _cost({"duration": 5, "cps": 0}) is None
+        assert _cost({"duration": 6, "res": "720p", "prices": {"720p": {"6": 27}}}) == 27
 
     @pytest.mark.parametrize("status,key", [
         ("pending", "vid_status_pending"), ("queued", "vid_status_pending"),

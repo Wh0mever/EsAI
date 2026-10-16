@@ -30,13 +30,13 @@ ai/handlers.py (переиспользуя её функции, где это в
       settings.CREDIT_CALC_IMAGE_*_TOKENS_ESTIMATE.
   Так что ЛЮБАЯ активная image-модель, назначенная эталоном через админку,
   даёт корректный результат — не только FLUX.
-- video: markup_coefficient видео-модели = кредитов ЗА СЕКУНДУ, формула
-  max(1, ceil(duration_seconds * markup_coefficient)) — переиспользуем
-  ai.handlers._video_model_params(), чтобы получить РЕАЛЬНУЮ "примагниченную"
-  длительность по умолчанию для КОНКРЕТНОЙ эталонной модели из живого каталога
-  OpenRouter (кэш Redis "or_video_models", TTL 1ч) — та же функция, что
-  вызывается при реальной генерации видео. Если каталог недоступен (сеть/ошибка)
-  — фолбэк на settings.VIDEO_GEN_DURATION (приближение, как раньше).
+- video: цена ролика — ai.video_cost.video_credits, та же функция, что
+  списывает видео в чате, в действующем режиме цен (legacy: тариф, но не ниже
+  себестоимости / 0,6; markup: себестоимость с наценкой). Длительность и
+  качество по умолчанию "примагничиваются" ai.handlers._video_model_params()
+  к тому, что умеет КОНКРЕТНАЯ модель (живой каталог OpenRouter, кэш Redis
+  "or_video_models", TTL 1ч). Если каталог недоступен — цена по запрошенным
+  значениям без прайса, как и в чате; в режиме markup цены тогда нет (None).
 
 Ни одна функция здесь не должна падать на "плохих" входных данных (нет
 эталонной модели, нет цены, недоступен каталог видео-моделей и т.п.) —
@@ -208,35 +208,45 @@ def _image_credits(model) -> Decimal | None:
 
 
 def _video_credits(model) -> Decimal | None:
-    """Кредиты за ОДИН ролик эталонной video-модели, по РЕАЛЬНОЙ "примагниченной"
-    длительности этой конкретной модели (см. docstring модуля). Возвращает
-    None, если coeff отсутствует.
+    """Кредиты за ОДИН ролик video-модели — ровно то, что спишет чат за ролик по
+    умолчанию (VIDEO_GEN_DURATION / VIDEO_GEN_RESOLUTION, "примагниченные" к
+    тому, что умеет модель): ai.video_cost.video_credits в действующем режиме цен.
+
+    Раньше здесь было ceil(секунды × тариф) без нижней границы по себестоимости:
+    Seedance 2.0 с тарифом 0 стоил «1 кредит», и калькулятор обещал тысячи
+    роликов на пакет. Возвращает None, если цены нет (режим markup, себестоимость
+    неизвестна) — категорию тогда просто не показываем.
     """
     from django.conf import settings as dj_settings
 
-    coeff = model.markup_coefficient
-    if coeff is None:
+    from ai.pricing import PriceUnavailable
+    from ai.video_cost import video_credits as real_price
+
+    if model.markup_coefficient is None:
         return None
     openrouter_id = str(getattr(model, "openrouter_id", "") or "")
     want_duration = int(getattr(dj_settings, "VIDEO_GEN_DURATION", 5) or 5)
     want_resolution = str(getattr(dj_settings, "VIDEO_GEN_RESOLUTION", "720p") or "720p")
 
-    duration = want_duration
+    duration, resolution, spec = want_duration, want_resolution, {}
     try:
-        from ai.handlers import _video_model_params, _openrouter_config
+        from ai.handlers import _openrouter_config, _openrouter_video_catalog, _video_model_params
         cfg = _openrouter_config()
         vp = _video_model_params(openrouter_id, cfg, want_duration, want_resolution)
         duration = int(vp.get("duration") or want_duration)
+        resolution = str(vp.get("resolution") or want_resolution)
+        spec = _openrouter_video_catalog(openrouter_id) or {}
     except Exception:
-        # Каталог OpenRouter недоступен/ошибка сети — фолбэк на приближение
-        # VIDEO_GEN_DURATION (как было раньше), НЕ роняем весь расчёт.
+        # Каталог OpenRouter недоступен/ошибка сети — считаем по запрошенным
+        # значениям без прайса, как и чат в этой ситуации; НЕ роняем весь расчёт.
         logger.exception(
-            "credit_value: не удалось получить реальную длительность видео для %r, "
-            "используется VIDEO_GEN_DURATION как приближение", openrouter_id)
-        duration = want_duration
+            "credit_value: не удалось прочитать каталог видео для %r, "
+            "используются VIDEO_GEN_DURATION/RESOLUTION", openrouter_id)
 
-    raw = (Decimal(duration) * Decimal(str(coeff))).to_integral_value(rounding=ROUND_CEILING)
-    return max(Decimal(1), raw)
+    try:
+        return Decimal(real_price(model, spec, resolution, duration))
+    except PriceUnavailable:
+        return None
 
 
 def credits_per_unit(category: str, model=None) -> Decimal | None:

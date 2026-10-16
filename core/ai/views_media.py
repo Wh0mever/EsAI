@@ -251,7 +251,13 @@ class GenerationJobCreateView(APIView):
         except Exception:
             price_ar = None
         frames = (1 if str(data.get("video_first_frame") or "").strip() else 0) +             (1 if str(data.get("video_last_frame") or "").strip() else 0)
-        need = video_credits(model_obj, spec, resolution, duration, images=frames, aspect=price_ar)
+        from .pricing import PriceUnavailable
+
+        try:
+            need = video_credits(model_obj, spec, resolution, duration, images=frames, aspect=price_ar)
+        except PriceUnavailable as exc:
+            # Режим наценки без себестоимости: в очередь не ставим, тариф не подставляем.
+            return Response(exc.payload(), status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
         try:
             user.refresh_from_db(fields=["token_balance"])

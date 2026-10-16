@@ -422,8 +422,10 @@ class Api:
 
     # ------------------------------------------------------------- студия ---
 
-    async def presets(self, token: str, **kw) -> dict:
-        return await self.request("GET", "/api/cartoon/presets/", token=token, **kw) or {}
+    async def presets(self, token: str, aspect_ratio: str = "", **kw) -> dict:
+        # Формат мультфильма: в режиме цен «наценка» от него зависит цена сцены.
+        params = {"aspect_ratio": aspect_ratio} if aspect_ratio else None
+        return await self.request("GET", "/api/cartoon/presets/", token=token, params=params, **kw) or {}
 
     async def pricing(self, token: str, **kw) -> dict:
         return await self.request("GET", "/api/cartoon/pricing/", token=token, **kw) or {}

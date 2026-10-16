@@ -13,8 +13,10 @@
 from django.core.management.base import BaseCommand
 
 from ai.models import GPTModels
+from ai.pricing import PriceUnavailable, is_markup
 from cartoon.models import CartoonPreset
-from cartoon.pricing import effective_duration, frame_credits, video_credits
+from cartoon.pricing import (effective_duration, frame_credits, scene_credits_or_none,
+                            video_credits)
 
 
 class Command(BaseCommand):
@@ -57,16 +59,33 @@ class Command(BaseCommand):
             self.stdout.write(self.style.WARNING(
                 f"Модель снимает {real} с вместо запрошенных {duration} — считаю по {real}"))
 
-        was = sum(p.estimated_credits() for p in presets) / len(presets)
+        # В режиме наценки сцена без себестоимости не продаётся — в среднее не входит.
+        prices = [c for c in (scene_credits_or_none(p) for p in presets) if c is not None]
+        was = f"{sum(prices) / len(prices):.0f}" if prices else "—"
         new_frame = frame_credits(image or presets[0].image_model)
-        new_video = video_credits(video, duration or presets[0].duration,
-                                  opts.get("resolution") or presets[0].resolution or "720p")
-        self.stdout.write(
-            f"Сцен: {len(presets)}. Сейчас в среднем {was:.0f} кр. "
-            f"Станет {new_frame + new_video} кр (кадр {new_frame} + видео {new_video} за {real} с).")
+        try:
+            new_video = video_credits(video, duration or presets[0].duration,
+                                      opts.get("resolution") or presets[0].resolution or "720p",
+                                      aspect=presets[0].aspect_ratio or None)
+        except PriceUnavailable:
+            new_video = None
+        if new_video is None:
+            self.stdout.write(f"Сцен: {len(presets)}. Сейчас в среднем {was} кр. "
+                              f"Станет: цены нет — у {video.name} нет себестоимости в каталоге OpenRouter.")
+        else:
+            self.stdout.write(
+                f"Сцен: {len(presets)}. Сейчас в среднем {was} кр. "
+                f"Станет {new_frame + new_video} кр (кадр {new_frame} + видео {new_video} за {real} с).")
+        if is_markup():
+            self.stdout.write("Режим цен «наценка»: формат — как у пресета, ручная цена и «цена сцены» "
+                              "из админки не действуют.")
 
         if not opts["apply"]:
             self.stdout.write(self.style.WARNING("Пробный прогон: ничего не изменено (--apply)"))
+            return
+        if new_video is None:
+            # Без цены сцены перестали бы продаваться: съёмку отклонял бы каждый запуск.
+            self.stderr.write(self.style.ERROR("Не переключаю: у модели нет цены по себестоимости"))
             return
 
         fields = ["video_model"]

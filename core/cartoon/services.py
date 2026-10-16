@@ -32,6 +32,8 @@ from django.core.files.storage import default_storage
 from ai.handlers import _openrouter_config, _video_model_params
 from plans.wallet import charge_tokens
 
+from .pricing import frame_credits
+
 logger = logging.getLogger(__name__)
 
 # Кадр рисуется секунды, видео — минуты. Потолки с запасом, но не бесконечные:
@@ -682,7 +684,7 @@ def draw_custom_keyframe(scene, character, user, aspect: str = "") -> tuple[str,
     ensure_custom_prompt(scene)
     preset = preset_for_scene(scene)
     path = generate_keyframe(preset, character, aspect=aspect)
-    price = max(1, int(float(preset.image_model.markup_coefficient or 1)))
+    price = frame_credits(preset.image_model)
     if user is not None:
         charge(user, price, "cartoon_keyframe",
                meta={"scene": scene.pk, "custom": True, "character": character.pk},
@@ -763,7 +765,7 @@ def draw_linked_keyframe(scene, character, user, anchor: str,
     """
     preset = preset_for_scene(scene) if scene.custom_text else scene.preset
     path = generate_keyframe(preset, character, refs=[anchor], aspect=aspect)
-    price = max(1, int(float(preset.image_model.markup_coefficient or 1)))
+    price = frame_credits(preset.image_model)
     if user is not None:
         charge(user, price, "cartoon_keyframe",
                meta={"scene": scene.pk, "linked": True, "character": character.pk},
@@ -796,7 +798,7 @@ def get_or_create_keyframe(preset, character, user=None, aspect: str = "16:9"):
         return existing.image, 0
 
     path = generate_keyframe(preset, character, aspect=aspect)
-    price = max(1, int(float(preset.image_model.markup_coefficient or 1)))
+    price = frame_credits(preset.image_model)
     if user is not None:
         charge(user, price, "cartoon_keyframe",
                meta={"preset": preset.pk, "character": character.pk},

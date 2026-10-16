@@ -1093,7 +1093,8 @@
 			"first_frame": "First frame",
 			"last_frame": "Last frame",
 			"cost_hint": "{{seconds}} sec clip — {{credits}} credits will be charged",
-			"aspect": "Aspect ratio"
+			"aspect": "Aspect ratio",
+			"price_unavailable": "The model's price is unavailable right now, please try again later"
 		},
 		"topbar": {
 			"topup_hint": "→ Top up balance",
@@ -1464,13 +1465,13 @@
 		"cta": "Get started"
 	},
 	"packages": {
-		"credits_video_note": "Price per second at standard quality (720p). Videos in 1080p and 4K cost more — you'll see the exact price before generating.",
-		"credits_table_rate_video": "Credits per second",
 		"credits_table_rate_image": "Credits per image",
+		"credits_table_rate_video_clip": "Credits per clip",
 		"credits_table_video": "Video",
 		"credits_table_image": "Images",
 		"credits_table_image_tokens": "Images (billed by tokens)",
 		"credits_table_text": "Text models",
+		"credits_video_note_from": "\"From\" is the model's cheapest clip: the shortest one at basic quality. Longer clips and 1080p cost more — you'll see the exact price before generating.",
 		"title": "Choose a credit package",
 		"subtitle": "EsAI | Pay as you go",
 		"payg_badge": "PAY-AS-YOU-GO",
@@ -1520,7 +1521,11 @@
 		"currency_rub_title": "Russian ruble",
 		"currency_crypto": "CRYPTO",
 		"currency_crypto_title": "USDT, BTC, ETH, TON — prices in US dollars",
-		"payg_check_crypto": "From ≈ {{amount}} USDT in crypto"
+		"payg_check_crypto": "From ≈ {{amount}} USDT in crypto",
+		"credits_from": "from {{credits}}",
+		"credits_price_unavailable": "Price unavailable right now",
+		"credits_price_loading": "Loading the price",
+		"credits_load_failed": "Model prices didn't load right now. You will always see the exact price before generating."
 	},
 	"paywall": {
 		"title_generic": "Top up your balance",
@@ -1818,6 +1823,7 @@
 		"assemble_failed": "Assembly failed: {{error}}",
 		"assemble_skip_confirm": "Scenes that aren't filmed yet won't be in the cartoon: {{n}}. Assemble from the ready ones?",
 		"reshoot_confirm": "Reshoot this scene? {{credits}} credits will be charged and the current clip will be replaced.",
+		"reshoot_confirm_no_price": "Reshoot this scene? The current clip will be replaced.",
 		"title": "Cartoon Studio",
 		"subtitle": "Pick a hero, pick the scenes — and the studio puts them together into a finished clip. No prompts to write.",
 		"vstudio_hint": "Need a video that isn't made from ready-made scenes?",
@@ -1928,6 +1934,7 @@
 		"custom_too_short": "Describe the scene in at least a few words",
 		"custom_hero": "Hero of the scene: {{name}}",
 		"frame_btn": "Frame · {{credits}} cr",
+		"frame_btn_plain": "Frame",
 		"movie_title": "Cartoon title",
 		"format_title": "Video format",
 		"format_vertical": "Reels, TikTok, Shorts",
@@ -1938,10 +1945,12 @@
 		"dialogue_hint": "The hero will say this on screen — the mouth will move. Write it before filming.",
 		"dialogue_hint_ready": "To make the hero open the mouth and say this, the scene has to be re-filmed.",
 		"reshoot_with_line": "Re-film with the line · {{credits}} cr",
+		"reshoot_with_line_plain": "Re-film with the line",
 		"audio_lips_note": "This voice is laid over the finished video, so the hero's mouth does not move. To make the hero speak with lips, write the line in the “Hero's line” field on the scene card before filming (or re-film the scene).",
 		"dialogue_fit": "fits in {{seconds}}s",
 		"dialogue_ph": "What does the hero say? E.g. “I'd like to return this document”",
 		"redraw_frame": "🔄 Redraw the frame · {{credits}} cr",
+		"redraw_frame_plain": "🔄 Redraw the frame",
 		"collapse": "Collapse",
 		"voiceall_cta": "🎙 Voice the whole cartoon",
 		"voiceall_planning": "AI is writing the lines…",
@@ -2037,7 +2046,8 @@
 		"audio_err_big": "File is larger than {{mb}} MB",
 		"audio_err_mic": "No microphone access — allow it in the browser or upload a file",
 		"audio_err_mix": "Couldn't add the sound — please try again",
-		"short_note_audio": "The sound costs {{required}}, your balance is {{balance}}. Your scenes and sound made so far stay safe."
+		"short_note_audio": "The sound costs {{required}}, your balance is {{balance}}. Your scenes and sound made so far stay safe.",
+		"price_unavailable": "Price unavailable right now"
 	},
 	"crypto": {
 		"title_invoice": "Pay with crypto",

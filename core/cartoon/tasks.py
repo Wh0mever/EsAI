@@ -21,6 +21,7 @@ from django.db import DatabaseError, transaction
 from django.db.models import Q
 from django.utils import timezone
 
+from ai.pricing import PriceUnavailable
 from plans.wallet import InsufficientTokens
 
 from .models import CartoonProject, CartoonScene
@@ -179,6 +180,15 @@ def render_scene(self, scene_id: int) -> dict:
             return {"status": "custom_failed"}
         preset = preset_for_scene(scene)
 
+    # Цена видео — до любых трат: одна формула на витрину, проверку баланса и
+    # списание (pricing.py), в формате мультфильма. В режиме markup без
+    # себестоимости сцену не снимаем — и кадр не рисуем, чтобы не взять за него зря.
+    try:
+        video_price = scene_video_credits(preset, aspect=project.aspect_ratio)
+    except PriceUnavailable as exc:
+        _fail(scene, exc.message)
+        return {"status": "price_unavailable"}
+
     # --- 1) кадр сцены ---
     if not scene.keyframe:
         aspect = project.aspect_ratio or "16:9"
@@ -217,8 +227,6 @@ def render_scene(self, scene_id: int) -> dict:
     scene.status = CartoonScene.STATUS_VIDEO
     entry = None
     _video_entry_closed = False
-    # Одна формула на витрину, проверку баланса и списание (pricing.py).
-    video_price = scene_video_credits(preset)
     try:
         # Промпт съёмки: разложенное по секундам действие, реплика героя и
         # запрет типовых артефактов. Собирается один раз на сцену.

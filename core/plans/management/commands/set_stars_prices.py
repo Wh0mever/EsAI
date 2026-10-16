@@ -35,3 +35,8 @@ class Command(BaseCommand):
                 package.stars_price = suggested
                 package.save(update_fields=["stars_price"])
                 self.stdout.write(self.style.SUCCESS(f"  записано {suggested} ⭐"))
+        if options["apply"]:
+            # Пакет за звёзды тоже может оказаться самым дешёвым кредитом — основой цен.
+            from ai.pricing import invalidate_price_caches
+
+            invalidate_price_caches()

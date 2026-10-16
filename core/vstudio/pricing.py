@@ -9,6 +9,10 @@
 - картинка — ai.model_billing.flux_charge_credits: плоская цена за картинку,
   как у FLUX в чате и кадров мультстудии.
 
+Режим markup (ai/pricing.py): видео — себестоимость с наценкой, без
+себестоимости цены нет (NO_PRICE → запуск отклоняется); картинка —
+себестоимость картинки плюс входные фото, если модель за них берёт.
+
 Считаем по результату компилятора (compiled.effective, billable_images,
 price_aspect), а не по сырому запросу: выключенные человеком фото не уходят и
 не оплачиваются, а «Veo + референсы → 8 с» уже учтено в effective.
@@ -71,11 +75,14 @@ def _unpriceable(compiled) -> bool:
     return False
 
 
-def image_credits(model_obj) -> int:
-    """Одна картинка: max(1, int(markup_coefficient)) — как FLUX в чате и кадры мультстудии."""
-    from ai.model_billing import flux_charge_credits
+def image_credits(model_obj, refs: int = 0) -> int:
+    """Одна картинка: max(1, int(markup_coefficient)) — как FLUX в чате и кадры мультстудии.
 
-    return flux_charge_credits(model_obj)
+    markup: себестоимость картинки (+ refs входных фото) с наценкой (ai.pricing).
+    """
+    from ai.pricing import image_credits as priced
+
+    return priced(model_obj, refs)
 
 
 def _spec_for(model_obj, spec):
@@ -105,9 +112,19 @@ def price(compiled, model_obj, caps=None, *, spec: dict | None = None) -> Price:
         return NO_PRICE
 
     if kind == KIND_IMAGE:
+        from ai.pricing import is_markup
+
         per = image_credits(model_obj)
         total = per * IMAGES_PER_TAKE
-        return Price(total, [_line(LINE_IMAGE, {"n": IMAGES_PER_TAKE}, total)])
+        lines = [_line(LINE_IMAGE, {"n": IMAGES_PER_TAKE}, total)]
+        refs = max(0, int(getattr(compiled, "billable_images", 0) or 0))
+        if refs and is_markup():
+            # FLUX Flex берёт и за входные фото: строка «Фото-референсы ×N» — разница.
+            with_refs = image_credits(model_obj, refs) * IMAGES_PER_TAKE
+            if with_refs > total:
+                lines.append(_line(LINE_REFS, {"n": refs}, with_refs - total))
+                total = with_refs
+        return Price(total, lines)
 
     if kind != KIND_VIDEO:
         return NO_PRICE
@@ -116,14 +133,19 @@ def price(compiled, model_obj, caps=None, *, spec: dict | None = None) -> Price:
     if not duration or not resolution:
         return NO_PRICE
 
+    from ai.pricing import PriceUnavailable
     from ai.video_cost import video_credits
 
     spec = _spec_for(model_obj, spec)
     images = max(0, int(getattr(compiled, "billable_images", 0) or 0))
     aspect = getattr(compiled, "price_aspect", None)
-    total = video_credits(model_obj, spec, str(resolution), int(duration), images=images, aspect=aspect)
-    base = (video_credits(model_obj, spec, str(resolution), int(duration), images=0, aspect=aspect)
-            if images else total)
+    try:
+        total = video_credits(model_obj, spec, str(resolution), int(duration), images=images, aspect=aspect)
+        base = (video_credits(model_obj, spec, str(resolution), int(duration), images=0, aspect=aspect)
+                if images else total)
+    except PriceUnavailable:
+        # markup без себестоимости: цены нет — запуск отклонится, к тарифу не откатываемся.
+        return NO_PRICE
     # Фото только добавляют к себестоимости, поэтому base ≤ total; min — на всякий
     # случай, чтобы строки раскладки никогда не расходились с итогом.
     base = min(base, total)
@@ -149,13 +171,17 @@ def model_prices(model_obj, caps, *, spec: dict | None = None) -> dict:
         per = image_credits(model_obj) * IMAGES_PER_TAKE
         return {"price": None, "per_image": per, "price_from": per}
 
+    from ai.pricing import PriceUnavailable
     from ai.video_cost import price_table, price_tables_by_aspect
 
     spec = _spec_for(model_obj, spec)
     resolutions = [str(r) for r in caps.resolutions]
     durations = [int(d) for d in caps.durations]
-    table = price_table(model_obj, spec, resolutions, durations)
-    by_aspect = price_tables_by_aspect(model_obj, spec, resolutions, durations)
+    try:
+        table = price_table(model_obj, spec, resolutions, durations)
+        by_aspect = price_tables_by_aspect(model_obj, spec, resolutions, durations)
+    except PriceUnavailable:
+        return {"price": None, "per_image": None, "price_from": None}
     cells = [c for t in [table, *by_aspect.values()] for row in t.values() for c in row.values()]
     return {"price": {"table": table, "by_aspect": by_aspect}, "per_image": None,
             "price_from": min(cells) if cells else None}
@@ -176,7 +202,9 @@ def check_margin(take, *, cost_usd=None) -> bool | None:
 
     Если credits_charged × cheapest_credit_usd() × (1 − min_margin()) < cost —
     logger.warning и шаг журнала low_margin. Цену не трогаем: она уже списана;
-    сигнал нужен, чтобы вовремя поднять тариф модели в админке.
+    сигнал нужен, чтобы вовремя поднять тариф модели в админке. В режиме
+    markup порог — нижний порог наценки: выручка ≥ cost × (1 + floor/100) по
+    кредиту ai.pricing.credit_usd().
 
     None — проверить нечем: себестоимость неизвестна, ничего не списано
     (бесплатный довоз из lost) или нет ни одного пакета с ценой. Никогда не
@@ -187,6 +215,11 @@ def check_margin(take, *, cost_usd=None) -> bool | None:
         charged = int(getattr(take, "credits_charged", 0) or 0)
         if cost is None or charged <= 0:
             return None
+        from ai import pricing as ai_pricing
+
+        cfg = ai_pricing.current_config()
+        if cfg.markup:
+            return _check_markup(take, charged, cost, cfg)
         from ai.video_cost import cheapest_credit_usd, min_margin
 
         credit_usd = cheapest_credit_usd()
@@ -206,6 +239,25 @@ def check_margin(take, *, cost_usd=None) -> bool | None:
     except Exception:
         logger.exception("vstudio: проверка маржи упала для %s", getattr(take, "uid", "?"))
         return None
+
+
+def _check_markup(take, charged: int, cost: Decimal, cfg) -> bool | None:
+    from ai import pricing as ai_pricing
+
+    credit = ai_pricing.credit_usd(cfg)
+    if not credit:
+        return None
+    revenue = Decimal(charged) * credit
+    need = cost * (1 + cfg.floor_pct / 100)
+    if revenue >= need:
+        return True
+    real = (revenue / cost - 1) if cost > 0 else Decimal("-1")
+    note = (f"списано {charged} кр ≈ ${revenue:.4f}, себестоимость ${cost:.4f}, "
+            f"наценка {real:.0%} при пороге {cfg.floor_pct / 100:.0%}")
+    logger.warning("vstudio low margin take=%s model=%s %s", getattr(take, "uid", "?"),
+                   getattr(take, "model_ref", "?"), note)
+    _journal_step(getattr(take, "genlog_id", None), "low_margin", note)
+    return False
 
 
 def _journal_step(genlog_id, stage: str, note: str) -> None:

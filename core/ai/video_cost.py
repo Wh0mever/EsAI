@@ -9,6 +9,10 @@
   среди продаваемых пакетов (сомы, доллары, Stars).
 
 Прайс OpenRouter меняется — цена подтягивается сама.
+
+Так считается в режиме legacy (по умолчанию). В режиме markup (ai/pricing.py)
+цена ролика — себестоимость с наценкой, тариф модели не участвует, а без
+себестоимости ролик не продаётся (PriceUnavailable) — к тарифу не откатываемся.
 """
 from __future__ import annotations
 
@@ -19,6 +23,8 @@ from decimal import Decimal
 
 from django.conf import settings
 from django.core.cache import cache
+
+from . import pricing as _pricing
 
 logger = logging.getLogger(__name__)
 
@@ -267,14 +273,22 @@ def resolution_ratio(spec: dict | None, resolution: str, aspect: str | None = No
 
 
 def video_credits(model_obj, spec: dict | None, resolution: str, duration: int, *,
-                  images: int = 0, aspect: str | None = None) -> int:
+                  images: int = 0, aspect: str | None = None, cfg=None) -> int:
     """Итоговая цена ролика в кредитах.
 
     Тариф модели — это цена секунды в обычном качестве (720p). Качество ниже —
     дешевле ровно во столько раз, во сколько дешевле провайдеру (480p у Seedance
     вдвое дешевле: раньше человек платил за него как за 720p). Качество выше —
     не дешевле себестоимости плюс маржа (1080p у Seedance в 2,5 раза дороже).
+
+    Режим markup: credits_for_cost(себестоимость) с наценкой модели или общей;
+    себестоимость не посчитать — PriceUnavailable (cfg — настройки на этот
+    расчёт, по умолчанию действующие).
     """
+    cfg = cfg or _pricing.current_config()
+    if cfg.markup:
+        return _markup_video_credits(model_obj, spec, resolution, duration, images=images,
+                                     aspect=aspect, cfg=cfg)
     try:
         coeff = float(getattr(model_obj, "markup_coefficient", 1) or 1)
     except Exception:
@@ -307,23 +321,43 @@ def video_credits(model_obj, spec: dict | None, resolution: str, duration: int, 
     return max(base, floor)
 
 
+def _markup_video_credits(model_obj, spec: dict | None, resolution: str, duration: int, *,
+                          images: int, aspect: str | None, cfg) -> int:
+    """Режим markup: себестоимость ролика с наценкой; без себестоимости — отказ."""
+    seconds = max(1, int(duration or 1))
+    aspect = aspect or default_aspect(spec)
+    model_id = getattr(model_obj, "openrouter_id", "?")
+    cost = provider_cost_usd(spec or {}, resolution, seconds, images=images, aspect=aspect)
+    if cost is None:
+        logger.warning("video price: %s %s %sс — себестоимость неизвестна, цены нет",
+                       model_id, resolution, seconds)
+        raise _pricing.PriceUnavailable(model_id, "cost_unknown")
+    return _pricing.credits_for_cost(cost, model_obj, cfg=cfg)
+
+
 def price_table(model_obj, spec: dict | None, resolutions: list[str], durations: list[int],
-                aspect: str | None = None) -> dict:
-    """Цены для витрины: {разрешение: {секунды: кредиты}} — фронт и бот не считают сами."""
+                aspect: str | None = None, cfg=None) -> dict:
+    """Цены для витрины: {разрешение: {секунды: кредиты}} — фронт и бот не считают сами.
+
+    В режиме markup без себестоимости — PriceUnavailable на всю таблицу.
+    """
+    # Настройки читаем один раз на таблицу, а не на каждую клетку.
+    cfg = cfg or _pricing.current_config()
     table: dict[str, dict[str, int]] = {}
     for res in resolutions or [str(getattr(settings, "VIDEO_GEN_RESOLUTION", "720p") or "720p")]:
-        table[str(res)] = {str(d): video_credits(model_obj, spec, str(res), int(d), aspect=aspect)
+        table[str(res)] = {str(d): video_credits(model_obj, spec, str(res), int(d), aspect=aspect, cfg=cfg)
                            for d in (durations or [])}
     return table
 
 
 def price_tables_by_aspect(model_obj, spec: dict | None, resolutions: list[str],
-                           durations: list[int]) -> dict:
+                           durations: list[int], cfg=None) -> dict:
     """{пропорции: таблица} — только если пропорции влияют на цену (Seedance)."""
     aspects = [str(a) for a in ((spec or {}).get("supported_aspect_ratios") or []) if a]
     if not aspects:
         return {}
-    tables = {a: price_table(model_obj, spec, resolutions, durations, aspect=a) for a in aspects}
+    cfg = cfg or _pricing.current_config()
+    tables = {a: price_table(model_obj, spec, resolutions, durations, aspect=a, cfg=cfg) for a in aspects}
     first = next(iter(tables.values()))
     if all(t == first for t in tables.values()):
         return {}

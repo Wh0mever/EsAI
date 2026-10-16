@@ -1,6 +1,7 @@
 """Выбор модели: те же группы и пометки, что на сайте."""
 from __future__ import annotations
 
+import asyncio
 import logging
 import math
 
@@ -68,6 +69,57 @@ def is_flux_image_model(model_ref) -> bool:
     return name.startswith("black-forest-labs/") or "flux.2" in name
 
 
+def _server_credits(value) -> int | None:
+    """Целая цена с сервера или None, если цены нет."""
+    if value in (None, "") or isinstance(value, bool):
+        return None
+    try:
+        credits = int(float(value))
+    except (TypeError, ValueError):
+        return None
+    return credits if credits >= 1 else None
+
+
+def price_from(params: dict | None) -> int | None:
+    """«от N кр»: самая дешёвая ячейка таблиц цен ролика с сервера (общей и по
+    пропорциям) — как price_from у видеостудии.
+
+    None — сервер цены не дал: в режиме цен «наценка» у модели нет
+    себестоимости, или таблица не посчиталась. «Секунды × тариф» не считаем:
+    у видео тариф — не цена (у Seedance он вовсе 0).
+    """
+    params = params or {}
+    tables = [params.get("price_table")]
+    by_aspect = params.get("price_table_by_aspect")
+    if isinstance(by_aspect, dict):
+        tables += list(by_aspect.values())
+    best = None
+    for table in tables:
+        for row in (table.values() if isinstance(table, dict) else ()):
+            for cell in (row.values() if isinstance(row, dict) else ()):
+                credits = _server_credits(cell)
+                if credits and (best is None or credits < best):
+                    best = credits
+    return best
+
+
+async def video_prices(token: str, lang: str, chat_id: int, models: list) -> dict:
+    """«от N» для видео-моделей списка: {openrouter_id: кредиты или None}.
+
+    Цену ролика знает только таблица сервера (ai/video-params) — её же берёт
+    мастер видео, с тем же ключом кэша: в списке и на карточке одно число.
+    Закрытым моделям цену не показываем, поэтому и не спрашиваем.
+    """
+    from bot.routers.video import _params  # video сам импортирует этот модуль
+
+    ids = [str(m.get("openrouter_id")) for m in models
+           if m.get("category") == "video" and m.get("openrouter_id") and not m.get("locked")]
+    if not ids:
+        return {}
+    found = await asyncio.gather(*(_params(token, lang, chat_id, i) for i in ids))
+    return {i: price_from(p) for i, p in zip(ids, found)}
+
+
 def image_credits(model: dict) -> int | None:
     """Сколько кредитов реально спишет бэкенд за ОДНУ картинку этой моделью.
 
@@ -76,7 +128,15 @@ def image_credits(model: dict) -> int | None:
     Остальные (Nano Banana: google/gemini-*-image) идут через chat-completions и
     билятся токенной формулой — показывать им coeff значило врать почти вдвое
     (coeff=4 → списывается 6). Формула — как в core/plans/credit_value.
+
+    У FLUX главнее цена сервера (credits_per_image): в режиме цен «наценка» она
+    считается от себестоимости и из коэффициента не выводится. Без неё —
+    legacy-формула: сервер без этого поля режима «наценка» не знает.
     """
+    if is_flux_image_model(model.get("openrouter_id")):
+        server = _server_credits(model.get("credits_per_image"))
+        if server:
+            return server
     coeff = model.get("markup_coefficient")
     if not coeff:
         return None
@@ -91,13 +151,13 @@ def image_credits(model: dict) -> int | None:
     return max(1, math.ceil(IMAGE_TOKENS_ESTIMATE * coeff / TOKEN_CREDIT_DIVISOR))
 
 
-def _price(model: dict) -> str:
-    coefficient = model.get("markup_coefficient")
-    if not coefficient:
-        return ""
+def _price(model: dict, video_from: int | None = None) -> str:
     category = model.get("category")
     if category == "video":
-        return f"{coefficient:g} кр/с"
+        # Тариф видео — не цена ролика: у ролика нижняя граница по себестоимости,
+        # а в режиме цен «наценка» тариф не участвует вовсе. Только «от N кр» из
+        # таблицы сервера (video_prices); нет её — нет и подписи.
+        return f"от {video_from} кр" if video_from else ""
     if category == "image":
         credits = image_credits(model)
         if not credits:
@@ -106,6 +166,9 @@ def _price(model: dict) -> str:
         # поэтому «≈» — иначе обещаем ровное число, которого не будет.
         return f"{credits} кр" if is_flux_image_model(model.get("openrouter_id")) \
             else f"≈{credits} кр"
+    coefficient = model.get("markup_coefficient")
+    if not coefficient:
+        return ""
     return f"{coefficient:g} кр/1000"
 
 
@@ -135,14 +198,22 @@ def _groups_keyboard(models: list) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def _list_keyboard(models: list, group: str, page: int) -> InlineKeyboardMarkup:
+def _page_models(models: list, group: str, page: int) -> tuple[list, int, int]:
+    """Модели страницы группы, номер страницы (в пределах) и число страниц."""
     selected = [m for m in models if _in_group(m, group)]
     total = max(1, (len(selected) + PAGE - 1) // PAGE)
     page = max(0, min(page, total - 1))
+    return selected[page * PAGE:(page + 1) * PAGE], page, total
+
+
+def _list_keyboard(models: list, group: str, page: int,
+                   prices: dict | None = None) -> InlineKeyboardMarkup:
+    """prices — «от N» видео-моделей страницы (video_prices)."""
+    on_page, page, total = _page_models(models, group, page)
     rows = []
-    for model in selected[page * PAGE:(page + 1) * PAGE]:
+    for model in on_page:
         lock = "🔒 " if model.get("locked") else ""
-        price = _price(model)
+        price = _price(model, (prices or {}).get(model.get("openrouter_id")))
         label = f"{lock}{model.get('name')} {_badges(model)}".strip()
         if price and not model.get("locked"):
             label = f"{label} · {price}"
@@ -211,9 +282,12 @@ async def open_group(call: CallbackQuery, token: str, lang: str) -> None:
     if models is None:
         return
     title = dict(GROUPS).get(group, group)
+    page = int(page)
+    prices = await video_prices(token, lang, call.from_user.id, _page_models(models, group, page)[0])
     await call.message.edit_text(
-        f"<b>{title}</b>\nЦена — за 1000 токенов; у картинок за изображение, у видео за секунду.",
-        parse_mode="HTML", reply_markup=_list_keyboard(models, group, int(page)))
+        f"<b>{title}</b>\nЦена — за 1000 токенов; у картинок за изображение; у видео — «от»: "
+        "самый дешёвый ролик.",
+        parse_mode="HTML", reply_markup=_list_keyboard(models, group, page, prices))
 
 
 @router.callback_query(F.data.startswith("m:s:"))
@@ -243,7 +317,8 @@ async def pick_model(call: CallbackQuery, token: str, lang: str) -> None:
     await call.answer(t(lang, "model_set", model=model.get("name")).replace("<b>", "")
                       .replace("</b>", ""))
     description = (model.get("description") or "").strip()
-    price = _price(model)
+    prices = await video_prices(token, lang, call.from_user.id, [model])
+    price = _price(model, prices.get(str(model.get("openrouter_id"))))
     # Имя и описание пишут в админке: «<» или «&» в них Telegram считал
     # разметкой и отвергал сообщение целиком — модель выбиралась, а карточка
     # не менялась. Режем ДО экранирования, чтобы не разрубить «&amp;».
@@ -262,9 +337,10 @@ async def pick_free(call: CallbackQuery, token: str, lang: str) -> None:
     models = await _fetch_or_report(call, token, lang)
     if models is None:
         return
+    prices = await video_prices(token, lang, call.from_user.id, _page_models(models, "free", 0)[0])
     await call.message.answer(
         "🎁 <b>Бесплатные модели</b>", parse_mode="HTML",
-        reply_markup=_list_keyboard(models, "free", 0))
+        reply_markup=_list_keyboard(models, "free", 0, prices))
 
 
 @router.callback_query(F.data == "nav:noop")

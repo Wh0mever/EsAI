@@ -193,7 +193,15 @@ def _run_video_generation(*, user, model_obj, selected_model_name: str, message:
             aspect_ratio, message, (_spec or {}).get("supported_aspect_ratios") or [])
     except Exception:
         _price_ar = None
-    need = video_credits(model_obj, _spec, resolution, duration, images=_images, aspect=_price_ar)
+    from .pricing import PriceUnavailable
+
+    try:
+        need = video_credits(model_obj, _spec, resolution, duration, images=_images, aspect=_price_ar)
+    except PriceUnavailable as exc:
+        # Режим наценки без себестоимости: отказ, а не съёмка по тарифу.
+        _release_daily_request(user)
+        yield ({**exc.payload(), "done": True})
+        return
 
     # Продлевать можно только СВОЙ ролик: файл читается с нашего диска, и чужая
     # ссылка иначе превращала чужое видео в начало своего (см. _user_owns_video).

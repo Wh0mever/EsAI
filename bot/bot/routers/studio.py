@@ -61,20 +61,21 @@ register_texts({
         "st_cats": "🗂 <b>Разделы сцен</b>", "st_cat_popular": "🔥 Популярное", "st_cat_picks": "⭐ Выбор EsAI",
         "st_cat_all": "🗂 Все", "st_to_timeline": "🎞 К ленте ({n})",
         "st_scenes": "🎬 <b>{category}</b> (стр. {page}/{pages})\n{lines}",
-        "st_scene_line": "{n} — {title} · {credits} кр · {duration} с{ready}",
-        "st_scene_card": "🎬 <b>{title}</b>\n{subtitle}\n{credits} кр · {duration} с",
+        "st_scene_line": "{n} — {title} · {credits} · {duration} с{ready}",
+        "st_scene_card": "🎬 <b>{title}</b>\n{subtitle}\n{credits} · {duration} с",
+        "st_cr": "{n} кр", "st_no_price": "цена недоступна",
         "st_add": "➕ В ленту", "st_try": "🪄 Примерить героя", "st_kf": "👁 Кадр с вашим героем",
         "st_added": "Сцена «{title}» в ленте. Снять её можно из ленты.",
         "st_try_free": "Кадр уже был — бесплатно.", "st_try_paid": "Списано {credits} кр.",
         "st_timeline": ("🎞 <b>{title}</b> · герой: {hero}\n{lines}\n\n"
                         "Готово {ready} из {total} · потрачено {spent} кр"),
-        "st_tl_line": "{n}. {icon} {title} — {status} · {credits} кр",
+        "st_tl_line": "{n}. {icon} {title} — {status} · {credits}",
         "st_status_draft": "в ленте, не снята", "st_status_new": "в очереди",
         "st_status_keyframe": "рисую кадр", "st_status_video": "оживляю",
         "st_status_ready": "готова", "st_status_failed": "не получилась",
-        "st_render_all": "🎬 Снять все не снятые ({credits} кр)", "st_add_scene": "➕ Добавить сцену",
+        "st_render_all": "🎬 Снять все не снятые ({credits})", "st_add_scene": "➕ Добавить сцену",
         "st_assemble": "🎞 Собрать мультфильм", "st_refresh": "🔄 Обновить", "st_delete": "🗑 Удалить проект",
-        "st_scene_menu": "⚙️ {n}", "st_render": "🎬 Снять сцену ({credits} кр)",
+        "st_scene_menu": "⚙️ {n}", "st_render": "🎬 Снять сцену ({credits})",
         "st_up": "🔼 Раньше", "st_down": "🔽 Позже", "st_retry": "🔁 Переснять",
         "st_retry_same": "🔁 С тем же кадром", "st_retry_new": "🆕 Новый кадр",
         "st_download": "📥 Скачать сцену", "st_remove": "🗑 Убрать",
@@ -132,20 +133,21 @@ register_texts({
         "st_cats": "🗂 <b>Scene sections</b>", "st_cat_popular": "🔥 Popular", "st_cat_picks": "⭐ EsAI picks",
         "st_cat_all": "🗂 All", "st_to_timeline": "🎞 Timeline ({n})",
         "st_scenes": "🎬 <b>{category}</b> (page {page}/{pages})\n{lines}",
-        "st_scene_line": "{n} — {title} · {credits} cr · {duration} s{ready}",
-        "st_scene_card": "🎬 <b>{title}</b>\n{subtitle}\n{credits} cr · {duration} s",
+        "st_scene_line": "{n} — {title} · {credits} · {duration} s{ready}",
+        "st_scene_card": "🎬 <b>{title}</b>\n{subtitle}\n{credits} · {duration} s",
+        "st_cr": "{n} cr", "st_no_price": "price unavailable",
         "st_add": "➕ Add to timeline", "st_try": "🪄 Try the hero", "st_kf": "👁 Frame with your hero",
         "st_added": "Scene “{title}” is in the timeline. Render it from there.",
         "st_try_free": "The frame already existed — free.", "st_try_paid": "{credits} cr charged.",
         "st_timeline": ("🎞 <b>{title}</b> · hero: {hero}\n{lines}\n\n"
                         "Ready {ready} of {total} · spent {spent} cr"),
-        "st_tl_line": "{n}. {icon} {title} — {status} · {credits} cr",
+        "st_tl_line": "{n}. {icon} {title} — {status} · {credits}",
         "st_status_draft": "in timeline, not rendered", "st_status_new": "queued",
         "st_status_keyframe": "drawing the frame", "st_status_video": "animating",
         "st_status_ready": "ready", "st_status_failed": "failed",
-        "st_render_all": "🎬 Render all pending ({credits} cr)", "st_add_scene": "➕ Add a scene",
+        "st_render_all": "🎬 Render all pending ({credits})", "st_add_scene": "➕ Add a scene",
         "st_assemble": "🎞 Assemble the cartoon", "st_refresh": "🔄 Refresh", "st_delete": "🗑 Delete project",
-        "st_scene_menu": "⚙️ {n}", "st_render": "🎬 Render scene ({credits} cr)",
+        "st_scene_menu": "⚙️ {n}", "st_render": "🎬 Render scene ({credits})",
         "st_up": "🔼 Earlier", "st_down": "🔽 Later", "st_retry": "🔁 Re-render",
         "st_retry_same": "🔁 Same frame", "st_retry_new": "🆕 New frame",
         "st_download": "📥 Download scene", "st_remove": "🗑 Remove",
@@ -203,20 +205,21 @@ register_texts({
         "st_cats": "🗂 <b>Сцена бөлүмдөрү</b>", "st_cat_popular": "🔥 Популярдуу", "st_cat_picks": "⭐ EsAI тандоосу",
         "st_cat_all": "🗂 Баары", "st_to_timeline": "🎞 Лентага ({n})",
         "st_scenes": "🎬 <b>{category}</b> ({page}/{pages}-бет)\n{lines}",
-        "st_scene_line": "{n} — {title} · {credits} кр · {duration} с{ready}",
-        "st_scene_card": "🎬 <b>{title}</b>\n{subtitle}\n{credits} кр · {duration} с",
+        "st_scene_line": "{n} — {title} · {credits} · {duration} с{ready}",
+        "st_scene_card": "🎬 <b>{title}</b>\n{subtitle}\n{credits} · {duration} с",
+        "st_cr": "{n} кр", "st_no_price": "баасы жеткиликсиз",
         "st_add": "➕ Лентага", "st_try": "🪄 Каарманды текшерүү", "st_kf": "👁 Каарманыңыз менен кадр",
         "st_added": "«{title}» сценасы лентада. Аны лентадан тартсаңыз болот.",
         "st_try_free": "Кадр мурда эле бар — бекер.", "st_try_paid": "{credits} кр алынды.",
         "st_timeline": ("🎞 <b>{title}</b> · каарман: {hero}\n{lines}\n\n"
                         "Даяр {ready}/{total} · сарпталды {spent} кр"),
-        "st_tl_line": "{n}. {icon} {title} — {status} · {credits} кр",
+        "st_tl_line": "{n}. {icon} {title} — {status} · {credits}",
         "st_status_draft": "лентада, тартыла элек", "st_status_new": "кезекте",
         "st_status_keyframe": "кадр тартылууда", "st_status_video": "жандандырылууда",
         "st_status_ready": "даяр", "st_status_failed": "чыккан жок",
-        "st_render_all": "🎬 Баарын тартуу ({credits} кр)", "st_add_scene": "➕ Сцена кошуу",
+        "st_render_all": "🎬 Баарын тартуу ({credits})", "st_add_scene": "➕ Сцена кошуу",
         "st_assemble": "🎞 Мультфильмди чогултуу", "st_refresh": "🔄 Жаңыртуу", "st_delete": "🗑 Долбоорду өчүрүү",
-        "st_scene_menu": "⚙️ {n}", "st_render": "🎬 Сценаны тартуу ({credits} кр)",
+        "st_scene_menu": "⚙️ {n}", "st_render": "🎬 Сценаны тартуу ({credits})",
         "st_up": "🔼 Мурда", "st_down": "🔽 Кийин", "st_retry": "🔁 Кайра тартуу",
         "st_retry_same": "🔁 Ошол эле кадр", "st_retry_new": "🆕 Жаңы кадр",
         "st_download": "📥 Сценаны жүктөө", "st_remove": "🗑 Алып салуу",
@@ -279,12 +282,21 @@ async def _pricing(token: str, lang: str, chat_id: int) -> dict:
 
 
 async def _presets(token: str, lang: str, chat_id: int) -> dict:
-    cached = await store.get(chat_id, "st_presets")
+    # Цены библиотеки — в формате текущего мультфильма (1:1 в режиме «наценка»
+    # дешевле 16:9), поэтому и кэш у каждого формата свой.
+    aspect = str(await store.get(chat_id, "st_aspect") or "")
+    key = f"st_presets:{aspect}" if aspect else "st_presets"
+    cached = await store.get(chat_id, key)
     if cached:
         return cached
-    data = await api.presets(token, lang=lang, telegram_id=chat_id)
-    await store.set(chat_id, "st_presets", data, ttl=900)
+    data = await api.presets(token, aspect_ratio=aspect, lang=lang, telegram_id=chat_id)
+    await store.set(chat_id, key, data, ttl=900)
     return data
+
+
+async def _note_aspect(chat_id: int, project: dict | None) -> None:
+    """Запомнить формат открытого мультфильма — по нему считаются цены библиотеки."""
+    await store.set(chat_id, "st_aspect", str((project or {}).get("aspect_ratio") or ""), ttl=6 * 3600)
 
 
 async def _project_id(chat_id: int) -> int | None:
@@ -317,6 +329,12 @@ async def _send_media_group(message: Message, urls: list[str]) -> None:
                 await message.answer_media_group(batch)
         except Exception:
             logger.exception("превью не отправились")
+
+
+def _cr(lang: str, credits) -> str:
+    """«N кр» или «цена недоступна»: в режиме цен «наценка» у сцены на модели без
+    себестоимости цены нет (null), и «None кр» человеку показывать нельзя."""
+    return t(lang, "st_no_price") if credits is None else t(lang, "st_cr", n=credits)
 
 
 def _fail(lang: str, exc: ApiError) -> str:
@@ -470,6 +488,7 @@ async def pick_hero(call: CallbackQuery, token: str, lang: str) -> None:
     await store.set(chat_id, "st_project", project["id"])
     await store.set(chat_id, "st_char", hero_id)
     await store.drop(chat_id, "st_keyframes")
+    await _note_aspect(chat_id, project)
     await call.answer()
     hero = (project.get("character") or {}).get("name", "")
     await call.message.answer(t(lang, "st_project_started", hero=esc(hero)), parse_mode="HTML")
@@ -555,6 +574,7 @@ async def _use_hero(message: Message, token: str, lang: str, hero_id: int) -> No
     await store.set(chat_id, "st_project", project["id"])
     await store.set(chat_id, "st_char", hero_id)
     await store.drop(chat_id, "st_keyframes")
+    await _note_aspect(chat_id, project)
     await message.answer(t(lang, "st_project_started",
                            hero=esc((project.get("character") or {}).get("name", ""))),
                          parse_mode="HTML")
@@ -657,6 +677,7 @@ async def show_categories(message: Message, token: str, lang: str) -> None:
         try:
             project = await api.project(token, project_id, lang=lang, telegram_id=chat_id)
             n = len(project.get("scenes") or [])
+            await _note_aspect(chat_id, project)
         except ApiError:
             pass
     rows.append([InlineKeyboardButton(text=t(lang, "st_to_timeline", n=n), callback_data="st:tl")])
@@ -770,8 +791,9 @@ async def show_scenes(message: Message, token: str, lang: str, code: str, page: 
     chunk = presets[page * PAGE:(page + 1) * PAGE]
     await message.bot.send_chat_action(chat_id, ChatAction.UPLOAD_PHOTO)
     await _send_media_group(message, [p.get("preview_poster") for p in chunk])
-    lines = "\n".join(t(lang, "st_scene_line", n=i, title=esc(p.get("title")), credits=p.get("credits"),
-                        duration=p.get("duration"), ready=" ✅" if str(p.get("id")) in ready else "")
+    lines = "\n".join(t(lang, "st_scene_line", n=i, title=esc(p.get("title")),
+                        credits=_cr(lang, p.get("credits")), duration=p.get("duration"),
+                        ready=" ✅" if str(p.get("id")) in ready else "")
                       for i, p in enumerate(chunk, 1))
     buttons = [InlineKeyboardButton(text=str(i), callback_data=f"st:sc:{p['id']}")
                for i, p in enumerate(chunk, 1)]
@@ -808,7 +830,7 @@ async def scene_card(call: CallbackQuery, token: str, lang: str) -> None:
     rows.append([InlineKeyboardButton(text=t(lang, "st_back"), callback_data="st:cats")])
     caption = t(lang, "st_scene_card", title=esc(preset.get("title")),
                 subtitle=esc(preset.get("subtitle") or ""),
-                credits=preset.get("credits"), duration=preset.get("duration"))
+                credits=_cr(lang, preset.get("credits")), duration=preset.get("duration"))
     markup = InlineKeyboardMarkup(inline_keyboard=rows)
     video = preset.get("preview_video")
     if video:
@@ -897,22 +919,25 @@ async def show_timeline(message: Message, token: str, lang: str) -> None:
         else:
             await message.answer(t(lang, "server_down"))
         return
+    await _note_aspect(chat_id, project)
     scenes = project.get("scenes") or []
     lines = "\n".join(t(lang, "st_tl_line", n=i, icon=STATUS_ICON.get(s.get("status"), "▫️"),
                         title=esc((s.get("preset") or {}).get("title", "")),
                         status=_status(lang, s.get("status", "")),
-                        credits=(s.get("preset") or {}).get("credits", 0))
+                        credits=_cr(lang, (s.get("preset") or {}).get("credits", 0)))
                       for i, s in enumerate(scenes, 1)) or "—"
     ready = sum(1 for s in scenes if s.get("status") == "ready")
     pending = [s for s in scenes if s.get("status") in ("draft", "failed")]
-    pending_cost = sum((s.get("preset") or {}).get("credits", 0) for s in pending)
+    prices = [(s.get("preset") or {}).get("credits", 0) for s in pending]
+    # Хоть у одной сцены цены нет — честной суммы тоже нет.
+    pending_cost = None if None in prices else sum(prices)
     # Название проекта и имя героя пришли от человека — в HTML только через esc.
     text = t(lang, "st_timeline", title=esc(project.get("title", "")),
              hero=esc((project.get("character") or {}).get("name", "")), lines=lines,
              ready=ready, total=len(scenes), spent=project.get("credits_spent", 0))
     rows = []
     if pending:
-        rows.append([InlineKeyboardButton(text=t(lang, "st_render_all", credits=pending_cost),
+        rows.append([InlineKeyboardButton(text=t(lang, "st_render_all", credits=_cr(lang, pending_cost)),
                                           callback_data="st:ra")])
     rows += rows_of([InlineKeyboardButton(text=t(lang, "st_scene_menu", n=i),
                                           callback_data=f"st:s:{s['id']}")
@@ -963,7 +988,7 @@ async def scene_menu(call: CallbackQuery, token: str, lang: str) -> None:
     status = scene.get("status")
     rows = []
     if status in ("draft", "failed"):
-        rows.append([InlineKeyboardButton(text=t(lang, "st_render", credits=preset.get("credits", 0)),
+        rows.append([InlineKeyboardButton(text=t(lang, "st_render", credits=_cr(lang, preset.get("credits", 0))),
                                           callback_data=f"st:r:{scene_id}")])
     if status in ("ready", "failed"):
         rows.append([InlineKeyboardButton(text=t(lang, "st_retry_same"), callback_data=f"st:rt:{scene_id}:0"),

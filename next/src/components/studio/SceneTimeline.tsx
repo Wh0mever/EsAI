@@ -21,7 +21,8 @@ export type StudioScene = {
   preset: {
     id: number;
     title: string;
-    credits?: number;
+    /** null — цены сейчас нет (режим цен «наценка», себестоимость модели неизвестна). */
+    credits?: number | null;
     duration?: number;
     /** Обложка сцены из библиотеки — то, что видно у черновика. */
     poster?: string;
@@ -41,8 +42,8 @@ export type StudioScene = {
   status: "draft" | "new" | "keyframe" | "video" | "ready" | "failed";
   error: string;
   credits_spent: number;
-  /** Сколько спишет съёмка прямо сейчас (с готовым кадром — только видео). */
-  render_credits?: number;
+  /** Сколько спишет съёмка прямо сейчас (с готовым кадром — только видео). null — цены нет. */
+  render_credits?: number | null;
   /** Сколько звуковых дорожек у сцены (голоса, музыка, эффекты). */
   audio_count?: number;
 };
@@ -80,7 +81,7 @@ export default function SceneTimeline({
   onPickCharacter,
   onFrame,
   framingId = null,
-  frameCredits = 4,
+  frameCredits,
   onTryOn,
   tryingOnId = null,
   tryOnLabel,
@@ -102,7 +103,8 @@ export default function SceneTimeline({
   /** id сцены библиотеки (preset), которая сейчас примеряется. */
   tryingOnId?: number | null;
   tryOnLabel?: string;
-  frameCredits?: number;
+  /** Цена кадра своей сцены. Нет — кнопка без цены: число «по памяти» разошлось бы с сервером. */
+  frameCredits?: number | null;
   /** Своя сцена: нарисовать кадр до съёмки (цена — frameCredits). */
   onFrame?: (scene: StudioScene) => void;
   framingId?: number | null;
@@ -131,6 +133,15 @@ export default function SceneTimeline({
       {scenes.map((s, i) => {
         const working = s.status === "new" || s.status === "keyframe" || s.status === "video";
         const busy = busyIds.has(s.id);
+        // Сервер прислал null: себестоимость модели неизвестна, съёмку он всё равно
+        // отклонит. У гостя цены просто ещё нет (undefined) — его ведём ко входу.
+        const noPrice = s.render_credits === null || s.preset.credits === null;
+        const reshootCredits =
+          s.render_credits !== undefined
+            ? s.render_credits
+            : s.preset.credits != null && frameCredits != null
+            ? Math.max(1, s.preset.credits - frameCredits)
+            : null;
         return (
           <div
             key={s.id}
@@ -330,7 +341,11 @@ export default function SceneTimeline({
                 </span>
               ) : s.status === "draft" ? (
                 <span className="text-muted-2">
-                  {s.preset.credits ? `${s.preset.credits} ${t("studio_ui.credits_short")}` : ""}
+                  {noPrice
+                    ? t("studio_ui.price_unavailable", { defaultValue: "Цена сейчас недоступна" })
+                    : s.preset.credits
+                    ? `${s.preset.credits} ${t("studio_ui.credits_short")}`
+                    : ""}
                 </span>
               ) : (
                 <span className="text-muted">{t(`studio_ui.${STATUS_KEY[s.status]}`)}…</span>
@@ -371,7 +386,9 @@ export default function SceneTimeline({
                 className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-[11px] text-muted transition-colors hover:border-accent hover:text-foreground disabled:opacity-60 cursor-pointer"
               >
                 {framingId === s.id ? <FiLoader className="animate-spin" /> : <FiFilm />}
-                {t("studio_ui.frame_btn", { credits: frameCredits })}
+                {frameCredits != null
+                  ? t("studio_ui.frame_btn", { credits: frameCredits })
+                  : t("studio_ui.frame_btn_plain", { defaultValue: "Кадр" })}
               </button>
             )}
             {/* Реплика героя. Клиент: мультфильм должен смотреться как
@@ -410,13 +427,13 @@ export default function SceneTimeline({
               <button
                 type="button"
                 onClick={() => onRetry(s)}
-                disabled={busy}
+                disabled={busy || noPrice}
                 className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-accent px-3 py-1.5 text-[11px] font-semibold text-accent transition-colors hover:bg-accent/10 disabled:opacity-60 cursor-pointer"
               >
                 {busy ? <FiLoader className="animate-spin" /> : <FiRefreshCw />}
-                {t("studio_ui.reshoot_with_line", {
-                  credits: s.render_credits ?? Math.max(1, (s.preset.credits || 0) - frameCredits),
-                })}
+                {reshootCredits != null
+                  ? t("studio_ui.reshoot_with_line", { credits: reshootCredits })
+                  : t("studio_ui.reshoot_with_line_plain", { defaultValue: "Переснять с репликой" })}
               </button>
             )}
 
@@ -434,14 +451,16 @@ export default function SceneTimeline({
                 ) : (
                   <FiRefreshCw />
                 )}
-                {t("studio_ui.redraw_frame", { credits: frameCredits })}
+                {frameCredits != null
+                  ? t("studio_ui.redraw_frame", { credits: frameCredits })
+                  : t("studio_ui.redraw_frame_plain", { defaultValue: "🔄 Кадр заново" })}
               </button>
             )}
             {s.status === "draft" && (
               <button
                 type="button"
                 onClick={() => onRender(s)}
-                disabled={busy}
+                disabled={busy || noPrice}
                 className="mb-1 inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-accent px-3 py-2 text-xs font-bold text-on-accent transition-colors hover:bg-accent-strong disabled:opacity-60 cursor-pointer"
               >
                 {busy ? <FiLoader className="animate-spin" /> : <FiPlay />}
@@ -492,7 +511,7 @@ export default function SceneTimeline({
                 <button
                   type="button"
                   onClick={() => onRetry(s)}
-                  disabled={busy}
+                  disabled={busy || noPrice}
                   // Кадр не трогаем: пересобираем только ролик, поэтому герой и
                   // композиция остаются прежними, а платим лишь за видео. Цена —
                   // прямо в подсказке, готовую сцену ещё и подтверждают.

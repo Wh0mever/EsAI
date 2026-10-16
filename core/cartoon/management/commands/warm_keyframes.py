@@ -16,6 +16,7 @@
 from django.core.management.base import BaseCommand
 
 from cartoon.models import CartoonCharacter, CartoonKeyframe, CartoonPreset
+from cartoon.pricing import frame_credits
 from cartoon.services import get_or_create_keyframe
 
 
@@ -58,7 +59,7 @@ class Command(BaseCommand):
         if limit:
             todo = todo[:limit]
 
-        price = sum(max(1, int(float(s.image_model.markup_coefficient or 1))) for s, _ in todo)
+        price = sum(frame_credits(s.image_model) for s, _ in todo)
         self.stdout.write(
             f"Сцен {len(scenes)}, героев {len(heroes)}, уже готово {len(have)}. "
             f"Нарисовать: {len(todo)} кадров ≈ {price} кредитов.")

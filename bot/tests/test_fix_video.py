@@ -121,6 +121,8 @@ class TestEscaping:
     async def test_ask_prompt_escapes_model_name(self, store, monkeypatch):
         monkeypatch.setattr(video, "_video_models", lambda *a, **kw: _async(
             [{"openrouter_id": "veo", "name": "Veo <3>", "markup_coefficient": 4}]))
+        monkeypatch.setattr(video, "api", SimpleNamespace(
+            video_params=lambda *a, **kw: _async({"price_table": {"720p": {"5": 20}}})))
         message = FakeMessage()
         call = FakeCall("v:m:0", message)
 

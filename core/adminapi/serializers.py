@@ -3,9 +3,12 @@
 Приложение без моделей: работаем с моделями из ai/plans/payments/content/users.
 Decimal-поля отдаём числами (coerce_to_string=False), чтобы фронту не парсить строки.
 """
+from decimal import Decimal
+
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 from rest_framework import serializers
+from rest_framework.fields import empty
 from rest_framework.validators import UniqueValidator
 
 from ai.models import GPTModels
@@ -61,9 +64,55 @@ class PromoCodeAdminSerializer(serializers.ModelSerializer):
         return value
 
 
+class _OptionalDecimal(serializers.DecimalField):
+    """Число из формы панели: строка с запятой тоже число, пустая строка — null."""
+
+    def run_validation(self, data=empty):
+        if isinstance(data, str):
+            data = data.strip().replace(",", ".")
+            if not data:
+                data = None
+        return super().run_validation(data)
+
+
+def _decimal_errors(label: str, hint: str, places: int) -> dict:
+    # Границы проверяют валидаторы Django: их текст ещё раз проходит через «%»-подстановку.
+    bound = f"{label}: {hint}".replace("%", "%%")
+    return {
+        "invalid": f"{label}: {hint}",
+        "min_value": bound,
+        "max_value": bound,
+        "max_digits": f"{label}: {hint}",
+        "max_whole_digits": f"{label}: {hint}",
+        "max_decimal_places": f"{label}: не больше {places} знаков после запятой",
+        "max_string_length": f"{label}: {hint}",
+    }
+
+
 class GPTModelAdminSerializer(serializers.ModelSerializer):
     markup_coefficient = serializers.DecimalField(
         max_digits=6, decimal_places=3, coerce_to_string=False, required=False)
+    # Цена по себестоимости (ai/pricing.py, режим «наценка»). Пусто — общая наценка.
+    markup_pct = _OptionalDecimal(
+        max_digits=6, decimal_places=2, min_value=Decimal("0"), max_value=Decimal("1000"),
+        allow_null=True, required=False, coerce_to_string=False,
+        error_messages=_decimal_errors("Наценка", "от 0 до 1000 %; пусто — общая наценка", 2))
+    unit_cost_usd = _OptionalDecimal(
+        max_digits=10, decimal_places=6, min_value=Decimal("0"), max_value=Decimal("1000"),
+        allow_null=True, required=False, coerce_to_string=False,
+        error_messages=_decimal_errors(
+            "Себестоимость картинки", "сумма в долларах от 0 до 1000, например 0.039; пусто — не задана", 6))
+    ref_cost_usd = _OptionalDecimal(
+        max_digits=10, decimal_places=6, min_value=Decimal("0"), max_value=Decimal("1000"),
+        allow_null=True, required=False, coerce_to_string=False,
+        error_messages=_decimal_errors(
+            "Себестоимость входного фото", "сумма в долларах от 0 до 1000, например 0.06; пусто — бесплатно", 6))
+    # Только чтение: себестоимость и цена типичной генерации в обоих режимах (adminapi.prices).
+    pricing = serializers.SerializerMethodField()
+    cost_sample = serializers.SerializerMethodField()
+    price_sample = serializers.SerializerMethodField()
+    price_sample_other = serializers.SerializerMethodField()
+    vstudio_supported = serializers.SerializerMethodField()
 
     class Meta:
         model = GPTModels
@@ -73,9 +122,44 @@ class GPTModelAdminSerializer(serializers.ModelSerializer):
             "is_active", "sort_order", "cartoon_stage",
             # Видеостудия: показывать модель и правки поверх реестра caps.
             "vstudio_enabled", "vstudio_overrides",
+            "markup_pct", "unit_cost_usd", "ref_cost_usd",
+            "pricing", "cost_sample", "price_sample", "price_sample_other", "vstudio_supported",
         ]
         # openrouter_id — системный идентификатор, из панели не меняется
         read_only_fields = ["id", "openrouter_id"]
+
+    def _prices(self, obj) -> dict:
+        from .prices import model_info
+
+        return model_info(obj, self.context) or {}
+
+    def get_pricing(self, obj):
+        return self._prices(obj).get("pricing")
+
+    def get_cost_sample(self, obj):
+        return self._prices(obj).get("cost_sample")
+
+    def get_price_sample(self, obj):
+        return self._prices(obj).get("price_sample")
+
+    def get_price_sample_other(self, obj):
+        return self._prices(obj).get("price_sample_other")
+
+    def get_vstudio_supported(self, obj) -> bool:
+        from .prices import vstudio_supported
+
+        return vstudio_supported(obj)
+
+    def validate(self, attrs):
+        # Себестоимость за штуку есть только у картинок: у видео она из каталога
+        # OpenRouter, у текста — тариф за токены.
+        category = attrs.get("category", getattr(self.instance, "category", ""))
+        if category != "image":
+            for field in ("unit_cost_usd", "ref_cost_usd"):
+                if attrs.get(field) is not None:
+                    raise serializers.ValidationError({field: [
+                        "Себестоимость за картинку задаётся только у моделей картинок (категория «Изображения»)"]})
+        return attrs
 
     def validate_vstudio_overrides(self, value):
         """Те же проверки, что в Django-админке: белый список ключей и лимиты вендора."""

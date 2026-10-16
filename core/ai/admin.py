@@ -75,10 +75,17 @@ class GPTModelsAdmin(admin.ModelAdmin):
                            'использовать значения по умолчанию провайдера.',
         }),
         ('Биллинг и доступ', {
-            'fields': ('markup_coefficient', 'free_tier', 'supports_vision'),
-            'description': 'markup_coefficient — тариф (кредитов за 1000 токенов). '
-                           'free_tier — доступна гостям/бесплатным (тариф при этом всё '
-                           'равно списывается). supports_vision — принимает изображения.',
+            'fields': ('markup_coefficient', 'markup_pct', 'unit_cost_usd', 'ref_cost_usd',
+                       'free_tier', 'supports_vision'),
+            'description': 'markup_coefficient — тариф: у текста кредитов за 1000 токенов, у FLUX '
+                           'кредитов за картинку, у других картинок (Nano Banana) в чате кредитов за '
+                           '1000 токенов и в студиях кредитов за картинку, у видео кредитов за секунду '
+                           '720p. В режиме цен «наценка» видео и картинки с себестоимостью считаются от '
+                           'себестоимости (кроме картинок Nano Banana в чате: там тариф действует всегда). '
+                           'markup_pct — своя наценка (пусто — общая), unit_cost_usd / ref_cost_usd — '
+                           'себестоимость картинки и входного фото. free_tier — доступна '
+                           'гостям/бесплатным (цена при этом всё равно списывается). '
+                           'supports_vision — принимает изображения.',
         }),
         ('Категоризация и студия', {
             'fields': ('category', 'recommended', 'cartoon_stage'),
@@ -131,7 +138,32 @@ class GPTModelsAdmin(admin.ModelAdmin):
             messages.error(request, str(e))
         except Exception as e:
             messages.error(request, f"Ошибка синхронизации GPT моделей: {e}")
+        _invalidate_prices()
         return redirect("..")
+
+    # Правки здесь идут мимо /api/manage/, поэтому кэши цен (кредит, списки
+    # моделей видеостудии) сбрасываем сами — и для формы, и для list_editable.
+    def save_model(self, request, obj, form, change):
+        super().save_model(request, obj, form, change)
+        _invalidate_prices()
+
+    def delete_model(self, request, obj):
+        super().delete_model(request, obj)
+        _invalidate_prices()
+
+    def delete_queryset(self, request, queryset):
+        super().delete_queryset(request, queryset)
+        _invalidate_prices()
+
+
+def _invalidate_prices():
+    from django.db import transaction
+
+    from .pricing import invalidate_price_caches
+
+    # Ещё раз после фиксации: до неё другой воркер может положить в кэш старую цену.
+    invalidate_price_caches()
+    transaction.on_commit(invalidate_price_caches)
 
 
 @admin.register(AiProvider)

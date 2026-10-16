@@ -196,6 +196,30 @@ class TokenPackageAdmin(admin.ModelAdmin):
         }),
     )
 
+    # Самый дешёвый кредит — основа всех цен (ai.pricing): правка пакета здесь,
+    # мимо /api/manage/, тоже должна сразу сбросить кэши цен.
+    def save_model(self, request, obj, form, change):
+        super().save_model(request, obj, form, change)
+        _invalidate_prices()
+
+    def delete_model(self, request, obj):
+        super().delete_model(request, obj)
+        _invalidate_prices()
+
+    def delete_queryset(self, request, queryset):
+        super().delete_queryset(request, queryset)
+        _invalidate_prices()
+
+
+def _invalidate_prices():
+    from django.db import transaction
+
+    from ai.pricing import invalidate_price_caches
+
+    # Ещё раз после фиксации: до неё другой воркер может положить в кэш старую цену.
+    invalidate_price_caches()
+    transaction.on_commit(invalidate_price_caches)
+
 
 @admin.register(TokenTransaction)
 class TokenTransactionAdmin(admin.ModelAdmin):

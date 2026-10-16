@@ -157,17 +157,27 @@ class SummaryView(StaffAPIView):
 class ModelsListView(StaffAPIView):
     def get(self, request):
         qs = GPTModels.objects.all().order_by("sort_order", "id")
-        return Response(GPTModelAdminSerializer(qs, many=True).data)
+        return Response(GPTModelAdminSerializer(qs, many=True, context={"request": request}).data)
+
+    def post(self, request):
+        """«Добавить модель» по ID из каталога OpenRouter: строка встаёт выключенной."""
+        from . import prices
+
+        return prices.add_model(request)
 
 
 class ModelDetailView(StaffAPIView):
     def patch(self, request, pk):
+        from . import prices
+
         obj = get_object_or_404(GPTModels, pk=pk)
         ser = GPTModelAdminSerializer(obj, data=request.data, partial=True)
         if not ser.is_valid():
             return Response({"detail": ser.errors}, status=status.HTTP_400_BAD_REQUEST)
-        ser.save()
-        return Response(ser.data)
+        # Правка в журнал и сброс кэшей цен: наценка, себестоимость, тариф и
+        # включение модели меняют цены сразу, а не через десять минут кэша.
+        prices.save_model(ser, actor=request.user, request=request)
+        return Response(GPTModelAdminSerializer(obj, context={"request": request}).data)
 
 
 # --------------------------------------------------------------- packages ---
@@ -180,11 +190,15 @@ class PackagesListView(StaffAPIView):
 
 class PackageDetailView(StaffAPIView):
     def patch(self, request, pk):
+        from . import prices
+
         obj = get_object_or_404(TokenPackage, pk=pk)
         ser = TokenPackageAdminSerializer(obj, data=request.data, partial=True)
         if not ser.is_valid():
             return Response({"detail": ser.errors}, status=status.HTTP_400_BAD_REQUEST)
         ser.save()
+        # Самый дешёвый кредит из пакетов — основа всех цен видео (и цен с наценкой).
+        prices.invalidate()
         return Response(ser.data)
 
 
@@ -1186,6 +1200,13 @@ class SettingsView(StaffAPIView):
                     links[k] = str(site_patch[k] or "").strip()
             site.social_links = links
             site.save()
+
+        # Цена сцены мультфильма и курс сом→$ (по нему считается цена кредита)
+        # входят в цены: без сброса кэша они доезжали бы через десять минут.
+        if "studio_scene_credits" in data or "currency_kgs_to_usd_rate" in data:
+            from . import prices
+
+            prices.invalidate()
 
         return Response(_settings_snapshot())
 

@@ -89,6 +89,13 @@ def _credit_usd() -> float | None:
     в долларах не считаем (None), а кредиты и себестоимость всё равно видны.
     """
     try:
+        from ai import pricing as ai_pricing
+
+        # В режиме наценки кредит считается так же, как цены (закреплённый курс),
+        # иначе отчёт и check_margin расходились бы в «низкой марже».
+        if ai_pricing.is_markup():
+            value = ai_pricing.credit_usd()
+            return float(value) if value else None
         from ai.video_cost import cheapest_credit_usd
 
         value = cheapest_credit_usd()
@@ -100,6 +107,12 @@ def _credit_usd() -> float | None:
 
 def _min_margin() -> float:
     try:
+        from ai import pricing as ai_pricing
+
+        cfg = ai_pricing.current_config()
+        if cfg.markup:
+            # Порог наценки f% в терминах маржи: выручка ≥ cost×(1+f/100) ⇔ маржа ≥ f/(100+f).
+            return float(cfg.floor_pct / (100 + cfg.floor_pct))
         from ai.video_cost import min_margin
 
         return float(min_margin())

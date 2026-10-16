@@ -1,4 +1,6 @@
-﻿from rest_framework import serializers
+﻿import logging
+
+from rest_framework import serializers
 from .models import (
     AiPromptTemplate,
     AiPromptTemplateFavorite,
@@ -7,6 +9,8 @@ from .models import (
     AiProvider,
     GPTModels,
 )
+
+logger = logging.getLogger(__name__)
 
 class AiPromptTemplateSerializer(serializers.ModelSerializer):
     provider_name = serializers.CharField(source='provider.name', read_only=True)
@@ -107,13 +111,14 @@ class AiModelSerializer(serializers.ModelSerializer):
     markup_coefficient = serializers.SerializerMethodField()
     locked = serializers.SerializerMethodField()
     estimated_usage = serializers.SerializerMethodField()
+    credits_per_image = serializers.SerializerMethodField()
 
     class Meta:
         model = GPTModels
         fields = (
             "id", "name", "openrouter_id", "description", "short_label", "sort_order",
             "is_free", "markup_coefficient", "locked", "supports_vision",
-            "category", "recommended", "estimated_usage",
+            "category", "recommended", "estimated_usage", "credits_per_image",
         )
 
     def get_is_free(self, obj) -> bool:
@@ -151,3 +156,15 @@ class AiModelSerializer(serializers.ModelSerializer):
             return estimate_model_usage_cost(obj)
         except Exception:
             return None
+
+    def get_credits_per_image(self, obj) -> int | None:
+        # Цена одной картинки FLUX в действующем режиме цен — ровно то, что спишет
+        # чат. Без этого поля сайт и бот считают её по тарифу, а в режиме наценки
+        # тариф картинки с себестоимостью уже не действует.
+        from .model_billing import flux_charge_credits, is_flux_image_model
+        try:
+            if obj.category == "image" and is_flux_image_model(obj.openrouter_id):
+                return int(flux_charge_credits(obj))
+        except Exception:
+            logger.exception("credits_per_image failed for %s", obj.openrouter_id)
+        return None

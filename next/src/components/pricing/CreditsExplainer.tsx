@@ -1,37 +1,66 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { fetchData } from "@/tools/fetchData";
 import { vendorColorByOpenRouterId } from "@/lib/vendorColors";
-import { fluxCreditsPerImage, isFluxImageModel } from "@/lib/modelBilling";
+import {
+  fluxImageCredits,
+  isFluxImageModel,
+  videoPriceFrom,
+  type VideoPriceTable,
+} from "@/lib/modelBilling";
 
 /**
  * CreditsExplainer — блок «Как списываются кредиты?» для страницы тарифов.
- * Текст — дословно от владельца продукта. Тариф-таблица тянется из ai/models/
- * (markup_coefficient = кредитов за 1000 токенов), с фолбэком на анонсированные
- * ставки, чтобы прайс показывался даже при сбое сети.
+ * Текст — дословно от владельца продукта. Цены — только с сервера: тариф текста
+ * из ai/models/ (markup_coefficient = кредитов за 1000 токенов), картинка FLUX —
+ * его же credits_per_image, видео — «от N» из таблицы цен ai/video-params/.
+ * Своих чисел витрина не держит: прежний запасной список анонсированных ставок
+ * устарел и после смены цен в админке показывал бы чужие цифры.
  */
 
 type ModelRow = {
   name: string;
   openrouter_id?: string;
   markup_coefficient?: number;
+  /** Цена картинки FLUX в действующем режиме цен — считает сервер. */
+  credits_per_image?: number | null;
   is_free?: boolean;
   sort_order?: number;
   category?: string;
 };
 
-// Фолбэк = ставки, анонсированные клиентом (кредитов за 1000 токенов).
-const FALLBACK: ModelRow[] = [
-  { name: "DeepSeek V3", openrouter_id: "deepseek/deepseek-chat", markup_coefficient: 1, is_free: true, sort_order: 10 },
-  { name: "Gemini Flash", openrouter_id: "google/gemini-2.5-flash", markup_coefficient: 11, is_free: true, sort_order: 20 },
-  { name: "DeepSeek R1", openrouter_id: "deepseek/deepseek-r1", markup_coefficient: 7, is_free: false, sort_order: 30 },
-  { name: "ChatGPT", openrouter_id: "openai/gpt-4o", markup_coefficient: 17, is_free: false, sort_order: 40 },
-  { name: "Claude Sonnet", openrouter_id: "anthropic/claude-sonnet-4.5", markup_coefficient: 17, is_free: false, sort_order: 50 },
-  { name: "Grok", openrouter_id: "x-ai/grok-4.3", markup_coefficient: 4, is_free: false, sort_order: 60 },
-  { name: "Perplexity", openrouter_id: "perplexity/sonar", markup_coefficient: 17, is_free: false, sort_order: 70 },
-];
+type VideoPrices = {
+  price_table?: VideoPriceTable;
+  price_table_by_aspect?: Record<string, VideoPriceTable>;
+};
+
+// «От N» по видео живёт 10 минут, как параметры видео в чате: таблицы
+// считаются по прайсу провайдера и курсу и меняются сами.
+const VIDEO_TTL_MS = 10 * 60 * 1000;
+const videoCache = new Map<string, { at: number; from: number | null }>();
+
+/** Самая дешёвая цена ролика модели; null — сервер цены не дал или не ответил. */
+async function loadVideoFrom(openrouterId: string): Promise<number | null> {
+  const hit = videoCache.get(openrouterId);
+  if (hit && Date.now() - hit.at < VIDEO_TTL_MS) return hit.from;
+  try {
+    const res = await fetchData<VideoPrices>(
+      "ai/video-params/?model=" + encodeURIComponent(openrouterId),
+      "GET",
+      null,
+      false
+    );
+    // Сбой не кэшируем: следующий показ блока спросит заново.
+    if (!res?.ok || !res.data) return null;
+    const from = videoPriceFrom(res.data.price_table, res.data.price_table_by_aspect);
+    videoCache.set(openrouterId, { at: Date.now(), from });
+    return from;
+  } catch {
+    return null;
+  }
+}
 
 // Цвета вендоров вынесены в общий next/src/lib/vendorColors.ts — единый
 // источник палитры, которым также пользуются home/HomeHero.tsx и
@@ -40,7 +69,12 @@ const FALLBACK: ModelRow[] = [
 
 export default function CreditsExplainer() {
   const { t } = useTranslation("common");
-  const [rows, setRows] = useState<ModelRow[]>(FALLBACK);
+  // null — список ещё не пришёл; failed — сервер не ответил.
+  const [rows, setRows] = useState<ModelRow[] | null>(null);
+  const [failed, setFailed] = useState(false);
+  // Цена ролика по id модели; ключа нет — ещё не загружали.
+  const [videoFrom, setVideoFrom] = useState<Record<string, number | null>>({});
+  const videoBox = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -48,13 +82,14 @@ export default function CreditsExplainer() {
       try {
         const res = await fetchData<ModelRow[]>("ai/models/", "GET", null, false);
         if (cancelled) return;
-        const list = Array.isArray(res?.data) ? res.data : [];
+        const list = res?.ok && Array.isArray(res.data) ? res.data : [];
         const usable = list
           .filter((m) => typeof m.markup_coefficient === "number")
           .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
-        if (usable.length) setRows(usable);
+        setRows(usable);
+        setFailed(!usable.length);
       } catch {
-        /* оставляем фолбэк */
+        if (!cancelled) setFailed(true);
       }
     })();
     return () => {
@@ -62,8 +97,8 @@ export default function CreditsExplainer() {
     };
   }, []);
 
-  // «За картинку» списывают только FLUX (ai/model_billing.flux_charge_credits:
-  // max(1, int(coeff))). Nano Banana тоже category=image, но биллится токенами
+  // «За картинку» списывают только FLUX (ai/model_billing.flux_charge_credits).
+  // Nano Banana тоже category=image, но в чате биллится токенами
   // (ceil(tokens*coeff/1000)) — её коэффициент под шапкой «за картинку» занижал
   // реальную цену (17 вместо ≈25). Поэтому держим её в таблице «за 1000 токенов».
   const kindOf = (m: ModelRow) =>
@@ -72,6 +107,55 @@ export default function CreditsExplainer() {
       : m.category === "image"
         ? isFluxImageModel(m.openrouter_id) ? "image" : "image_tokens"
         : "text";
+
+  const videoIds = useMemo(
+    () =>
+      (rows ?? [])
+        .filter((m) => m.category === "video" && m.openrouter_id)
+        .map((m) => String(m.openrouter_id))
+        .join("\n"),
+    [rows]
+  );
+
+  // Таблицы цен видео запрашиваем, только когда блок видео виден: витрина стоит
+  // и на главной, свёрнутой, и десяток запросов на каждого посетителя ради
+  // невидимых цифр — лишняя нагрузка и упор в лимит запросов гостя. Свёрнутый
+  // блок обрезан родителем (max-height: 0), площадь пересечения у него нулевая.
+  useEffect(() => {
+    const el = videoBox.current;
+    const ids = videoIds ? videoIds.split("\n") : [];
+    if (!el || !ids.length) return;
+    let alive = true;
+    let started = false;
+    const load = () => {
+      if (started) return;
+      started = true;
+      void Promise.all(ids.map(async (id) => [id, await loadVideoFrom(id)] as const)).then((pairs) => {
+        if (alive) setVideoFrom(Object.fromEntries(pairs));
+      });
+    };
+    if (typeof IntersectionObserver === "undefined") {
+      load();
+      return () => {
+        alive = false;
+      };
+    }
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.intersectionRatio > 0)) {
+          io.disconnect();
+          load();
+        }
+      },
+      { threshold: [0.01] }
+    );
+    io.observe(el);
+    return () => {
+      alive = false;
+      io.disconnect();
+    };
+  }, [videoIds]);
+
   const groups = [
     {
       key: "text",
@@ -91,11 +175,38 @@ export default function CreditsExplainer() {
     {
       key: "video",
       title: t("packages.credits_table_video", { defaultValue: "Видео" }),
-      unit: t("packages.credits_table_rate_video", { defaultValue: "Кредитов за секунду" }),
+      unit: t("packages.credits_table_rate_video_clip", { defaultValue: "Кредитов за ролик" }),
     },
   ]
-    .map((g) => ({ ...g, rows: rows.filter((m) => kindOf(m) === g.key) }))
+    .map((g) => ({ ...g, rows: (rows ?? []).filter((m) => kindOf(m) === g.key) }))
     .filter((g) => g.rows.length > 0);
+
+  const unavailable = t("packages.credits_price_unavailable", { defaultValue: "Цена сейчас недоступна" });
+
+  /** Число в правой колонке: тариф, цена картинки или «от N» за ролик. */
+  const priceCell = (kind: string, m: ModelRow) => {
+    if (kind === "image") return fluxImageCredits(m);
+    if (kind !== "video") return Number(m.markup_coefficient);
+    const id = String(m.openrouter_id ?? "");
+    if (id && !(id in videoFrom)) {
+      return (
+        <span className="font-normal text-muted-2">
+          <span aria-hidden>…</span>
+          <span className="sr-only">{t("packages.credits_price_loading", { defaultValue: "Загружаем цену" })}</span>
+        </span>
+      );
+    }
+    const from = id ? videoFrom[id] : null;
+    if (from === null) {
+      return (
+        <span className="font-normal text-muted-2" title={unavailable}>
+          <span aria-hidden>—</span>
+          <span className="sr-only">{unavailable}</span>
+        </span>
+      );
+    }
+    return t("packages.credits_from", { credits: from, defaultValue: "от {{credits}}" });
+  };
 
   return (
     <div className="lg:px-40 px-6 w-full">
@@ -129,11 +240,23 @@ export default function CreditsExplainer() {
           </p>
         </div>
 
+        {failed && (
+          <p className="text-sm text-muted-2">
+            {t("packages.credits_load_failed", {
+              defaultValue: "Цены моделей сейчас не загрузились. Точную цену вы всегда увидите перед генерацией.",
+            })}
+          </p>
+        )}
+
         {/* Тариф по моделям — отдельными таблицами: у текста и токенных картинок
-            цена за 1000 токенов, у FLUX — за картинку, у видео — за секунду. В одной
+            цена за 1000 токенов, у FLUX — за картинку, у видео — за ролик. В одной
             таблице под шапкой «за 1000 токенов» видео читалось как «Veo — 83 за 1000 токенов». */}
         {groups.map((g) => (
-          <div key={g.key} className="mt-2 overflow-hidden rounded-xl border border-border">
+          <div
+            key={g.key}
+            ref={g.key === "video" ? videoBox : undefined}
+            className="mt-2 overflow-hidden rounded-xl border border-border"
+          >
             <div className="grid grid-cols-[1fr_auto] items-center gap-2 bg-surface px-4 py-2.5 text-xs uppercase tracking-wide text-muted-2">
               <span>{g.title}</span>
               <span className="text-right">{g.unit}</span>
@@ -157,18 +280,18 @@ export default function CreditsExplainer() {
                     )}
                   </span>
                   <span className="text-right tabular-nums font-semibold text-foreground">
-                    {g.key === "image" ? fluxCreditsPerImage(m.markup_coefficient) : Number(m.markup_coefficient)}
+                    {priceCell(g.key, m)}
                   </span>
                 </li>
               ))}
             </ul>
-            {/* Тариф видео — за секунду в обычном качестве. 1080p и 4K у провайдера
-                в разы дороже, и цена ролика это учитывает — говорим заранее. */}
+            {/* Видео — «от N»: тариф модели не цена, ролик стоит по себестоимости
+                провайдера, и длиннее или в 1080p он дороже — говорим заранее. */}
             {g.key === "video" && (
               <p className="border-t border-border px-4 py-2.5 text-xs text-muted-2">
-                {t("packages.credits_video_note", {
+                {t("packages.credits_video_note_from", {
                   defaultValue:
-                    "Цена за секунду в обычном качестве (720p). Ролики в 1080p и 4K дороже — точную цену вы увидите перед съёмкой.",
+                    "«От» — самый дешёвый ролик модели: самый короткий, в самом простом качестве. Длиннее и в 1080p дороже — точную цену вы увидите перед съёмкой.",
                 })}
               </p>
             )}
