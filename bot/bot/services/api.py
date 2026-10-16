@@ -422,13 +422,25 @@ class Api:
 
     # ------------------------------------------------------------- студия ---
 
-    async def presets(self, token: str, aspect_ratio: str = "", **kw) -> dict:
-        # Формат мультфильма: в режиме цен «наценка» от него зависит цена сцены.
-        params = {"aspect_ratio": aspect_ratio} if aspect_ratio else None
+    async def presets(self, token: str, aspect_ratio: str = "", project: int | None = None,
+                      **kw) -> dict:
+        # Цена сцены зависит от мультфильма: модель, качество и длительность —
+        # его настройки, формат — его формат. С project сервер берёт всё это
+        # сам (и формат тоже), поэтому аспект из памяти бота туда не шлём: он
+        # мог устареть, если формат сменили на сайте.
+        if project:
+            params = {"project": project}
+        else:
+            params = {"aspect_ratio": aspect_ratio} if aspect_ratio else None
         return await self.request("GET", "/api/cartoon/presets/", token=token, params=params, **kw) or {}
 
     async def pricing(self, token: str, **kw) -> dict:
         return await self.request("GET", "/api/cartoon/pricing/", token=token, **kw) or {}
+
+    async def cartoon_models(self, token: str, **kw) -> dict:
+        """Модели мультстудии с ценой сцены и тем, что получит новый мультфильм."""
+        data = await self.request("GET", "/api/cartoon/models/", token=token, **kw)
+        return data if isinstance(data, dict) else {}
 
     async def characters(self, token: str, **kw) -> list:
         return _list(await self.request("GET", "/api/cartoon/characters/", token=token, **kw))
@@ -471,9 +483,12 @@ class Api:
         return await self.request("GET", "/api/cartoon/keyframes/", token=token,
                                   params={"character_id": character_id}, **kw) or {}
 
-    async def render_scene(self, token: str, scene_id: int, **kw) -> dict:
+    async def render_scene(self, token: str, scene_id: int, quoted_credits: int | None = None, **kw) -> dict:
+        # Цена с кнопки: выросла с тех пор (настройки мультфильма сменили на сайте) —
+        # сервер не снимет и ответит 409 price_changed с новой ценой.
+        body = {} if quoted_credits is None else {"quoted_credits": int(quoted_credits)}
         return await self.request("POST", f"/api/cartoon/scenes/{scene_id}/render/",
-                                  token=token, json_body={}, **kw)
+                                  token=token, json_body=body, **kw)
 
     async def patch_scene(self, token: str, scene_id: int, body: dict, **kw) -> dict:
         return await self.request("PATCH", f"/api/cartoon/scenes/{scene_id}/", token=token,

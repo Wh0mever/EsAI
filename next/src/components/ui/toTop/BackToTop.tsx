@@ -29,8 +29,8 @@ export default function BackToTopButton({ threshold = 100, className = "" }: Pro
       });
     };
 
-    // init
-    setVisible(getY() >= threshold);
+    // init — тем же кадром, что и прокрутка: setState прямо в эффекте линтер не пускает
+    onScroll();
 
     // single passive listener is enough
     window.addEventListener("scroll", onScroll, { passive: true });
@@ -57,10 +57,13 @@ export default function BackToTopButton({ threshold = 100, className = "" }: Pro
       aria-label={t("common.back_to_top", { defaultValue: "Back to top" })}
       title={t("common.back_to_top", { defaultValue: "Back to top" })}
       className={[
-        "fixed right-4 bottom-6 md:right-6 md:bottom-6 z-[1000] cursor-pointer",
+        // --esai-dock-h — высота нижнего дока мультстудии (CartoonDock): кнопка встаёт над ним.
+        // С 1280 px док уже окна, и кнопка стоит сбоку от него — поднимать незачем.
+        "fixed right-4 md:right-6 bottom-[calc(var(--esai-dock-h,0px)_+_1.5rem)] xl:bottom-6 z-[1000] cursor-pointer",
         "h-12 w-12 rounded-full border border-border",
         "bg-surface-2/80 backdrop-blur shadow-lg",
-        "transition-all duration-300",
+        // Кнопка ездит и за высотой дока (появилось сообщение) — без анимации, если её просили не показывать.
+        "transition-all duration-300 motion-reduce:transition-none",
         visible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4 pointer-events-none",
         "hover:bg-surface-3 active:scale-95 focus:outline-none focus:ring-2 focus:ring-yellow-400/60",
         "text-foreground",

@@ -41,8 +41,9 @@ _SYSTEM = (
     "then audio.\n"
     "Rules:\n"
     "- One continuous shot, no cuts, no scene changes, no new locations.\n"
-    "- Break the action into beats with timing inside the shot, e.g. \"0-2s ... 2-4s ... 4-5s ...\", "
-    "and make sure the action completes within the shot length — one clear action, not three.\n"
+    "- Break the action into beats with timing inside the shot, e.g. \"0-2s ... 2-4s ... 4-5s ...\" "
+    "for a 5-second shot (the shot length and its split are given), and make sure the action "
+    "completes within the shot length — one clear action, not three.\n"
     "- Refer to the hero by appearance (\"the grey kitten in a beige suit\"), never by a name.\n"
     "- Say exactly what the hands or paws do with the objects that are in the frame.\n"
     "- Give the facial expression and how it changes, and the camera move (push in, slow orbit, "
@@ -108,8 +109,24 @@ def _scene_action(scene, preset) -> str:
     return " ".join(p for p in parts if p)
 
 
+def beats(duration: int) -> str:
+    """Разбивка снимаемой длины на три такта: 5 с → «0-2s ... 2-4s ... 4-5s».
+
+    Пример в системном промпте — для пяти секунд; без разбивки под свою длину
+    сцену на 10–15 с режиссёр мог бы уложить в первые пять.
+    """
+    total = max(1, int(duration or 5))
+    first, second = round(total * 0.4), round(total * 0.8)
+    if not 0 < first < second < total:
+        return f"0-{total}s"
+    return f"0-{first}s ... {first}-{second}s ... {second}-{total}s"
+
+
 def compose(scene, character, preset, duration: int) -> dict:
-    """{prompt, negative} для видеомодели. Бросает DirectorFailed при неудаче."""
+    """{prompt, negative} для видеомодели. Бросает DirectorFailed при неудаче.
+
+    duration — длина, которую снимет модель (снимок сцены), а не пресета.
+    """
     dialogue = (getattr(scene, "dialogue", "") or "").strip()
     # Речь укладывается примерно в 2-3 слова в секунду: реплика длиннее — и
     # модель либо тараторит, либо обрывает её на полуслове.
@@ -117,7 +134,8 @@ def compose(scene, character, preset, duration: int) -> dict:
     payload = "\n".join([
         f"Hero: {_hero_line(character)}.",
         f"Shot: {_scene_action(scene, preset)}",
-        f"Shot length: {duration} seconds (a spoken line fits in about {budget} words).",
+        f"Shot length: {duration} seconds, beats like {beats(duration)} "
+        f"(a spoken line fits in about {budget} words).",
         (f'Line the hero says (keep verbatim, do not translate, '
          f'{len(dialogue.split())} words): "{dialogue}"') if dialogue
         else "The hero does not speak in this shot.",

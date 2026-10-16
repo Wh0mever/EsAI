@@ -33,6 +33,15 @@ type StudioPricing = {
 	scene_min: number;
 	scene_typical: number;
 	scene_max: number;
+	/** С чем снимается новый мультфильм: settings — настройки по умолчанию из админки
+	 *  (Seedance Mini 480p 5 с), preset — откат на сцены библиотеки. Цены выше — по ним. */
+	settings?: {
+		video_model: string | null;
+		model_name?: string;
+		resolution: string | null;
+		duration: number | null;
+		source: string;
+	};
 };
 
 /** Сцен в мультфильме «по умолчанию» — на них и считаем, сколько роликов выйдет. */
@@ -60,7 +69,10 @@ export default function StudioPricing() {
 	}, []);
 
 	const scene = pricing?.scene_typical || 0;
+	// «от N кр» — самая дешёвая сцена НОВОГО мультфильма (как его снимет студия).
+	const sceneFrom = pricing?.scene_min || 0;
 	const character = pricing?.character || 0;
+	const defaults = pricing?.settings?.source === "settings" ? pricing.settings : null;
 
 	return (
 		<main className="pt-80 overflow-hidden relative">
@@ -105,11 +117,16 @@ export default function StudioPricing() {
 						<div className="flex flex-col gap-1 rounded-xl bg-surface-2 p-4">
 							<FiFilm className="text-xl text-accent" />
 							<span className="text-sm text-muted">
-								{t("studio_pricing.math_scene", { defaultValue: "Сцена 5 секунд" })}
+								{defaults?.duration
+									? t("studio_pricing.math_scene_seconds", {
+											defaultValue: "Сцена {{seconds}} с",
+											seconds: defaults.duration,
+										})
+									: t("studio_pricing.math_scene", { defaultValue: "Сцена 5 секунд" })}
 							</span>
 							<span className="text-lg font-bold text-foreground">
-								{scene
-									? t("studio_pricing.credits", { count: scene, defaultValue: "{{count}} кредитов" })
+								{sceneFrom
+									? t("studio_pricing.scene_from", { defaultValue: "от {{credits}} кр", credits: sceneFrom })
 									: "—"}
 							</span>
 							<span className="text-xs text-muted-2">
@@ -117,6 +134,17 @@ export default function StudioPricing() {
 									defaultValue: "Кадр с вашим героем плюс само видео",
 								})}
 							</span>
+							{/* Чем снимается новый мультфильм — от этого и цена. В студии всё
+							    меняется в доке внизу, поэтому «от»: дороже модель — дороже сцена. */}
+							{defaults?.model_name && defaults.resolution && (
+								<span className="text-xs text-muted-2">
+									{t("studio_pricing.math_scene_settings", {
+										defaultValue: "{{model}} · {{resolution}} по умолчанию — модель, качество и длительность меняются в студии",
+										model: defaults.model_name,
+										resolution: defaults.resolution,
+									})}
+								</span>
+							)}
 						</div>
 						<div className="flex flex-col gap-1 rounded-xl bg-surface-2 p-4">
 							<FiScissors className="text-xl text-accent" />

@@ -10,6 +10,10 @@
 Переснять снимок можно только осознанно, когда legacy-цена должна поменяться:
 PRICING_GOLDEN_WRITE=1 python manage.py test ai.tests_pricing_golden
 --settings=core.settings_sqlitetest
+
+16.10.2026 (сборка C): /api/cartoon/pricing/ считает сцену нового мультфильма — с
+настройками по умолчанию (Mini 480p 5 с), как её и снимут; снимок переснят осознанно,
+поменялись только числа cartoon_pricing и добавился блок settings.
 """
 from __future__ import annotations
 

@@ -285,9 +285,17 @@
    "data": {
     "assembly": 0,
     "character": 4,
-    "scene_max": 445,
+    "scene_max": 37,
     "scene_min": 37,
-    "scene_typical": 149
+    "scene_typical": 37,
+    "settings": {
+     "aspect_ratio": "16:9",
+     "duration": 5,
+     "model_name": "Seedance Mini",
+     "resolution": "480p",
+     "source": "settings",
+     "video_model": "bytedance/seedance-2.0-mini"
+    }
    },
    "status": 200
   },
@@ -4024,9 +4032,17 @@
      "data": {
       "assembly": 0,
       "character": 4,
-      "scene_max": 445,
+      "scene_max": 37,
       "scene_min": 37,
-      "scene_typical": 149
+      "scene_typical": 37,
+      "settings": {
+       "aspect_ratio": "16:9",
+       "duration": 5,
+       "model_name": "Seedance Mini",
+       "resolution": "480p",
+       "source": "settings",
+       "video_model": "bytedance/seedance-2.0-mini"
+      }
      },
      "status": 200
     }
@@ -4218,9 +4234,17 @@
      "data": {
       "assembly": 0,
       "character": 4,
-      "scene_max": 445,
-      "scene_min": 81,
-      "scene_typical": 120
+      "scene_max": 100,
+      "scene_min": 100,
+      "scene_typical": 100,
+      "settings": {
+       "aspect_ratio": "16:9",
+       "duration": 5,
+       "model_name": "Seedance Mini",
+       "resolution": "480p",
+       "source": "settings",
+       "video_model": "bytedance/seedance-2.0-mini"
+      }
      },
      "status": 200
     }
@@ -4412,9 +4436,17 @@
      "data": {
       "assembly": 0,
       "character": 4,
-      "scene_max": 592,
-      "scene_min": 100,
-      "scene_typical": 200
+      "scene_max": 200,
+      "scene_min": 200,
+      "scene_typical": 200,
+      "settings": {
+       "aspect_ratio": "16:9",
+       "duration": 5,
+       "model_name": "Seedance Mini",
+       "resolution": "480p",
+       "source": "settings",
+       "video_model": "bytedance/seedance-2.0-mini"
+      }
      },
      "status": 200
     }

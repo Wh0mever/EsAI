@@ -10,19 +10,64 @@ import { getOrCreateDeviceKey } from "@/tools/deviceKey";
 import {
   MAX_DRAFT_SCENES,
   clearDraft,
+  draftDock,
   emptyDraft,
+  importBody,
   loadDraft,
   newSceneKey,
   recallProject,
   rememberProject,
   saveDraft,
+  type DraftScene,
   type StudioDraft,
 } from "@/lib/studioDraft";
 import SaveMediaButton from "@/components/ui/SaveMediaButton";
 import ShareButtons from "@/components/ui/ShareButtons";
 import { StudioAuthDialog, StudioPaywallDialog } from "./StudioDialogs";
 import CharacterPicker, { type StudioCharacter } from "./CharacterPicker";
-import SceneTimeline, { type StudioScene } from "./SceneTimeline";
+import SceneTimeline, { type SceneDurationChoice, type SceneNote, type StudioScene } from "./SceneTimeline";
+import CartoonDock from "./CartoonDock";
+import {
+  DEFAULT_ASPECT,
+  DOCK_RU,
+  adjustedNotices,
+  alreadyShot,
+  cardEstimate,
+  clampDuration,
+  clampSceneDurations,
+  completeDock,
+  configLabel,
+  displayDefaults,
+  dockBody,
+  dockPatch,
+  durationChoices,
+  explicitDefaults,
+  findModel,
+  guestRowPrice,
+  modelLabel,
+  presetsQuery,
+  priceChanged,
+  quoteBody,
+  refusalText,
+  reshootDurationQuestion,
+  retryBody,
+  sameDock,
+  sanitizeDock,
+  serialQueue,
+  settlePriceNotes,
+  switchModel,
+  timelineTotal,
+  withDuration,
+  withResolution,
+  type AdjustedNote,
+  type CartoonModels,
+  type DockEffective,
+  type DockField,
+  type DockNotice,
+  type DockSettings,
+  type DockTextKey,
+  type SceneConfig,
+} from "./dockLogic";
 import SceneAudioDialog, { type AudioConfig } from "./SceneAudioDialog";
 import VoiceAllDialog, { type VoicePlan } from "./VoiceAllDialog";
 import { apiLang } from "@/lib/apiLang";
@@ -31,9 +76,10 @@ import { apiLang } from "@/lib/apiLang";
  * CartoonStudio — студия мультфильмов: персонаж → сцены → таймлайн → готовый
  * ролик.
  *
- * Замысел клиента: человек не пишет промпты и не выбирает видео-модели. Он
- * берёт героя, набирает готовые сцены и жмёт «Собрать мультфильм». Всё, что
- * влияет на результат, спрятано в пресетах и правится в админке.
+ * Замысел клиента: человек не пишет промпты. Он берёт героя, набирает готовые
+ * сцены и жмёт «Собрать мультфильм». Модель, качество и длительность он может
+ * сменить внизу, в доке (по умолчанию — самая дешёвая сцена: Seedance Mini в
+ * 480p); остальное спрятано в пресетах и правится в админке.
  *
  * Пока хоть одна сцена считается, состояние проекта опрашивается раз в 4
  * секунды. Опрос останавливается, как только считать нечего — иначе вкладка
@@ -75,6 +121,14 @@ type Project = {
   scenes: StudioScene[];
   credits_spent: number;
   created_at?: string;
+  /** Док мультфильма: свои модель, качество, длительность; null — как в сцене библиотеки. */
+  video_model?: string | null;
+  resolution?: string | null;
+  duration?: number | null;
+  /** Что показывает док: свои значения, пустые — по «типичной сцене». */
+  effective?: DockEffective | null;
+  /** Что сервер подогнал к модели сам (только в ответе на правку). */
+  adjusted?: AdjustedNote[];
   /** Идёт озвучка всего мультфильма: сколько реплик готово из скольких. */
   voicing?: {
     done: number;
@@ -92,6 +146,23 @@ type ApiRefusal = { detail?: string; required?: number; balance?: number } | nul
 
 /** Сколько сцен показываем за раз. Шесть — просьба клиента, ради медленного интернета. */
 const PAGE_SIZE = 6;
+
+/** Что сервер подогнал в ответе мультфильма (adjusted) — сообщениями дока. */
+function serverNotices(p: Project): DockNotice[] {
+  const order = [...p.scenes].sort((a, b) => a.order - b.order).map((s) => s.id);
+  return adjustedNotices(p.adjusted, p.effective?.model_name ?? "", (id) => {
+    const at = order.indexOf(id);
+    return at < 0 ? null : at;
+  });
+}
+
+/** Своя длительность сцены черновика: null — убрать (по умолчанию). */
+function withSceneDuration(s: DraftScene, value: number | null): DraftScene {
+  const next: DraftScene = { ...s };
+  if (value == null) delete next.duration;
+  else next.duration = value;
+  return next;
+}
 
 // Ссылка на видеостудию — по тому же правилу, что пункт меню сайта
 // (components/main/Nav.tsx): только в сборке, где студия открыта всем.
@@ -189,10 +260,76 @@ export default function CartoonStudio() {
   // Формат, под который запрошены кадры героев: ответ, пришедший для прежнего
   // формата, выкидываем — иначе в вертикальную ленту встали бы горизонтальные кадры.
   const aspectRef = useRef<string | null>(null);
-  // Цены сцен витрины считаются под формат мультфильма (в режиме цен «наценка»
-  // квадрат дешевле 16:9): под какой формат посчитан список и какой нужен сейчас.
-  const [pricedAspect, setPricedAspect] = useState<string | null>(null);
-  const priceAspectRef = useRef("16:9");
+  // Цены сцен витрины считаются под формат и настройки дока (в режиме цен
+  // «наценка» квадрат дешевле 16:9, Mini дешевле 2.0): под что посчитан список.
+  const [pricedKey, setPricedKey] = useState<string | null>(null);
+  // Док: модели с ценами сцен, сообщения «подогнали значение» и выбор, который
+  // ещё едет на сервер (до ответа док показывает его, а не прежний).
+  const [models, setModels] = useState<CartoonModels | null>(null);
+  const [modelsError, setModelsError] = useState(false);
+  const [notices, setNotices] = useState<DockNotice[]>([]);
+  const [dockPending, setDockPending] = useState<{ projectId: number; settings: DockSettings } | null>(null);
+  const dockSeq = useRef(0);
+  // Правки мультфильма (док, формат) уходят строго по одной: ответы приходят в
+  // том же порядке, последний — это и есть итог на сервере, ни один не теряется.
+  // Пока что-то едет, кнопки дока заняты (savingProject — id мультфильма).
+  const [enqueuePatch] = useState(serialQueue);
+  const inFlight = useRef(0);
+  // Сколько ответов правок уже легло на экран: опрос, ушедший до правки, их не затирает.
+  const patchEpoch = useRef(0);
+  const [savingProject, setSavingProject] = useState<number | null>(null);
+  // Отказ на правку дока или формата — показывается в самом доке.
+  const [dockError, setDockError] = useState("");
+  // Отказы и подсказки у строк ленты (по id сцены): «цена изменилась», «уже
+  // снята», «не сохранилось» — там, где человек нажал, а не вверху страницы.
+  const [sceneNotes, setSceneNotes] = useState<Record<number, SceneNote>>({});
+  const dismissNotices = useCallback(() => setNotices([]), []);
+  const dt = (key: DockTextKey, params?: Record<string, string | number>) =>
+    t(key, { defaultValue: DOCK_RU[key], ...(params || {}) });
+  /** «Seedance Mini · 480p · 5 с». */
+  const cfgText = (c: SceneConfig) =>
+    [configLabel(c), dt("studio_ui.dock_seconds", { n: c.duration })].filter(Boolean).join(" · ");
+  /** «Цена изменилась: теперь N кр…» на языке человека; без числа — текст сервера. */
+  const priceChangedText = (changed: { credits: number | null }, d: ApiRefusal, retry = false) =>
+    changed.credits != null
+      ? dt(retry ? "studio_ui.scene_price_changed_retry" : "studio_ui.scene_price_changed", { credits: changed.credits })
+      : d?.detail || dt("studio_ui.scene_save_failed");
+  /** Отказ сервера на языке человека: по-русски — его текст, иначе — по error_code.
+   *  keepDetail — код незнакомый: текст сервера (почему отказали), а не общий. */
+  const refusalMessage = (body: unknown, fallback: DockTextKey, keepDetail = false) => {
+    const r = refusalText(i18n.language, body, fallback, keepDetail);
+    return r.detail ?? dt(r.key);
+  };
+  /** Сообщение у строки ленты; null — убрать. price — у «Цена изменилась»: N из текста. */
+  const noteScene = (id: number, text: string | null, tone: SceneNote["tone"] = "error", price?: number | null) =>
+    setSceneNotes((prev) => {
+      const next = { ...prev };
+      if (text) next[id] = price === undefined ? { text, tone } : { text, tone, price };
+      else delete next[id];
+      return next;
+    });
+  /** Цены строк перечитаны: «Цена изменилась: теперь N кр» у строк с другой ценой уходит.
+   *  saved — это ответ сохранённой правки дока или формата. */
+  const settleNotes = useCallback(
+    (fresh: Project, saved: boolean) => setSceneNotes((prev) => settlePriceNotes(prev, fresh.scenes, saved)),
+    []
+  );
+  /** PATCH мультфильма в общую очередь; пока что-то едет, док занят. fetchData не
+   *  бросает (сбой сети — ok: false), поэтому счётчик всегда возвращается к нулю.
+   *  dock: false — правка не из дока (название): в очереди, но кнопки дока не заняты. */
+  const patchProject = async (id: number, body: Record<string, unknown>, dock = true) => {
+    if (dock) {
+      inFlight.current += 1;
+      setSavingProject(id);
+    }
+    const res = await enqueuePatch(() => fetchData<Project>(`cartoon/projects/${id}/`, "PATCH", body, true));
+    if (dock) {
+      inFlight.current -= 1;
+      if (!inFlight.current) setSavingProject(null);
+    }
+    if (res.ok) patchEpoch.current += 1;
+    return res;
+  };
 
   useEffect(() => {
     // Системная просьба «меньше движения» и режим экономии трафика — повод не
@@ -232,23 +369,26 @@ export default function CartoonStudio() {
   // 1:1 для ленты — и один на всю серию, чтобы сцены склеились ровно.
   const aspect = project?.aspect_ratio || draft?.aspect_ratio || "16:9";
 
-  /** Сменить формат: у проекта — на сервере, у гостя — в черновике. */
+  /** Сменить формат: у проекта — на сервере (в общей очереди правок), у гостя — в черновике. */
   const setAspect = async (value: string) => {
     if (value === aspect) return;
     if (!authed || !project) {
       updateDraft((d) => ({ ...d, aspect_ratio: value }));
       return;
     }
-    setError("");
-    const res = await fetchData<Project>(
-      `cartoon/projects/${project.id}/`, "PATCH", { aspect_ratio: value }, true
-    );
+    const id = project.id;
+    setDockError("");
+    const res = await patchProject(id, { aspect_ratio: value });
     if (res.ok && res.data) {
-      if (currentIdRef.current === res.data.id) showProject(res.data);
-      setProjects((prev) => prev.map((x) => (x.id === res.data!.id ? res.data! : x)));
-    } else {
-      setError((res.data as any)?.detail || t("studio_ui.err_scene"));
+      const fresh = res.data;
+      if (currentIdRef.current === fresh.id) {
+        showProject(fresh);
+        settleNotes(fresh, true);
+      }
+      setProjects((prev) => prev.map((x) => (x.id === fresh.id ? fresh : x)));
+      return;
     }
+    if (currentIdRef.current === id) setDockError(refusalMessage(res.data, "studio_ui.dock_save_failed"));
   };
 
   // Готовые кадры героев. Их отдают бесплатно, поэтому подставляем сразу и
@@ -331,11 +471,18 @@ export default function CartoonStudio() {
   /** Примерка из ленты: герой — тот, что закреплён за сценой, а не выбранный сейчас. */
   const tryOnTimelineScene = async (scene: StudioScene) => {
     if (!scene.character) return;
-    await tryOnPair(scene.preset.id, scene.character.id);
+    // У гостя заметок у строк нет (лента из черновика) — его отказ, как раньше, вверху.
+    if (!authed) {
+      await tryOnPair(scene.preset.id, scene.character.id);
+      return;
+    }
+    noteScene(scene.id, null);
+    await tryOnPair(scene.preset.id, scene.character.id, scene.id);
   };
 
-  /** Кадр «этот герой в этой сцене». Потом он же пойдёт первым кадром съёмки. */
-  const tryOnPair = async (presetId: number, heroId: number) => {
+  /** Кадр «этот герой в этой сцене». Потом он же пойдёт первым кадром съёмки.
+   *  rowId — примеряли у строки ленты: отказ показываем у неё, а не вверху страницы. */
+  const tryOnPair = async (presetId: number, heroId: number, rowId: number | null = null) => {
     const preset = { id: presetId };
     const wanted = aspect;
     trackFunnel("studio_tryon", { preset_id: preset.id, authed });
@@ -365,8 +512,11 @@ export default function CartoonStudio() {
     }
     if (d?.required) {
       openPaywall({ required: Number(d.required), balance: Number(d.balance ?? 0), kind: "character" });
+    } else if (rowId != null) {
+      // С телефона блок ошибки вверху страницы не виден — отказ рядом с кнопкой.
+      noteScene(rowId, refusalMessage(d, "studio_ui.err_tryon", true));
     } else {
-      setError(d?.detail || t("studio_ui.err_tryon"));
+      setError(refusalMessage(d, "studio_ui.err_tryon", true));
     }
   };
 
@@ -452,17 +602,19 @@ export default function CartoonStudio() {
       // Язык нужен серверу: названия сцен и героев лежат в базе и переводятся
       // там же, поэтому витрина просит их сразу на нужном языке.
       const lang = apiLang(i18n.language);
-      const pricedFor = priceAspectRef.current;
+      // Первый показ — по пресетам, как раньше: настройки дока станут известны
+      // чуть позже (модели, мультфильм), и витрина перезапросится под них сама.
+      const first = presetsQuery({ lang, aspect: DEFAULT_ASPECT });
       const [p, c, mine] = await Promise.all([
         fetchData<{ categories: Category[]; presets: Preset[]; popular: string[] }>(
-          `cartoon/presets/?lang=${lang}&aspect_ratio=${encodeURIComponent(pricedFor)}`, "GET", null, true),
+          `cartoon/presets/?${first.query}`, "GET", null, true),
         fetchData<StudioCharacter[]>(`cartoon/characters/?lang=${lang}`, "GET", null, true),
         fetchData<Project[]>(`cartoon/projects/?lang=${lang}`, "GET", null, true),
       ]);
       if (!alive) return;
       if (p.ok && p.data) {
         setPresets(p.data.presets || []);
-        setPricedAspect(pricedFor);
+        setPricedKey(first.key);
         setCategories(p.data.categories || []);
         setPopular(p.data.popular || []);
       }
@@ -504,29 +656,26 @@ export default function CartoonStudio() {
         // черновик останется в браузере, и перенос повторится при следующем
         // открытии (сервер по ключу черновика второго проекта не заведёт).
         try {
-          const res = await fetchData<Project>("cartoon/projects/import/", "POST", {
-            draft_id: saved.id,
-            character_id: saved.character_id,
-            aspect_ratio: saved.aspect_ratio || "16:9",
-            scenes: saved.scenes.map((s) => ({
-              preset_id: s.preset_id,
-              character_id: s.character_id,
-              // Своя сцена переезжает вместе с описанием, иначе она пропала бы.
-              ...(s.custom_text ? { custom_text: s.custom_text } : {}),
-              // Реплика героя тоже едет: её человек уже написал.
-              ...(s.dialogue ? { dialogue: s.dialogue } : {}),
-            })),
-          }, true);
+          // Сцены, реплики, формат и выбранные в доке настройки — одним запросом.
+          const res = await fetchData<Project>("cartoon/projects/import/", "POST", importBody(saved), true);
           if (!alive) return;
           if (res.ok && res.data) {
             const fresh = res.data;
             imported = fresh;
             clearDraft();
             setProjects((prev) => [fresh, ...prev.filter((x) => x.id !== fresh.id)]);
+            // Черновик устарел (модель выключили, длительность другая) — сервер
+            // взял ближайшее: говорим об этом, а не меняем молча.
+            const notes = serverNotices(fresh);
+            if (notes.length) setNotices(notes);
           }
         } catch {
           // тихо: остаёмся на обычном открытии студии
         }
+      } else if (saved && !saved.scenes.length) {
+        // Гость выбрал в доке модель, качество или формат, но сцен ещё не набрал: этот
+        // выбор не теряем — с ним заведётся первый мультфильм (ensureProject).
+        setDraft(saved);
       } else if (saved) {
         clearDraft();
       }
@@ -558,25 +707,76 @@ export default function CartoonStudio() {
     };
   }, [loadBalance, i18n.language, showProject, t]);
 
-  // Мультфильм открыли или переключили в другой формат, а витрина посчитана под
-  // прежний — перезапрашиваем цены сцен под нынешний.
+  // Модели дока с ценами сцен. Открыты всем: гость видит цены до входа.
+  // modelsTry — «Повторить» на кнопке модели, если список не пришёл.
+  const [modelsTry, setModelsTry] = useState(0);
   useEffect(() => {
-    priceAspectRef.current = aspect;
-    if (pricedAspect === null || pricedAspect === aspect) return;
     let alive = true;
     void (async () => {
-      const res = await fetchData<{ presets: Preset[] }>(
-        `cartoon/presets/?lang=${apiLang(i18n.language)}&aspect_ratio=${encodeURIComponent(aspect)}`,
-        "GET", null, true
-      );
-      if (!alive || !res.ok || !res.data) return;
-      setPresets(res.data.presets || []);
-      setPricedAspect(aspect);
+      const res = await fetchData<CartoonModels>("cartoon/models/", "GET", null, true);
+      if (!alive) return;
+      if (res.ok && res.data && Array.isArray(res.data.models)) {
+        setModels(res.data);
+        setModelsError(false);
+      } else {
+        setModelsError(true);
+      }
     })();
     return () => {
       alive = false;
     };
-  }, [aspect, pricedAspect, i18n.language]);
+  }, [modelsTry]);
+
+  // --- док: модель, качество, длительность ---
+  const modelList = models?.models ?? null;
+  // Мультфильма ещё нет (гость или новый) — настройки живут в черновике.
+  const local = !authed || !project;
+  // Выбранное в доке до мультфильма (черновик) — под нынешний список моделей.
+  const chosen = sanitizeDock(draftDock(draft), modelList);
+  // Чем снимутся сцены без мультфильма: выбранное, иначе — значения по умолчанию из админки.
+  const localExplicit = chosen ?? explicitDefaults(models);
+  const pending = project && dockPending?.projectId === project.id ? dockPending.settings : null;
+  // Док или формат едут на сервер — цены строк ещё прежние: «Снять» ждёт новую цену.
+  const repricing = Boolean(pending) || (project != null && savingProject === project.id);
+  const projectSaved = project ? completeDock(project) : null;
+  const effective = project?.effective ?? null;
+  const dockShown: DockSettings | null = local
+    ? localExplicit ?? displayDefaults(models)
+    : pending ??
+      (effective
+        ? { video_model: effective.video_model, resolution: effective.resolution, duration: effective.duration }
+        : displayDefaults(models));
+  const dockModel = findModel(modelList, dockShown?.video_model);
+  const want = presetsQuery({
+    lang: apiLang(i18n.language),
+    aspect,
+    projectId: local ? null : project?.id ?? null,
+    saved: project
+      ? { video_model: project.video_model ?? null, resolution: project.resolution ?? null, duration: project.duration ?? null }
+      : null,
+    explicit: local ? localExplicit : null,
+  });
+  // Витрина посчитана под нынешние формат и настройки — её числа и показываем.
+  const cardsFresh = pricedKey === want.key;
+  const estimateDock = local ? localExplicit : pending ?? projectSaved;
+  const estimateModel = findModel(modelList, estimateDock?.video_model);
+
+  // Сменились формат, настройки дока или открытый мультфильм — перезапрашиваем
+  // цены витрины. Пауза — человек щёлкает значения подряд.
+  useEffect(() => {
+    if (pricedKey === null || pricedKey === want.key) return;
+    let alive = true;
+    const timer = window.setTimeout(async () => {
+      const res = await fetchData<{ presets: Preset[] }>(`cartoon/presets/?${want.query}`, "GET", null, true);
+      if (!alive || !res.ok || !res.data) return;
+      setPresets(res.data.presets || []);
+      setPricedKey(want.key);
+    }, 250);
+    return () => {
+      alive = false;
+      window.clearTimeout(timer);
+    };
+  }, [want.key, want.query, pricedKey]);
 
   useEffect(() => {
     void (async () => {
@@ -588,14 +788,26 @@ export default function CartoonStudio() {
   // Опрос, пока что-то считается. adopt — открыть именно этот мультфильм;
   // без него ответ по мультфильму, который уже не открыт, экран не трогает.
   const refresh = useCallback(async (id: number, adopt = false) => {
-    const res = await fetchData<Project>(`cartoon/projects/${id}/`, "GET", null, true);
-    if (res.ok && res.data) {
+    const read = async () => {
+      const epoch = patchEpoch.current;
+      const res = await fetchData<Project>(`cartoon/projects/${id}/`, "GET", null, true);
+      return { res, stale: epoch !== patchEpoch.current };
+    };
+    // Пока шёл запрос, на экран лёг ответ правки дока или формата: это чтение
+    // могло уйти раньше правки — не затираем её прежними настройками, читаем ещё раз.
+    let got = await read();
+    for (let attempt = 0; attempt < 2 && got.stale && !adopt && got.res.ok; attempt++) got = await read();
+    const res = got.res;
+    if (res.ok && res.data && (adopt || !got.stale)) {
       const fresh = res.data;
-      if (adopt || currentIdRef.current === fresh.id) showProject(fresh);
+      if (adopt || currentIdRef.current === fresh.id) {
+        showProject(fresh);
+        settleNotes(fresh, false);
+      }
       setProjects((prev) => prev.map((x) => (x.id === fresh.id ? fresh : x)));
     }
     return res.data || null;
-  }, [showProject]);
+  }, [showProject, settleNotes]);
 
   useEffect(() => {
     const busy =
@@ -625,9 +837,12 @@ export default function CartoonStudio() {
   const ensureProject = useCallback(async (): Promise<Project | null> => {
     if (project) return project;
     if (!character) return null;
+    // Док трогали до первой сцены — мультфильм заводится сразу с этими
+    // настройками; не трогали — сервер даст значения по умолчанию.
+    const dock = sanitizeDock(draftDock(draft), modelList);
     const res = await fetchData<Project>(
       "cartoon/projects/", "POST",
-      { character_id: character.id, aspect_ratio: aspect }, true
+      { character_id: character.id, aspect_ratio: aspect, ...(dock ? dockBody(dock) : {}) }, true
     );
     if (res.ok && res.data) {
       showProject(res.data);
@@ -638,7 +853,7 @@ export default function CartoonStudio() {
     return null;
     // Формат — в зависимостях: без него новый мультфильм заводился в
     // прежнем формате, выбранном до переключения.
-  }, [project, character, aspect, t, showProject]);
+  }, [project, character, aspect, draft, modelList, t, showProject]);
 
   // Открытый мультфильм запоминаем: после оплаты и входа студия откроет его же.
   useEffect(() => {
@@ -709,20 +924,37 @@ export default function CartoonStudio() {
   const renderScene = async (scene: StudioScene) => {
     if (!project) return;
     trackFunnel("studio_render_click", { authed: true, scene_id: scene.id });
+    noteScene(scene.id, null);
     markBusy(scene.id, true);
+    // Цена с кнопки: выросла с тех пор (док сменили в другой вкладке или в боте,
+    // модель выключили) — сервер не снимет и вернёт новую.
     const res = await fetchData<StudioScene>(
-      `cartoon/scenes/${scene.id}/render/`, "POST", {}, true
+      `cartoon/scenes/${scene.id}/render/`, "POST", quoteBody(scene.render_credits), true
     );
-    markBusy(scene.id, false);
     if (res.ok) {
+      // Строка свободна, когда уже показывает «снимается»: иначе на один запрос
+      // «Снять» снова жалось бы.
       await refresh(project.id);
+      markBusy(scene.id, false);
       return;
     }
-    const d = res.data as any;
-    if (d?.required) {
+    markBusy(scene.id, false);
+    const d = res.data as ApiRefusal;
+    const changed = priceChanged(res.status, d);
+    if (changed) {
+      // Ничего не снято и не списано: новая цена — в строке, просьба нажать ещё раз — рядом.
+      noteScene(scene.id, priceChangedText(changed, d), "error", changed.credits);
+      await refresh(project.id);
+    } else if (alreadyShot(res.status, d)) {
+      // Строка устарела: сцену уже сняли в другой вкладке или в боте. Второй съёмки
+      // нет — показываем готовую сцену, переснять её можно подписанной кнопкой.
+      noteScene(scene.id, dt("studio_ui.scene_already_shot"), "info");
+      await refresh(project.id);
+    } else if (d?.required) {
       openPaywall({ required: Number(d.required), balance: Number(d.balance ?? 0) });
     } else {
-      setError(d?.detail || t("studio_ui.err_scene"));
+      // «Цены нет», «обновите страницу» — на языке человека, а не русским текстом сервера.
+      noteScene(scene.id, refusalMessage(d, "studio_ui.scene_save_failed", true));
     }
   };
 
@@ -815,7 +1047,7 @@ export default function CartoonStudio() {
       return;
     }
     setFramingId(scene.id);
-    setError("");
+    noteScene(scene.id, null);
     const res = await fetchData<StudioScene>(`cartoon/scenes/${scene.id}/frame/`, "POST", {}, true);
     setFramingId(null);
     if (res.ok) {
@@ -823,11 +1055,12 @@ export default function CartoonStudio() {
       void loadBalance();
       return;
     }
-    const d = res.data as any;
+    const d = res.data as ApiRefusal;
     if (d?.required) {
       openPaywall({ required: Number(d.required), balance: Number(d.balance ?? 0), kind: "character" });
     } else {
-      setError(d?.detail || t("studio_ui.err_tryon"));
+      // Кадр жали у строки ленты — и отказ там же.
+      noteScene(scene.id, refusalMessage(d, "studio_ui.err_tryon", true));
     }
   };
 
@@ -852,7 +1085,9 @@ export default function CartoonStudio() {
     if (!project) return;
     const title = value.replace(/\s+/g, " ").trim().slice(0, 140);
     if (!title || title === project.title) return;
-    const res = await fetchData<Project>(`cartoon/projects/${project.id}/`, "PATCH", { title }, true);
+    // В общей очереди правок: ответ — мультфильм целиком, и пришедший после ответа
+    // правки дока он вернул бы на экран прежние настройки.
+    const res = await patchProject(project.id, { title }, false);
     if (res.ok && res.data) {
       if (currentIdRef.current === res.data.id) showProject(res.data);
       setProjects((prev) => prev.map((x) => (x.id === res.data!.id ? res.data! : x)));
@@ -864,11 +1099,12 @@ export default function CartoonStudio() {
   /** Реплика героя: её играет модель в кадре и ею же озвучивается сцена. */
   const setSceneDialogue = async (scene: StudioScene, text: string) => {
     if (!project) return;
+    noteScene(scene.id, null);
     markBusy(scene.id, true);
     const res = await fetchData(`cartoon/scenes/${scene.id}/`, "PATCH", { dialogue: text }, true);
     markBusy(scene.id, false);
     if (!res.ok) {
-      setError((res.data as any)?.detail || t("studio_ui.err_scene"));
+      noteScene(scene.id, refusalMessage(res.data, "studio_ui.scene_save_failed"));
       return;
     }
     await refresh(project.id);
@@ -884,12 +1120,13 @@ export default function CartoonStudio() {
   /** Нарисовать кадр сцены заново: прежний не понравился или вышел не тот герой. */
   const redrawFrame = async (scene: StudioScene) => {
     if (!project) return;
+    noteScene(scene.id, null);
     markBusy(scene.id, true);
     const res = await fetchData(`cartoon/scenes/${scene.id}/`, "PATCH",
                                 { new_keyframe: true }, true);
     markBusy(scene.id, false);
     if (!res.ok) {
-      setError((res.data as any)?.detail || t("studio_ui.err_scene"));
+      noteScene(scene.id, refusalMessage(res.data, "studio_ui.scene_save_failed"));
       return;
     }
     // Кадра больше нет — сразу рисуем новый, чтобы человек не искал кнопку.
@@ -901,11 +1138,12 @@ export default function CartoonStudio() {
   /** Поставить на сцену другого героя. Работает, пока сцена не снята. */
   const setSceneCharacter = async (scene: StudioScene, characterId: number) => {
     if (!project) return;
+    noteScene(scene.id, null);
     markBusy(scene.id, true);
     const res = await fetchData(`cartoon/scenes/${scene.id}/`, "PATCH",
                                 { character_id: characterId }, true);
     markBusy(scene.id, false);
-    if (!res.ok) setError((res.data as ApiRefusal)?.detail || t("studio_ui.err_scene"));
+    if (!res.ok) noteScene(scene.id, refusalMessage(res.data, "studio_ui.scene_save_failed"));
     await refresh(project.id);
   };
 
@@ -929,14 +1167,18 @@ export default function CartoonStudio() {
   };
 
   /** Переснять сцену. Готовую — только после подтверждения с ценой: это
-   *  ~160 кредитов, а значок ↻ легко задеть случайно. */
+   *  ~160 кредитов, а кнопку легко задеть случайно. */
   const retryScene = async (scene: StudioScene) => {
     if (!project) return;
+    // Цена на кнопке (у готовой — и в вопросе): с ней и уходит запрос.
+    const credits = scene.render_credits ?? scene.preset.credits;
     if (scene.status === "ready") {
       // Цены нет (себестоимость модели неизвестна) — «спишется 0 кр.» было бы
       // неправдой: спрашиваем без суммы, сервер сам откажет и ничего не спишет.
-      const credits = scene.render_credits ?? scene.preset.credits;
-      const question = credits != null
+      // Пересъёмка идёт с нынешними настройками дока — их и называем рядом с ценой.
+      const question = credits != null && scene.config
+        ? dt("studio_ui.reshoot_confirm_cfg", { credits, config: cfgText(scene.config) })
+        : credits != null
         ? t("studio_ui.reshoot_confirm", {
             defaultValue: "Переснять сцену заново? Спишется {{credits}} кр., нынешний ролик заменится новым.",
             credits,
@@ -946,26 +1188,201 @@ export default function CartoonStudio() {
           });
       if (!window.confirm(question)) return;
     }
-    setError("");
+    noteScene(scene.id, null);
     markBusy(scene.id, true);
-    const res = await fetchData<StudioScene>(`cartoon/scenes/${scene.id}/`, "PATCH", { retry: true }, true);
-    markBusy(scene.id, false);
+    // С состоянием строки: у «ошибки» не спрашиваем, и если сцену с тех пор пересняли
+    // (другая вкладка, бот), сервер готовый ролик не заменит.
+    const res = await fetchData<StudioScene>(
+      `cartoon/scenes/${scene.id}/`, "PATCH", retryBody(credits, scene.status), true
+    );
     if (!res.ok) {
-      // Как у «Снять»: не хватает кредитов — окно покупки, а не тишина.
+      // Как у «Снять»: не хватает кредитов — окно покупки, а не тишина;
+      // цена выросла — новая цена у строки, ничего не снято.
       const d = res.data as ApiRefusal;
-      if (d?.required) openPaywall({ required: Number(d.required), balance: Number(d.balance ?? 0) });
-      else setError(d?.detail || t("studio_ui.err_scene"));
+      const changed = priceChanged(res.status, d);
+      if (changed) noteScene(scene.id, priceChangedText(changed, d, true), "error", changed.credits);
+      else if (alreadyShot(res.status, d)) noteScene(scene.id, dt("studio_ui.scene_already_shot"), "info");
+      else if (d?.required) openPaywall({ required: Number(d.required), balance: Number(d.balance ?? 0) });
+      else noteScene(scene.id, refusalMessage(d, "studio_ui.scene_save_failed", true));
     }
+    // Строка свободна, только когда показывает новое состояние: иначе на один запрос
+    // она жила бы с прежними ценой и кнопками.
     await refresh(project.id);
+    markBusy(scene.id, false);
+  };
+
+  /**
+   * Док поменяли: у мультфильма — на сервере, без мультфильма — в черновике.
+   * field — что человек тронул: у мультфильма без своих настроек уходит только оно
+   * (dockPatch), и длительности сцен из библиотеки не становятся одной молча.
+   */
+  const applyDock = async (next: DockSettings, notes: DockNotice[], field: DockField) => {
+    if (sameDock(next, dockShown) && !notes.length) return;
+    setDockError("");
+    if (local) {
+      // Свои длительности сцен черновика — под новую модель, как сервер делает у мультфильма.
+      const durations = findModel(modelList, next.video_model)?.caps.durations || [];
+      setNotices([...notes, ...clampSceneDurations(draft?.scenes ?? [], durations).notices]);
+      updateDraft((d) => ({ ...d, ...next, scenes: clampSceneDurations(d.scenes, durations).scenes }));
+      return;
+    }
+    if (!project) return;
+    const id = project.id;
+    const seq = ++dockSeq.current;
+    setNotices(notes);
+    setDockPending({ projectId: id, settings: next });
+    const res = await patchProject(id, dockPatch(project, next, field));
+    // Ответы идут по очереди, каждый — состояние сервера после своей правки: берём
+    // каждый, а «едет на сервер» снимаем с последним.
+    if (seq === dockSeq.current) setDockPending(null);
+    const current = currentIdRef.current === id;
+    if (res.ok && res.data) {
+      const fresh = res.data;
+      if (current) {
+        showProject(fresh);
+        // У строк новые цены: «Цена изменилась: теперь N кр» с прежним N уходит.
+        settleNotes(fresh, true);
+      }
+      setProjects((prev) => prev.map((x) => (x.id === fresh.id ? fresh : x)));
+      // Свои длительности сцен, которых новая модель не умеет, сервер подогнал сам.
+      const more = serverNotices(fresh);
+      if (current && more.length) setNotices((prev) => [...prev, ...more]);
+      return;
+    }
+    if (!current) return;
+    // Не сохранилось: сообщения «подогнали значение» больше не о чём.
+    setNotices([]);
+    setDockError(refusalMessage(res.data, "studio_ui.dock_save_failed"));
+    // Состояние сервера — через ту же очередь, после всех правок.
+    void enqueuePatch(() => refresh(id));
+  };
+
+  const pickDockModel = (id: string) => {
+    if (!modelList) return;
+    const change = switchModel(modelList, dockShown, id);
+    if (change) void applyDock(change.settings, change.notices, "video_model");
+  };
+
+  const pickDockResolution = (value: string) => {
+    const next = modelList && dockShown ? withResolution(modelList, dockShown, value) : null;
+    if (next) void applyDock(next, [], "resolution");
+  };
+
+  const pickDockDuration = (value: number) => {
+    const next = modelList && dockShown ? withDuration(modelList, dockShown, value) : null;
+    if (next) void applyDock(next, [], "duration");
+  };
+
+  /**
+   * Снятая сцена, другая длительность. Сохраняем длительность и берём у
+   * сервера цену новой съёмки (ровно ту, что спишет «Снять»), спрашиваем —
+   * и снимаем. Отказался или не хватило кредитов — возвращаем как было:
+   * длительность не должна расходиться с уже снятым роликом.
+   */
+  const reshootWithDuration = async (scene: StudioScene, value: number | null) => {
+    if (!project) return;
+    const id = scene.id;
+    const before = scene.duration ?? null;
+    // Длина ролика — по съёмке (у снятых до дока сервер отдаёт её по пресету).
+    const was = scene.shot?.duration ?? scene.config?.duration ?? scene.preset.duration ?? null;
+    const patch = (body: Record<string, unknown>) =>
+      fetchData<StudioScene>(`cartoon/scenes/${id}/`, "PATCH", body, true);
+    const finish = async (text: string | null = null, tone: SceneNote["tone"] = "error", price?: number | null) => {
+      await refresh(project.id);
+      markBusy(id, false);
+      if (text) noteScene(id, text, tone, price);
+    };
+    noteScene(id, null);
+    markBusy(id, true);
+    const res = await patch({ duration: value });
+    if (!res.ok || !res.data) {
+      await finish(refusalMessage(res.data, "studio_ui.scene_save_failed"));
+      return;
+    }
+    const next = res.data.config?.duration ?? value;
+    // Ролик уже такой длины — снимать нечего, длительность просто сохранилась.
+    if (next === was) {
+      await finish();
+      return;
+    }
+    const credits = res.data.render_credits;
+    if (credits == null) {
+      // Цены нет — съёмку сервер всё равно не примет.
+      await patch({ duration: before });
+      await finish(t("studio_ui.price_unavailable", { defaultValue: "Цена сейчас недоступна" }));
+      return;
+    }
+    // Переснимется нынешними моделью и качеством дока и в нынешнем формате: отличаются
+    // от прошлой съёмки — вопрос называет их, а не только секунды и цену.
+    const question = reshootDurationQuestion({
+      shot: scene.shot ?? null, next: res.data.config ?? null, from: was ?? "?", to: next ?? "?", credits,
+    });
+    if (!window.confirm(dt(question.key, question.params))) {
+      await patch({ duration: before });
+      await finish();
+      return;
+    }
+    // Снимаем ровно за то, что человек подтвердил: выросла цена — сервер откажет.
+    const shot = await patch(retryBody(credits, scene.status));
+    if (!shot.ok) {
+      await patch({ duration: before });
+      // Как у «Снять»: не хватает кредитов — окно покупки, а не тишина.
+      const d = shot.data as ApiRefusal;
+      const changed = priceChanged(shot.status, d);
+      if (d?.required && !changed && !alreadyShot(shot.status, d)) {
+        openPaywall({ required: Number(d.required), balance: Number(d.balance ?? 0) });
+        await finish();
+        return;
+      }
+      if (changed) {
+        // Цена — за новую длительность, а строка вернулась к прежней: числа на кнопке
+        // такого нет (price null), сообщение снимет правка дока или следующее действие.
+        await finish(priceChangedText(changed, d, true), "error", null);
+      } else if (alreadyShot(shot.status, d)) {
+        // Как у «Снять» и ↻: сцену сняли в другой вкладке — подсказка, а не ошибка.
+        await finish(dt("studio_ui.scene_already_shot"), "info");
+      } else {
+        await finish(refusalMessage(d, "studio_ui.scene_save_failed", true));
+      }
+      return;
+    }
+    await finish();
+  };
+
+  /**
+   * Своя длительность сцены (null — как у мультфильма). У снятой сцены это
+   * новая платная съёмка: сперва сервер называет её цену, потом спрашиваем.
+   */
+  const setSceneDuration = async (scene: StudioScene, value: number | null) => {
+    if (!authed || !project) {
+      updateDraft((d) => ({
+        ...d,
+        scenes: d.scenes.map((s, i) => (i === guestIndex(scene) ? withSceneDuration(s, value) : s)),
+      }));
+      return;
+    }
+    if (value === (scene.duration ?? null)) return;
+    if (scene.status === "ready") {
+      await reshootWithDuration(scene, value);
+      return;
+    }
+    noteScene(scene.id, null);
+    markBusy(scene.id, true);
+    const res = await fetchData<StudioScene>(`cartoon/scenes/${scene.id}/`, "PATCH", { duration: value }, true);
+    // Строка свободна только с новыми длительностью и ценой: иначе на один запрос
+    // «Снять» жалось бы по прежней цене (ревью R1 W2).
+    await refresh(project.id);
+    markBusy(scene.id, false);
+    if (!res.ok) noteScene(scene.id, refusalMessage(res.data, "studio_ui.scene_save_failed"));
   };
 
   const deleteScene = async (scene: StudioScene) => {
     if (!project) return;
-    setError("");
+    noteScene(scene.id, null);
     markBusy(scene.id, true);
     const res = await fetchData(`cartoon/scenes/${scene.id}/`, "DELETE", null, true);
     markBusy(scene.id, false);
-    if (!res.ok) setError((res.data as ApiRefusal)?.detail || t("studio_ui.err_scene"));
+    if (!res.ok) noteScene(scene.id, refusalMessage(res.data, "studio_ui.scene_save_failed"));
     await refresh(project.id);
   };
 
@@ -1016,6 +1433,9 @@ export default function CartoonStudio() {
     showProject(null);
     setShortfall(null);
     setError("");
+    setNotices([]);
+    setDockError("");
+    setSceneNotes({});
     setBusyIds(new Set());
   };
 
@@ -1023,6 +1443,9 @@ export default function CartoonStudio() {
     setShare(null);
     setShortfall(null);
     setError("");
+    setNotices([]);
+    setDockError("");
+    setSceneNotes({});
     const known = projects.find((x) => x.id === id);
     if (known) showProject(known);
     const fresh = await refresh(id, true);
@@ -1067,6 +1490,17 @@ export default function CartoonStudio() {
   // цены тоже нет: «4 кр» по памяти разошлось бы с ценой в админке.
   const frameCredits = presets[0]?.tryon_credits;
   const charById = new Map(characters.map((c) => [c.id, c]));
+
+  /** Цена и длительность карточки: посчитанные сервером под нынешние настройки,
+   *  а пока витрина пересчитывается — подсказка из таблицы модели. */
+  const cardPrice = (p: Preset): { credits: number | null; duration: number } => {
+    if (!cardsFresh) {
+      const est = cardEstimate(estimateModel, estimateDock, aspect, p.tryon_credits, models?.frame_credits);
+      if (est) return est;
+    }
+    return { credits: p.credits, duration: p.duration };
+  };
+
   const guestScenes: StudioScene[] =
     !authed && draft
       ? draft.scenes.map((s, i) => {
@@ -1074,6 +1508,28 @@ export default function CartoonStudio() {
           const p = custom ? undefined : presetById.get(s.preset_id);
           const heroId = s.character_id ?? draft.character_id ?? character?.id ?? null;
           const hero = heroId ? charById.get(heroId) : undefined;
+          const keyframe = custom ? "" : (heroId && framesByChar[heroId]?.[s.preset_id]) || "";
+          const card = p ? cardPrice(p) : null;
+          const own = s.duration ?? null;
+          // Длительность: своя, иначе дока, иначе — сцены библиотеки (настроек нет).
+          const duration = own ?? (localExplicit ? localExplicit.duration : card?.duration ?? dockShown?.duration ?? null);
+          // Цена — та, что спишет «Снять» после входа: строка равна карточке, своя
+          // длительность и своя сцена — по таблице модели, с кадром из запаса — только видео.
+          const price = guestRowPrice({
+            model: dockModel,
+            resolution: dockShown?.resolution,
+            duration,
+            aspect,
+            custom,
+            ownDuration: own != null,
+            keyframe: Boolean(keyframe),
+            cardCredits: card ? card.credits : undefined,
+            frameCredits: p?.tryon_credits,
+            frameFallback: models?.frame_credits,
+          });
+          // Цены нет по ответу сервера — «Снять» выключено. Цена просто ещё не
+          // известна (модели не загрузились) — гостя ко входу всё равно пускаем.
+          const unavailable = Boolean(dockModel?.price_unavailable) || (!custom && card?.credits === null);
           return {
             id: -(i + 1),
             order: i,
@@ -1082,19 +1538,29 @@ export default function CartoonStudio() {
             preset: {
               id: s.preset_id,
               title: custom ? (s.custom_text || "").slice(0, 60) : p?.title || "…",
-              // Своя сцена стоит как готовая: те же кадр и видео.
-              credits: (custom ? presets[0]?.credits : p?.credits) ?? undefined,
-              duration: custom ? presets[0]?.duration : p?.duration,
+              credits: price.full ?? (unavailable ? null : undefined),
+              duration: duration ?? undefined,
               poster: custom ? "" : p?.preview_poster,
               clip: custom ? "" : p?.preview_video,
             },
             character: hero ? { id: hero.id, name: hero.name, image: hero.image } : null,
-            keyframe: custom ? "" : (heroId && framesByChar[heroId]?.[s.preset_id]) || "",
+            keyframe,
             preview_video: custom ? "" : (heroId && videosByChar[heroId]?.[s.preset_id]) || "",
             video: "",
             status: "draft",
             error: "",
             credits_spent: 0,
+            render_credits: price.render ?? (unavailable ? null : undefined),
+            duration: own,
+            config: dockShown
+              ? {
+                  video_model: dockShown.video_model,
+                  model_name: dockModel ? modelLabel(dockModel) : "",
+                  resolution: dockShown.resolution,
+                  duration: duration ?? dockShown.duration,
+                  aspect_ratio: aspect,
+                }
+              : null,
           };
         })
       : [];
@@ -1141,6 +1607,22 @@ export default function CartoonStudio() {
   const working = scenes.some((s) => WORKING.includes(s.status));
   // Озвучка всего мультфильма прямо сейчас: кнопка ждёт, лента опрашивается.
   const voicingNow = Boolean(project?.voicing && !project.voicing.finished);
+  // «Итого»: сумма цен строк, которые ещё снимать.
+  const total = timelineTotal(scenes);
+  // Модель мультфильма выключили в админке — сцены снимутся моделью библиотеки.
+  const modelOff = !local && Boolean(project?.video_model) && effective?.model_available === false;
+
+  /** Длительность в карточке ленты: что умеет модель сцены и сколько «по умолчанию». */
+  const durationFor = (s: StudioScene): SceneDurationChoice | null => {
+    const all = findModel(modelList, s.config?.video_model ?? dockShown?.video_model)?.caps.durations || [];
+    if (all.length < 2) return null;
+    // «По умолчанию» у сцены со своей длительностью: длительность мультфильма,
+    // иначе — её сцены из библиотеки.
+    const base = local ? localExplicit?.duration : pending?.duration ?? project?.duration;
+    const card = s.custom_text ? undefined : presetById.get(s.preset.id);
+    const fallback = base ? clampDuration(all, base) : card ? cardPrice(card).duration : dockShown?.duration ?? null;
+    return { options: durationChoices(all, s.duration), fallback };
+  };
 
   if (loading) {
     return (
@@ -1177,46 +1659,9 @@ export default function CartoonStudio() {
         )}
       </header>
 
-      {/* Формат будущего ролика. Клиент: в Reels горизонтальное видео
-          показывается узкой полоской посреди экрана — значит формат надо
-          выбирать заранее и одинаковый на всю серию, иначе сцены не склеятся
-          ровно. */}
-      <div className="mb-6">
-        <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-2">
-          {t("studio_ui.format_title")}
-        </div>
-        <div className="flex flex-wrap gap-2">
-          {([
-            ["9:16", "format_vertical", "h-6 w-3.5"],
-            ["16:9", "format_horizontal", "h-3.5 w-6"],
-            ["1:1", "format_square", "h-5 w-5"],
-          ] as const).map(([value, key, box]) => (
-            <button
-              key={value}
-              type="button"
-              onClick={() => void setAspect(value)}
-              className={`inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-left transition-colors cursor-pointer ${
-                aspect === value
-                  ? "border-accent bg-accent/10 text-foreground"
-                  : "border-border text-muted hover:border-accent/60 hover:text-foreground"
-              }`}
-            >
-              <span
-                className={`${box} shrink-0 rounded-sm border-2 ${
-                  aspect === value ? "border-accent" : "border-current"
-                }`}
-              />
-              <span className="flex flex-col leading-tight">
-                <span className="text-sm font-semibold">{value}</span>
-                <span className="text-[11px] text-muted-2">{t(`studio_ui.${key}`)}</span>
-              </span>
-            </button>
-          ))}
-        </div>
-        {readyCount > 0 && (
-          <p className="mt-1.5 text-[11px] text-status-wait">{t("studio_ui.format_note")}</p>
-        )}
-      </div>
+      {/* Формат будущего ролика (клиент: выбирать заранее и одинаковый на всю
+          серию, иначе сцены не склеятся ровно) — теперь в доке внизу, рядом с
+          моделью, качеством и длительностью. */}
 
       {/* Для кого снимаем: сужает и библиотеку героев, и разделы сцен. */}
       {presets.some((p) => p.audience === "adults") && (
@@ -1243,7 +1688,7 @@ export default function CartoonStudio() {
       )}
 
       {error && (
-        <div className="mb-4 rounded-xl border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-400">
+        <div role="alert" className="mb-4 rounded-xl border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-400">
           {error}
         </div>
       )}
@@ -1457,6 +1902,7 @@ export default function CartoonStudio() {
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
               {visiblePresets.map((p) => {
                 const playing = playingIds.has(p.id) || previewing === p.id;
+                const card = cardPrice(p);
                 return (
                 <div
                   key={p.id}
@@ -1566,8 +2012,8 @@ export default function CartoonStudio() {
                     <div className="mt-auto flex flex-col gap-1.5 pt-2">
                       <span className="inline-flex items-center gap-1 text-[11px] text-muted">
                         <FiZap className="text-accent" />
-                        {p.credits != null
-                          ? t("studio_ui.price", { credits: p.credits, duration: p.duration })
+                        {card.credits != null
+                          ? t("studio_ui.price", { credits: card.credits, duration: card.duration })
                           : t("studio_ui.price_unavailable", { defaultValue: "Цена сейчас недоступна" })}
                       </span>
                       {character && !tryOn[p.id] && (
@@ -1665,6 +2111,7 @@ export default function CartoonStudio() {
             <SceneTimeline
               scenes={scenes}
               busyIds={busyIds}
+              repricing={repricing}
               onMove={authed ? moveScene : guestMove}
               onRetry={authed ? retryScene : () => undefined}
               onDelete={authed ? deleteScene : guestDelete}
@@ -1689,7 +2136,20 @@ export default function CartoonStudio() {
               }
               tryingOnId={tryingOn}
               tryOnLabel={frameCredits != null ? t("studio_ui.try_on_price", { credits: frameCredits }) : undefined}
+              durationFor={durationFor}
+              onDuration={(s, v) => void setSceneDuration(s, v)}
+              notes={authed ? sceneNotes : undefined}
+              onDismissNote={(s) => noteScene(s.id, null)}
             />
+
+            {/* «Итого» — сумма строк, которые ещё снимать: то, что спишут их «Снять». */}
+            {total.count > 0 && (
+              <p className="text-sm text-muted tabular-nums">
+                {total.credits != null
+                  ? dt("studio_ui.dock_total_line", { credits: total.credits, count: total.count })
+                  : dt("studio_ui.dock_total_line_unavailable", { count: total.count })}
+              </p>
+            )}
 
             {/* Гость дособрал ленту: одна понятная кнопка вместо «Собрать» и
                 прогресса съёмки, которых у него ещё нет. */}
@@ -1847,6 +2307,34 @@ export default function CartoonStudio() {
           )}
         </>
       )}
+
+      {/* Док: модель, качество, длительность, формат и «Итого». Прилипает к низу,
+          пока открыта студия; меняет только сцены, которые ещё не снимаются. */}
+      <CartoonDock
+        models={modelList}
+        modelsError={modelsError}
+        onRetryModels={() => setModelsTry((n) => n + 1)}
+        value={{
+          model: dockShown?.video_model ?? null,
+          modelName: effective?.model_name || (dockModel ? modelLabel(dockModel) : ""),
+          resolution: dockShown?.resolution ?? null,
+          duration: dockShown?.duration ?? null,
+          aspect,
+        }}
+        onModel={pickDockModel}
+        onResolution={pickDockResolution}
+        onDuration={pickDockDuration}
+        onAspect={(v) => void setAspect(v)}
+        notices={notices}
+        onDismissNotices={dismissNotices}
+        warning={modelOff ? "studio_ui.dock_model_off" : null}
+        total={total}
+        hasShot={readyCount > 0}
+        frameCredits={models?.frame_credits}
+        saving={!local && project != null && savingProject === project.id}
+        error={dockError || null}
+        onDismissError={() => setDockError("")}
+      />
     </main>
   );
 }

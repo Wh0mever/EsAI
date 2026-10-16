@@ -24,6 +24,8 @@ export type DraftScene = {
   custom_text?: string;
   /** Что герой говорит в сцене. */
   dialogue?: string;
+  /** Своя длительность сцены, секунды; нет — как у мультфильма. */
+  duration?: number;
 };
 
 export type StudioDraft = {
@@ -32,6 +34,10 @@ export type StudioDraft = {
   character_id: number | null;
   /** Формат будущего мультфильма: 16:9, 9:16 или 1:1. */
   aspect_ratio?: string;
+  /** Док: модель, качество и длительность, если гость их выбрал (иначе — по умолчанию). */
+  video_model?: string;
+  resolution?: string;
+  duration?: number;
   scenes: DraftScene[];
   updated_at: number;
 };
@@ -43,6 +49,23 @@ const FREE_TRY_KEY = "esai.studio.freeTryUsed";
 /** Неделю черновик ждёт. Дальше это уже не «вернулся доделать», а мусор. */
 const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 export const MAX_DRAFT_SCENES = 30;
+const ASPECTS = ["16:9", "9:16", "1:1"];
+/** Предел длительности на сервере (cartoon/pricing.MAX_DURATION). */
+const MAX_SECONDS = 60;
+
+// Черновик лежит в браузере и мог устареть или испортиться: что не похоже на
+// настройку — выбрасываем, сервер всё равно проверит перенос (lenient).
+function seconds(v: unknown): number | undefined {
+  if (typeof v !== "number" && typeof v !== "string") return undefined;
+  const n = Number(v);
+  return Number.isInteger(n) && n >= 1 && n <= MAX_SECONDS ? n : undefined;
+}
+
+function shortText(v: unknown, max: number): string | undefined {
+  if (typeof v !== "string") return undefined;
+  const s = v.trim();
+  return s && s.length <= max ? s : undefined;
+}
 
 function uid(): string {
   try {
@@ -72,19 +95,37 @@ export function loadDraft(): StudioDraft | null {
     }
     const scenes = data.scenes
       .filter((s): s is DraftScene => Boolean(s) && Number.isFinite(Number((s as DraftScene).preset_id)))
-      .map((s) => ({
-        key: typeof s.key === "string" && s.key ? s.key : uid(),
-        preset_id: Number(s.preset_id),
-        character_id: s.character_id ? Number(s.character_id) : null,
-        ...(typeof s.custom_text === "string" && s.custom_text.trim()
-          ? { custom_text: s.custom_text.trim().slice(0, 300) }
-          : {}),
-      }))
+      .map((s) => {
+        const duration = seconds(s.duration);
+        // Реплика тоже едет при переносе: без неё после перезагрузки она пропадала.
+        const dialogue = typeof s.dialogue === "string" ? s.dialogue.trim().slice(0, 300) : "";
+        return {
+          key: typeof s.key === "string" && s.key ? s.key : uid(),
+          preset_id: Number(s.preset_id),
+          character_id: s.character_id ? Number(s.character_id) : null,
+          ...(typeof s.custom_text === "string" && s.custom_text.trim()
+            ? { custom_text: s.custom_text.trim().slice(0, 300) }
+            : {}),
+          ...(dialogue ? { dialogue } : {}),
+          ...(duration ? { duration } : {}),
+        };
+      })
       .filter((s) => s.preset_id > 0 || Boolean(s.custom_text))
       .slice(0, MAX_DRAFT_SCENES);
+    const aspect = typeof data.aspect_ratio === "string" && ASPECTS.includes(data.aspect_ratio)
+      ? data.aspect_ratio
+      : undefined;
+    const videoModel = shortText(data.video_model, 128);
+    const resolution = shortText(data.resolution, 8);
+    const duration = seconds(data.duration);
     return {
       id: data.id,
       character_id: data.character_id ? Number(data.character_id) : null,
+      // Формат и настройки дока переживают перезагрузку — гость их выбрал сам.
+      ...(aspect ? { aspect_ratio: aspect } : {}),
+      ...(videoModel ? { video_model: videoModel } : {}),
+      ...(resolution ? { resolution } : {}),
+      ...(duration ? { duration } : {}),
       scenes,
       updated_at: Number(data.updated_at || Date.now()),
     };
@@ -101,6 +142,39 @@ export function saveDraft(draft: StudioDraft): StudioDraft {
     // Приватный режим: лента живёт до перезагрузки страницы — это лучше, чем ничего.
   }
   return next;
+}
+
+/** Настройки дока, выбранные гостем: только полной тройкой, иначе null (по умолчанию). */
+export function draftDock(
+  draft: StudioDraft | null | undefined,
+): { video_model: string; resolution: string; duration: number } | null {
+  if (!draft?.video_model || !draft.resolution || !draft.duration) return null;
+  return { video_model: draft.video_model, resolution: draft.resolution, duration: draft.duration };
+}
+
+/**
+ * Тело переноса ленты после входа (POST cartoon/projects/import/). Настройки
+ * дока едут, только если гость их выбрал: иначе мультфильм получит значения
+ * по умолчанию, как любой новый. Сервер принимает перенос мягко — устаревшее
+ * подгоняет к модели и сообщает (adjusted), ленту не теряет.
+ */
+export function importBody(draft: StudioDraft): Record<string, unknown> {
+  const dock = draftDock(draft);
+  return {
+    draft_id: draft.id,
+    character_id: draft.character_id,
+    aspect_ratio: draft.aspect_ratio || "16:9",
+    ...(dock ?? {}),
+    scenes: draft.scenes.map((s) => ({
+      preset_id: s.preset_id,
+      character_id: s.character_id,
+      // Своя сцена переезжает вместе с описанием, иначе она пропала бы.
+      ...(s.custom_text ? { custom_text: s.custom_text } : {}),
+      // Реплика героя тоже едет: её человек уже написал.
+      ...(s.dialogue ? { dialogue: s.dialogue } : {}),
+      ...(s.duration ? { duration: s.duration } : {}),
+    })),
+  };
 }
 
 export function clearDraft(): void {

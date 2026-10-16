@@ -42,6 +42,11 @@ register_texts({
                      "Промпты писать не нужно.\n\n"
                      "Герой из библиотеки — бесплатно · свой герой — {character} кр · "
                      "сцена — от {scene_min} кр · склейка — бесплатно"),
+        "st_intro_no_price": ("🎞 <b>EsAI Cartoon Studio</b>\n"
+                              "Выберите героя, наберите сцены — и студия соберёт готовый ролик. "
+                              "Промпты писать не нужно.\n\n"
+                              "Герой из библиотеки — бесплатно · свой герой — {character} кр · "
+                              "склейка — бесплатно"),
         "st_continue": "▶ Продолжить «{title}» · сцен: {scenes}",
         "st_new": "▶ Начать новый мультфильм",
         "st_my": "🎬 Мои мультфильмы ({n})",
@@ -64,6 +69,7 @@ register_texts({
         "st_scene_line": "{n} — {title} · {credits} · {duration} с{ready}",
         "st_scene_card": "🎬 <b>{title}</b>\n{subtitle}\n{credits} · {duration} с",
         "st_cr": "{n} кр", "st_no_price": "цена недоступна",
+        "st_no_price_render": "Цена сцены сейчас недоступна, попробуйте позже.",
         "st_add": "➕ В ленту", "st_try": "🪄 Примерить героя", "st_kf": "👁 Кадр с вашим героем",
         "st_added": "Сцена «{title}» в ленте. Снять её можно из ленты.",
         "st_try_free": "Кадр уже был — бесплатно.", "st_try_paid": "Списано {credits} кр.",
@@ -77,7 +83,7 @@ register_texts({
         "st_assemble": "🎞 Собрать мультфильм", "st_refresh": "🔄 Обновить", "st_delete": "🗑 Удалить проект",
         "st_scene_menu": "⚙️ {n}", "st_render": "🎬 Снять сцену ({credits})",
         "st_up": "🔼 Раньше", "st_down": "🔽 Позже", "st_retry": "🔁 Переснять",
-        "st_retry_same": "🔁 С тем же кадром", "st_retry_new": "🆕 Новый кадр",
+        "st_retry_same": "🔁 С тем же кадром ({credits})", "st_retry_new": "🆕 Новый кадр ({credits})",
         "st_download": "📥 Скачать сцену", "st_remove": "🗑 Убрать",
         "st_rendering": "🎬 Снимаю «{title}»… Пришлю сюда, как будет готово. Кредиты спишутся за готовое видео.",
         "st_already_rendering": "🎬 «{title}» уже снимается — дождитесь результата. Второй раз платить не нужно.",
@@ -107,6 +113,19 @@ register_texts({
         "st_back": "↩ Разделы",
         "st_result": "🎞 Мультфильм «{title}» · сцен {n}",
         "st_removed": "Сцена убрана из ленты.",
+        "st_price_changed": ("💡 Цена сцены изменилась: теперь {credits}. Ничего не списано — "
+                             "проверьте и нажмите «Снять» ещё раз."),
+        "st_price_check": "🔄 Кнопка устарела — вот сцена с ценой на сейчас.",
+        "st_render_all_confirm": "Все не снятые сцены сейчас стоят {credits}. Снимаем?",
+        "st_render_all_changed": ("💡 Цена изменилась: все не снятые сцены теперь стоят {credits} "
+                                  "(на кнопке было {was}). Снимаем?"),
+        "st_render_all_ok": "🎬 Снять за {credits}",
+        "st_render_all_stopped": ("💡 Цена изменилась, пока сцены вставали в очередь, — остальные не "
+                                  "поставлены, лишнего не списано. Вот лента с новыми ценами."),
+        "st_already_shot": ("✅ Сцена «{title}» уже снята — второй раз не снимаю, ничего не списано. "
+                            "Переснять можно кнопками ниже."),
+        "st_menu_stale": ("🔄 Это меню устарело: сцену «{title}» с тех пор уже переснимали. Ничего не "
+                          "снято и не списано — вот она сейчас."),
     },
     "en": {
         "st_intro": ("🎞 <b>EsAI Cartoon Studio</b>\n"
@@ -114,6 +133,11 @@ register_texts({
                      "No prompts needed.\n\n"
                      "Library hero — free · your own hero — {character} cr · "
                      "scene — from {scene_min} cr · assembly — free"),
+        "st_intro_no_price": ("🎞 <b>EsAI Cartoon Studio</b>\n"
+                              "Pick a hero, collect scenes — and the studio assembles the film. "
+                              "No prompts needed.\n\n"
+                              "Library hero — free · your own hero — {character} cr · "
+                              "assembly — free"),
         "st_continue": "▶ Continue “{title}” · scenes: {scenes}",
         "st_new": "▶ Start a new cartoon",
         "st_my": "🎬 My cartoons ({n})",
@@ -136,6 +160,7 @@ register_texts({
         "st_scene_line": "{n} — {title} · {credits} · {duration} s{ready}",
         "st_scene_card": "🎬 <b>{title}</b>\n{subtitle}\n{credits} · {duration} s",
         "st_cr": "{n} cr", "st_no_price": "price unavailable",
+        "st_no_price_render": "The scene price is unavailable right now, please try again later.",
         "st_add": "➕ Add to timeline", "st_try": "🪄 Try the hero", "st_kf": "👁 Frame with your hero",
         "st_added": "Scene “{title}” is in the timeline. Render it from there.",
         "st_try_free": "The frame already existed — free.", "st_try_paid": "{credits} cr charged.",
@@ -149,7 +174,7 @@ register_texts({
         "st_assemble": "🎞 Assemble the cartoon", "st_refresh": "🔄 Refresh", "st_delete": "🗑 Delete project",
         "st_scene_menu": "⚙️ {n}", "st_render": "🎬 Render scene ({credits})",
         "st_up": "🔼 Earlier", "st_down": "🔽 Later", "st_retry": "🔁 Re-render",
-        "st_retry_same": "🔁 Same frame", "st_retry_new": "🆕 New frame",
+        "st_retry_same": "🔁 Same frame ({credits})", "st_retry_new": "🆕 New frame ({credits})",
         "st_download": "📥 Download scene", "st_remove": "🗑 Remove",
         "st_rendering": "🎬 Rendering “{title}”… I will send it here when ready. Credits are charged for the finished video.",
         "st_already_rendering": "🎬 “{title}” is already rendering — wait for the result. No need to pay twice.",
@@ -179,6 +204,20 @@ register_texts({
         "st_back": "↩ Sections",
         "st_result": "🎞 Cartoon “{title}” · scenes {n}",
         "st_removed": "Scene removed from the timeline.",
+        "st_price_changed": ("💡 The scene price has changed: it is now {credits}. Nothing was charged — "
+                             "check it and tap “Render” again."),
+        "st_price_check": "🔄 That button is out of date — here is the scene at today's price.",
+        "st_render_all_confirm": "All pending scenes now cost {credits}. Render them?",
+        "st_render_all_changed": ("💡 The price has changed: all pending scenes now cost {credits} "
+                                  "(the button said {was}). Render them?"),
+        "st_render_all_ok": "🎬 Render for {credits}",
+        "st_render_all_stopped": ("💡 The price changed while the scenes were being queued — the rest "
+                                  "were not queued and nothing extra was charged. Here is the timeline "
+                                  "with the new prices."),
+        "st_already_shot": ("✅ Scene “{title}” is already rendered — I won't render it again and nothing "
+                            "was charged. You can re-render it with the buttons below."),
+        "st_menu_stale": ("🔄 This menu is out of date: “{title}” has been re-rendered since. Nothing was "
+                          "rendered or charged — here is the scene now."),
     },
     "kg": {
         "st_intro": ("🎞 <b>EsAI Cartoon Studio</b>\n"
@@ -186,6 +225,11 @@ register_texts({
                      "Промпт жазуунун кереги жок.\n\n"
                      "Китепканадагы каарман — бекер · өз каарманыңыз — {character} кр · "
                      "сцена — {scene_min} кр баштап · бириктирүү — бекер"),
+        "st_intro_no_price": ("🎞 <b>EsAI Cartoon Studio</b>\n"
+                              "Каарманды тандаңыз, сценаларды чогултуңуз — студия даяр роликти чогултат. "
+                              "Промпт жазуунун кереги жок.\n\n"
+                              "Китепканадагы каарман — бекер · өз каарманыңыз — {character} кр · "
+                              "бириктирүү — бекер"),
         "st_continue": "▶ «{title}» улантуу · сцена: {scenes}",
         "st_new": "▶ Жаңы мультфильм баштоо",
         "st_my": "🎬 Менин мультфильмдерим ({n})",
@@ -208,6 +252,7 @@ register_texts({
         "st_scene_line": "{n} — {title} · {credits} · {duration} с{ready}",
         "st_scene_card": "🎬 <b>{title}</b>\n{subtitle}\n{credits} · {duration} с",
         "st_cr": "{n} кр", "st_no_price": "баасы жеткиликсиз",
+        "st_no_price_render": "Сценанын баасы азыр жеткиликсиз, бир аздан кийин кайра аракет кылыңыз.",
         "st_add": "➕ Лентага", "st_try": "🪄 Каарманды текшерүү", "st_kf": "👁 Каарманыңыз менен кадр",
         "st_added": "«{title}» сценасы лентада. Аны лентадан тартсаңыз болот.",
         "st_try_free": "Кадр мурда эле бар — бекер.", "st_try_paid": "{credits} кр алынды.",
@@ -221,7 +266,7 @@ register_texts({
         "st_assemble": "🎞 Мультфильмди чогултуу", "st_refresh": "🔄 Жаңыртуу", "st_delete": "🗑 Долбоорду өчүрүү",
         "st_scene_menu": "⚙️ {n}", "st_render": "🎬 Сценаны тартуу ({credits})",
         "st_up": "🔼 Мурда", "st_down": "🔽 Кийин", "st_retry": "🔁 Кайра тартуу",
-        "st_retry_same": "🔁 Ошол эле кадр", "st_retry_new": "🆕 Жаңы кадр",
+        "st_retry_same": "🔁 Ошол эле кадр ({credits})", "st_retry_new": "🆕 Жаңы кадр ({credits})",
         "st_download": "📥 Сценаны жүктөө", "st_remove": "🗑 Алып салуу",
         "st_rendering": "🎬 «{title}» тартып жатам… Даяр болгондо ушул жерге жөнөтөм.",
         "st_already_rendering": "🎬 «{title}» мурунтан тартылып жатат — натыйжаны күтүңүз. Экинчи жолу төлөөнүн кереги жок.",
@@ -251,6 +296,19 @@ register_texts({
         "st_back": "↩ Бөлүмдөр",
         "st_result": "🎞 «{title}» мультфильми · сцена {n}",
         "st_removed": "Сцена лентадан алынды.",
+        "st_price_changed": ("💡 Сценанын баасы өзгөрдү: эми {credits}. Эч нерсе алынган жок — "
+                             "текшерип, «Тартуу» баскычын кайра басыңыз."),
+        "st_price_check": "🔄 Бул баскыч эскирип калды — сцена азыркы баасы менен.",
+        "st_render_all_confirm": "Тартылбаган сценалардын баары азыр {credits} турат. Тартабызбы?",
+        "st_render_all_changed": ("💡 Баа өзгөрдү: тартылбаган сценалардын баары эми {credits} турат "
+                                  "(баскычта {was} болчу). Тартабызбы?"),
+        "st_render_all_ok": "🎬 {credits} төлөп тартуу",
+        "st_render_all_stopped": ("💡 Сценалар кезекке коюлуп жатканда баа өзгөрдү — калгандары коюлган "
+                                  "жок, ашыкча эч нерсе алынган жок. Жаңы баалар менен лента."),
+        "st_already_shot": ("✅ «{title}» сценасы тартылып бүткөн — экинчи жолу тартпайм, эч нерсе "
+                            "алынган жок. Кайра тартуу үчүн төмөнкү баскычтарды басыңыз."),
+        "st_menu_stale": ("🔄 Бул меню эскирип калды: «{title}» сценасы андан бери кайра тартылган. Эч "
+                          "нерсе тартылган жок, эч нерсе алынган жок — сцена азыр мындай."),
     },
 })
 
@@ -281,10 +339,73 @@ async def _pricing(token: str, lang: str, chat_id: int) -> dict:
     return pricing
 
 
+def _default_scene_price(models: dict) -> int | None:
+    """Цена сцены нового мультфильма из списка моделей дока, или None.
+
+    Новый мультфильм получает настройки по умолчанию из админки (сейчас Seedance
+    Mini 480p 5 с), если модель включена; source="preset" — откат на пресеты, и
+    тогда верна прежняя цифра /pricing/. Клетка таблицы — цена сцены целиком
+    (кадр + видео) — та самая, что увидит человек в ленте.
+    """
+    defaults = models.get("defaults") or {}
+    if defaults.get("source") != "settings":
+        return None
+    row = next((m for m in models.get("models") or []
+                if isinstance(m, dict) and m.get("id") == defaults.get("video_model")), None)
+    table = ((row or {}).get("price") or {}).get("table") or {}
+    value = (table.get(str(defaults.get("resolution") or "")) or {}).get(str(defaults.get("duration") or ""))
+    return value if isinstance(value, int) and value > 0 else None
+
+
+async def _scene_from(token: str, lang: str, chat_id: int, pricing: dict) -> int | None:
+    """«Сцена — от N кр» на входе в студию: цена сцены нового мультфильма; None — цены нет.
+
+    Сначала — клетка таблицы модели по умолчанию (GET models/, та же цена, что в ленте).
+    Её нет (модели недоступны, по умолчанию стоят пресеты, у модели нет цены) — scene_min
+    из /pricing/: сервер считает его так же, по настройкам нового мультфильма, а без них —
+    по пресетам. 0, пусто или мусор — цены нет: «от 0 кр» было бы враньём.
+    """
+    cached = await store.get(chat_id, "st_scene_from")
+    if isinstance(cached, dict):
+        value = cached.get("n")
+    else:
+        try:
+            value = _default_scene_price(await api.cartoon_models(token, lang=lang, telegram_id=chat_id))
+        except ApiError:
+            # Сбой не запоминаем: следующий вход спросит снова.
+            value = None
+        else:
+            await store.set(chat_id, "st_scene_from", {"n": value}, ttl=1800)
+    if value is not None:
+        return value
+    fallback = pricing.get("scene_min")
+    return fallback if isinstance(fallback, int) and not isinstance(fallback, bool) and fallback > 0 else None
+
+
 async def _presets(token: str, lang: str, chat_id: int) -> dict:
-    # Цены библиотеки — в формате текущего мультфильма (1:1 в режиме «наценка»
-    # дешевле 16:9), поэтому и кэш у каждого формата свой.
+    # Цена сцены — по настройкам открытого мультфильма: модель, качество,
+    # длительность и формат. Новые мультфильмы снимаются на Seedance Mini 480p,
+    # и цена пресета (Seedance 2.0 720p) в библиотеке была бы враньём, поэтому
+    # спрашиваем витрину для мультфильма (?project=). Кэш свой у каждого
+    # мультфильма и набора его настроек: сменили их на сайте — цены другие.
     aspect = str(await store.get(chat_id, "st_aspect") or "")
+    project_id = await _project_id(chat_id)
+    if project_id:
+        dock = str(await store.get(chat_id, "st_dock") or "")
+        key = f"st_presets:p{project_id}:{aspect}:{dock}"
+        cached = await store.get(chat_id, key)
+        if cached:
+            return cached
+        try:
+            data = await api.presets(token, project=project_id, lang=lang, telegram_id=chat_id)
+        except ApiError as exc:
+            # Мультфильм удалили на сайте — библиотека всё равно нужна, просто
+            # с ценами пресетов, как без мультфильма.
+            if exc.status != 404:
+                raise
+        else:
+            await store.set(chat_id, key, data, ttl=900)
+            return data
     key = f"st_presets:{aspect}" if aspect else "st_presets"
     cached = await store.get(chat_id, key)
     if cached:
@@ -294,9 +415,13 @@ async def _presets(token: str, lang: str, chat_id: int) -> dict:
     return data
 
 
-async def _note_aspect(chat_id: int, project: dict | None) -> None:
-    """Запомнить формат открытого мультфильма — по нему считаются цены библиотеки."""
-    await store.set(chat_id, "st_aspect", str((project or {}).get("aspect_ratio") or ""), ttl=6 * 3600)
+async def _note_project(chat_id: int, project: dict | None) -> None:
+    """Запомнить формат и настройки открытого мультфильма — по ним считаются цены
+    библиотеки, и по ним же видно, что кэш витрины устарел."""
+    project = project or {}
+    await store.set(chat_id, "st_aspect", str(project.get("aspect_ratio") or ""), ttl=6 * 3600)
+    dock = "|".join(str(project.get(field) or "") for field in ("video_model", "resolution", "duration"))
+    await store.set(chat_id, "st_dock", dock, ttl=6 * 3600)
 
 
 async def _project_id(chat_id: int) -> int | None:
@@ -337,6 +462,91 @@ def _cr(lang: str, credits) -> str:
     return t(lang, "st_no_price") if credits is None else t(lang, "st_cr", n=credits)
 
 
+def _render_price(scene: dict):
+    """Сколько спишет «Снять» эту сцену прямо сейчас — число сервера.
+
+    render_credits посчитан по настройкам мультфильма (модель, качество, своя
+    длительность сцены), и с готовым кадром это только видео — ровно то, что
+    проверит баланс. Старый сервер его не присылает: тогда цена сцены, как
+    раньше. None — цены нет, такую сцену сервер не снимет.
+    """
+    if "render_credits" in scene:
+        return scene.get("render_credits")
+    return (scene.get("preset") or {}).get("credits", 0)
+
+
+def _price_tag(credits) -> str:
+    """Цена с кнопки для callback_data: число; цены нет — пусто.
+
+    Сервер снимает, только если цена не выросла с тех пор, как её показали
+    (настройки мультфильма меняют и на сайте, а кнопки в Telegram живут днями).
+    """
+    if isinstance(credits, bool):
+        return ""
+    try:
+        value = int(credits)
+    except (TypeError, ValueError):
+        return ""
+    return str(value) if value >= 0 else ""
+
+
+def _quoted(part: str | None) -> int | None:
+    """Цена из callback_data; None — кнопка без цены (старая или цены тогда не было)."""
+    return int(part) if part and part.isascii() and part.isdigit() else None
+
+
+def _menu_state(scene: dict) -> str:
+    """Какое меню видел человек — хвост кнопки пересъёмки: «f» — сцена не получилась,
+    «r<метка>» — готовая сцена и метка её ролика (shot_token сервера, 8 hex). Метки нет
+    (готовая сцена без ролика) — голое «r»: _menu_seen примет его за устаревшую кнопку."""
+    if scene.get("status") != "ready":
+        return "f"
+    token = str(scene.get("shot_token") or "")
+    return "r" + (token if len(token) <= 16 and token.isascii() and token.isalnum() else "")
+
+
+def _menu_seen(part: str | None) -> tuple[str | None, str]:
+    """(состояние меню, метка ролика) из хвоста кнопки; (None, "") — хвоста нет или он
+    непонятный: кнопка из сборки без хвоста.
+
+    Меню готовой сцены без метки ролика — тоже (None, ""): без метки сервер не отличит
+    «тот же ролик» от «уже пересняли», и второе нажатие переснимало бы и списывало ещё
+    раз (C_R1_polish N2). Такая кнопка, как и кнопка без цены, никогда не снимает.
+    """
+    if part == "f":
+        return "failed", ""
+    if not part or part[0] != "r":
+        return None, ""
+    token = part[1:]
+    if not token or len(token) > 16 or not all(c.isascii() and c.isalnum() for c in token):
+        return None, ""
+    return "ready", token
+
+
+async def _stale_scene(message: Message, lang: str, scene: dict | None) -> None:
+    """Кнопка пересъёмки из устаревшего меню: сцену с тех пор сняли, переснимают или
+    пересъёмка не удалась. Ничего не снято и не списано — показываем сцену как есть."""
+    if not isinstance(scene, dict) or not scene.get("id"):
+        await message.answer(t(lang, "failed"))
+        return
+    title = esc((scene.get("preset") or {}).get("title", ""))
+    if scene.get("status") == "ready":
+        await _already_shot(message, lang, scene)
+    elif scene.get("status") in BUSY_STATUSES:
+        await message.answer(t(lang, "st_already_rendering", title=title))
+    else:
+        await message.answer(t(lang, "st_menu_stale", title=title))
+        await _send_scene_menu(message, lang, scene)
+
+
+def _row_price(scene: dict):
+    """Цена в строке ленты: у не снятой сцены — сколько спишет «Снять» (их и
+    складывает «Снять все»), у остальных — цена сцены, как раньше."""
+    if scene.get("status") in ("draft", "failed"):
+        return _render_price(scene)
+    return (scene.get("preset") or {}).get("credits", 0)
+
+
 def _fail(lang: str, exc: ApiError) -> str:
     """Текст ошибки бэкенда, безопасный для HTML-режима.
 
@@ -345,6 +555,9 @@ def _fail(lang: str, exc: ApiError) -> str:
     человек не узнаёт даже того, что именно не получилось. Длину режем: экран
     ошибки не место для чужой вёрстки.
     """
+    if exc.code == "price_unavailable":
+        # Отказ «цены нет» сервер присылает по-русски — говорим на языке человека.
+        return t(lang, "st_no_price_render")
     return esc(str(exc.message)[:300]) if exc.message else t(lang, "failed")
 
 
@@ -394,10 +607,11 @@ async def show_intro(message: Message, token: str, lang: str) -> None:
     rows.append([InlineKeyboardButton(text=t(lang, "st_new"), callback_data="st:new")])
     rows.append([InlineKeyboardButton(text=t(lang, "st_my", n=len(projects)), callback_data="st:my")])
     rows.append([webapp_button(t(lang, "st_webapp"), _webapp_url(draft["id"] if draft else None))])
-    await message.answer(
-        t(lang, "st_intro", character=pricing.get("character", 4),
-          scene_min=pricing.get("scene_min", 22)),
-        parse_mode="HTML", reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
+    scene_min = await _scene_from(token, lang, chat_id, pricing)
+    # Цены сцены нет — вступление без неё, а не «от 0 кр» и не выдуманное число.
+    intro = (t(lang, "st_intro", character=pricing.get("character", 4), scene_min=scene_min)
+             if scene_min is not None else t(lang, "st_intro_no_price", character=pricing.get("character", 4)))
+    await message.answer(intro, parse_mode="HTML", reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
 
 
 @router.callback_query(F.data == "st:new")
@@ -488,7 +702,7 @@ async def pick_hero(call: CallbackQuery, token: str, lang: str) -> None:
     await store.set(chat_id, "st_project", project["id"])
     await store.set(chat_id, "st_char", hero_id)
     await store.drop(chat_id, "st_keyframes")
-    await _note_aspect(chat_id, project)
+    await _note_project(chat_id, project)
     await call.answer()
     hero = (project.get("character") or {}).get("name", "")
     await call.message.answer(t(lang, "st_project_started", hero=esc(hero)), parse_mode="HTML")
@@ -574,7 +788,7 @@ async def _use_hero(message: Message, token: str, lang: str, hero_id: int) -> No
     await store.set(chat_id, "st_project", project["id"])
     await store.set(chat_id, "st_char", hero_id)
     await store.drop(chat_id, "st_keyframes")
-    await _note_aspect(chat_id, project)
+    await _note_project(chat_id, project)
     await message.answer(t(lang, "st_project_started",
                            hero=esc((project.get("character") or {}).get("name", ""))),
                          parse_mode="HTML")
@@ -649,6 +863,17 @@ async def hero_prompt(message: Message, token: str, lang: str, state: FSMContext
 
 async def show_categories(message: Message, token: str, lang: str) -> None:
     chat_id = message.chat.id
+    # Мультфильм — до витрины: его формат и настройки могли смениться на сайте,
+    # а цены библиотеки считаются именно по ним.
+    project_id = await _project_id(chat_id)
+    n = 0
+    if project_id:
+        try:
+            project = await api.project(token, project_id, lang=lang, telegram_id=chat_id)
+            n = len(project.get("scenes") or [])
+            await _note_project(chat_id, project)
+        except ApiError:
+            pass
     try:
         data = await _presets(token, lang, chat_id)
     except ApiError:
@@ -671,15 +896,6 @@ async def show_categories(message: Message, token: str, lang: str) -> None:
         top.insert(-1, InlineKeyboardButton(text=t(lang, "st_cat_picks"), callback_data="st:cat:picks:0"))
     rows.append(top)
     rows += rows_of(buttons, 2)
-    project_id = await _project_id(chat_id)
-    n = 0
-    if project_id:
-        try:
-            project = await api.project(token, project_id, lang=lang, telegram_id=chat_id)
-            n = len(project.get("scenes") or [])
-            await _note_aspect(chat_id, project)
-        except ApiError:
-            pass
     rows.append([InlineKeyboardButton(text=t(lang, "st_to_timeline", n=n), callback_data="st:tl")])
     await message.answer(t(lang, "st_cats"), parse_mode="HTML",
                          reply_markup=InlineKeyboardMarkup(inline_keyboard=rows))
@@ -919,16 +1135,17 @@ async def show_timeline(message: Message, token: str, lang: str) -> None:
         else:
             await message.answer(t(lang, "server_down"))
         return
-    await _note_aspect(chat_id, project)
+    await _note_project(chat_id, project)
     scenes = project.get("scenes") or []
     lines = "\n".join(t(lang, "st_tl_line", n=i, icon=STATUS_ICON.get(s.get("status"), "▫️"),
                         title=esc((s.get("preset") or {}).get("title", "")),
                         status=_status(lang, s.get("status", "")),
-                        credits=_cr(lang, (s.get("preset") or {}).get("credits", 0)))
+                        credits=_cr(lang, _row_price(s)))
                       for i, s in enumerate(scenes, 1)) or "—"
     ready = sum(1 for s in scenes if s.get("status") == "ready")
     pending = [s for s in scenes if s.get("status") in ("draft", "failed")]
-    prices = [(s.get("preset") or {}).get("credits", 0) for s in pending]
+    # Сумма — того, что спишут «Снять»: с готовым кадром сцена стоит только видео.
+    prices = [_render_price(s) for s in pending]
     # Хоть у одной сцены цены нет — честной суммы тоже нет.
     pending_cost = None if None in prices else sum(prices)
     # Название проекта и имя героя пришли от человека — в HTML только через esc.
@@ -937,8 +1154,10 @@ async def show_timeline(message: Message, token: str, lang: str) -> None:
              ready=ready, total=len(scenes), spent=project.get("credits_spent", 0))
     rows = []
     if pending:
+        # Сумма — и в callback: «Снять все» сверит её со свежей (без суммы — спросит).
+        tag = _price_tag(pending_cost)
         rows.append([InlineKeyboardButton(text=t(lang, "st_render_all", credits=_cr(lang, pending_cost)),
-                                          callback_data="st:ra")])
+                                          callback_data=f"st:ra:{tag}" if tag else "st:ra")])
     rows += rows_of([InlineKeyboardButton(text=t(lang, "st_scene_menu", n=i),
                                           callback_data=f"st:s:{s['id']}")
                      for i, s in enumerate(scenes, 1)], 4)
@@ -981,18 +1200,38 @@ async def scene_menu(call: CallbackQuery, token: str, lang: str) -> None:
     chat_id = _tid(call)
     scene_id = int(call.data.split(":")[2])
     await call.answer()
-    project, scene = await _scene(token, lang, chat_id, scene_id)
+    _, scene = await _scene(token, lang, chat_id, scene_id)
     if not scene:
         return
+    await _send_scene_menu(call.message, lang, scene)
+
+
+async def _send_scene_menu(message: Message, lang: str, scene: dict) -> None:
+    """Меню сцены: цены на кнопках — сейчас, и они же уходят в callback_data."""
+    scene_id = scene.get("id")
     preset = scene.get("preset") or {}
     status = scene.get("status")
+    render_price = _render_price(scene)
+    new_frame_price = preset.get("credits", 0)
     rows = []
     if status in ("draft", "failed"):
-        rows.append([InlineKeyboardButton(text=t(lang, "st_render", credits=_cr(lang, preset.get("credits", 0))),
-                                          callback_data=f"st:r:{scene_id}")])
+        rows.append([InlineKeyboardButton(text=t(lang, "st_render", credits=_cr(lang, render_price)),
+                                          callback_data=f"st:r:{scene_id}:{_price_tag(render_price)}")])
     if status in ("ready", "failed"):
-        rows.append([InlineKeyboardButton(text=t(lang, "st_retry_same"), callback_data=f"st:rt:{scene_id}:0"),
-                     InlineKeyboardButton(text=t(lang, "st_retry_new"), callback_data=f"st:rt:{scene_id}:1")])
+        # Пересъёмка идёт по ТЕКУЩИМ настройкам мультфильма и по текущей цене —
+        # она могла смениться на сайте, поэтому цена на кнопке до нажатия: с тем
+        # же кадром платится только видео, новый кадр — кадр и видео. Каждая
+        # кнопка в своём ряду: вдвоём в ряду Telegram обрезает хвост с ценой.
+        # Хвост — какое меню видел человек: f — «ошибка», r — готовая сцена и метка
+        # её ролика. Кнопки живут в чате днями: сцену с тех пор могли снять или
+        # переснять (здесь же, на сайте), и старая кнопка не должна снимать второй раз.
+        state = _menu_state(scene)
+        rows.append([InlineKeyboardButton(
+            text=t(lang, "st_retry_same", credits=_cr(lang, render_price)),
+            callback_data=f"st:rt:{scene_id}:0:{_price_tag(render_price)}:{state}")])
+        rows.append([InlineKeyboardButton(
+            text=t(lang, "st_retry_new", credits=_cr(lang, new_frame_price)),
+            callback_data=f"st:rt:{scene_id}:1:{_price_tag(new_frame_price)}:{state}")])
     rows.append([InlineKeyboardButton(text=t(lang, "st_up"), callback_data=f"st:up:{scene_id}"),
                  InlineKeyboardButton(text=t(lang, "st_down"), callback_data=f"st:dn:{scene_id}")])
     extra = [InlineKeyboardButton(text=t(lang, "st_remove"), callback_data=f"st:rm:{scene_id}")]
@@ -1009,17 +1248,21 @@ async def scene_menu(call: CallbackQuery, token: str, lang: str) -> None:
     frame = scene.get("keyframe") or preset.get("poster")
     if frame:
         try:
-            await call.message.answer_photo(site_url(frame), caption=caption, parse_mode="HTML",
-                                            reply_markup=markup)
+            await message.answer_photo(site_url(frame), caption=caption, parse_mode="HTML",
+                                       reply_markup=markup)
             return
         except Exception:
             pass
-    await call.message.answer(caption, parse_mode="HTML", reply_markup=markup)
+    await message.answer(caption, parse_mode="HTML", reply_markup=markup)
 
 
-def _cost(scene: dict) -> int:
+def _cost(scene: dict) -> int | None:
+    """Цена «Снять» числом для счёта пачки; None — цены нет."""
+    price = _render_price(scene)
+    if price is None:
+        return None
     try:
-        return int((scene.get("preset") or {}).get("credits", 0) or 0)
+        return int(price or 0)
     except (TypeError, ValueError):
         return 0
 
@@ -1037,10 +1280,34 @@ async def _balance(token: str, lang: str, chat_id: int) -> int | None:
         return None
 
 
-async def _render(call: CallbackQuery, token: str, lang: str, scene_id: int, *, quiet: bool = False) -> bool:
+# Итог одной заявки «Снять»: в очереди / цена выросла (409, ничего не снято) /
+# сцена уже снята (409, ничего не снято) / другой отказ.
+QUEUED, PRICE_CHANGED, ALREADY_SHOT, REFUSED = "queued", "price_changed", "already_shot", "refused"
+
+
+async def _price_changed(message: Message, lang: str, exc: ApiError) -> None:
+    """Сервер не снял: цена выросла с тех пор, как её показали. Новая цена — и меню
+    сцены с ней (сцену сервер прислал в том же ответе)."""
+    await message.answer(t(lang, "st_price_changed", credits=_cr(lang, exc.payload.get("credits"))))
+    scene = exc.payload.get("scene")
+    if isinstance(scene, dict) and scene.get("id"):
+        await _send_scene_menu(message, lang, scene)
+
+
+async def _already_shot(message: Message, lang: str, scene: dict | None) -> None:
+    """«Снять» из старого меню, а сцена уже готова: второй раз не снимаем. Меню готовой
+    сцены — с кнопками пересъёмки и их ценами на сейчас."""
+    title = esc(((scene or {}).get("preset") or {}).get("title", ""))
+    await message.answer(t(lang, "st_already_shot", title=title))
+    if isinstance(scene, dict) and scene.get("id"):
+        await _send_scene_menu(message, lang, scene)
+
+
+async def _render(call: CallbackQuery, token: str, lang: str, scene_id: int, *,
+                  quoted: int | None = None, quiet: bool = False) -> str:
     chat_id = _tid(call)
     try:
-        scene = await api.render_scene(token, scene_id, lang=lang, telegram_id=chat_id)
+        scene = await api.render_scene(token, scene_id, quoted_credits=quoted, lang=lang, telegram_id=chat_id)
     except ApiError as exc:
         if exc.status == 402:
             await call.message.answer(
@@ -1048,24 +1315,66 @@ async def _render(call: CallbackQuery, token: str, lang: str, scene_id: int, *, 
                   have=exc.payload.get("balance", 0)),
                 reply_markup=InlineKeyboardMarkup(inline_keyboard=[[
                     InlineKeyboardButton(text=t(lang, "btn_topup"), callback_data="b:topup")]]))
+        elif exc.code == "price_changed":
+            if not quiet:
+                await _price_changed(call.message, lang, exc)
+            return PRICE_CHANGED
+        elif exc.code == "already_shot":
+            # Старая кнопка «Снять», а сцену уже сняли (здесь же или на сайте):
+            # сервер не переснял и не списал — показываем готовую сцену.
+            if not quiet:
+                await _already_shot(call.message, lang, exc.payload.get("scene"))
+            return ALREADY_SHOT
         elif not quiet:
             await call.message.answer(_fail(lang, exc))
-        return False
+        return REFUSED
     if not quiet:
         await call.message.answer(
             t(lang, "st_rendering", title=esc((scene.get("preset") or {}).get("title", ""))))
-    return True
+    return QUEUED
+
+
+async def _priceless_button(call: CallbackQuery, lang: str, scene: dict | None, price) -> None:
+    """Кнопка «Снять» без цены: старая (до сверки цен) или цены тогда не было.
+
+    Снимать вслепую нельзя: цена зависит от настроек мультфильма, их меняют и на
+    сайте. Показываем меню сцены с ценой на сейчас — снимет следующее нажатие.
+    """
+    if scene is None:
+        await call.message.answer(t(lang, "failed"))
+    elif scene.get("status") in BUSY_STATUSES:
+        await call.message.answer(
+            t(lang, "st_already_rendering", title=esc((scene.get("preset") or {}).get("title", ""))))
+    elif price is None:
+        # Цены нет и сейчас — снимать сервер не станет, меню было бы кругом.
+        await call.message.answer(t(lang, "st_no_price_render"))
+    else:
+        await call.message.answer(t(lang, "st_price_check"))
+        await _send_scene_menu(call.message, lang, scene)
 
 
 @router.callback_query(F.data.startswith("st:r:"))
 async def render(call: CallbackQuery, token: str, lang: str) -> None:
     await call.answer()
-    await _render(call, token, lang, int(call.data.split(":")[2]))
+    parts = call.data.split(":")
+    scene_id = int(parts[2])
+    quoted = _quoted(parts[3] if len(parts) > 3 else None)
+    if quoted is None:
+        _, scene = await _scene(token, lang, _tid(call), scene_id)
+        if scene is not None and scene.get("status") == "ready":
+            await _already_shot(call.message, lang, scene)
+            return
+        await _priceless_button(call, lang, scene, _render_price(scene) if scene else None)
+        return
+    await _render(call, token, lang, scene_id, quoted=quoted)
 
 
-@router.callback_query(F.data == "st:ra")
+@router.callback_query((F.data == "st:ra") | F.data.startswith("st:ra:"))
 async def render_all(call: CallbackQuery, token: str, lang: str) -> None:
     chat_id = _tid(call)
+    parts = call.data.split(":")
+    # Сумма с кнопки «Снять все (N)»; нет — кнопка старая или суммы тогда не было.
+    label = _quoted(parts[2] if len(parts) > 2 else None)
     await call.answer()
     project_id = await _project_id(chat_id)
     if not project_id:
@@ -1076,7 +1385,24 @@ async def render_all(call: CallbackQuery, token: str, lang: str) -> None:
         await call.message.answer(t(lang, "server_down"))
         return
     pending = [s for s in project.get("scenes") or [] if s.get("status") in ("draft", "failed")]
-    need = sum(_cost(s) for s in pending)
+    # Сцену без цены (режим «наценка», себестоимость модели неизвестна) сервер не
+    # снимет. В пачку её не берём — её отказ обрывал бы очередь остальных, — а
+    # почему она осталась, говорим в конце.
+    unpriced = [s for s in pending if _cost(s) is None]
+    pending = [s for s in pending if _cost(s) is not None]
+    need = sum(_cost(s) or 0 for s in pending)
+    if pending and (label is None or need > label):
+        # Сумма на кнопке устарела (настройки мультфильма сменили на сайте) или её
+        # не было: всю пачку вслепую не снимаем — называем сумму сейчас и ждём «да».
+        # Дешевле, чем на кнопке, — снимаем сразу: это в пользу человека.
+        key = "st_render_all_confirm" if label is None else "st_render_all_changed"
+        await call.message.answer(
+            t(lang, key, credits=_cr(lang, need), was=_cr(lang, label)),
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text=t(lang, "st_render_all_ok", credits=_cr(lang, need)),
+                                      callback_data=f"st:ra:{need}")],
+                [InlineKeyboardButton(text=t(lang, "st_no"), callback_data="st:tl")]]))
+        return
     # Бэкенд сверяет КАЖДУЮ сцену с одним и тем же, ещё не уменьшенным балансом,
     # поэтому при нехватке он принимает всю пачку, а часть сцен падает уже
     # после генерации — деньги за них человек считает потраченными зря. Считаем
@@ -1093,20 +1419,36 @@ async def render_all(call: CallbackQuery, token: str, lang: str) -> None:
                 InlineKeyboardButton(text=t(lang, "btn_topup"), callback_data="b:topup")]]))
         affordable, left = [], have
         for scene in pending:
-            cost = _cost(scene)
+            cost = _cost(scene) or 0
             if cost > left:
                 break
             left -= cost
             affordable.append(scene)
         pending = affordable
-    queued = 0
+    queued = skipped = 0
+    outcome = QUEUED
     for scene in pending:
-        if not await _render(call, token, lang, scene["id"], quiet=True):
+        # Каждая сцена — со своей ценой из того же ответа, что и сумма выше.
+        outcome = await _render(call, token, lang, scene["id"], quoted=_cost(scene), quiet=True)
+        if outcome == ALREADY_SHOT:
+            # Сцену успели снять между ответом и заявкой (сайт, второе нажатие): это
+            # не сбой и не повод останавливать остальные — её просто не трогаем.
+            skipped += 1
+            continue
+        if outcome != QUEUED:
             break
         queued += 1
     if queued:
         await call.message.answer(t(lang, "st_render_all_done", n=queued))
-    elif pending and not paywalled:
+    if outcome == PRICE_CHANGED:
+        # Цена сцены выросла между ответом и заявкой: остальные не ставим, а ленту —
+        # с новыми ценами и новой суммой на «Снять все».
+        await call.message.answer(t(lang, "st_render_all_stopped"))
+        await show_timeline(call.message, token, lang)
+    elif skipped and not queued and outcome == ALREADY_SHOT:
+        # Снимать оказалось нечего: молчать нельзя, «не получилось» — неправда.
+        await show_timeline(call.message, token, lang)
+    elif outcome == REFUSED and not queued and pending and not paywalled:
         # «Поставил в очередь: 0» после пейвола — издевательство: человеку уже
         # сказали, что денег не хватает. А вот молча проглотить сбой нельзя:
         # тихие попытки _render ничего не показывают сами.
@@ -1114,26 +1456,60 @@ async def render_all(call: CallbackQuery, token: str, lang: str) -> None:
         # второе нажатие приходит, когда снимать уже нечего. Сказать там «не
         # получилось» — соврать про деньги, которые как раз списались.
         await call.message.answer(t(lang, "failed"))
+    if unpriced:
+        await call.message.answer(t(lang, "st_no_price_render"))
 
 
 @router.callback_query(F.data.startswith("st:rt:"))
 async def retry_scene(call: CallbackQuery, token: str, lang: str) -> None:
     chat_id = _tid(call)
-    _, _, scene_id, new_frame = call.data.split(":")
+    parts = call.data.split(":")
+    scene_id = int(parts[2])
+    new_frame = len(parts) > 3 and parts[3] == "1"
+    # Цена с кнопки (st:rt:<id>:<0|1>:<цена>:<меню>); у старых кнопок её нет.
+    quoted = _quoted(parts[4] if len(parts) > 4 else None)
+    # Какое меню видел человек: «ошибка» (f) или готовая сцена с меткой ролика (r…).
+    seen, seen_shot = _menu_seen(parts[5] if len(parts) > 5 else None)
     await call.answer()
     # Кнопки остаются в старом сообщении, поэтому «Переснять» легко нажать
     # дважды: первый запрос уже поставил задачу, второй поставил бы ещё одну и
     # человек заплатил бы дважды за один результат. Сверяемся со свежим статусом.
-    _, fresh = await _scene(token, lang, chat_id, int(scene_id))
+    _, fresh = await _scene(token, lang, chat_id, scene_id)
     if fresh is not None and fresh.get("status") in BUSY_STATUSES:
         await call.message.answer(
             t(lang, "st_already_rendering", title=esc((fresh.get("preset") or {}).get("title", ""))))
         return
+    if quoted is None or seen is None:
+        # Без цены — старая кнопка; с ценой, но без хвоста меню — кнопка сборки, где
+        # меню ещё не помечалось, или меню готовой сцены без метки ролика. Вслепую не
+        # снимаем: готовую сцену — «уже снята», остальное — меню с ценой на сейчас.
+        if quoted is not None and fresh is not None and fresh.get("status") == "ready":
+            await _already_shot(call.message, lang, fresh)
+            return
+        price = None
+        if fresh is not None:
+            price = (fresh.get("preset") or {}).get("credits") if new_frame else _render_price(fresh)
+        await _priceless_button(call, lang, fresh, price)
+        return
+    if fresh is not None and (fresh.get("status") != seen
+                              or (seen_shot and fresh.get("shot_token") not in (None, seen_shot))):
+        # Меню «ошибки», а сцену с тех пор сняли; меню готовой сцены, а её с тех пор
+        # пересняли (этой же кнопкой, на сайте) или пересъёмка не удалась. Сервер
+        # отказал бы и сам — сказать об этом можно и без запроса.
+        await _stale_scene(call.message, lang, fresh)
+        return
+    body = {"retry": True, "new_keyframe": new_frame, "quoted_credits": quoted, "expect_status": seen}
+    if seen_shot:
+        body["expect_shot"] = seen_shot
     try:
-        scene = await api.patch_scene(token, int(scene_id), {"retry": True, "new_keyframe": new_frame == "1"},
-                                      lang=lang, telegram_id=chat_id)
+        scene = await api.patch_scene(token, scene_id, body, lang=lang, telegram_id=chat_id)
     except ApiError as exc:
-        await call.message.answer(_fail(lang, exc))
+        if exc.code == "price_changed":
+            await _price_changed(call.message, lang, exc)
+        elif exc.code in ("already_shot", "scene_changed"):
+            await _stale_scene(call.message, lang, exc.payload.get("scene"))
+        else:
+            await call.message.answer(_fail(lang, exc))
         return
     await call.message.answer(
         t(lang, "st_rendering", title=esc((scene.get("preset") or {}).get("title", ""))))

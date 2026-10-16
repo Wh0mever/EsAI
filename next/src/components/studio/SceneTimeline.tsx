@@ -7,13 +7,27 @@ import {
   FiArrowLeft,
   FiArrowRight,
   FiCheck,
+  FiClock,
   FiFilm,
   FiLoader,
   FiMic,
   FiPlay,
   FiRefreshCw,
   FiTrash2,
+  FiX,
 } from "react-icons/fi";
+import {
+  DOCK_RU,
+  configLabel,
+  dialogueMaxLength,
+  type SceneConfig,
+  type SceneShot,
+} from "./dockLogic";
+
+/** Сообщение у строки ленты: отказ или подсказка после действия с этой сценой.
+ *  price — у «Цена изменилась: теперь N кр»: N (null — числа нет); по нему сообщение
+ *  уходит, когда цена строки стала другой (dockLogic.settlePriceNotes). */
+export type SceneNote = { text: string; tone: "error" | "info"; price?: number | null };
 
 export type StudioScene = {
   id: number;
@@ -46,7 +60,18 @@ export type StudioScene = {
   render_credits?: number | null;
   /** Сколько звуковых дорожек у сцены (голоса, музыка, эффекты). */
   audio_count?: number;
+  /** Своя длительность сцены, секунды; null — как у мультфильма (или сцены библиотеки). */
+  duration?: number | null;
+  /** Чем сцена снимется по «Снять» сейчас; у снимающейся — чем снимается. */
+  config?: SceneConfig | null;
+  /** Снимок последнего «Снять»: чем снята или снимается; null — снята до дока. */
+  shot?: SceneShot | null;
+  /** Цены нет (режим «наценка», себестоимость модели неизвестна). */
+  price_unavailable?: boolean;
 };
+
+/** Выбор длительности в карточке: что умеет модель сцены и сколько «по умолчанию». */
+export type SceneDurationChoice = { options: number[]; fallback: number | null };
 
 /**
  * SceneTimeline — лента сцен будущего мультфильма.
@@ -89,7 +114,21 @@ export default function SceneTimeline({
   onRedraw,
   onDialogue,
   aspect = "16:9",
+  durationFor,
+  onDuration,
+  repricing = false,
+  notes,
+  onDismissNote,
 }: {
+  /** Док или формат едут на сервер: цены строк ещё прежние — «Снять» и «Переснять» ждут новые. */
+  repricing?: boolean;
+  /** Сообщения у строк (по id сцены): отказ «Снять», «цена изменилась», не сохранилось. */
+  notes?: Record<number, SceneNote>;
+  onDismissNote?: (scene: StudioScene) => void;
+  /** Длительность сцены: варианты модели сцены. null — выбора нет (модель вне дока). */
+  durationFor?: (scene: StudioScene) => SceneDurationChoice | null;
+  /** Выбрали длительность (null — по умолчанию). У снятой сцены родитель спросит про пересъёмку. */
+  onDuration?: (scene: StudioScene, value: number | null) => void;
   /** Формат мультфильма: карточка показывает кадр в тех же пропорциях. */
   aspect?: string;
   /** Сохранить реплику героя. Нет — поле не показываем (гость без проекта). */
@@ -119,6 +158,8 @@ export default function SceneTimeline({
   onPickCharacter?: (scene: StudioScene, characterId: number) => void;
 }) {
   const { t } = useTranslation("common");
+  const seconds = (n: number) => t("studio_ui.dock_seconds", { defaultValue: DOCK_RU["studio_ui.dock_seconds"], n });
+  const cfgText = (c: SceneConfig) => [configLabel(c), seconds(c.duration)].filter(Boolean).join(" · ");
 
   if (!scenes.length) {
     return (
@@ -136,12 +177,31 @@ export default function SceneTimeline({
         // Сервер прислал null: себестоимость модели неизвестна, съёмку он всё равно
         // отклонит. У гостя цены просто ещё нет (undefined) — его ведём ко входу.
         const noPrice = s.render_credits === null || s.preset.credits === null;
+        // Платные кнопки: без цены или пока цена пересчитывается — не жмутся.
+        const payLocked = busy || noPrice || repricing;
         const reshootCredits =
           s.render_credits !== undefined
             ? s.render_credits
             : s.preset.credits != null && frameCredits != null
             ? Math.max(1, s.preset.credits - frameCredits)
             : null;
+        // Цена строки — ровно то, что спишет «Снять» сейчас (с готовым кадром — только видео).
+        const rowCredits = s.render_credits ?? s.preset.credits;
+        // Снимающаяся сцена идёт по снимку — её длительность уже не поменять.
+        const choice = !working && onDuration ? durationFor?.(s) ?? null : null;
+        const own = s.duration ?? null;
+        const current = s.config?.duration ?? s.preset.duration ?? null;
+        const defaultSeconds = own == null ? current : choice?.fallback ?? null;
+        const shot = s.shot ?? (working ? s.config : null);
+        // У снимающейся сцены — цена снимка: ровно столько и спишется.
+        const shotText = shot
+          ? [cfgText(shot), working && typeof s.shot?.credits_planned === "number"
+              ? `${s.shot.credits_planned} ${t("studio_ui.credits_short")}`
+              : ""].filter(Boolean).join(" · ")
+          : "";
+        const note = notes?.[s.id];
+        // Реплика длиннее сцены не уместится, а больше 300 знаков сервер не сохранит.
+        const dialogueMax = dialogueMaxLength(s.preset.duration);
         return (
           <div
             key={s.id}
@@ -336,17 +396,12 @@ export default function SceneTimeline({
                   <FiCheck /> {t("studio_ui.st_ready")}
                 </span>
               ) : s.status === "failed" ? (
-                <span className="truncate text-red-400">
+                <span className="truncate text-status-fail">
                   {t("studio_ui.st_failed")}
                 </span>
               ) : s.status === "draft" ? (
-                <span className="text-muted-2">
-                  {noPrice
-                    ? t("studio_ui.price_unavailable", { defaultValue: "Цена сейчас недоступна" })
-                    : s.preset.credits
-                    ? `${s.preset.credits} ${t("studio_ui.credits_short")}`
-                    : ""}
-                </span>
+                // Чем снимется: модель и качество из дока (длительность — ниже, её можно выбрать).
+                <span className="truncate text-muted-2">{configLabel(s.config)}</span>
               ) : (
                 <span className="text-muted">{t(`studio_ui.${STATUS_KEY[s.status]}`)}…</span>
               )}
@@ -355,10 +410,104 @@ export default function SceneTimeline({
               )}
             </div>
 
+            {/* Чем снята или снимается сцена: снимок «Снять» — модель, качество, длительность. */}
+            {shot && (working || s.status === "ready") && (
+              <p className="truncate text-[11px] text-muted-2" title={shotText}>
+                {t(working ? "studio_ui.scene_shot_working" : "studio_ui.scene_shot_ready", {
+                  defaultValue: DOCK_RU[working ? "studio_ui.scene_shot_working" : "studio_ui.scene_shot_ready"],
+                  config: shotText,
+                })}
+              </p>
+            )}
+
+            {/* Длительность этой сцены и её цена. Своя длительность подсвечена; «по
+                умолчанию» — как у мультфильма. У снятой сцены новая длительность —
+                это новая съёмка: родитель спросит, прежде чем снимать. */}
+            {(choice || s.status === "draft" || s.status === "failed") && (
+              <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-[11px]">
+                {choice && onDuration ? (
+                  <label className="flex min-w-0 items-center gap-1 text-muted-2">
+                    <FiClock className="shrink-0" aria-hidden />
+                    <span className="sr-only">
+                      {t("studio_ui.scene_duration", { defaultValue: DOCK_RU["studio_ui.scene_duration"] })}
+                    </span>
+                    <select
+                      value={own == null ? "" : String(own)}
+                      onChange={(e) => onDuration(s, e.target.value === "" ? null : Number(e.target.value))}
+                      disabled={busy}
+                      title={t("studio_ui.scene_duration", { defaultValue: DOCK_RU["studio_ui.scene_duration"] })}
+                      className={`min-h-11 min-w-0 cursor-pointer rounded-lg border bg-surface-2 px-1.5 text-[11px] text-foreground outline-none transition-colors focus:border-accent focus-visible:ring-2 focus-visible:ring-accent/50 disabled:cursor-not-allowed disabled:opacity-60 md:min-h-8 ${
+                        own != null ? "border-accent/60" : "border-border"
+                      }`}
+                    >
+                      <option value="">
+                        {defaultSeconds != null
+                          ? t("studio_ui.scene_duration_default", {
+                              defaultValue: DOCK_RU["studio_ui.scene_duration_default"],
+                              n: defaultSeconds,
+                            })
+                          : t("studio_ui.scene_duration_default_plain", {
+                              defaultValue: DOCK_RU["studio_ui.scene_duration_default_plain"],
+                            })}
+                      </option>
+                      {choice.options.map((n) => (
+                        <option key={n} value={n}>
+                          {seconds(n)}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : current != null ? (
+                  <span className="inline-flex items-center gap-1 text-muted-2">
+                    <FiClock aria-hidden />
+                    {seconds(current)}
+                  </span>
+                ) : null}
+                {(s.status === "draft" || s.status === "failed") && (
+                  <span className={`ml-auto shrink-0 tabular-nums ${noPrice ? "text-muted-2" : "font-semibold text-foreground"}`}>
+                    {noPrice
+                      ? t("studio_ui.price_unavailable", { defaultValue: "Цена сейчас недоступна" })
+                      : rowCredits != null
+                      ? `${rowCredits} ${t("studio_ui.credits_short")}`
+                      : ""}
+                  </span>
+                )}
+              </div>
+            )}
+
             {/* Причина — текстом, а не подсказкой при наведении: на телефоне
                 наведения нет, и человек видел одно «Не получилось». */}
             {s.status === "failed" && s.error && (
-              <p className="line-clamp-4 text-[11px] leading-snug text-red-400">{s.error}</p>
+              <p className="line-clamp-4 text-[11px] leading-snug text-status-fail">{s.error}</p>
+            )}
+
+            {/* Ответ на то, что человек только что нажал у этой сцены («цена
+                изменилась», «уже снята», «не сохранилось») — здесь, у кнопки, а не
+                вверху страницы: с телефона тот блок не виден вовсе. role="alert" у обоих
+                тонов: заметка появляется вместе с текстом, а такой role="status" многие
+                чтецы не объявляют — «уже снята» не было бы слышно. Цвета — токены статусов:
+                в светлой теме держат контраст 4.5:1. */}
+            {note && (
+              <div className="flex items-start gap-1">
+                <p
+                  role="alert"
+                  className={`min-w-0 flex-1 text-[11px] leading-snug ${
+                    note.tone === "error" ? "text-status-fail" : "text-status-wait"
+                  }`}
+                >
+                  {note.text}
+                </p>
+                {onDismissNote && (
+                  <button
+                    type="button"
+                    onClick={() => onDismissNote(s)}
+                    aria-label={t("studio_ui.dock_hide_notice", { defaultValue: DOCK_RU["studio_ui.dock_hide_notice"] })}
+                    className="-mr-1 -mt-1 grid size-11 shrink-0 cursor-pointer place-items-center rounded-lg text-muted transition-colors hover:bg-surface-2 hover:text-foreground md:size-7"
+                  >
+                    <FiX aria-hidden />
+                  </button>
+                )}
+              </div>
             )}
 
             {/* Черновик снимается отсюда: клиент просил, чтобы человек сначала
@@ -410,8 +559,9 @@ export default function SceneTimeline({
                   }}
                   rows={2}
                   // Речь — это 2-3 слова в секунду: реплика длиннее сцены не
-                  // поместится, и модель оборвёт её на полуслове.
-                  maxLength={Math.max(40, (s.preset.duration || 5) * 14)}
+                  // поместится, и модель оборвёт её на полуслове. И не больше 300
+                  // знаков: длиннее сервер не сохранит, а обрезать молча нельзя.
+                  maxLength={dialogueMax}
                   placeholder={t("studio_ui.dialogue_ph")}
                   className="rounded-lg border border-border bg-surface-2 px-2 py-1.5 text-[11px] text-foreground outline-none placeholder:text-muted-2 focus:border-accent"
                 />
@@ -427,13 +577,30 @@ export default function SceneTimeline({
               <button
                 type="button"
                 onClick={() => onRetry(s)}
-                disabled={busy || noPrice}
+                disabled={payLocked}
                 className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-accent px-3 py-1.5 text-[11px] font-semibold text-accent transition-colors hover:bg-accent/10 disabled:opacity-60 cursor-pointer"
               >
                 {busy ? <FiLoader className="animate-spin" /> : <FiRefreshCw />}
                 {reshootCredits != null
                   ? t("studio_ui.reshoot_with_line", { credits: reshootCredits })
                   : t("studio_ui.reshoot_with_line_plain", { defaultValue: "Переснять с репликой" })}
+              </button>
+            )}
+            {/* Готовая сцена без реплики: «Переснять» — подписанной кнопкой с ценой. Раньше
+                это был значок ↻ с подсказкой при наведении, а на телефоне наведения нет —
+                и отказ «переснять можно кнопкой «Переснять»» указывал в никуда. */}
+            {s.status === "ready" && !s.dialogue && (
+              <button
+                type="button"
+                onClick={() => onRetry(s)}
+                disabled={payLocked}
+                title={t("studio_ui.retry")}
+                className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-[11px] font-semibold text-muted transition-colors hover:border-accent hover:text-foreground disabled:opacity-60 cursor-pointer"
+              >
+                <FiRefreshCw className={busy ? "animate-spin motion-reduce:animate-none" : ""} aria-hidden />
+                {reshootCredits != null
+                  ? t("studio_ui.reshoot_btn", { defaultValue: DOCK_RU["studio_ui.reshoot_btn"], credits: reshootCredits })
+                  : t("studio_ui.reshoot_btn_plain", { defaultValue: DOCK_RU["studio_ui.reshoot_btn_plain"] })}
               </button>
             )}
 
@@ -460,7 +627,7 @@ export default function SceneTimeline({
               <button
                 type="button"
                 onClick={() => onRender(s)}
-                disabled={busy || noPrice}
+                disabled={payLocked}
                 className="mb-1 inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-accent px-3 py-2 text-xs font-bold text-on-accent transition-colors hover:bg-accent-strong disabled:opacity-60 cursor-pointer"
               >
                 {busy ? <FiLoader className="animate-spin" /> : <FiPlay />}
@@ -488,7 +655,8 @@ export default function SceneTimeline({
               </button>
             )}
 
-            <div className="flex items-center gap-1">
+            {/* С переносом: у «ошибки» с прежним роликом на телефоне здесь пять кнопок. */}
+            <div className="flex flex-wrap items-center gap-1">
               <button
                 type="button"
                 onClick={() => onMove(s, -1)}
@@ -507,20 +675,28 @@ export default function SceneTimeline({
               >
                 <FiArrowRight />
               </button>
-              {(s.status === "failed" || s.status === "ready") && (
+              {s.status === "failed" && (
                 <button
                   type="button"
                   onClick={() => onRetry(s)}
-                  disabled={busy || noPrice}
+                  disabled={payLocked}
                   // Кадр не трогаем: пересобираем только ролик, поэтому герой и
                   // композиция остаются прежними, а платим лишь за видео. Цена —
-                  // прямо в подсказке, готовую сцену ещё и подтверждают.
-                  title={`${t(s.status === "failed" ? "studio_ui.retry_failed" : "studio_ui.retry")}${
+                  // прямо в подсказке. У готовой сцены — подписанная кнопка выше.
+                  // На телефоне — 44 px и подпись: это единственный повтор у такой строки,
+                  // и отказ «нажмите ещё раз» указывает именно на неё.
+                  title={`${t("studio_ui.retry_failed")}${
                     s.render_credits ? ` · ${s.render_credits} ${t("studio_ui.credits_short")}` : ""
                   }`}
-                  className="grid size-7 place-items-center rounded-lg text-muted transition-colors hover:bg-surface-2 hover:text-accent disabled:opacity-40 cursor-pointer"
+                  className="inline-flex h-11 shrink-0 cursor-pointer items-center justify-center gap-1 rounded-lg border border-border px-2.5 text-[11px] font-semibold text-muted transition-colors hover:bg-surface-2 hover:text-accent disabled:opacity-40 md:size-7 md:gap-0 md:border-0 md:px-0"
                 >
-                  <FiRefreshCw className={busy ? "animate-spin" : ""} />
+                  <FiRefreshCw className={busy ? "animate-spin motion-reduce:animate-none" : ""} aria-hidden />
+                  <span className="md:sr-only">
+                    {t("studio_ui.retry_failed_short", { defaultValue: DOCK_RU["studio_ui.retry_failed_short"] })}
+                  </span>
+                  {s.render_credits ? (
+                    <span className="sr-only">{` · ${s.render_credits} ${t("studio_ui.credits_short")}`}</span>
+                  ) : null}
                 </button>
               )}
               {/* Скачать отдельную сцену: клиент просил забирать не только

@@ -134,7 +134,20 @@ def scene_label(scene) -> str:
 
 
 def scene_seconds(scene) -> int:
-    return max(3, min(20, int(getattr(scene.preset, "duration", 5) or 5)))
+    """Сколько секунд длится сцена — под это мерится длина реплики.
+
+    Снятая или запущенная — по снимку «Снять», остальные — по доку (своя
+    длительность сцены, мультфильма или пресета): реплика на 5 с в сцене на 15 с
+    звучала бы обрывком, а на 15 с в пятисекундной — не влезала бы.
+    """
+    from .pricing import MAX_DURATION, scene_duration
+
+    try:
+        seconds = scene_duration(scene)
+    except Exception:
+        logger.exception("реплики: длительность сцены %s не выяснилась, беру пресет", scene.pk)
+        seconds = getattr(scene.preset, "duration", 5)
+    return max(3, min(MAX_DURATION, int(seconds or 5)))
 
 
 def known_voices(project) -> dict:
@@ -280,8 +293,9 @@ def build_plan(project, lang: str = "ru") -> dict:
     произносит сам персонаж в кадре, с попаданием в губы. Озвучивать её
     вторым голосом поверх — значит платить дважды и получить эхо.
     """
-    everything = list(project.scenes.select_related("preset", "character", "project__character")
-                      .order_by("order", "id"))
+    everything = list(project.scenes.select_related(
+        "preset", "preset__video_model", "character", "shot_model",
+        "project__character", "project__video_model").order_by("order", "id"))
     everything = [s for s in everything if _scene_hero(s)]
     spoken = [s for s in everything if (s.dialogue or "").strip()]
     scenes = [s for s in everything if not (s.dialogue or "").strip()][:MAX_LINES]

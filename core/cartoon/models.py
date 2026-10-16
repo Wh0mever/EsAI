@@ -241,6 +241,19 @@ class CartoonProject(models.Model):
         CartoonCharacter, on_delete=models.SET_NULL, null=True, blank=True,
         related_name="projects", verbose_name="Персонаж")
     aspect_ratio = models.CharField(max_length=8, default="16:9", verbose_name="Пропорции")
+    # Настройки съёмки из дока (модель, качество, длительность новых сцен).
+    # Пусто — как в пресете сцены: так снимают старые мультфильмы и бот, и
+    # ничего не меняется, пока человек сам не выберет (cartoon/pricing.py).
+    video_model = models.ForeignKey(
+        GPTModels, on_delete=models.SET_NULL, null=True, blank=True, related_name="+",
+        verbose_name="Модель видео",
+        help_text="Пусто — модель пресета каждой сцены.")
+    resolution = models.CharField(
+        max_length=8, null=True, blank=True, verbose_name="Качество",
+        help_text="Пусто — качество пресета сцены.")
+    duration = models.PositiveSmallIntegerField(
+        null=True, blank=True, verbose_name="Длительность новых сцен, с",
+        help_text="Пусто — длительность пресета сцены.")
     # Лента, собранная гостем до входа, приезжает сюда одним запросом. Ключ
     # черновика не даёт завести второй такой же проект, если страница после
     # входа перезагрузилась, пока шёл перенос.
@@ -352,6 +365,28 @@ class CartoonScene(models.Model):
                               verbose_name="Состояние")
     error = models.TextField(blank=True, default="", verbose_name="Ошибка")
     credits_spent = models.PositiveIntegerField(default=0, verbose_name="Списано кредитов")
+    # Своя длительность этой сцены. Пусто — длительность мультфильма или пресета.
+    duration = models.PositiveSmallIntegerField(
+        null=True, blank=True, verbose_name="Длительность сцены, с",
+        help_text="Пусто — как у мультфильма (или пресета).")
+    # Снимок настроек в момент «Снять» (pricing.snapshot_fields): съёмка, резерв и
+    # списание идут по нему, поэтому смена дока после запуска не меняет ни модель,
+    # ни цену уже поставленной сцены. Пересъёмка снимает новый снимок. Пусто —
+    # сцена снималась до снимков: всё считается по пресету, как раньше.
+    shot_model = models.ForeignKey(
+        GPTModels, on_delete=models.SET_NULL, null=True, blank=True, related_name="+",
+        verbose_name="Снята моделью")
+    shot_resolution = models.CharField(max_length=8, null=True, blank=True,
+                                       verbose_name="Снята в качестве")
+    shot_duration = models.PositiveSmallIntegerField(null=True, blank=True,
+                                                     verbose_name="Снята длительностью, с")
+    shot_aspect = models.CharField(max_length=8, null=True, blank=True, verbose_name="Снята в формате")
+    credits_planned = models.PositiveIntegerField(
+        null=True, blank=True, verbose_name="Цена при запуске",
+        help_text="Сколько показали на кнопке «Снять»: кадр + видео (или только видео с готовым кадром).")
+    shot_video_credits = models.PositiveIntegerField(
+        null=True, blank=True, verbose_name="Видео по цене запуска",
+        help_text="Видео-часть цены при запуске — её и списывает готовый ролик.")
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -418,6 +453,9 @@ class CartoonPairVideo(models.Model):
         CartoonPreset, on_delete=models.CASCADE, related_name="pair_videos", verbose_name="Сцена")
     character = models.ForeignKey(
         CartoonCharacter, on_delete=models.CASCADE, related_name="pair_videos", verbose_name="Герой")
+    # Формат — часть ключа, как у кадров: вертикальный ролик в горизонтальном
+    # мультфильме показывал бы не то, что человек получит.
+    aspect_ratio = models.CharField(max_length=8, default="16:9", verbose_name="Формат")
     video = models.CharField(max_length=512, verbose_name="Ролик")
     clip = models.CharField(
         max_length=512, blank=True, default="", verbose_name="Лёгкая копия",
@@ -428,7 +466,7 @@ class CartoonPairVideo(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
-        unique_together = ("preset", "character")
+        unique_together = ("preset", "character", "aspect_ratio")
         verbose_name = "Ролик героя в сцене"
         verbose_name_plural = "Ролики героев в сценах"
 

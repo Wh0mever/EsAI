@@ -17,10 +17,10 @@ from tests.test_r2_video import FakeMessage as VideoMessage
 
 
 class AspectApi(FakeApi):
-    """Запоминает, в каком формате бот просил библиотеку."""
+    """Запоминает, в каком формате (и для какого мультфильма) бот просил библиотеку."""
 
-    async def presets(self, token, aspect_ratio="", **kw):
-        self.calls.append(("presets", aspect_ratio))
+    async def presets(self, token, aspect_ratio="", project=None, **kw):
+        self.calls.append(("presets", aspect_ratio) if project is None else ("presets", "project", project))
         return await super().presets(token, **kw)
 
 
@@ -90,14 +90,17 @@ class TestNullScenePrice:
 
 class TestLibraryAspect:
     async def test_library_is_priced_in_project_aspect(self, wire):
+        """Внутри мультфильма формат (и модель, качество, длительность) берёт
+        сервер по ?project= — сборка C: цена зависит от настроек мультфильма."""
         fake, store = wire({"project": {"id": 1, "aspect_ratio": "1:1", "scenes": []}},
                            {"st_project": 1}, api_cls=AspectApi)
         await studio.show_timeline(FakeMessage(), "tok", "ru")
         assert store.values["st_aspect"] == "1:1"
         await studio.show_scenes(FakeMessage(), "tok", "ru", "all", 0)
-        assert ("presets", "1:1") in fake.calls
-        # Свой кэш на каждый формат: 16:9-цены не подменяют 1:1.
-        assert "st_presets:1:1" in store.values and "st_presets" not in store.values
+        assert ("presets", "project", 1) in fake.calls
+        # Свой кэш у каждого мультфильма и формата: 16:9-цены не подменяют 1:1.
+        assert any(k.startswith("st_presets:p1:1:1:") for k in store.values)
+        assert "st_presets" not in store.values and "st_presets:1:1" not in store.values
 
     async def test_no_project_keeps_plain_request(self, wire):
         fake, store = wire(api_cls=AspectApi)

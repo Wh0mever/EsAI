@@ -84,6 +84,7 @@ const STAGE_LABEL: Record<string, string> = {
   recover_waiting: "Довоз: ещё снимается",
   recover_poll_failed: "Довоз: провайдер не ответил",
   recover_download_failed: "Довоз: не скачалось",
+  refs_dropped: "Без фото героя (модель не приняла)",
   failed: "Ошибка",
   lost: "Потеряно",
 };

@@ -319,7 +319,8 @@ def generate_keyframe(preset, character, refs: list | None = None, aspect: str =
 
 def generate_scene_video(preset, keyframe_path: str, prompt: str = "",
                          negative: str = "", character=None, aspect: str = "",
-                         entry=None, heartbeat=None) -> str:
+                         entry=None, heartbeat=None, *, model=None, duration: int | None = None,
+                         resolution: str = "") -> str:
     """Оживить кадр. Возвращает путь к mp4 в хранилище.
 
     Кадр уходит как first_frame — ролик начинается ровно с того, что человек
@@ -328,11 +329,16 @@ def generate_scene_video(preset, keyframe_path: str, prompt: str = "",
     Промпт приходит готовым (его собирает режиссёр в director.py): раньше сюда
     уходила одна строка движения из пресета, и модель не знала ни героя, ни
     реплики — отсюда «персонажи не отрабатывают действия».
+
+    model (строка «Моделей» или openrouter id), duration и resolution — снимок
+    сцены, сделанный при «Снять» (pricing.shot_config): снимаем ровно то, что
+    человек выбрал в доке и оплатил. Пусто — как в пресете (превью библиотеки).
     """
     cfg = _openrouter_config()
-    model_id = preset.video_model.openrouter_id
-    params = _video_model_params(model_id, cfg, int(preset.duration or 5),
-                                 preset.resolution or "720p")
+    model_id = (str(getattr(model, "openrouter_id", model) or "").strip()
+                or preset.video_model.openrouter_id)
+    params = _video_model_params(model_id, cfg, int(duration or preset.duration or 5),
+                                 resolution or preset.resolution or "720p")
 
     body = {
         "model": model_id,
@@ -353,7 +359,7 @@ def generate_scene_video(preset, keyframe_path: str, prompt: str = "",
     if negative:
         body["negative_prompt"] = negative
     # Герой уходит референсом и в саму видеомодель: первый кадр задаёт позу, а
-    # референс держит внешность все пять секунд — иначе лицо «плывёт» к концу.
+    # референс держит внешность всю сцену — иначе лицо «плывёт» к концу.
     ref = getattr(character, "image", None)
     if ref:
         body["input_references"] = [{"type": "image_url",
@@ -363,10 +369,18 @@ def generate_scene_video(preset, keyframe_path: str, prompt: str = "",
     url = f"{cfg['base_url'].rstrip('/')}/videos"
     r = requests.post(url, json=body, headers=headers, timeout=VIDEO_SUBMIT_TIMEOUT)
     # Не все модели принимают референсы и запреты. Отказ по схеме — не повод
-    # терять сцену: снимаем тем же промптом, но без необязательных полей.
+    # терять сцену: снимаем тем же промптом и с тем же первым кадром, но без
+    # необязательных полей.
     if r.status_code == 400 and ("input_references" in body or "negative_prompt" in body):
-        logger.warning("съёмка: модель %s не приняла доп. поля (%s), пробую без них",
-                       model_id, r.text[:200])
+        dropped = [name for key, name in (("input_references", "фото героя"),
+                                          ("negative_prompt", "запретов")) if key in body]
+        # Фото героя проверено только на Seedance 2.0 (vstudio/caps.py): на Mini,
+        # Fast и 2.5 без него героя держит один первый кадр, и он может «поплыть».
+        # Поэтому каждый такой случай — с моделью в лог и в журнал генераций.
+        logger.warning("съёмка: модель %s не приняла %s (http 400: %s), снимаю без них",
+                       model_id, " и ".join(dropped), r.text[:200])
+        if entry is not None:
+            entry.stage("refs_dropped", f"{model_id}: снято без {' и '.join(dropped)} — модель ответила 400")
         body.pop("input_references", None)
         body.pop("negative_prompt", None)
         r = requests.post(url, json=body, headers=headers, timeout=VIDEO_SUBMIT_TIMEOUT)
@@ -590,9 +604,12 @@ def custom_base_preset():
     return base
 
 
+# Длительность здесь не называем: человек выбирает её в доке (и может сменить
+# потом), а описание формируется один раз. Разложить движение по секундам
+# снимаемой длины — работа режиссёра (director.py).
 _FORM_SYSTEM = (
     "You turn a short user description of a cartoon scene (any language) into prompts "
-    "for an image model (first frame) and an image-to-video model (5 seconds). "
+    "for an image model (first frame) and an image-to-video model (one continuous shot). "
     "Refer to the hero ONLY as 'the character' and never describe their appearance: "
     "it comes from a reference image. "
     "Return ONLY a JSON object with keys: "
@@ -600,7 +617,7 @@ _FORM_SYSTEM = (
     "title (string, at most 40 characters, in the user's language), "
     "scene (1-2 English sentences: setting, what the character is doing at the first moment, "
     "composition, lighting), "
-    "motion (1 English sentence: what moves during 5 seconds and how the camera moves). "
+    "motion (1 English sentence: what moves during the shot and how the camera moves). "
     "Set ok=false for sexual content or nudity, graphic violence or gore, hate, self-harm, "
     "real public figures, or anything unsafe involving children."
 )
@@ -699,12 +716,19 @@ def remember_pair_video(scene) -> bool:
     личное, и другим он не показывается. Лёгкая копия для автозапуска
     делается сразу; если ffmpeg не справился, витрина покажет оригинал.
     Возвращает True, если пара появилась в запасе впервые.
+
+    Только съёмка с собственными моделью, качеством и длительностью пресета
+    (снимок сцены, pricing.shot_config): ролик пары видят все, и дешёвый Mini
+    480p или чужая длина не должны стать «этой сценой с этим героем» для
+    каждого. Ключ — ещё и формат съёмки: вертикальный ролик в горизонтальном
+    мультфильме показывал бы не то, что человек получит.
     """
     from django.core.files.base import ContentFile
     from django.core.files.storage import default_storage
 
     from .clips import make_clip
     from .models import CartoonKeyframe, CartoonPairVideo
+    from .pricing import model_caps, shot_config
 
     character = scene.character or scene.project.character
     if not scene.video or not character or character.user_id is not None:
@@ -716,13 +740,24 @@ def remember_pair_video(scene) -> bool:
     # Реплика — слова самого человека, и модель их произносит в ролике.
     if (getattr(scene, "dialogue", "") or "").strip():
         return False
-    # Ролик «как у всех» — только с кадром из общего запаса. Кадр, нарисованный
-    # с оглядкой на прошлую сцену человека, несёт его комнату и его героев
-    # (вплоть до загруженных фото) — показывать такое чужим нельзя.
-    if not (scene.keyframe and CartoonKeyframe.objects.filter(
-            preset_id=scene.preset_id, character=character, image=scene.keyframe).exists()):
+    shot = shot_config(scene)
+    if not shot.preset_default:
         return False
-    if CartoonPairVideo.objects.filter(preset_id=scene.preset_id, character=character).exists():
+    aspect = shot.aspect or "16:9"
+    # Формат, которого модель не умеет, она подменяет своим — такой ролик не
+    # годится в превью этого формата.
+    caps = model_caps(shot.model)
+    if caps is not None and caps.aspects and aspect not in caps.aspects:
+        return False
+    # Ролик «как у всех» — только с кадром из общего запаса в том же формате.
+    # Кадр, нарисованный с оглядкой на прошлую сцену человека, несёт его комнату
+    # и его героев (вплоть до загруженных фото) — показывать такое чужим нельзя.
+    if not (scene.keyframe and CartoonKeyframe.objects.filter(
+            preset_id=scene.preset_id, character=character, aspect_ratio=aspect,
+            image=scene.keyframe).exists()):
+        return False
+    if CartoonPairVideo.objects.filter(preset_id=scene.preset_id, character=character,
+                                       aspect_ratio=aspect).exists():
         return False
 
     clip_path = ""
@@ -731,12 +766,13 @@ def remember_pair_video(scene) -> bool:
             clip = make_clip(fh.read())
         if clip:
             clip_path = default_storage.save(
-                f"cartoon/pairs/{scene.preset_id}-{character.pk}.mp4", ContentFile(clip))
+                f"cartoon/pairs/{scene.preset_id}-{character.pk}-{aspect.replace(':', 'x')}.mp4",
+                ContentFile(clip))
     except Exception:
         logger.exception("ролик пары: лёгкая копия не сделалась (сцена %s)", scene.pk)
 
     _, created = CartoonPairVideo.objects.get_or_create(
-        preset_id=scene.preset_id, character=character,
+        preset_id=scene.preset_id, character=character, aspect_ratio=aspect,
         defaults={"video": scene.video, "clip": clip_path, "source_scene": scene})
     return created
 

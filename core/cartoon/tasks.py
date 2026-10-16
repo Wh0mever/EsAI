@@ -26,7 +26,7 @@ from plans.wallet import InsufficientTokens
 
 from .models import CartoonProject, CartoonScene
 from .director import ensure_video_prompt
-from .pricing import scene_video_credits
+from .pricing import shot_config, shot_video_credits
 from .services import (CustomSceneRejected, assemble_project, charge, draw_custom_keyframe,
                        draw_linked_keyframe, ensure_custom_prompt,
                        generate_scene_video, human_error, last_frame_of, previous_anchor,
@@ -134,12 +134,28 @@ def _draw_frame(scene, preset, character, aspect: str) -> tuple[str, int, dict]:
     return path, price, {"preset": preset.pk, "character": character.pk, "scene": scene.pk}
 
 
+def _planned_frame(scene, shot, drawn: int) -> int:
+    """Сколько взять за нарисованный кадр: его часть цены из снимка «Снять».
+
+    Человек платит то, что видел на кнопке (credits_planned = кадр + видео), а не
+    цену кадра, пересчитанную через полчаса очереди. Кадр из общего запаса
+    бесплатен (drawn == 0). Сцена без снимка (поставлена до дока) — как раньше.
+    """
+    if not drawn or not shot.snapshot or shot.credits_planned is None or shot.video_credits is None:
+        return drawn
+    planned = max(0, int(shot.credits_planned) - int(shot.video_credits))
+    if not planned:
+        # При «Снять» кадр уже был, а к съёмке пропал: в цену он не входил — не берём.
+        logger.warning("сцена %s: кадр не входил в цену запуска, рисую без списания", scene.pk)
+    return planned
+
+
 @shared_task(bind=True, max_retries=0, soft_time_limit=RENDER_SOFT_LIMIT,
              time_limit=RENDER_HARD_LIMIT)
 def render_scene(self, scene_id: int) -> dict:
     """Кадр → видео для одной сцены. Ошибки не роняют задачу, а пишутся в сцену."""
     scene = CartoonScene.objects.filter(pk=scene_id).select_related(
-        "project", "project__character", "character",
+        "project", "project__character", "character", "shot_model",
         "preset", "preset__image_model", "preset__video_model"
     ).first()
     if not scene:
@@ -180,24 +196,29 @@ def render_scene(self, scene_id: int) -> dict:
             return {"status": "custom_failed"}
         preset = preset_for_scene(scene)
 
-    # Цена видео — до любых трат: одна формула на витрину, проверку баланса и
-    # списание (pricing.py), в формате мультфильма. В режиме markup без
-    # себестоимости сцену не снимаем — и кадр не рисуем, чтобы не взять за него зря.
+    # Чем снимать — снимок «Снять» (pricing.shot_config): модель, качество,
+    # длительность и формат, которые человек видел на кнопке. Док, сменённый
+    # после запуска, эту сцену уже не меняет.
+    shot = shot_config(scene)
+    # Цена видео — до любых трат: из того же снимка, что видел человек и что держит
+    # резерв. У сцен без снимка (поставлены до дока) — по пресету, как раньше; там
+    # в режиме markup без себестоимости сцену не снимаем — и кадр не рисуем, чтобы
+    # не взять за него зря.
     try:
-        video_price = scene_video_credits(preset, aspect=project.aspect_ratio)
+        video_price = shot_video_credits(scene, shot)
     except PriceUnavailable as exc:
         _fail(scene, exc.message)
         return {"status": "price_unavailable"}
 
     # --- 1) кадр сцены ---
     if not scene.keyframe:
-        aspect = project.aspect_ratio or "16:9"
         try:
-            path, frame_price, meta = _draw_frame(scene, preset, character, aspect)
+            path, frame_price, meta = _draw_frame(scene, preset, character, shot.aspect)
         except Exception as exc:
             logger.exception("сцена %s: кадр не получился", scene_id)
             _fail(scene, human_error(exc, "image"))
             return {"status": "keyframe_failed"}
+        frame_price = _planned_frame(scene, shot, frame_price)
         try:
             # Кадр оплачивается одной транзакцией с сохранением: сцену могли
             # удалить, пока он рисовался, — тогда и не списываем.
@@ -229,26 +250,29 @@ def render_scene(self, scene_id: int) -> dict:
     _video_entry_closed = False
     try:
         # Промпт съёмки: разложенное по секундам действие, реплика героя и
-        # запрет типовых артефактов. Собирается один раз на сцену.
-        plan = ensure_video_prompt(scene, character, preset, int(preset.duration or 5))
+        # запрет типовых артефактов. Собирается один раз на сцену — под длину
+        # снимка (кэш под прежнюю длину сбрасывают «Снять» и смена дока).
+        plan = ensure_video_prompt(scene, character, preset, shot.duration)
         # Журнал генераций: по нему в админке видно, кто и что снимал, и
         # сверяются списания провайдера.
         from ai import genlog
 
         entry = genlog.start(
-            user=user, kind="video", source="studio", model=preset.video_model.openrouter_id,
+            user=user, kind="video", source="studio", model=shot.model_id,
             prompt=plan["prompt"], scene_id=scene.pk,
             credits_planned=video_price,
-            params={"duration": preset.duration, "aspect_ratio": project.aspect_ratio or "",
-                    "project": project.pk})
+            params={"duration": shot.duration, "resolution": shot.resolution,
+                    "aspect_ratio": shot.aspect, "project": project.pk})
         try:
             scene.video = generate_scene_video(preset, scene.keyframe,
                                                prompt=plan["prompt"],
                                                negative=plan.get("negative", ""),
                                                character=character,
-                                               aspect=project.aspect_ratio or "",
+                                               aspect=shot.aspect,
                                                entry=entry,
-                                               heartbeat=_heartbeat(scene.pk))
+                                               heartbeat=_heartbeat(scene.pk),
+                                               model=shot.model, duration=shot.duration,
+                                               resolution=shot.resolution)
         except Exception as video_exc:
             # Провайдер запрос принял (есть ID) — значит мог взять деньги, а
             # ролика у человека нет: это в разбор, а не просто «ошибка».

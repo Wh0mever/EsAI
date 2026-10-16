@@ -97,6 +97,13 @@ KEYS = (
     # Студия: цена сцены мультфильма (5 с) в кредитах; 0 — по тарифу модели.
     # Только режим цен legacy: в режиме markup не читается.
     "studio_scene_credits",
+    # Мультстудия: модель (openrouter_id), качество и длительность новых
+    # мультфильмов. Действуют, только если модель включена и это умеет; иначе
+    # новые мультфильмы снимаются по пресету. Проверка и запись — эндпоинт
+    # cartoon manage/defaults/ (cartoon.pricing.validate_defaults).
+    "cartoon_default_model",
+    "cartoon_default_resolution",
+    "cartoon_default_duration",
     # Цены по себестоимости (ai/pricing.py): режим legacy/markup, общая наценка и
     # нижний порог в процентах к себестоимости OpenRouter (0…1000), закреплённый
     # курс сом/$ (пусто — живой). Проверка — ai.pricing.validate_setting, после

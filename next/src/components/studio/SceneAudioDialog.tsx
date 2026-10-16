@@ -17,6 +17,7 @@ import {
 import { Modal } from "@/components/dialog/Dialog";
 import { fetchData } from "@/tools/fetchData";
 import type { StudioScene } from "./SceneTimeline";
+import { clipSeconds } from "./dockLogic";
 
 /**
  * Звук сцены: реплики героев, свой голос, музыка и эффекты.
@@ -172,7 +173,9 @@ export default function SceneAudioDialog({
   const previewRef = useRef<HTMLAudioElement | null>(null);
   const [previewing, setPreviewing] = useState<string | null>(null);
 
-  const sceneDuration = scene?.preset.duration || 5;
+  // Длина настоящего ролика: у снятой сцены — по съёмке, а не по нынешнему доку
+  // (preset.duration — это уже длительность следующей съёмки).
+  const sceneDuration = clipSeconds(scene);
   const prices = config?.prices;
 
   useEffect(() => {

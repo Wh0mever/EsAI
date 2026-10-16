@@ -391,13 +391,13 @@ class TestBackendErrorEscaped:
 
     async def test_render_error(self, wire):
         wire({"render_error": ApiError(502, message=RAW)}, {"st_project": 1})
-        call = FakeCall("st:r:10", FakeMessage())
+        call = FakeCall("st:r:10:30", FakeMessage())
         await studio.render(call, "tok", "ru")
         assert "&lt;html&gt;" in call.message.texts and RAW not in call.message.texts
 
     async def test_empty_message_falls_back(self, wire):
         wire({"render_error": ApiError(500)}, {"st_project": 1})
-        call = FakeCall("st:r:10", FakeMessage())
+        call = FakeCall("st:r:10:30", FakeMessage())
         await studio.render(call, "tok", "ru")
         assert t("ru", "failed") in call.message.texts
 
@@ -472,7 +472,7 @@ class TestRenderAllEmptyQueue:
     async def test_no_zero_message_after_paywall(self, wire):
         wire({"project": {"id": 1, "scenes": [scene(10, credits=90)]},
               "balance": {"balance_tokens": 5}}, {"st_project": 1})
-        call = FakeCall("st:ra", FakeMessage())
+        call = FakeCall("st:ra:90", FakeMessage())
         await studio.render_all(call, "tok", "ru")
         assert t("ru", "st_render_all_done", n=0) not in call.message.texts
         assert "5" in call.message.texts, "пейвол человек увидеть обязан"
@@ -480,7 +480,7 @@ class TestRenderAllEmptyQueue:
     async def test_partial_queue_is_reported(self, wire):
         wire({"project": {"id": 1, "scenes": [scene(10, credits=30), scene(11, credits=30)]},
               "balance": {"balance_tokens": 30}}, {"st_project": 1})
-        call = FakeCall("st:ra", FakeMessage())
+        call = FakeCall("st:ra:60", FakeMessage())
         await studio.render_all(call, "tok", "ru")
         assert t("ru", "st_render_all_done", n=1) in call.message.texts
 
@@ -498,7 +498,7 @@ class TestRenderAllEmptyQueue:
         wire({"project": {"id": 1, "scenes": [scene(10, credits=10)]},
               "balance": {"balance_tokens": 1000},
               "render_error": ApiError(500)}, {"st_project": 1})
-        call = FakeCall("st:ra", FakeMessage())
+        call = FakeCall("st:ra:10", FakeMessage())
         await studio.render_all(call, "tok", "ru")
         assert t("ru", "failed") in call.message.texts
         assert t("ru", "st_render_all_done", n=0) not in call.message.texts

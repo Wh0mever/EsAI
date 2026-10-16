@@ -184,12 +184,28 @@ class RefusalTests(CartoonMarkupBase):
         self.assertIsNone(row["render_credits"])
         self.assertTrue(row["price_unavailable"])
 
+    def test_pricing_page_shows_the_new_cartoon_price(self):
+        """Тарифы — цена сцены НОВОГО мультфильма: Mini 480p 5 с 16:9 у каждой сцены
+        (у Sora своей себестоимости нет, но снимется она тоже на Mini)."""
+        body = APIClient().get("/api/cartoon/pricing/").json()
+        self.assertEqual((body["scene_min"], body["scene_typical"], body["scene_max"]), (35, 35, 35))
+        self.assertEqual(body["settings"], {"video_model": "bytedance/seedance-2.0-mini",
+                                            "model_name": "Seedance Mini", "resolution": "480p",
+                                            "duration": 5, "source": "settings", "aspect_ratio": "16:9"})
+        self.assertEqual(body["character"], 7)
+
     def test_pricing_page_skips_unpriced_scenes(self):
+        """Mini выключена: новый мультфильм снимается по пресетам — и тарифы тоже,
+        а сцены без себестоимости в диапазон «от и до» не входят."""
+        self.models["bytedance/seedance-2.0-mini"].is_active = False
+        self.models["bytedance/seedance-2.0-mini"].save(update_fields=["is_active"])
+        pricing.invalidate_price_caches()
         body = APIClient().get("/api/cartoon/pricing/").json()
         priced = [cp.scene_credits_or_none(p) for p in self.presets.values()]
         priced = sorted(p for p in priced if p is not None)
         self.assertEqual(body["scene_min"], priced[0])
         self.assertEqual(body["scene_max"], priced[-1])
+        self.assertEqual(body["settings"]["source"], "preset")
         self.assertEqual(body["character"], 7)
 
     def test_gate_refuses_and_charges_nothing(self):

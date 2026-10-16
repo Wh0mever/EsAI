@@ -229,7 +229,7 @@ class TestEscaping:
 
     async def test_rendering_caption(self, wire):
         wire({"render_title": BREAKER}, {"st_project": 1})
-        call = FakeCall("st:r:10", FakeMessage())
+        call = FakeCall("st:r:10:30", FakeMessage())
         await studio.render(call, "tok", "ru")
         assert BREAKER not in call.message.texts and "&lt;3" in call.message.texts
 
@@ -354,7 +354,7 @@ class TestRenderAllWithinBalance:
     async def test_queues_only_what_is_paid_for(self, wire):
         api, _ = wire({"project": project_with(list(self.PENDING)),
                        "balance": {"balance_tokens": 50}}, {"st_project": 1})
-        call = FakeCall("st:ra", FakeMessage())
+        call = FakeCall("st:ra:90", FakeMessage())
         await studio.render_all(call, "tok", "ru")
         assert api.rendered == [10]
         assert t("ru", "st_render_all_done", n=1) in call.message.texts
@@ -362,7 +362,7 @@ class TestRenderAllWithinBalance:
     async def test_shows_studio_paywall_with_topup(self, wire):
         api, _ = wire({"project": project_with(list(self.PENDING)),
                        "balance": {"balance_tokens": 50}}, {"st_project": 1})
-        call = FakeCall("st:ra", FakeMessage())
+        call = FakeCall("st:ra:90", FakeMessage())
         await studio.render_all(call, "tok", "ru")
         paywall = [s for s in call.message.sent
                    if t("ru", "st_paywall_studio_all", need=90, have=50) == s.text]
@@ -375,7 +375,7 @@ class TestRenderAllWithinBalance:
     async def test_enough_money_queues_everything(self, wire):
         api, _ = wire({"project": project_with(list(self.PENDING)),
                        "balance": {"balance_tokens": 200}}, {"st_project": 1})
-        call = FakeCall("st:ra", FakeMessage())
+        call = FakeCall("st:ra:90", FakeMessage())
         await studio.render_all(call, "tok", "ru")
         assert api.rendered == [10, 11, 12]
         assert t("ru", "st_paywall_studio_all", need=90, have=200) not in call.message.texts
@@ -388,7 +388,7 @@ class TestRenderAllWithinBalance:
             raise ApiError(500)
 
         api.balance = boom
-        call = FakeCall("st:ra", FakeMessage())
+        call = FakeCall("st:ra:90", FakeMessage())
         await studio.render_all(call, "tok", "ru")
         assert api.rendered == [10, 11, 12]
 
@@ -406,10 +406,20 @@ class TestRetryIsNotDoubled:
 
     @pytest.mark.parametrize("status", ["ready", "failed"])
     async def test_finished_scene_can_be_retried(self, wire, status):
-        api, _ = wire({"project": project_with([scene(10, 0, status=status)])}, {"st_project": 1})
-        call = FakeCall("st:rt:10:1", FakeMessage())
+        row = scene(10, 0, status=status)
+        # Хвост кнопки — меню, которое видел человек: «r<метка ролика>» — готовая сцена,
+        # «f» — «ошибка». Голое «r» (без метки) не снимает — C_POLISH3, N2.
+        tail = "f"
+        if status == "ready":
+            row["shot_token"] = "5f0c9a1e"
+            tail = "r5f0c9a1e"
+        api, _ = wire({"project": project_with([row])}, {"st_project": 1})
+        call = FakeCall(f"st:rt:10:1:30:{tail}", FakeMessage())
         await studio.retry_scene(call, "tok", "ru")
-        assert api.patches == [(10, {"retry": True, "new_keyframe": True})]
+        body = {"retry": True, "new_keyframe": True, "quoted_credits": 30, "expect_status": status}
+        if status == "ready":
+            body["expect_shot"] = "5f0c9a1e"
+        assert api.patches == [(10, body)]
 
 
 # ------------------------------------------------------------ переводы ---
