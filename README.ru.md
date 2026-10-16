@@ -28,6 +28,7 @@
   <img alt="Docker Compose" src="https://img.shields.io/badge/Docker-Compose-2496ED?style=flat-square&logo=docker&logoColor=white">
   <img alt="OpenRouter" src="https://img.shields.io/badge/OpenRouter-LLM_gateway-6467F2?style=flat-square&logo=openrouter&logoColor=white">
   <img alt="Telegram-бот на aiogram 3" src="https://img.shields.io/badge/Telegram_bot-aiogram_3-26A5E4?style=flat-square&logo=telegram&logoColor=white">
+  <a href="LICENSE"><img alt="Лицензия MIT" src="https://img.shields.io/badge/License-MIT-F4C20D?style=flat-square"></a>
 </p>
 
 <p align="center">
@@ -527,7 +528,7 @@ npx eslint .             # линтер
 
 ## Лицензия
 
-Открытая лицензия не предоставляется. Все права защищены.
+EsAI — открытый проект под [лицензией MIT](LICENSE).
 
 Названия моделей и провайдеров — товарные знаки их владельцев.
 

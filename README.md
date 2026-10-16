@@ -28,6 +28,7 @@
   <img alt="Docker Compose" src="https://img.shields.io/badge/Docker-Compose-2496ED?style=flat-square&logo=docker&logoColor=white">
   <img alt="OpenRouter" src="https://img.shields.io/badge/OpenRouter-LLM_gateway-6467F2?style=flat-square&logo=openrouter&logoColor=white">
   <img alt="Telegram bot on aiogram 3" src="https://img.shields.io/badge/Telegram_bot-aiogram_3-26A5E4?style=flat-square&logo=telegram&logoColor=white">
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-F4C20D?style=flat-square"></a>
 </p>
 
 <p align="center">
@@ -529,7 +530,7 @@ The interface ships in **Russian** (default), **Kyrgyz** and **English**. The la
 
 ## License
 
-No open-source license is granted. All rights reserved.
+EsAI is open source under the [MIT License](LICENSE).
 
 Model and provider names are trademarks of their respective owners.
 
