@@ -7,7 +7,7 @@
     "build": "next build --webpack",
     "start": "next start",
     "lint": "next lint",
-    "test:vstudio": "node --experimental-strip-types --test \"src/lib/vstudio/*.test.mjs\" \"src/components/vstudio/**/*.test.mjs\" \"src/app/admin-new/vstudio-showcase/*.test.mjs\" \"src/app/admin-new/studio-scenes/*.test.mjs\" \"src/app/admin-new/models/*.test.mjs\" \"src/app/admin-new/settings/*.test.mjs\" \"src/lib/modelBilling*.test.mjs\" \"src/components/studio/*.test.mjs\" \"src/components/studio/library/*.test.mjs\" \"scripts/i18n-parity.test.mjs\"",
+    "test:vstudio": "node --experimental-strip-types --test \"src/lib/vstudio/*.test.mjs\" \"src/components/vstudio/**/*.test.mjs\" \"src/app/admin-new/vstudio-showcase/*.test.mjs\" \"src/app/admin-new/studio-scenes/*.test.mjs\" \"src/app/admin-new/models/*.test.mjs\" \"src/app/admin-new/settings/*.test.mjs\" \"src/lib/modelBilling*.test.mjs\" \"src/components/studio/*.test.mjs\" \"src/components/studio/library/*.test.mjs\" \"src/components/merge/*.test.mjs\" \"scripts/i18n-parity.test.mjs\"",
     "test:creators": "node --experimental-strip-types --test \"src/lib/creators/*.test.mjs\" \"src/components/creators/**/*.test.mjs\"",
     "test:qrpay": "node --experimental-strip-types --test \"src/lib/qrpay.test.mjs\" \"src/lib/qrBannerWatch.test.mjs\" \"src/app/admin-new/payments/filters.test.mjs\"",
     "check:i18n": "node scripts/i18n-parity.mjs vstudio home creators qrpay"

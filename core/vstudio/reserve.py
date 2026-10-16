@@ -3,10 +3,11 @@
 Правило продукта: списываем только за готовый результат. Провайдеру же мы
 платим сразу, поэтому между запуском и выдачей кредиты «обещаны» — это резерв.
 В студии резерв — сама строка Take (charge_state="reserved"), отдельной таблицы
-нет. Свободный остаток = баланс минус ВСЕ три резерва сайта:
+нет. Свободный остаток = баланс минус ВСЕ резервы сайта:
 - видео чата и бота (ai.generation.reserved_video_credits — открытые записи журнала);
 - сцены мультстудии, которые снимаются (cartoon.pricing.reserved_credits);
-- дубли студии (vstudio_reserved).
+- дубли студии (vstudio_reserved);
+- склейки в очереди и в работе (merge.services.reserved_credits).
 Иначе две вкладки, чат и студия, или «запустил и перевёл кредиты другу»
 проходили бы проверку по одному и тому же балансу, а провайдеру мы платили бы
 за всё.
@@ -147,6 +148,17 @@ def _cartoon_reserved(user) -> int:
     return max(0, int(reserved_credits(user) or 0))
 
 
+def _merge_reserved(user) -> int:
+    """Склейки в очереди и в работе. Своя функция склейки уже мягкая (сбой → 0 и warning)."""
+    from django.apps import apps
+
+    if not apps.is_installed("merge"):
+        return 0
+    from merge.services import reserved_credits
+
+    return max(0, int(reserved_credits(user) or 0))
+
+
 def _soft(fn, user, what: str) -> int:
     """Посчитать часть резерва, не роняя чужой запрос: при сбое 0 и warning.
 
@@ -173,16 +185,17 @@ def vstudio_reserved(user) -> int:
 
 
 def total_reserved(user, *, strict: bool = False) -> int:
-    """Все три резерва сайта: видео чата и бота + сцены мультстудии + дубли студии.
+    """Все резервы сайта: видео чата и бота + сцены мультстудии + дубли студии + склейки.
 
     strict=True — для spend_gate студии: сбой не прячется (запрос упадёт и
     откатится, ничего не зарезервировав). По умолчанию — мягко, как в чужих
     гейтах и в plans.wallet.transferable_tokens: при сбое часть считается 0.
+    Резерв склеек мягкий и при strict: его считает сама склейка в своём savepoint.
     """
     if not getattr(user, "pk", None):
         return 0
     parts = ((_chat_reserved, "резерв видео чата"), (_cartoon_reserved, "резерв мультстудии"),
-             (_studio_reserved, "резерв видеостудии"))
+             (_studio_reserved, "резерв видеостудии"), (_merge_reserved, "резерв склеек"))
     if strict:
         return sum(fn(user) for fn, _ in parts)
     return sum(_soft(fn, user, what) for fn, what in parts)
@@ -269,7 +282,7 @@ def spend_gate(user, need: int, *, kind: str, client_request_id: str = ""):
        двойной клик) выстраиваются в очередь, и второй видит дубль первого;
     3. тот же client_request_id уже создал дубль → AlreadyStarted(take) (ответ 200 с ним);
     4. лимит открытых дублей своего вида → SpendRefused(409, too_many_open);
-    5. свободный остаток (баланс − все три резерва) < need → SpendRefused(402).
+    5. свободный остаток (баланс − все резервы сайта) < need → SpendRefused(402).
 
     Блок — transaction.atomic(): внутри транзакции запроса это savepoint, а
     замок строки держится до коммита всего запроса — вместе со вставкой дубля.

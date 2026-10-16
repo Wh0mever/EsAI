@@ -5,6 +5,7 @@ import Link from "next/link";
 import { fetchData } from "@/tools/fetchData";
 import PricingSection from "./PricingSection";
 import CartoonDefaultsSection from "./CartoonDefaultsSection";
+import MergePriceSection from "./MergePriceSection";
 import {
   FiKey,
   FiGift,
@@ -800,6 +801,9 @@ export default function AdminSettingsPage() {
 
       {/* 1.6 Мультстудия: модель, качество и длительность новых мультфильмов */}
       <CartoonDefaultsSection />
+
+      {/* 1.7 Склейка видео: цена готовой склейки */}
+      <MergePriceSection />
 
       {/* 2. Бонусы и лимиты */}
       <section className="rounded-2xl border border-border bg-surface p-5">

@@ -458,6 +458,8 @@ class TokenTransactionReason(models.TextChoices):
     # «возврат» у неё нет: несостоявшийся дубль просто снимает резерв.
     VSTUDIO_VIDEO = "vstudio_video", "Видеостудия: видео"
     VSTUDIO_IMAGE = "vstudio_image", "Видеостудия: картинка"
+    # Склейка тоже списывает только за готовый ролик (merge.services).
+    MERGE_VIDEO = "merge_video", "Склейка видео"
 
 
 # Списания видеостудии. Метрики трат считают их вместе с чатом — иначе

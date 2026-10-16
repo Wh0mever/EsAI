@@ -104,6 +104,10 @@ KEYS = (
     "cartoon_default_model",
     "cartoon_default_resolution",
     "cartoon_default_duration",
+    # Склейка видео (/merge): цена одной склейки в кредитах (0 — бесплатно, нет
+    # значения — 20). Списывается только за готовый ролик. Пишет эндпоинт
+    # merge manage/settings/, читает merge.config.price_credits.
+    "merge_price_credits",
     # Цены по себестоимости (ai/pricing.py): режим legacy/markup, общая наценка и
     # нижний порог в процентах к себестоимости OpenRouter (0…1000), закреплённый
     # курс сом/$ (пусто — живой). Проверка — ai.pricing.validate_setting, после

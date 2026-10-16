@@ -35,7 +35,7 @@ def _user_model():
 
 def reserved_tokens(user) -> int:
     """Кредиты, обещанные генерациям, которые ещё идут: видео чата и бота,
-    сцены мультстудии, дубли видеостудии (vstudio.reserve.total_reserved).
+    сцены мультстудии, дубли видеостудии, склейки (vstudio.reserve.total_reserved).
 
     Мягко: сбой подсчёта — 0 и warning там же, платящего не блокируем.
     """

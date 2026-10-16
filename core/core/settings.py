@@ -148,6 +148,7 @@ INSTALLED_APPS = [
     "botapi.apps.BotapiConfig",
     "cartoon.apps.CartoonConfig",
     "vstudio.apps.VstudioConfig",
+    "merge.apps.MergeConfig",
     "creators.apps.CreatorsConfig",
 ]
 
@@ -677,6 +678,17 @@ CELERY_BEAT_SCHEDULE = {
         "task": "vstudio.tasks.purge_assets",
         "schedule": crontab(hour=4, minute=30),
     },
+    # Склейка: задача, потерянная деплоем или убитым воркером, иначе держала
+    # бы резерв и кнопку «Склеить» до вечера. Раз в 5 минут снимаем зависшее.
+    "merge:fail_stale_renders": {
+        "task": "merge.tasks.fail_stale_renders",
+        "schedule": timedelta(minutes=5),
+    },
+    # Склейка: готовые ролики хранятся 30 дней — истёкшие стираем ночью.
+    "merge:purge_expired": {
+        "task": "merge.tasks.purge_expired",
+        "schedule": crontab(hour=4, minute=50),
+    },
 }
 
 # Оплата в Telegram-боте: off / staff / on (переопределяется в /admin-new →
@@ -743,6 +755,8 @@ if CELERY_MEDIA_QUEUE:
         "cartoon.tasks.assemble_movie": {"queue": CELERY_MEDIA_QUEUE},
         "cartoon.tasks.voice_movie": {"queue": CELERY_MEDIA_QUEUE},
         "cartoon.tasks.make_audio": {"queue": CELERY_MEDIA_QUEUE},
+        # Склейка — ffmpeg на минуты: туда же, где мультфильмы склеиваются.
+        "merge.tasks.render_merge": {"queue": CELERY_MEDIA_QUEUE},
     })
 CELERY_TASK_ROUTES.update({
     # Страховка и чистка — в общую очередь: sweep обязан находить потерянные

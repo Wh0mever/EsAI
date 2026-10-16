@@ -1,13 +1,16 @@
 "use client";
 
 import { useEffect, useId, useRef, type CSSProperties } from "react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useTranslation } from "react-i18next";
-import { FiFilm, FiLoader, FiPlus } from "react-icons/fi";
+import { FiFilm, FiLoader, FiPlus, FiScissors } from "react-icons/fi";
 import SaveMediaButton from "@/components/ui/SaveMediaButton";
 import ShareButtons from "@/components/ui/ShareButtons";
 import VideoPlayer from "@/components/video/VideoPlayer";
 import { VS_BTN_GHOST, VS_CARD, VS_H2, VS_LABEL, VS_SECTION, vx } from "@/components/vstudio/ui/skin";
 import { prefersReducedMotion } from "@/components/vstudio/ui/useAutoplayAllowed";
+import { addHref } from "@/components/merge/mergeLogic";
 import { CS_ANCHOR, CS_GAP, CS_HEAD, CS_NOTE_FAIL } from "./ui/cartoonSkin";
 import FilmBlock from "./timeline/FilmBlock";
 import type { Project } from "./cartoonTypes";
@@ -63,6 +66,8 @@ export default function ResultPanel({ project, shareUrl, readyCount, assembling,
   const { t } = useTranslation("common");
   const headingId = useId();
   const rootRef = useRef<HTMLElement | null>(null);
+  // Склейка — страница сайта: из Mini App в Telegram туда не уводим.
+  const inTelegram = (usePathname() ?? "").startsWith("/tg/");
   const projectId = project?.id ?? null;
   const video = project?.result_video ?? "";
   // Что было на прошлом показе: двигаем ленту только на перемену у того же мультфильма.
@@ -183,6 +188,14 @@ export default function ResultPanel({ project, shareUrl, readyCount, assembling,
                 <FiPlus aria-hidden />
                 {t("studio_ui.rail_new", { defaultValue: "Новый мультфильм" })}
               </button>
+              {/* Склеить мультфильм с другими роликами: склейка откроется уже с ним. Пока он
+                  пересобирается, склейка его не примет — ссылку прячем. */}
+              {!assembling && !inTelegram && (
+                <Link href={addHref([{ type: "cartoon_movie", id: String(project.id) }])} prefetch={false} className={VS_BTN_GHOST}>
+                  <FiScissors aria-hidden />
+                  {t("studio_ui.result_merge", { defaultValue: "Открыть в склейке" })}
+                </Link>
+              )}
             </div>
 
             {/* Поделиться. Ссылка ведёт на страницу мультфильма, а не на

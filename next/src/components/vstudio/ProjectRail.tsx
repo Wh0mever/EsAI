@@ -13,6 +13,7 @@ import {
   FiLogIn,
   FiMoreHorizontal,
   FiPlus,
+  FiScissors,
   FiSearch,
   FiUser,
   FiX,
@@ -53,6 +54,8 @@ import type { ProjectJSON, Uid } from "@/lib/vstudio/types";
 
 const SEARCH_DEBOUNCE_MS = 300;
 const CARTOON_STUDIO = "/studio";
+/** Склейка видео: свои готовые ролики — в один. */
+const MERGE = "/merge";
 
 /**
  * Золотая точка «вы здесь» и «идёт генерация». Цвет — золото для текста и
@@ -267,6 +270,11 @@ function FullRail({ onNavigate, autoFocusSearch }: { onNavigate?: () => void; au
         <Link href={CARTOON_STUDIO} prefetch={false} className={VS_MENU_ITEM}>
           <FiFilm className="shrink-0 text-muted" aria-hidden="true" />
           <span className="min-w-0 flex-1 truncate">{t("nav.cartoon", { defaultValue: "Мультстудия" })}</span>
+          <FiArrowUpRight className="shrink-0 text-muted-2" aria-hidden="true" />
+        </Link>
+        <Link href={MERGE} prefetch={false} className={VS_MENU_ITEM}>
+          <FiScissors className="shrink-0 text-muted" aria-hidden="true" />
+          <span className="min-w-0 flex-1 truncate">{t("nav.merge", { defaultValue: "Склейка" })}</span>
           <FiArrowUpRight className="shrink-0 text-muted-2" aria-hidden="true" />
         </Link>
         <button
@@ -507,6 +515,7 @@ function CompactRail({ onExpand }: { onExpand?: (focus?: "search") => void }) {
   const running = state.projects.items.some((p) => p.open_takes > 0);
   const newLabel = t("nav.new", { defaultValue: "Новая генерация" });
   const cartoonLabel = t("nav.cartoon", { defaultValue: "Мультстудия" });
+  const mergeLabel = t("nav.merge", { defaultValue: "Склейка" });
 
   return (
     <nav aria-label={t("nav.history", { defaultValue: "История" })} className="flex h-full flex-col items-center gap-1.5 pb-3">
@@ -548,6 +557,9 @@ function CompactRail({ onExpand }: { onExpand?: (focus?: "search") => void }) {
       </button>
       <Link href={CARTOON_STUDIO} prefetch={false} className={VS_ICON_BTN} aria-label={cartoonLabel} title={cartoonLabel}>
         <FiFilm className="text-lg" aria-hidden="true" />
+      </Link>
+      <Link href={MERGE} prefetch={false} className={VS_ICON_BTN} aria-label={mergeLabel} title={mergeLabel}>
+        <FiScissors className="text-lg" aria-hidden="true" />
       </Link>
       <button
         type="button"

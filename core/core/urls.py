@@ -15,6 +15,7 @@ urlpatterns = [
     path('api/bot/', include('botapi.urls')),
     path('api/cartoon/', include('cartoon.urls')),
     path('api/vstudio/', include('vstudio.urls')),
+    path('api/merge/', include('merge.urls')),
     path('api/creators/', include('creators.urls')),
 ]
 

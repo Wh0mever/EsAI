@@ -60,7 +60,8 @@ function isChatPath(pathname: string | null): boolean {
  * Видеостудия занимает весь экран: внизу баннер закрывал панель запроса с
  * кнопкой «Создать», вверху — заголовок первого экрана. Там его не показываем;
  * человек увидит предложение на любой другой странице. Мультстудия — так же:
- * внизу у неё док «Модель / Качество / Длительность / Формат».
+ * внизу у неё док «Модель / Качество / Длительность / Формат». Склейка — тоже:
+ * внизу док с кнопкой «Склеить».
  */
 function isStudioPath(pathname: string | null): boolean {
   if (!pathname) return false;
@@ -68,7 +69,9 @@ function isStudioPath(pathname: string | null): boolean {
     pathname.startsWith("/video-studio") ||
     pathname === "/studio" ||
     pathname.startsWith("/studio/") ||
-    pathname.startsWith("/tg/studio")
+    pathname.startsWith("/tg/studio") ||
+    pathname === "/merge" ||
+    pathname.startsWith("/merge/")
   );
 }
 

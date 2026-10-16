@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { MouseEvent } from "react";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
-import { FiArrowUpRight, FiEdit2, FiFilm, FiLogIn, FiPlus, FiUser, FiUsers, FiVideo } from "react-icons/fi";
+import { FiArrowUpRight, FiEdit2, FiFilm, FiLogIn, FiPlus, FiScissors, FiUser, FiUsers, FiVideo } from "react-icons/fi";
 import EsaiLogo from "@/components/brand/EsaiLogo";
 import ThemeToggle from "@/components/vstudio/ThemeToggle";
 import {
@@ -198,6 +198,14 @@ function FullRail({
           <Link href="/video-studio" prefetch={false} className={VS_MENU_ITEM}>
             <FiVideo className="shrink-0 text-muted" aria-hidden="true" />
             <span className="min-w-0 flex-1 truncate">{t("studio_ui.rail_vstudio", { defaultValue: "Видеостудия" })}</span>
+            <FiArrowUpRight className="shrink-0 text-muted-2" aria-hidden="true" />
+          </Link>
+        )}
+        {/* Склейка видео: готовый мультфильм и сцены можно склеить с другими роликами. Не в Telegram. */}
+        {site && (
+          <Link href="/merge" prefetch={false} className={VS_MENU_ITEM}>
+            <FiScissors className="shrink-0 text-muted" aria-hidden="true" />
+            <span className="min-w-0 flex-1 truncate">{t("studio_ui.rail_merge", { defaultValue: "Склейка" })}</span>
             <FiArrowUpRight className="shrink-0 text-muted-2" aria-hidden="true" />
           </Link>
         )}
@@ -425,6 +433,7 @@ function CompactRail({
   const runningLabel = t("studio_ui.rail_running", { defaultValue: "Идёт съёмка" });
   const vstudioLabel = t("studio_ui.rail_vstudio", { defaultValue: "Видеостудия" });
   const heroesLabel = t("studio_ui.rail_heroes", { defaultValue: "Мои герои" });
+  const mergeLabel = t("studio_ui.rail_merge", { defaultValue: "Склейка" });
   const profileLabel = t("studio_ui.shell_profile", { defaultValue: "Профиль" });
   // eslint-disable-next-line @next/next/no-img-element
   const mark = <img src="/esai-mark.svg" alt="" className="size-7 rounded-lg ring-1 ring-vs-ink/10" />;
@@ -464,6 +473,11 @@ function CompactRail({
       {site && VSTUDIO_NAV && (
         <Link href="/video-studio" prefetch={false} className={VS_ICON_BTN} aria-label={vstudioLabel} title={vstudioLabel}>
           <FiVideo className="text-lg" aria-hidden="true" />
+        </Link>
+      )}
+      {site && (
+        <Link href="/merge" prefetch={false} className={VS_ICON_BTN} aria-label={mergeLabel} title={mergeLabel}>
+          <FiScissors className="text-lg" aria-hidden="true" />
         </Link>
       )}
       <button type="button" onClick={onHeroes} className={VS_ICON_BTN} aria-label={heroesLabel} title={heroesLabel}>

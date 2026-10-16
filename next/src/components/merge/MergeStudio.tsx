@@ -1,0 +1,355 @@
+"use client";
+
+import { useId, useRef, useState } from "react";
+import { useTranslation } from "react-i18next";
+import { FiLogIn, FiPlus, FiScissors } from "react-icons/fi";
+import PaywallModal from "@/components/chat/PaywallModal";
+import TopUpModal from "@/components/chat/TopUpModal";
+import VStudioShell, { useVsBreakpoint } from "@/components/vstudio/VStudioShell";
+import { useVisualViewport } from "@/components/vstudio/hooks/useVisualViewport";
+import { prefersReducedMotion } from "@/components/vstudio/ui/useAutoplayAllowed";
+import {
+  VS_BTN_GOLD,
+  VS_CARD,
+  VS_FOCUS,
+  VS_H2,
+  VS_SECTION,
+  VS_SEG_THUMB,
+  VS_SEG_TRACK,
+  VS_SUB,
+  vx,
+} from "@/components/vstudio/ui/skin";
+import { rememberReturnPath } from "@/tools/authNext";
+import MergeConfirmDialog from "./MergeConfirmDialog";
+import MergeDock, { type MergePrimary } from "./MergeDock";
+import MergeRail from "./MergeRail";
+import MergeResult from "./MergeResult";
+import MergeTimeline, { TimelineSkeleton } from "./MergeTimeline";
+import MergeTopBar, { MergeErrorBanner, MergeHeader, signInHref } from "./MergeTopBar";
+import SourcePicker, { PickerSkeleton } from "./SourcePicker";
+import { MERGE_PATH, blockText, isActive } from "./mergeLogic";
+import { useMerge } from "./useMerge";
+
+/**
+ * Страница «Склейка видео» (/merge): свои готовые ролики из видеостудии,
+ * мультстудии и чата — в один. Каркас тот же, что у студий (VStudioShell):
+ * слева «Мои склейки» (на узком — шторка), сверху название и баланс, в
+ * середине выбор роликов и порядок фрагментов, внизу док с форматом,
+ * заполнением кадра, итогом и «Склеить · 20 кр».
+ *
+ * С 1024 px выбор роликов — колонка слева от ленты (она стоит на месте, пока
+ * лента прокручивается); уже — два вида одной кнопкой: «Склейка» и
+ * «Добавить видео». Пока склейка идёт или готова, править нечего: на экране
+ * итог и список фрагментов без кнопок.
+ */
+const noop = () => {};
+
+export default function MergeStudio() {
+  const { t } = useTranslation("vstudio", { useSuspense: false });
+  const m = useMerge();
+  const { actions } = m;
+  const breakpoint = useVsBreakpoint();
+  // Высота оболочки — видимая часть окна: на телефоне с клавиатурой док остаётся над ней.
+  useVisualViewport({ cssVars: true });
+  const feedScrollRef = useRef<HTMLDivElement | null>(null);
+  const timelineRef = useRef<HTMLDivElement | null>(null);
+  const [railOpen, setRailOpen] = useState(false);
+  // Телефон и планшет: что на экране — лента склейки или выбор роликов.
+  const [view, setView] = useState<"timeline" | "picker">("timeline");
+  const [added, setAdded] = useState("");
+  const pickerHeading = useId();
+  const timelineHeading = useId();
+
+  const project = m.project;
+  const active = isActive(project?.status ?? null);
+  const showEditor = m.authed === true && !m.loading && !m.opening && m.editable;
+  const showResult = m.authed === true && !m.loading && !m.opening && Boolean(project) && !m.editable;
+
+  const toTimeline = () => {
+    setView("timeline");
+    window.requestAnimationFrame(() => {
+      timelineRef.current?.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "start" });
+      timelineRef.current?.querySelector<HTMLElement>("h2")?.focus({ preventScroll: true });
+    });
+  };
+
+  const newMerge = () => {
+    actions.newMerge();
+    setView("timeline");
+    if (feedScrollRef.current) feedScrollRef.current.scrollTop = 0;
+  };
+
+  const open = (id: string) => {
+    actions.open(id);
+    setView("timeline");
+    if (feedScrollRef.current) feedScrollRef.current.scrollTop = 0;
+  };
+
+  const primary: MergePrimary =
+    m.running || active
+      ? { kind: "busy" }
+      : m.block
+        ? { kind: "off", price: m.price, reason: blockText(m.block) }
+        : m.short > 0
+          ? { kind: "short", price: m.price, missing: m.short }
+          : { kind: "run", price: m.price };
+
+  const top = {
+    loading: m.loading,
+    authed: m.authed,
+    balance: m.balance?.balance ?? null,
+    balanceFailed: m.balanceFailed,
+    openId: m.openId,
+    title: m.edit.title || project?.title || "",
+    back: m.returnPath,
+    onRename: actions.rename,
+    onTopup: actions.openTopup,
+  };
+
+  const editor = (
+    <>
+      {project && (project.status === "failed" || project.status === "expired") && (
+        <div className="mb-5">
+          <MergeResult project={project} onNew={newMerge} onCopy={actions.copyProject} />
+        </div>
+      )}
+      {/* Телефон и планшет: лента или выбор — одной кнопкой; с 1024 px обе колонки рядом. */}
+      <div role="group" aria-label={t("merge.view", { defaultValue: "Что показать" })} className={vx("mb-4 grid grid-cols-2 gap-1 rounded-full p-1 lg:hidden", VS_SEG_TRACK)}>
+        {(["timeline", "picker"] as const).map((v) => {
+          const on = view === v;
+          return (
+            <button
+              key={v}
+              type="button"
+              aria-pressed={on}
+              onClick={() => setView(v)}
+              className={vx(
+                "inline-flex min-h-11 min-w-0 cursor-pointer items-center justify-center gap-1.5 rounded-full px-3 text-[13px] font-medium transition-colors",
+                VS_FOCUS,
+                on ? vx(VS_SEG_THUMB, "text-vs-accent") : "text-muted hover:text-foreground",
+              )}
+            >
+              {v === "timeline" ? (
+                <>
+                  <FiScissors className="shrink-0" aria-hidden="true" />
+                  <span className="truncate">{t("merge.viewTimeline", { defaultValue: "Склейка" })}</span>
+                  <span className="tabular-nums text-muted-2">{m.edit.items.length}</span>
+                </>
+              ) : (
+                <>
+                  <FiPlus className="shrink-0" aria-hidden="true" />
+                  <span className="truncate">{t("merge.tl.add", { defaultValue: "Добавить видео" })}</span>
+                </>
+              )}
+            </button>
+          );
+        })}
+      </div>
+      <div className="grid gap-6 lg:grid-cols-[minmax(300px,380px)_minmax(0,1fr)] lg:items-start xl:gap-8">
+        <div
+          className={vx(
+            // Колонка выбора стоит на месте, пока лента прокручивается, и листается сама.
+            "lg:sticky lg:top-6 lg:-mx-1 lg:max-h-[calc(var(--vvh,100dvh)_-_13rem)] lg:overflow-y-auto lg:overscroll-contain lg:px-1 lg:pb-2",
+            view !== "picker" && "max-lg:hidden",
+          )}
+        >
+          <SourcePicker
+            tab={m.tab}
+            sources={m.sources}
+            counts={m.counts}
+            items={m.edit.items}
+            limits={m.limits}
+            onTab={actions.setTab}
+            onAdd={(card) => {
+              if (actions.addSource(card)) {
+                setAdded(t("merge.added", { defaultValue: "Добавлено: {{title}}", title: card.title || t("merge.untitled", { defaultValue: "Без названия" }) }));
+              }
+            }}
+            onMore={actions.loadMoreSources}
+            onReload={actions.reloadSources}
+            headingId={pickerHeading}
+          />
+        </div>
+        <div ref={timelineRef} className={vx("scroll-mt-6 scroll-mb-14", view !== "timeline" && "max-lg:hidden")}>
+          <MergeTimeline
+            items={m.edit.items}
+            editable
+            limits={m.limits}
+            total={m.total}
+            onMove={actions.moveItem}
+            onRemove={actions.removeItem}
+            onAdd={() => setView("picker")}
+            unsaved={m.unsaved}
+            onRetrySave={actions.retrySave}
+            headingId={timelineHeading}
+          />
+        </div>
+      </div>
+      <p className="sr-only" role="status" aria-live="polite">
+        {added}
+      </p>
+    </>
+  );
+
+  const result = project ? (
+    <div className="mx-auto flex max-w-[920px] flex-col gap-6">
+      <MergeResult project={project} onNew={newMerge} onCopy={actions.copyProject} />
+      <div ref={timelineRef} className="scroll-mt-6">
+        <MergeTimeline
+          items={m.edit.items}
+          editable={false}
+          limits={m.limits}
+          total={m.total}
+          onMove={noop}
+          onRemove={noop}
+          headingId={timelineHeading}
+        />
+      </div>
+    </div>
+  ) : null;
+
+  const feed = (
+    // pb-6 к отступу оболочки (pb-10): вместе не меньше затухания над доком (56 px).
+    <div className="flex flex-col pb-6">
+      <header className={vx(VS_SECTION, "pt-5 sm:pt-8")}>
+        <h1 className="vs-display text-[26px] leading-tight text-foreground sm:text-[32px]">
+          {t("merge.name", { defaultValue: "Склейка видео" })}
+        </h1>
+        <p className={vx(VS_SUB, "mt-1.5 max-w-2xl")}>
+          {t("merge.sub", {
+            defaultValue: "Соберите готовые ролики из видеостудии, мультстудии и чата в одно видео: выберите фрагменты, расставьте по порядку — и скачайте.",
+          })}
+        </p>
+      </header>
+      <div className={vx(VS_SECTION, "mt-6 sm:mt-8")}>
+        {m.authed === false ? (
+          <GuestCard price={m.price} back={m.returnPath} />
+        ) : showEditor ? (
+          editor
+        ) : showResult ? (
+          result
+        ) : (
+          <WorkspaceSkeleton />
+        )}
+      </div>
+    </div>
+  );
+
+  return (
+    <VStudioShell
+      breakpoint={breakpoint}
+      // Лента во всю ширину колонки: поля и ширину секций задают себе сами (VS_SECTION).
+      home
+      rail={(v) => (
+        <MergeRail
+          variant={v}
+          loading={m.loading}
+          authed={m.authed}
+          list={m.list}
+          openId={m.openId}
+          balance={m.balance?.balance ?? null}
+          balanceFailed={m.balanceFailed}
+          back={m.returnPath}
+          onOpen={open}
+          onNew={newMerge}
+          onDelete={(id) => void actions.remove(id)}
+          onMore={actions.loadMoreProjects}
+          onReload={actions.reloadProjects}
+          onTopup={actions.openTopup}
+          onExpand={() => setRailOpen(true)}
+          onNavigate={() => setRailOpen(false)}
+        />
+      )}
+      railOpen={railOpen}
+      onRailOpenChange={setRailOpen}
+      header={<MergeHeader {...top} />}
+      topBar={<MergeTopBar {...top} onMenu={() => setRailOpen(true)} />}
+      banner={m.error ? <MergeErrorBanner banner={m.error} onClose={actions.dismissError} onOpen={open} /> : null}
+      feed={feed}
+      // Док — пока склейку можно править или она идёт; у готовой действия — в карточке результата.
+      composer={
+        m.authed === true && !m.loading && !m.opening && (m.editable || active) ? (
+          <MergeDock
+            aspect={m.edit.aspect}
+            fit={m.edit.fit}
+            locked={!m.editable || m.running}
+            count={m.edit.items.length}
+            total={m.total}
+            primary={primary}
+            saving={m.saving}
+            onAspect={actions.setAspect}
+            onFit={actions.setFit}
+            onRun={actions.requestRun}
+            onTotal={toTimeline}
+          />
+        ) : null
+      }
+      settingsTitle=""
+      settingsOpen={false}
+      onSettingsOpenChange={noop}
+      settingsCollapsed
+      feedScrollRef={feedScrollRef}
+      labels={{
+        history: t("merge.rail.title", { defaultValue: "Мои склейки" }),
+        main: t("merge.name", { defaultValue: "Склейка видео" }),
+      }}
+      overlays={
+        <>
+          <MergeConfirmDialog
+            open={m.confirm}
+            count={m.edit.items.length}
+            total={m.total}
+            aspect={m.edit.aspect}
+            fit={m.edit.fit}
+            price={m.price}
+            retentionDays={m.limits.retention_days}
+            onConfirm={actions.run}
+            onClose={actions.cancelRun}
+          />
+          <PaywallModal context={m.paywall} onClose={actions.closePaywall} onTopUp={actions.openTopup} />
+          <TopUpModal open={m.topup} onClose={actions.closeTopup} returnTo={MERGE_PATH} />
+        </>
+      }
+    />
+  );
+}
+
+/** Гость: страница видна, но склеивать можно только своё — сначала вход. */
+function GuestCard({ price, back }: { price: number; back: string }) {
+  const { t } = useTranslation("vstudio", { useSuspense: false });
+  return (
+    <div className={vx(VS_CARD, "mx-auto flex max-w-xl flex-col items-start gap-3 p-5 sm:p-6")}>
+      <span className="grid size-11 place-items-center rounded-2xl bg-accent/[0.1] text-xl text-vs-accent" aria-hidden="true">
+        <FiScissors />
+      </span>
+      <h2 className={VS_H2}>{t("merge.guest.title", { defaultValue: "Войдите, чтобы склеить видео" })}</h2>
+      <p className={VS_SUB}>
+        {t("merge.guest.text", {
+          defaultValue: "Склейка собирает в один ролик ваши готовые видео — из видеостудии, мультстудии и чата.",
+        })}{" "}
+        {price > 0
+          ? t("merge.guest.price", {
+              defaultValue: "Стоит {{price}} кр — кредиты списываются только за готовый ролик.",
+              price,
+            })
+          : t("merge.confirm.free", { defaultValue: "Склейка сейчас бесплатная." })}
+      </p>
+      <a href={signInHref(back)} onClick={() => rememberReturnPath(back)} className={vx(VS_BTN_GOLD, "mt-1")}>
+        <FiLogIn aria-hidden="true" />
+        {t("top.signin", { defaultValue: "Войти" })}
+      </a>
+    </div>
+  );
+}
+
+/** Первый показ: те же две колонки, пока не ясно, что открыть. */
+function WorkspaceSkeleton() {
+  return (
+    <div className="grid gap-6 lg:grid-cols-[minmax(300px,380px)_minmax(0,1fr)] lg:items-start xl:gap-8" aria-hidden="true">
+      <div className="max-lg:hidden">
+        <PickerSkeleton />
+      </div>
+      <TimelineSkeleton />
+    </div>
+  );
+}

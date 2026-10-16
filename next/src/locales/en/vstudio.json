@@ -16,6 +16,7 @@
 		"history": "History",
 		"library": "My media",
 		"menu": "Project menu",
+		"merge": "Video merge",
 		"more": "Show more",
 		"new": "New generation",
 		"nothingFound": "Nothing found",
@@ -773,6 +774,179 @@
 			"lockedSwitched": "This example was shot with {{model}}, which is on a paid plan. We switched to video with a model available to you.",
 			"lockedSwitchedKept": "This example was shot with {{model}}, which is on a paid plan. We switched to video with a model available to you. Your request text was left untouched.",
 			"photo": "Add your own photo — this example was made from a picture."
+		}
+	},
+	"merge": {
+		"name": "Video merge",
+		"sub": "Join your finished videos from the Video Studio, Cartoon Studio and chat into one: pick the clips, put them in order and download.",
+		"new": "New merge",
+		"title_default": "Merge {{date}}",
+		"untitled": "Untitled",
+		"until": "Kept until {{date}}",
+		"closeError": "Hide",
+		"openActive": "Open the running merge",
+		"added": "Added: {{title}}",
+		"preview": "Watch: {{title}}",
+		"view": "What to show",
+		"viewTimeline": "Merge",
+		"aspect": {
+			"wide": "YouTube, landscape",
+			"tall": "Reels, TikTok, Shorts",
+			"square": "Square for the feed"
+		},
+		"fit": {
+			"pad": "Fit",
+			"crop": "Crop"
+		},
+		"fitHint": {
+			"pad": "Whole frame, with a blurred copy of it around the edges",
+			"crop": "Fills the screen, extra edges are cut off"
+		},
+		"dock": {
+			"label": "Merge settings",
+			"format": "Format",
+			"fill": "Frame fill",
+			"count": "Clips: {{n}}",
+			"total": "Clips: {{n}}, length {{total}}",
+			"free": "free",
+			"run": "Merge · {{price}}",
+			"runShort": "Merge",
+			"busy": "Merging…",
+			"short": "Top up · {{n}} short",
+			"saving": "Saving…",
+			"done": "Done"
+		},
+		"confirm": {
+			"title": "Merge the videos?",
+			"what": "Clips",
+			"price": "Price",
+			"charge": "Charged only when the video is ready. If it fails, you keep your credits.",
+			"free": "Merging is free right now.",
+			"keep": "The finished video is stored for {{days}} days — download it so you don't lose it."
+		},
+		"guest": {
+			"title": "Sign in to merge videos",
+			"text": "Video merge joins your finished videos — from the Video Studio, Cartoon Studio and chat — into one.",
+			"price": "It costs {{price}} cr — credits are charged only for a finished video."
+		},
+		"picker": {
+			"title": "Your videos",
+			"sub": "Finished videos from the studios and chat",
+			"reload": "Refresh the list",
+			"tabs": "Where to take videos from",
+			"failed": "Couldn't load the videos",
+			"add": "Add",
+			"inMerge": "In the merge: {{n}}",
+			"full": "Already {{max}}",
+			"tooLong": "Won't fit",
+			"tooLongHint": "The merge would be longer than 5 minutes ({{total}}).",
+			"unreadable": "Can't be read",
+			"unreadableHint": "This video can't be read, so it can't be merged.",
+			"emptyVstudio": "Videos made in the Video Studio will appear here.",
+			"emptyCartoon": "Shot scenes and assembled cartoons will appear here.",
+			"emptyChat": "Videos created in the chat since 21 September will appear here.",
+			"toVstudio": "Open the Video Studio",
+			"toCartoon": "Open the Cartoon Studio"
+		},
+		"tab": {
+			"vstudio": "Video Studio",
+			"cartoon": "Cartoon Studio",
+			"chat": "Chat"
+		},
+		"tl": {
+			"title": "Clip order",
+			"hint": "Top to bottom — that's their order in the video. Drag by ≡ or move them with the arrows.",
+			"limit": "{{n}} of {{max}} · {{total}} of {{maxTotal}}",
+			"empty": "Add at least two videos — they will be joined into one in the order shown here.",
+			"add": "Add videos",
+			"up": "Move up",
+			"down": "Move down",
+			"remove": "Remove from the merge",
+			"handle": "Drag: {{title}}",
+			"moved": "“{{title}}” — position {{n}} of {{total}}",
+			"removed": "“{{title}}” removed from the merge",
+			"number": "Clip {{n}}:",
+			"unavailable": "Video unavailable — remove it from the merge",
+			"unsaved": "Changes not saved"
+		},
+		"source": {
+			"vstudio": "Video Studio",
+			"cartoon_scene": "Cartoon scene",
+			"cartoon_movie": "Cartoon",
+			"chat": "Chat"
+		},
+		"rail": {
+			"title": "My merges",
+			"guest": "Sign in and your merges will be saved here.",
+			"empty": "Your merges will appear here",
+			"failed": "Couldn't load your merges",
+			"draft": "Draft · clips: {{n}}",
+			"menu": "Merge menu",
+			"deleteConfirm": "Delete the merge “{{title}}”? The finished video will be deleted too.",
+			"vstudio": "Video Studio"
+		},
+		"status": {
+			"draft": "Draft",
+			"queued": "Queued",
+			"rendering": "Merging",
+			"ready": "Ready",
+			"failed": "Failed",
+			"expired": "Storage period ended"
+		},
+		"result": {
+			"queued": "Queued — starting soon",
+			"preparing": "Preparing the clips",
+			"normalizing": "Processing clip {{n}} of {{total}}",
+			"joining": "Joining the clips",
+			"saving": "Saving the video",
+			"progress": "Merge progress",
+			"leave": "You can close this page — the merge will continue, and the finished video will be in “My merges”.",
+			"play": "Watch the merge",
+			"download": "Download",
+			"copy": "Edit and merge again",
+			"expired": "The storage period has ended and the video was deleted. You can merge it again — credits will be charged again."
+		},
+		"err": {
+			"bad_request": "Couldn't read the clip list. Refresh the page and try again.",
+			"bad_request_title": "The title must be text of up to 140 characters.",
+			"bad_request_aspect": "Merge format: 16:9, 9:16 or 1:1.",
+			"bad_request_fit": "Frame fill: fit or crop.",
+			"bad_request_type": "Unknown video type.",
+			"too_many_fragments": "You can merge up to {{max}} clips.",
+			"too_few_fragments": "Add at least 2 clips to merge.",
+			"source_unavailable": "Clip #{{n}} is unavailable: the video wasn't found, was deleted or isn't ready yet. Remove it from the merge.",
+			"source_unreadable": "Clip #{{n}} can't be read — remove it from the merge.",
+			"too_long": "The merge would be longer than 5 minutes ({{total}}). Remove some clips.",
+			"unauthorized": "Sign in to continue.",
+			"insufficient_balance": "Not enough credits for the merge.",
+			"project_not_found": "Merge not found.",
+			"render_in_progress": "The merge is already running — you can edit or delete it once it finishes.",
+			"already_ready": "This merge is already done. To change the clips, start a new merge.",
+			"busy": "Another merge is already running. Wait for it to finish, then start this one.",
+			"price_changed": "The price has changed: it's now {{credits}} cr. Check it and press “Merge” again.",
+			"too_many_projects": "Too many merges. Delete the ones you don't need and start a new one.",
+			"too_many_ready": "You have {{max}} finished merges — that's the limit. Download the ones you need and delete the rest in “My merges” to make a new one.",
+			"not_ready": "The video isn't ready yet.",
+			"file_missing": "The merge file wasn't found — the storage period may have ended.",
+			"throttled": "Too many requests. Wait a little and try again.",
+			"storage_unavailable": "Merging is unavailable right now: the server is short on space. Try later — no credits were charged.",
+			"method_not_allowed": "This request isn't supported here.",
+			"server_error": "Something went wrong. Please try again.",
+			"network": "No connection to the server. Check your internet and try again."
+		},
+		"fail": {
+			"fragment_unreadable": "Clip #{{n}} can't be read — remove it from the merge and try again.",
+			"fragment_no_video": "Clip #{{n}} has no video — remove it from the merge and try again.",
+			"fragment_failed": "Couldn't process clip #{{n}} — try again or remove it.",
+			"source_gone": "Clip #{{n}} disappeared while the merge was waiting in the queue. Remove it — no credits were charged.",
+			"join_failed": "Couldn't join the clips — please try again.",
+			"too_slow": "The merge took too long — no credits were charged, please try again.",
+			"too_long": "The merge would be longer than 5 minutes. Remove some clips — no credits were charged.",
+			"too_few_fragments": "Add at least 2 clips to merge.",
+			"queue_down": "The merge didn't start — no credits were charged, please try again.",
+			"queue_timeout": "The merge waited too long in the queue — no credits were charged, please try again.",
+			"stale": "The merge was interrupted — no credits were charged, please try again.",
+			"failed": "Couldn't merge the videos — no credits were charged, please try again."
 		}
 	}
 }

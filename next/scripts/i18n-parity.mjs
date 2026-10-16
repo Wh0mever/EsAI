@@ -230,7 +230,8 @@ export function checkReference(ref, lang = REFERENCE) {
 
 export const CODE_SCAN = {
   vstudio: {
-    dirs: ["src/components/vstudio", "src/app/video-studio", "src/lib/vstudio"],
+    // Склейка (/merge) живёт в том же namespace, группа merge.* и nav.merge.
+    dirs: ["src/components/vstudio", "src/app/video-studio", "src/lib/vstudio", "src/components/merge", "src/app/merge"],
     // Таблицы русских текстов: откуда и как ключ таблицы становится ключом перевода.
     tables: [
       { file: "src/components/vstudio/composer/composerText.ts", name: "COMPOSER_RU", prefix: "" },
@@ -246,6 +247,14 @@ export const CODE_SCAN = {
       { file: "src/lib/vstudio/errors.ts", name: "FIELD_RU", prefix: "fields." },
       { file: "src/lib/vstudio/errors.ts", name: "SUBJECT_RU", prefix: "subject." },
       { file: "src/components/vstudio/feed/CompiledDisclosure.tsx", name: "MODE_RU", prefix: "sent.mode." },
+      { file: "src/components/merge/mergeText.ts", name: "MERGE_ERROR_RU", prefix: "merge.err." },
+      { file: "src/components/merge/mergeText.ts", name: "MERGE_FAIL_RU", prefix: "merge.fail." },
+      { file: "src/components/merge/SourcePicker.tsx", name: "TAB_RU", prefix: "merge.tab." },
+      { file: "src/components/merge/MergeTimeline.tsx", name: "SOURCE_RU", prefix: "merge.source." },
+      { file: "src/components/merge/MergeRail.tsx", name: "STATUS_RU", prefix: "merge.status." },
+      { file: "src/components/merge/MergeDock.tsx", name: "ASPECT_RU", prefix: "merge.aspect." },
+      { file: "src/components/merge/MergeDock.tsx", name: "FIT_RU", prefix: "merge.fit." },
+      { file: "src/components/merge/MergeDock.tsx", name: "FIT_HINT_RU", prefix: "merge.fitHint." },
     ],
     // Списки объектов с русскими полями: VS_EXAMPLES → empty.examples.<id>.<поле>,
     // VS_TEMPLATES (сценарии первого экрана) → home.tpl.<id>.<поле>.
@@ -265,7 +274,8 @@ export const CODE_SCAN = {
     ],
     // Ключи, которые код собирает шаблоном (`errors.${code}`). Под этими
     // префиксами в ru бывают и коды одного бэкенда — их не зовём «лишними».
-    dynamic: ["errors.", "warnings.", "subject.", "fields.", "sent.mode.", "empty.examples.", "home.tpl.", "library.filter."],
+    dynamic: ["errors.", "warnings.", "subject.", "fields.", "sent.mode.", "empty.examples.", "home.tpl.", "library.filter.",
+      "merge.err.", "merge.fail.", "merge.tab.", "merge.source.", "merge.status.", "merge.aspect.", "merge.fit.", "merge.fitHint."],
   },
   // EsAI Creators. Только папки программы: в них t() без ns — ключ creators.
   // Nav, Footer, сайдбар чата, профиль и поле промокода зовут creators через
