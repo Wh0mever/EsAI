@@ -1,6 +1,5 @@
-import type { Metadata } from "next";
-import Header from "@/components/main/Header";
-import Footer from "@/components/main/Footer";
+import type { Metadata, Viewport } from "next";
+import VsThemeScope from "@/components/vstudio/ui/VsThemeScope";
 import { SITE_NAME, SITE_URL } from "@/lib/seo/site";
 
 export const metadata: Metadata = {
@@ -18,16 +17,35 @@ export const metadata: Metadata = {
 	},
 };
 
+// Рабочий экран, как у видеостудии: Android Chrome сжимает страницу под
+// клавиатуру (interactive-widget), и док остаётся над ней. iOS этот ключ не
+// знает — там высоту держит visualViewport (hooks/useVisualViewport).
+export const viewport: Viewport = {
+	width: "device-width",
+	initialScale: 1,
+	viewportFit: "cover",
+	interactiveWidget: "resizes-content",
+};
+
+/**
+ * Полноэкранная оболочка мультстудии — та же, что у видеостудии
+ * (app/video-studio/layout.tsx): без маркетинговой шапки и подвала. Свой верх
+ * (логотип, баланс, профиль) рисует сама студия — левая колонка на компьютере
+ * и верхняя панель на телефоне.
+ *
+ * Тема — та же, что у сайта (data-theme на <html>). Обёртка несёт vs-root для
+ * первого кадра, а VsThemeScope ставит тот же класс на <html> — туда порталом
+ * рисуются шторки и окна.
+ */
 export default function StudioLayout({
 	children,
 }: Readonly<{
 	children: React.ReactNode;
 }>) {
 	return (
-		<>
-			<Header />
+		<div className="vs-root min-h-[100dvh] bg-background text-foreground">
+			<VsThemeScope />
 			{children}
-			<Footer />
-		</>
+		</div>
 	);
 }

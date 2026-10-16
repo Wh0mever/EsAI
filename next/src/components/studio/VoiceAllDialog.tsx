@@ -4,8 +4,10 @@ import { useTranslation } from "react-i18next";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { FiLoader, FiMic } from "react-icons/fi";
 import { Modal } from "@/components/dialog/Dialog";
+import { VS_BTN_GOLD, VS_INPUT, vx } from "@/components/vstudio/ui/skin";
 import { fetchData } from "@/tools/fetchData";
 import type { AudioConfig } from "./SceneAudioDialog";
+import type { ApiRefusal } from "./cartoonTypes";
 
 /**
  * «Озвучить весь мультфильм».
@@ -58,20 +60,26 @@ export default function VoiceAllDialog({
   onNeedCredits: (required: number, balance: number) => void;
 }) {
   const { t } = useTranslation("common");
-  const [lines, setLines] = useState<PlanLine[]>([]);
-  const [off, setOff] = useState<Set<number>>(new Set());
+  const [lines, setLines] = useState<PlanLine[]>(() => plan?.lines ?? []);
+  // Уже озвученные сцены снимаем с галочки: их реплики оплачены, и молча
+  // заменять их новыми нельзя — но человек может включить их обратно.
+  const voicedOff = (p: VoicePlan | null) => new Set((p?.lines ?? []).filter((l) => l.has_voice).map((l) => l.scene_id));
+  const [off, setOff] = useState<Set<number>>(() => voicedOff(plan));
   const [voices, setVoices] = useState<Voice[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
-  useEffect(() => {
-    if (!plan) return;
-    setLines(plan.lines);
-    // Уже озвученные сцены снимаем с галочки: их реплики оплачены, и молча
-    // заменять их новыми нельзя — но человек может включить их обратно.
-    setOff(new Set(plan.lines.filter((l) => l.has_voice).map((l) => l.scene_id)));
-    setError("");
-  }, [plan]);
+  // Пришёл новый план — окно начинается с него. Прежний план помним в состоянии
+  // и сверяем при отрисовке, а не в эффекте: так окно не мигает старыми строками.
+  const [shownPlan, setShownPlan] = useState(plan);
+  if (plan !== shownPlan) {
+    setShownPlan(plan);
+    if (plan) {
+      setLines(plan.lines);
+      setOff(voicedOff(plan));
+      setError("");
+    }
+  }
 
   useEffect(() => {
     if (!open || voices.length) return;
@@ -135,7 +143,7 @@ export default function VoiceAllDialog({
       onClose();
       return;
     }
-    const d = res.data as any;
+    const d = res.data as ApiRefusal;
     if (d?.required) onNeedCredits(Number(d.required), Number(d.balance ?? 0));
     else setError(d?.detail || res.error || t("studio_ui.voiceall_err"));
   };
@@ -157,13 +165,13 @@ export default function VoiceAllDialog({
   return (
     <Modal open={open} onClose={close} title={t("studio_ui.voiceall_title")} size="lg">
       <div className="flex flex-col gap-4">
-        <p className="text-sm text-muted">{t("studio_ui.voiceall_note")}</p>
+        <p className="text-sm leading-snug text-muted">{t("studio_ui.voiceall_note")}</p>
         {alreadyVoiced && (
-          <p className="text-xs text-status-wait">{t("studio_ui.voiceall_keep")}</p>
+          <p className="text-xs leading-snug text-status-wait">{t("studio_ui.voiceall_keep")}</p>
         )}
         {Boolean(plan?.spoken_in_video) && (
-          <p className="text-xs text-muted-2">
-            {t("studio_ui.voiceall_spoken", { count: plan!.spoken_in_video! })}
+          <p className="text-xs leading-snug text-muted-2">
+            {t("studio_ui.voiceall_spoken", { count: plan?.spoken_in_video ?? 0 })}
           </p>
         )}
 
@@ -173,12 +181,14 @@ export default function VoiceAllDialog({
             return (
               <div
                 key={l.scene_id}
-                className={`flex flex-col gap-2 rounded-xl border p-2.5 transition-opacity ${
-                  disabled ? "border-border opacity-50" : "border-border bg-surface-2/40"
-                }`}
+                className={vx(
+                  "flex flex-col gap-2 rounded-xl border border-vs-ink/10 p-2.5 transition-opacity motion-reduce:transition-none",
+                  disabled ? "opacity-50" : "bg-vs-ink/[0.03]",
+                )}
               >
-                <div className="flex flex-wrap items-center gap-2">
-                  <label className="flex items-center gap-2 text-xs text-muted">
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  {/* Вся строка с номером и названием — зона нажатия галочки: 44 px на телефоне. */}
+                  <label className="flex min-h-11 min-w-0 cursor-pointer items-center gap-2 text-xs text-muted md:min-h-8">
                     <input
                       type="checkbox"
                       checked={!disabled}
@@ -190,16 +200,20 @@ export default function VoiceAllDialog({
                           return next;
                         })
                       }
-                      className="h-4 w-4 accent-[var(--accent)]"
+                      className="size-4 shrink-0 cursor-pointer accent-[var(--accent)]"
                     />
-                    <span className="font-semibold text-foreground">{l.order + 1}.</span>
+                    <span className="font-semibold tabular-nums text-foreground">{l.order + 1}.</span>
                     <span className="max-w-[12rem] truncate">{l.title}</span>
                   </label>
                   <span className="text-[11px] text-muted-2">{l.character?.name}</span>
                   <select
                     value={l.voice_id}
                     onChange={(e) => setVoiceForCharacter(l.character?.id ?? null, l.scene_id, e.target.value)}
-                    className="ml-auto max-w-[12rem] rounded-lg border border-border bg-surface-2 px-2 py-1 text-xs text-foreground outline-none focus:border-accent cursor-pointer"
+                    aria-label={t("studio_ui.audio_voice")}
+                    className={vx(
+                      VS_INPUT,
+                      "ml-auto !min-h-11 !w-auto max-w-[12rem] cursor-pointer !px-2 !text-xs max-sm:!text-base md:!min-h-8",
+                    )}
                   >
                     {voices.length === 0 && <option value={l.voice_id}>{l.voice_name}</option>}
                     {voices.map((v) => (
@@ -208,7 +222,7 @@ export default function VoiceAllDialog({
                       </option>
                     ))}
                   </select>
-                  <span className="w-14 shrink-0 text-right text-[11px] text-muted-2">
+                  <span className="w-14 shrink-0 text-right text-[11px] tabular-nums text-muted-2">
                     {priceOf(l.text)} {t("studio_ui.credits_short")}
                   </span>
                 </div>
@@ -218,17 +232,21 @@ export default function VoiceAllDialog({
                   rows={2}
                   disabled={disabled}
                   placeholder={t("studio_ui.voiceall_line_ph")}
-                  className="rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-foreground outline-none focus:border-accent disabled:opacity-60"
+                  className={vx(VS_INPUT, "resize-none py-2 leading-snug max-sm:!text-base disabled:cursor-not-allowed disabled:opacity-60")}
                 />
               </div>
             );
           })}
         </div>
 
-        {error && <p className="text-sm text-red-400">{error}</p>}
+        {error && (
+          <p role="alert" className="text-sm leading-snug text-status-fail">
+            {error}
+          </p>
+        )}
 
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-3">
-          <div className="text-sm text-foreground">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-vs-ink/10 pt-3">
+          <div className="text-sm tabular-nums text-foreground">
             {t("studio_ui.voiceall_total", { count: active.length, credits: total })}
             {typeof plan?.balance === "number" && (
               <span className="ml-2 text-xs text-muted-2">
@@ -236,13 +254,15 @@ export default function VoiceAllDialog({
               </span>
             )}
           </div>
+          {/* Единственное платное действие окна — золотое. */}
           <button
             type="button"
             onClick={() => void start()}
             disabled={busy || !active.length}
-            className="inline-flex items-center justify-center gap-2 rounded-xl bg-accent px-5 py-2.5 text-sm font-bold text-on-accent transition-colors hover:bg-accent-strong disabled:opacity-60 cursor-pointer"
+            aria-busy={busy || undefined}
+            className={VS_BTN_GOLD}
           >
-            {busy ? <FiLoader className="animate-spin" /> : <FiMic />}
+            {busy ? <FiLoader className="animate-spin motion-reduce:animate-none" aria-hidden /> : <FiMic aria-hidden />}
             {t("studio_ui.voiceall_btn", { credits: total })}
           </button>
         </div>

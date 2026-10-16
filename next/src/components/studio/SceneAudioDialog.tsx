@@ -15,9 +15,21 @@ import {
   FiZap,
 } from "react-icons/fi";
 import { Modal } from "@/components/dialog/Dialog";
+import {
+  VS_BTN_GHOST,
+  VS_BTN_GOLD,
+  VS_FOCUS,
+  VS_INPUT,
+  VS_LABEL,
+  VS_PILL,
+  VS_PILL_ON,
+  vx,
+} from "@/components/vstudio/ui/skin";
 import { fetchData } from "@/tools/fetchData";
 import type { StudioScene } from "./SceneTimeline";
+import type { ApiRefusal } from "./cartoonTypes";
 import { clipSeconds } from "./dockLogic";
+import { CS_NOTE_GOLD } from "./ui/cartoonSkin";
 
 /**
  * Звук сцены: реплики героев, свой голос, музыка и эффекты.
@@ -78,6 +90,17 @@ const TAB_ICON = { voice: FiZap, own: FiMic, music: FiMusic, sfx: FiVolume2 };
 
 const LAST_VOICE_KEY = "esai.studio.voiceByCharacter";
 
+/** Перевод подписи голоса: незнакомое слово возвращается как есть (defaultValue). */
+type Tr = (key: string, options: { defaultValue: string }) => string;
+
+/** Числовое поле окна: 44 px на телефоне, шрифт 16 px — иначе iOS приближает страницу. */
+const NUMBER_FIELD = vx(VS_INPUT, "!min-h-11 !w-20 !px-2 tabular-nums max-sm:!text-base md:!min-h-9");
+/** Поле текста окна (реплика, описание музыки или эффекта). */
+const TEXT_FIELD = vx(VS_INPUT, "resize-none py-2 leading-snug max-sm:!text-base");
+/** Ползунок дорожки: высокая зона нажатия на телефоне. */
+const RANGE = "h-11 min-w-0 flex-1 cursor-pointer accent-[var(--accent)] md:h-8";
+const SPIN = "animate-spin motion-reduce:animate-none";
+
 /**
  * Подпись голоса на языке человека.
  *
@@ -92,7 +115,7 @@ function voiceShortName(v: Voice): string {
 
 /** Характер голоса по-русски: «мягкий, тёплый». Для известных голосов —
  *  написанное руками описание, для остальных — перевод слов из названия. */
-function voiceCharacter(v: Voice, t: (k: string, o?: any) => string): string {
+function voiceCharacter(v: Voice, t: Tr): string {
   const key = voiceShortName(v).toLowerCase().replace(/[^a-z]+/g, "");
   const known = t(`studio_ui.voice_n_${key}`, { defaultValue: "" });
   if (known) return known;
@@ -107,7 +130,7 @@ function voiceCharacter(v: Voice, t: (k: string, o?: any) => string): string {
     .join(", ");
 }
 
-function voiceTraits(v: Voice, t: (k: string, o?: any) => string): string {
+function voiceTraits(v: Voice, t: Tr): string {
   const word = (raw: string) =>
     raw ? t(`studio_ui.voice_w_${raw.toLowerCase().replace(/[^a-z_]+/g, "_")}`, { defaultValue: raw }) : "";
   return [word(v.gender), word(v.age)].filter(Boolean).join(" · ");
@@ -217,8 +240,9 @@ export default function SceneAudioDialog({
     void (async () => {
       const res = await fetchData<Voice[]>("cartoon/audio/voices/", "GET", undefined, false);
       if (res.ok && Array.isArray(res.data)) {
-        setVoices(res.data);
-        setVoiceId((v) => v || res.data![0]?.id || "");
+        const list = res.data;
+        setVoices(list);
+        setVoiceId((v) => v || list[0]?.id || "");
       }
     })();
   }, [open, voices.length]);
@@ -319,8 +343,8 @@ export default function SceneAudioDialog({
     setDirty(true);
   };
 
-  const handleError = (res: { data: any; error?: string }) => {
-    const d = res.data as any;
+  const handleError = (res: { data: unknown; error?: string }) => {
+    const d = res.data as ApiRefusal;
     if (d?.required) {
       onNeedCredits(Number(d.required), Number(d.balance ?? 0));
     } else {
@@ -417,7 +441,7 @@ export default function SceneAudioDialog({
     // иначе ползунок показывал бы одно, а в ролике звучало другое.
     if (!res.ok) {
       setData(prev);
-      setError((res.data as any)?.detail || t("studio_ui.audio_err"));
+      setError((res.data as ApiRefusal)?.detail || t("studio_ui.audio_err"));
     }
   };
 
@@ -428,7 +452,7 @@ export default function SceneAudioDialog({
     const res = await fetchData(`cartoon/audio/${track.id}/`, "DELETE", undefined, true);
     if (!res.ok) {
       setData(prev);
-      setError((res.data as any)?.detail || t("studio_ui.audio_err"));
+      setError((res.data as ApiRefusal)?.detail || t("studio_ui.audio_err"));
     }
   };
 
@@ -451,7 +475,7 @@ export default function SceneAudioDialog({
       const res = await fetchData(`cartoon/scenes/${scene.id}/audio/mix/`, "POST", {}, true);
       setBusy(null);
       if (!res.ok) {
-        setError((res.data as any)?.detail || t("studio_ui.audio_err_mix"));
+        setError((res.data as ApiRefusal)?.detail || t("studio_ui.audio_err_mix"));
         return;
       }
     }
@@ -476,7 +500,7 @@ export default function SceneAudioDialog({
         step={0.5}
         value={startSec}
         onChange={(e) => setStartSec(Math.max(0, Number(e.target.value) || 0))}
-        className="w-20 rounded-lg border border-border bg-surface-2 px-2 py-1 text-sm text-foreground outline-none focus:border-accent"
+        className={NUMBER_FIELD}
       />
       {t("studio_ui.audio_sec")}
     </label>
@@ -487,9 +511,11 @@ export default function SceneAudioDialog({
       type="button"
       onClick={onClick}
       disabled={busy !== null || disabled}
-      className="inline-flex items-center justify-center gap-2 rounded-xl bg-accent px-4 py-2.5 text-sm font-bold text-on-accent transition-colors hover:bg-accent-strong disabled:opacity-60 cursor-pointer"
+      aria-busy={busy === key || undefined}
+      // Платное действие вкладки — золотое: цена на самой кнопке.
+      className={VS_BTN_GOLD}
     >
-      {busy === key ? <FiLoader className="animate-spin" /> : <FiZap />}
+      {busy === key ? <FiLoader className={SPIN} aria-hidden /> : <FiZap aria-hidden />}
       {busy === key ? t("studio_ui.audio_making") : label}
     </button>
   );
@@ -505,7 +531,7 @@ export default function SceneAudioDialog({
             {data && !data.has_video ? ` · ${t("studio_ui.audio_after_render")}` : ""}
           </p>
 
-          <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4" role="group" aria-label={t("studio_ui.audio_title")}>
             {tabs.map((tb) => {
               const Icon = TAB_ICON[tb.key];
               return (
@@ -516,13 +542,10 @@ export default function SceneAudioDialog({
                     setTab(tb.key);
                     setError("");
                   }}
-                  className={`inline-flex items-center justify-center gap-1.5 rounded-xl border px-2 py-2 text-xs font-semibold transition-colors cursor-pointer ${
-                    tab === tb.key
-                      ? "border-accent bg-accent/10 text-accent"
-                      : "border-border text-muted hover:text-foreground"
-                  }`}
+                  aria-pressed={tab === tb.key}
+                  className={vx(VS_PILL, "!h-11 justify-center !px-2 !text-xs !font-semibold md:!h-10", tab === tb.key && VS_PILL_ON)}
                 >
-                  <Icon /> {tb.label}
+                  <Icon aria-hidden /> {tb.label}
                 </button>
               );
             })}
@@ -534,7 +557,7 @@ export default function SceneAudioDialog({
               <select
                 value={characterId ?? ""}
                 onChange={(e) => setCharacterId(e.target.value ? Number(e.target.value) : null)}
-                className="rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-foreground outline-none focus:border-accent"
+                className={vx(VS_INPUT, "cursor-pointer max-sm:!text-base")}
               >
                 <option value="">{t("studio_ui.audio_narrator")}</option>
                 {characters.map((c) => (
@@ -548,7 +571,7 @@ export default function SceneAudioDialog({
 
           {tab === "voice" && (
             <div className="flex flex-col gap-3">
-              <p className="rounded-lg border border-accent/30 bg-accent/5 px-3 py-2 text-[11px] leading-snug text-muted">
+              <p className={vx(CS_NOTE_GOLD, "!rounded-xl !px-3 !py-2 !text-[12px] leading-snug")}>
                 {t("studio_ui.audio_lips_note")}
               </p>
               <div className="flex flex-col gap-1">
@@ -561,22 +584,29 @@ export default function SceneAudioDialog({
                   {voices.map((v) => (
                     <div
                       key={v.id}
-                      className={`flex items-center gap-2 rounded-lg border px-2 py-1.5 transition-colors ${
-                        voiceId === v.id ? "border-accent bg-accent/10" : "border-border"
-                      }`}
+                      className={vx(
+                        "flex items-center gap-2 rounded-xl border px-1.5 py-1 transition-colors",
+                        voiceId === v.id ? "border-vs-accent/45 bg-accent/[0.1]" : "border-vs-ink/10 hover:border-vs-ink/20",
+                      )}
                     >
                       <button
                         type="button"
                         onClick={() => void playPreview(v)}
+                        aria-label={`${t("studio_ui.audio_listen")}: ${voiceShortName(v)}`}
+                        aria-pressed={previewing === v.id}
                         title={t("studio_ui.audio_listen")}
-                        className="grid size-7 shrink-0 place-items-center rounded-full bg-surface-2 text-foreground disabled:opacity-40 cursor-pointer"
+                        className={vx(
+                          "grid size-11 shrink-0 cursor-pointer place-items-center rounded-full bg-vs-ink/[0.06] text-foreground transition-colors hover:bg-vs-ink/[0.1] disabled:opacity-40 md:size-8",
+                          VS_FOCUS,
+                        )}
                       >
-                        {previewing === v.id ? <FiPause /> : <FiPlay />}
+                        {previewing === v.id ? <FiPause aria-hidden /> : <FiPlay aria-hidden />}
                       </button>
                       <button
                         type="button"
                         onClick={() => setVoiceId(v.id)}
-                        className="min-w-0 flex-1 text-left cursor-pointer"
+                        aria-pressed={voiceId === v.id}
+                        className={vx("min-h-11 min-w-0 flex-1 cursor-pointer rounded-lg px-1 text-left md:min-h-9", VS_FOCUS)}
                       >
                         <div className="truncate text-sm text-foreground">
                           <span className="font-semibold">{voiceShortName(v)}</span>
@@ -595,11 +625,11 @@ export default function SceneAudioDialog({
                 onChange={(e) => setText(e.target.value.slice(0, config.limits.voice_chars))}
                 rows={3}
                 placeholder={t("studio_ui.audio_text_ph")}
-                className="rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-foreground outline-none placeholder:text-muted-2 focus:border-accent"
+                className={TEXT_FIELD}
               />
               <div className="flex flex-wrap items-center justify-between gap-3">
                 {startField}
-                <span className="text-[11px] text-muted-2">
+                <span className="text-[11px] tabular-nums text-muted-2">
                   {text.trim().length}/{config.limits.voice_chars}
                 </span>
               </div>
@@ -616,20 +646,31 @@ export default function SceneAudioDialog({
                   type="button"
                   onClick={recording ? stopRecording : () => void startRecording()}
                   disabled={busy !== null}
-                  className={`inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-bold transition-colors disabled:opacity-60 cursor-pointer ${
-                    recording ? "bg-red-500 text-white" : "bg-accent text-on-accent hover:bg-accent-strong"
-                  }`}
+                  aria-pressed={recording}
+                  aria-busy={busy === "own" || undefined}
+                  // Идёт запись — красный контур: так кнопку «Остановить» видно в обеих темах.
+                  className={
+                    recording
+                      ? vx(VS_BTN_GHOST, "!border-status-fail/50 !bg-status-fail/10 !font-semibold !text-status-fail")
+                      : VS_BTN_GOLD
+                  }
                 >
-                  {busy === "own" ? <FiLoader className="animate-spin" /> : recording ? <FiSquare /> : <FiMic />}
+                  {busy === "own" ? (
+                    <FiLoader className={SPIN} aria-hidden />
+                  ) : recording ? (
+                    <FiSquare aria-hidden />
+                  ) : (
+                    <FiMic aria-hidden />
+                  )}
                   {recording ? t("studio_ui.audio_rec_stop") : t("studio_ui.audio_rec")}
                 </button>
                 <button
                   type="button"
                   onClick={() => fileRef.current?.click()}
                   disabled={busy !== null || recording}
-                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-border px-4 py-2.5 text-sm text-foreground transition-colors hover:border-accent disabled:opacity-60 cursor-pointer"
+                  className={VS_BTN_GHOST}
                 >
-                  <FiUpload /> {t("studio_ui.audio_upload")}
+                  <FiUpload aria-hidden /> {t("studio_ui.audio_upload")}
                 </button>
                 <input
                   ref={fileRef}
@@ -654,7 +695,7 @@ export default function SceneAudioDialog({
                 onChange={(e) => setPrompt(e.target.value)}
                 rows={2}
                 placeholder={t(tab === "music" ? "studio_ui.audio_music_ph" : "studio_ui.audio_sfx_ph")}
-                className="rounded-lg border border-border bg-surface-2 px-3 py-2 text-sm text-foreground outline-none placeholder:text-muted-2 focus:border-accent"
+                className={TEXT_FIELD}
               />
               <div className="flex flex-wrap items-center gap-4">
                 {startField}
@@ -671,7 +712,7 @@ export default function SceneAudioDialog({
                           Math.min(config.limits.music_sec[1], Math.max(config.limits.music_sec[0], Number(e.target.value) || 0))
                         )
                       }
-                      className="w-20 rounded-lg border border-border bg-surface-2 px-2 py-1 text-sm text-foreground outline-none focus:border-accent"
+                      className={NUMBER_FIELD}
                     />
                     {t("studio_ui.audio_sec")}
                   </label>
@@ -683,13 +724,15 @@ export default function SceneAudioDialog({
             </div>
           )}
 
-          {error && <p className="text-sm text-red-400">{error}</p>}
+          {error && (
+            <p role="alert" className="text-sm leading-snug text-status-fail">
+              {error}
+            </p>
+          )}
 
           {/* Готовые дорожки: когда начинается и насколько громко. */}
-          <div className="flex flex-col gap-2 border-t border-border pt-3">
-            <div className="text-xs font-semibold uppercase tracking-wide text-muted-2">
-              {t("studio_ui.audio_tracks")}
-            </div>
+          <div className="flex flex-col gap-2 border-t border-vs-ink/10 pt-3">
+            <div className={VS_LABEL}>{t("studio_ui.audio_tracks")}</div>
             {data && data.has_video && (
               <label className="flex items-center gap-3 text-xs text-muted">
                 <span className="w-28 shrink-0">{t("studio_ui.audio_scene_sound")}</span>
@@ -703,26 +746,26 @@ export default function SceneAudioDialog({
                   onMouseUp={(e) => void setSceneVolume(Number((e.target as HTMLInputElement).value))}
                   onTouchEnd={(e) => void setSceneVolume(Number((e.target as HTMLInputElement).value))}
                   onKeyUp={(e) => void setSceneVolume(Number((e.target as HTMLInputElement).value))}
-                  className="flex-1 accent-[var(--accent)]"
+                  className={RANGE}
                 />
-                <span className="w-10 text-right">{Math.round(data.sound_volume * 100)}%</span>
+                <span className="w-10 text-right tabular-nums">{Math.round(data.sound_volume * 100)}%</span>
               </label>
             )}
-            {!data && <FiLoader className="animate-spin text-muted" />}
+            {!data && <FiLoader className={vx(SPIN, "text-muted")} aria-hidden />}
             {data?.tracks.length === 0 && <p className="text-xs text-muted-2">{t("studio_ui.audio_no_tracks")}</p>}
             {data?.tracks.map((tr) => {
               const Icon = TAB_ICON[tr.kind === "voice" ? "voice" : tr.kind];
               const overflow = tr.start_sec + tr.duration > sceneDuration + 0.05;
               return (
-                <div key={tr.id} className="flex flex-col gap-2 rounded-xl border border-border bg-surface-2/50 p-2.5">
+                <div key={tr.id} className="flex flex-col gap-2 rounded-xl border border-vs-ink/10 bg-vs-ink/[0.03] p-2.5">
                   <div className="flex items-start gap-2">
-                    <Icon className="mt-0.5 shrink-0 text-accent" />
+                    <Icon className="mt-0.5 shrink-0 text-vs-accent" aria-hidden />
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-sm text-foreground">
                         {tr.character ? `${tr.character.name}: ` : ""}
                         {tr.text || t(`studio_ui.audio_tab_${tr.kind}`)}
                       </div>
-                      <div className="text-[10px] text-muted-2">
+                      <div className="text-[11px] tabular-nums text-muted-2">
                         {[tr.voice_name, `${tr.duration.toFixed(1)} ${t("studio_ui.audio_sec")}`,
                           tr.credits_spent ? `${tr.credits_spent} ${t("studio_ui.credits_short")}` : ""]
                           .filter(Boolean)
@@ -732,19 +775,23 @@ export default function SceneAudioDialog({
                     <button
                       type="button"
                       onClick={() => void removeTrack(tr)}
+                      aria-label={t("studio_ui.remove")}
                       title={t("studio_ui.remove")}
-                      className="grid size-7 shrink-0 place-items-center rounded-lg text-muted hover:text-red-400 cursor-pointer"
+                      className={vx(
+                        "-my-1.5 grid size-11 shrink-0 cursor-pointer place-items-center rounded-full text-muted transition-colors hover:bg-vs-ink/[0.08] hover:text-status-fail md:my-0 md:size-8",
+                        VS_FOCUS,
+                      )}
                     >
-                      <FiTrash2 />
+                      <FiTrash2 aria-hidden />
                     </button>
                   </div>
                   {tr.status === "pending" && (
                     <p className="flex items-center gap-2 text-xs text-muted">
-                      <FiLoader className="animate-spin" /> {t("studio_ui.audio_pending")}
+                      <FiLoader className={SPIN} aria-hidden /> {t("studio_ui.audio_pending")}
                     </p>
                   )}
                   {tr.status === "failed" && (
-                    <p className="text-xs text-red-400">{tr.error || t("studio_ui.audio_failed")}</p>
+                    <p className="text-xs leading-snug text-status-fail">{tr.error || t("studio_ui.audio_failed")}</p>
                   )}
                   {(!tr.status || tr.status === "ready") && (
                   <audio src={tr.file} controls preload="none" className="h-8 w-full" />
@@ -765,9 +812,9 @@ export default function SceneAudioDialog({
                         onMouseUp={(e) => void patchTrack(tr, { start_sec: Number((e.target as HTMLInputElement).value) })}
                         onTouchEnd={(e) => void patchTrack(tr, { start_sec: Number((e.target as HTMLInputElement).value) })}
                         onKeyUp={(e) => void patchTrack(tr, { start_sec: Number((e.target as HTMLInputElement).value) })}
-                        className="flex-1 accent-[var(--accent)]"
+                        className={RANGE}
                       />
-                      <span className="w-10 text-right">{tr.start_sec.toFixed(1)}</span>
+                      <span className="w-10 text-right tabular-nums">{tr.start_sec.toFixed(1)}</span>
                     </label>
                     <label className="flex items-center gap-2 text-[11px] text-muted">
                       <span className="w-14 shrink-0">{t("studio_ui.audio_volume")}</span>
@@ -784,12 +831,12 @@ export default function SceneAudioDialog({
                         onMouseUp={(e) => void patchTrack(tr, { volume: Number((e.target as HTMLInputElement).value) })}
                         onTouchEnd={(e) => void patchTrack(tr, { volume: Number((e.target as HTMLInputElement).value) })}
                         onKeyUp={(e) => void patchTrack(tr, { volume: Number((e.target as HTMLInputElement).value) })}
-                        className="flex-1 accent-[var(--accent)]"
+                        className={RANGE}
                       />
-                      <span className="w-10 text-right">{Math.round(tr.volume * 100)}%</span>
+                      <span className="w-10 text-right tabular-nums">{Math.round(tr.volume * 100)}%</span>
                     </label>
                   </div>
-                  {overflow && <p className="text-[10px] text-status-wait">{t("studio_ui.audio_overflow")}</p>}
+                  {overflow && <p className="text-[11px] leading-snug text-status-wait">{t("studio_ui.audio_overflow")}</p>}
                 </div>
               );
             })}
@@ -799,9 +846,10 @@ export default function SceneAudioDialog({
             type="button"
             onClick={() => void finish()}
             disabled={busy === "mix" || recording}
-            className="inline-flex items-center justify-center gap-2 rounded-xl border border-accent px-4 py-2.5 text-sm font-bold text-accent transition-colors hover:bg-accent/10 disabled:opacity-60 cursor-pointer"
+            aria-busy={busy === "mix" || undefined}
+            className={vx(VS_BTN_GHOST, "!border-vs-accent/45 !font-semibold !text-vs-accent hover:!bg-accent/[0.1]")}
           >
-            {busy === "mix" ? <FiLoader className="animate-spin" /> : null}
+            {busy === "mix" ? <FiLoader className={SPIN} aria-hidden /> : null}
             {busy === "mix"
               ? t("studio_ui.audio_mixing")
               : dirty && data?.has_video

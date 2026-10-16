@@ -1,76 +1,21 @@
 "use client";
 
+import { useEffect, useRef, useState, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
-import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { FiChevronDown, FiFilm, FiLoader, FiMic, FiPlay, FiPlus, FiUser, FiZap } from "react-icons/fi";
-import { fetchData } from "@/tools/fetchData";
-import { trackFunnel } from "@/tools/funnel";
-import { getOrCreateDeviceKey } from "@/tools/deviceKey";
-import {
-  MAX_DRAFT_SCENES,
-  clearDraft,
-  draftDock,
-  emptyDraft,
-  importBody,
-  loadDraft,
-  newSceneKey,
-  recallProject,
-  rememberProject,
-  saveDraft,
-  type DraftScene,
-  type StudioDraft,
-} from "@/lib/studioDraft";
-import SaveMediaButton from "@/components/ui/SaveMediaButton";
-import ShareButtons from "@/components/ui/ShareButtons";
+import VStudioShell, { useVsBreakpoint } from "@/components/vstudio/VStudioShell";
+import { useVisualViewport } from "@/components/vstudio/hooks/useVisualViewport";
 import { StudioAuthDialog, StudioPaywallDialog } from "./StudioDialogs";
-import CharacterPicker, { type StudioCharacter } from "./CharacterPicker";
-import SceneTimeline, { type SceneDurationChoice, type SceneNote, type StudioScene } from "./SceneTimeline";
 import CartoonDock from "./CartoonDock";
-import {
-  DEFAULT_ASPECT,
-  DOCK_RU,
-  adjustedNotices,
-  alreadyShot,
-  cardEstimate,
-  clampDuration,
-  clampSceneDurations,
-  completeDock,
-  configLabel,
-  displayDefaults,
-  dockBody,
-  dockPatch,
-  durationChoices,
-  explicitDefaults,
-  findModel,
-  guestRowPrice,
-  modelLabel,
-  presetsQuery,
-  priceChanged,
-  quoteBody,
-  refusalText,
-  reshootDurationQuestion,
-  retryBody,
-  sameDock,
-  sanitizeDock,
-  serialQueue,
-  settlePriceNotes,
-  switchModel,
-  timelineTotal,
-  withDuration,
-  withResolution,
-  type AdjustedNote,
-  type CartoonModels,
-  type DockEffective,
-  type DockField,
-  type DockNotice,
-  type DockSettings,
-  type DockTextKey,
-  type SceneConfig,
-} from "./dockLogic";
-import SceneAudioDialog, { type AudioConfig } from "./SceneAudioDialog";
-import VoiceAllDialog, { type VoicePlan } from "./VoiceAllDialog";
-import { apiLang } from "@/lib/apiLang";
+import CartoonIntro from "./CartoonIntro";
+import CartoonTopBar, { CartoonHeader, ErrorBanner } from "./CartoonTopBar";
+import HeroStrip from "./HeroStrip";
+import MoviesRail from "./MoviesRail";
+import ResultPanel from "./ResultPanel";
+import SceneAudioDialog from "./SceneAudioDialog";
+import SceneLibrary from "./SceneLibrary";
+import TimelinePanel from "./TimelinePanel";
+import VoiceAllDialog from "./VoiceAllDialog";
+import { useCartoonStudio } from "./useCartoonStudio";
 
 /**
  * CartoonStudio — студия мультфильмов: персонаж → сцены → таймлайн → готовый
@@ -81,2260 +26,321 @@ import { apiLang } from "@/lib/apiLang";
  * сменить внизу, в доке (по умолчанию — самая дешёвая сцена: Seedance Mini в
  * 480p); остальное спрятано в пресетах и правится в админке.
  *
- * Пока хоть одна сцена считается, состояние проекта опрашивается раз в 4
- * секунды. Опрос останавливается, как только считать нечего — иначе вкладка
- * будет молотить запросы часами, пока человек любуется результатом.
+ * Каркас — тот же, что у видеостудии (VStudioShell): слева мои мультфильмы
+ * (колонка, на узком — шторка), сверху строка с названием и балансом, в
+ * середине прокручиваемая лента шагов, внизу док. Состояние, запросы и деньги
+ * живут в useCartoonStudio; здесь только раскладка по компонентам.
+ *
+ * variant="tg" — Mini App в Telegram: всегда одна колонка, как на телефоне, и
+ * без ссылок с сайта; шторка со списком мультфильмов остаётся.
  */
+const noop = () => {};
 
-type Preset = {
-  id: number;
-  slug: string;
-  title: string;
-  subtitle: string;
-  preview_video: string;
-  preview_poster: string;
-  duration: number;
-  aspect_ratio: string;
-  /** Цена сцены под формат мультфильма. null — цены сейчас нет (в режиме цен
-   *  «наценка» неизвестна себестоимость модели), сервер ставит и price_unavailable. */
-  credits: number | null;
-  price_unavailable?: boolean;
-  /** Цена примерки героя — показываем на кнопке до запуска. */
-  tryon_credits?: number;
-  category: string;
-  audience: "kids" | "adults";
-  is_pick: boolean;
-};
+/** Поля, в которых печатают: пока фокус в одном из них, на телефоне дока нет. */
+const TEXT_FIELD =
+  'textarea, input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="range"]):not([type="button"]):not([type="submit"]), [contenteditable="true"]';
 
-type AuthReason = "character" | "scene" | "tryon" | "render";
+const isTextField = (el: Element | null): boolean => el instanceof HTMLElement && el.matches(TEXT_FIELD);
 
-type Category = { slug: string; title: string; emoji: string };
-
-type Project = {
-  id: number;
-  title: string;
-  status: "draft" | "assembling" | "ready" | "failed";
-  aspect_ratio: string;
-  character: StudioCharacter | null;
-  result_video: string;
-  error: string;
-  scenes: StudioScene[];
-  credits_spent: number;
-  created_at?: string;
-  /** Док мультфильма: свои модель, качество, длительность; null — как в сцене библиотеки. */
-  video_model?: string | null;
-  resolution?: string | null;
-  duration?: number | null;
-  /** Что показывает док: свои значения, пустые — по «типичной сцене». */
-  effective?: DockEffective | null;
-  /** Что сервер подогнал к модели сам (только в ответе на правку). */
-  adjusted?: AdjustedNote[];
-  /** Идёт озвучка всего мультфильма: сколько реплик готово из скольких. */
-  voicing?: {
-    done: number;
-    total: number;
-    error?: string;
-    spent?: number;
-    finished?: boolean;
-  } | null;
-};
-
-const WORKING: StudioScene["status"][] = ["new", "keyframe", "video"];
-
-/** Ответ сервера с отказом: текст и, если не хватило кредитов, цена и баланс. */
-type ApiRefusal = { detail?: string; required?: number; balance?: number } | null | undefined;
-
-/** Сколько сцен показываем за раз. Шесть — просьба клиента, ради медленного интернета. */
-const PAGE_SIZE = 6;
-
-/** Что сервер подогнал в ответе мультфильма (adjusted) — сообщениями дока. */
-function serverNotices(p: Project): DockNotice[] {
-  const order = [...p.scenes].sort((a, b) => a.order - b.order).map((s) => s.id);
-  return adjustedNotices(p.adjusted, p.effective?.model_name ?? "", (id) => {
-    const at = order.indexOf(id);
-    return at < 0 ? null : at;
-  });
+/**
+ * Фокус — на заголовок секции, к которой прокрутили («Мои герои», мультфильм
+ * из списка, «К ленте сцен»): иначе шторка вернула бы его на ☰, и с клавиатуры
+ * пришлось бы идти от верха ленты. Через два кадра — после того, как шторка
+ * вернёт свой; страницу не двигает (её везёт прокрутка).
+ */
+function focusHeading(ref: RefObject<HTMLElement | null>) {
+  window.requestAnimationFrame(() =>
+    window.requestAnimationFrame(() => ref.current?.querySelector<HTMLElement>("h2[tabindex]")?.focus({ preventScroll: true })),
+  );
 }
 
-/** Своя длительность сцены черновика: null — убрать (по умолчанию). */
-function withSceneDuration(s: DraftScene, value: number | null): DraftScene {
-  const next: DraftScene = { ...s };
-  if (value == null) delete next.duration;
-  else next.duration = value;
-  return next;
-}
-
-// Ссылка на видеостудию — по тому же правилу, что пункт меню сайта
-// (components/main/Nav.tsx): только в сборке, где студия открыта всем.
-const VSTUDIO_NAV = process.env.NEXT_PUBLIC_VSTUDIO_NAV === "1";
-
-export default function CartoonStudio() {
-  const { t, i18n } = useTranslation("common");
-  const [presets, setPresets] = useState<Preset[]>([]);
-  const [categories, setCategories] = useState<Category[]>([]);
-  // Подборки наверху библиотеки: «Популярное» приходит с сервера по
-  // реальным добавлениям, «Выбор EsAI» помечен у самих сцен в админке.
-  const [popular, setPopular] = useState<string[]>([]);
-  const [activeCat, setActiveCat] = useState("");
-  // Показываем по горсти карточек, остальное — по кнопке. У многих в Кыргызстане
-  // медленный мобильный интернет, а сразу полторы сотни превью — это и запросы,
-  // и память телефона на ровном месте.
-  const [shown, setShown] = useState(PAGE_SIZE);
-  // Что сейчас играет. В ленте ролики заводятся сами, как только карточка
-  // появилась на экране, — по просьбе клиента, «как в мини-приложениях».
-  // Играют только видимые: держать сотню запущенных видео нельзя ни по
-  // трафику, ни по памяти телефона.
-  const [visibleIds, setVisibleIds] = useState<Set<number>>(new Set());
-  // Ручное проигрывание — запасной путь для тех, у кого автозапуск выключен
-  // (экономия трафика или системная просьба убрать анимации).
-  const [previewing, setPreviewing] = useState<number | null>(null);
-  const [autoplay, setAutoplay] = useState(true);
-  const cardObserver = useRef<IntersectionObserver | null>(null);
-  // Для кого снимаем. Разделов девятнадцать, героев больше двух десятков, и
-  // взрослому сюжету нужен взрослый герой — поэтому один переключатель наверху
-  // сужает сразу оба списка.
-  const [audience, setAudience] = useState<"all" | "kids" | "adults">("all");
-  // Сцены видны сразу, без выбора героя (просьба клиента), поэтому нажатие
-  // «В ленту» без героя не ошибка, а подсказка с прокруткой к первому шагу.
-  const [needHero, setNeedHero] = useState(false);
-  const [characters, setCharacters] = useState<StudioCharacter[]>([]);
-  const [character, setCharacter] = useState<StudioCharacter | null>(null);
-  const [project, setProject] = useState<Project | null>(null);
-  // Все мультфильмы пользователя. Нужны не для красоты: как только человек
-  // начинает новый, старый перестаёт быть «последним» и без списка исчезает
-  // из интерфейса вместе с оплаченными сценами.
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [balance, setBalance] = useState<number | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [adding, setAdding] = useState<number | null>(null);
-  const [busyIds, setBusyIds] = useState<Set<number>>(new Set());
-  const [assembling, setAssembling] = useState(false);
-  // Не хватило кредитов — не ошибка, а точка покупки: человек уже выбрал героя
-  // и сцену, и это самый дорогой момент, чтобы упереться в сухую красную строку.
-  const [shortfall, setShortfall] = useState<
-    { required: number; balance: number; kind?: "scene" | "character" | "audio" } | null
-  >(null);
-  // Звук сцены: какая сцена открыта в окне звука и включена ли озвучка вообще.
-  const [audioScene, setAudioScene] = useState<StudioScene | null>(null);
-  const [audioConfig, setAudioConfig] = useState<AudioConfig | null>(null);
-  // «Озвучить весь мультфильм»: сперва план с ценой, потом очередь.
-  const [voicePlan, setVoicePlan] = useState<VoicePlan | null>(null);
-  const [planning, setPlanning] = useState(false);
-  const [authFor, setAuthFor] = useState<AuthReason | null>(null);
-  const [authed, setAuthed] = useState(true);
-  // Лента гостя. Клиент: без регистрации человек выбирает героя, набирает
-  // сцены и видит результат — а войти просим, когда ему уже есть что терять.
-  // Живёт в браузере и после входа переезжает в настоящий проект.
-  const [draft, setDraft] = useState<StudioDraft | null>(null);
-  const pollRef = useRef<number | null>(null);
-  const heroRef = useRef<HTMLDivElement | null>(null);
-  const timelineRef = useRef<HTMLDivElement | null>(null);
-  // Примерка героя: кадр «этот герой в этой сцене». Готовые пары приходят с
-  // сервера бесплатно и подставляются сами — клиент просил, чтобы выбранный
-  // герой сразу был виден в примерах. Недостающие рисуются по кнопке.
-  // Кадры храним по героям: в ленте у каждой сцены может быть свой герой, и
-  // карточке нужен кадр именно её персонажа.
-  const [framesByChar, setFramesByChar] = useState<Record<number, Record<number, string>>>({});
-  // Ролики пар «герой + сцена», уже снятые кем-то раньше: движущееся превью
-  // сцены именно с этим героем, без новой генерации (просьба клиента).
-  const [videosByChar, setVideosByChar] = useState<Record<number, Record<number, string>>>({});
-  const fetchedChars = useRef<Set<number>>(new Set());
-  const [tryingOn, setTryingOn] = useState<number | null>(null);
-  // Своя сцена: вместо готового пресета человек пишет, что делает герой
-  // (клиент: «быстро выбрать готовую сцену или самому описать, что хочешь»).
-  const [customText, setCustomText] = useState("");
-  const [framingId, setFramingId] = useState<number | null>(null);
-  // Ссылка «поделиться» привязана к ролику, для которого сделана: после
-  // пересборки мультфильма прежняя вела бы на старый ролик.
-  const [share, setShare] = useState<{ video: string; url: string } | null>(null);
-  const [sharing, setSharing] = useState(false);
-  // Какой мультфильм открыт — синхронно, без ожидания перерисовки. По нему
-  // отбрасываются ответы опроса старого проекта: иначе запрос, ушедший до
-  // переключения, возвращал на экран прежний мультфильм.
-  const currentIdRef = useRef<number | null>(null);
-  const showProject = useCallback((p: Project | null) => {
-    currentIdRef.current = p?.id ?? null;
-    setProject(p);
-  }, []);
-  // Формат, под который запрошены кадры героев: ответ, пришедший для прежнего
-  // формата, выкидываем — иначе в вертикальную ленту встали бы горизонтальные кадры.
-  const aspectRef = useRef<string | null>(null);
-  // Цены сцен витрины считаются под формат и настройки дока (в режиме цен
-  // «наценка» квадрат дешевле 16:9, Mini дешевле 2.0): под что посчитан список.
-  const [pricedKey, setPricedKey] = useState<string | null>(null);
-  // Док: модели с ценами сцен, сообщения «подогнали значение» и выбор, который
-  // ещё едет на сервер (до ответа док показывает его, а не прежний).
-  const [models, setModels] = useState<CartoonModels | null>(null);
-  const [modelsError, setModelsError] = useState(false);
-  const [notices, setNotices] = useState<DockNotice[]>([]);
-  const [dockPending, setDockPending] = useState<{ projectId: number; settings: DockSettings } | null>(null);
-  const dockSeq = useRef(0);
-  // Правки мультфильма (док, формат) уходят строго по одной: ответы приходят в
-  // том же порядке, последний — это и есть итог на сервере, ни один не теряется.
-  // Пока что-то едет, кнопки дока заняты (savingProject — id мультфильма).
-  const [enqueuePatch] = useState(serialQueue);
-  const inFlight = useRef(0);
-  // Сколько ответов правок уже легло на экран: опрос, ушедший до правки, их не затирает.
-  const patchEpoch = useRef(0);
-  const [savingProject, setSavingProject] = useState<number | null>(null);
-  // Отказ на правку дока или формата — показывается в самом доке.
-  const [dockError, setDockError] = useState("");
-  // Отказы и подсказки у строк ленты (по id сцены): «цена изменилась», «уже
-  // снята», «не сохранилось» — там, где человек нажал, а не вверху страницы.
-  const [sceneNotes, setSceneNotes] = useState<Record<number, SceneNote>>({});
-  const dismissNotices = useCallback(() => setNotices([]), []);
-  const dt = (key: DockTextKey, params?: Record<string, string | number>) =>
-    t(key, { defaultValue: DOCK_RU[key], ...(params || {}) });
-  /** «Seedance Mini · 480p · 5 с». */
-  const cfgText = (c: SceneConfig) =>
-    [configLabel(c), dt("studio_ui.dock_seconds", { n: c.duration })].filter(Boolean).join(" · ");
-  /** «Цена изменилась: теперь N кр…» на языке человека; без числа — текст сервера. */
-  const priceChangedText = (changed: { credits: number | null }, d: ApiRefusal, retry = false) =>
-    changed.credits != null
-      ? dt(retry ? "studio_ui.scene_price_changed_retry" : "studio_ui.scene_price_changed", { credits: changed.credits })
-      : d?.detail || dt("studio_ui.scene_save_failed");
-  /** Отказ сервера на языке человека: по-русски — его текст, иначе — по error_code.
-   *  keepDetail — код незнакомый: текст сервера (почему отказали), а не общий. */
-  const refusalMessage = (body: unknown, fallback: DockTextKey, keepDetail = false) => {
-    const r = refusalText(i18n.language, body, fallback, keepDetail);
-    return r.detail ?? dt(r.key);
-  };
-  /** Сообщение у строки ленты; null — убрать. price — у «Цена изменилась»: N из текста. */
-  const noteScene = (id: number, text: string | null, tone: SceneNote["tone"] = "error", price?: number | null) =>
-    setSceneNotes((prev) => {
-      const next = { ...prev };
-      if (text) next[id] = price === undefined ? { text, tone } : { text, tone, price };
-      else delete next[id];
-      return next;
-    });
-  /** Цены строк перечитаны: «Цена изменилась: теперь N кр» у строк с другой ценой уходит.
-   *  saved — это ответ сохранённой правки дока или формата. */
-  const settleNotes = useCallback(
-    (fresh: Project, saved: boolean) => setSceneNotes((prev) => settlePriceNotes(prev, fresh.scenes, saved)),
-    []
-  );
-  /** PATCH мультфильма в общую очередь; пока что-то едет, док занят. fetchData не
-   *  бросает (сбой сети — ok: false), поэтому счётчик всегда возвращается к нулю.
-   *  dock: false — правка не из дока (название): в очереди, но кнопки дока не заняты. */
-  const patchProject = async (id: number, body: Record<string, unknown>, dock = true) => {
-    if (dock) {
-      inFlight.current += 1;
-      setSavingProject(id);
-    }
-    const res = await enqueuePatch(() => fetchData<Project>(`cartoon/projects/${id}/`, "PATCH", body, true));
-    if (dock) {
-      inFlight.current -= 1;
-      if (!inFlight.current) setSavingProject(null);
-    }
-    if (res.ok) patchEpoch.current += 1;
-    return res;
-  };
+export default function CartoonStudio({ variant = "site" }: { variant?: "site" | "tg" }) {
+  const { t } = useTranslation("common");
+  const s = useCartoonStudio();
+  const { actions } = s;
+  const measured = useVsBreakpoint();
+  const breakpoint = variant === "tg" ? "mobile" : measured;
+  // Высота оболочки — видимая часть окна: на телефоне с клавиатурой док остаётся над ней.
+  useVisualViewport({ cssVars: true });
+  const feedScrollRef = useRef<HTMLDivElement | null>(null);
+  const [railOpen, setRailOpen] = useState(false);
+  // Печатают в ленте (реплика, своя сцена, описание героя). На телефоне клавиатура
+  // и так забирает полэкрана — док на это время убираем, ленте остаётся место.
+  const [typing, setTyping] = useState(false);
+  const home = variant === "tg" ? "/tg/studio" : "/studio";
 
   useEffect(() => {
-    // Системная просьба «меньше движения» и режим экономии трафика — повод не
-    // заводить ничего самому: человек попросил об этом на уровне устройства.
-    const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
-    const saveData = Boolean((navigator as any)?.connection?.saveData);
-    if (reduce || saveData) {
-      setAutoplay(false);
-      return;
-    }
-    const io = new IntersectionObserver(
-      (entries) => {
-        setVisibleIds((prev) => {
-          const next = new Set(prev);
-          for (const e of entries) {
-            const id = Number((e.target as HTMLElement).dataset.presetId || 0);
-            if (!id) continue;
-            if (e.isIntersecting) next.add(id);
-            else next.delete(id);
-          }
-          return next;
-        });
-      },
-      // Половина карточки на экране: иначе ролики заводятся у самого края и
-      // гаснут, не успев показать ни кадра.
-      { threshold: 0.5 }
-    );
-    cardObserver.current = io;
-    return () => io.disconnect();
-  }, []);
-
-  const watchCard = useCallback((el: HTMLDivElement | null) => {
-    if (el) cardObserver.current?.observe(el);
-  }, []);
-
-  // Формат мультфильма. Клиент: 9:16 для Reels и TikTok, 16:9 для YouTube,
-  // 1:1 для ленты — и один на всю серию, чтобы сцены склеились ровно.
-  const aspect = project?.aspect_ratio || draft?.aspect_ratio || "16:9";
-
-  /** Сменить формат: у проекта — на сервере (в общей очереди правок), у гостя — в черновике. */
-  const setAspect = async (value: string) => {
-    if (value === aspect) return;
-    if (!authed || !project) {
-      updateDraft((d) => ({ ...d, aspect_ratio: value }));
-      return;
-    }
-    const id = project.id;
-    setDockError("");
-    const res = await patchProject(id, { aspect_ratio: value });
-    if (res.ok && res.data) {
-      const fresh = res.data;
-      if (currentIdRef.current === fresh.id) {
-        showProject(fresh);
-        settleNotes(fresh, true);
-      }
-      setProjects((prev) => prev.map((x) => (x.id === fresh.id ? fresh : x)));
-      return;
-    }
-    if (currentIdRef.current === id) setDockError(refusalMessage(res.data, "studio_ui.dock_save_failed"));
-  };
-
-  // Готовые кадры героев. Их отдают бесплатно, поэтому подставляем сразу и
-  // молча: для человека это выглядит так, будто сцены сами перерисовались под
-  // его персонажа. Спрашиваем по каждому герою один раз — и для выбранного, и
-  // для тех, кого поставили на отдельные сцены ленты.
-  const wantedChars = useMemo(() => {
-    const ids = new Set<number>();
-    if (character) ids.add(character.id);
-    for (const s of draft?.scenes || []) if (s.character_id) ids.add(s.character_id);
-    for (const s of project?.scenes || []) if (s.character?.id) ids.add(s.character.id);
-    return [...ids].sort((a, b) => a - b).join(",");
-  }, [character, draft, project]);
-
-  useEffect(() => {
-    // Формат поменяли — прежние кадры были другого размера: чистим и тут же
-    // запрашиваем заново. Раньше очистка жила в отдельном эффекте, срабатывала
-    // после запроса и стирала превью героев насовсем.
-    if (aspectRef.current !== aspect) {
-      if (aspectRef.current !== null) {
-        fetchedChars.current.clear();
-        setFramesByChar({});
-        setVideosByChar({});
-      }
-      aspectRef.current = aspect;
-    }
-    const wanted = aspect;
-    const ids = wantedChars ? wantedChars.split(",").map(Number) : [];
-    for (const id of ids) {
-      if (fetchedChars.current.has(id)) continue;
-      fetchedChars.current.add(id);
-      void (async () => {
-        const res = await fetchData<Record<string, { frame: string; video: string }>>(
-          `cartoon/previews/?character_id=${id}&aspect_ratio=${encodeURIComponent(wanted)}`,
-          "GET", null, true
-        );
-        // Пока шёл запрос, формат сменили: ответ относится к прежнему.
-        if (aspectRef.current !== wanted) return;
-        if (!res.ok || !res.data) {
-          fetchedChars.current.delete(id);
-          return;
-        }
-        const frames: Record<number, string> = {};
-        const videos: Record<number, string> = {};
-        for (const [pid, row] of Object.entries(res.data)) {
-          if (row?.frame) frames[Number(pid)] = row.frame;
-          if (row?.video) videos[Number(pid)] = row.video;
-        }
-        setFramesByChar((prev) => ({ ...prev, [id]: { ...frames, ...(prev[id] || {}) } }));
-        setVideosByChar((prev) => ({ ...prev, [id]: { ...videos, ...(prev[id] || {}) } }));
-      })();
-    }
-  }, [wantedChars, aspect]);
-
-  const tryOn: Record<number, string> = (character && framesByChar[character.id]) || {};
-  const heroVideos: Record<number, string> = (character && videosByChar[character.id]) || {};
-
-  /** Окно входа — и отметка в воронке: это главный шаг, который мы меряем. */
-  const openAuth = (reason: AuthReason) => {
-    setAuthFor(reason);
-    trackFunnel("studio_auth_prompt", { reason });
-  };
-
-  /** Окно «не хватает кредитов» — точка покупки, её тоже считаем. */
-  const openPaywall = (value: { required: number; balance: number; kind?: "scene" | "character" | "audio" }) => {
-    setShortfall(value);
-    trackFunnel("studio_paywall", { kind: value.kind || "scene", required: value.required });
-  };
-
-  /** Нарисовать кадр этой сцены с выбранным героем. */
-  const tryOnScene = async (preset: Preset) => {
-    if (!character) {
-      setNeedHero(true);
-      heroRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-      return;
-    }
-    await tryOnPair(preset.id, character.id);
-  };
-
-  /** Примерка из ленты: герой — тот, что закреплён за сценой, а не выбранный сейчас. */
-  const tryOnTimelineScene = async (scene: StudioScene) => {
-    if (!scene.character) return;
-    // У гостя заметок у строк нет (лента из черновика) — его отказ, как раньше, вверху.
-    if (!authed) {
-      await tryOnPair(scene.preset.id, scene.character.id);
-      return;
-    }
-    noteScene(scene.id, null);
-    await tryOnPair(scene.preset.id, scene.character.id, scene.id);
-  };
-
-  /** Кадр «этот герой в этой сцене». Потом он же пойдёт первым кадром съёмки.
-   *  rowId — примеряли у строки ленты: отказ показываем у неё, а не вверху страницы. */
-  const tryOnPair = async (presetId: number, heroId: number, rowId: number | null = null) => {
-    const preset = { id: presetId };
-    const wanted = aspect;
-    trackFunnel("studio_tryon", { preset_id: preset.id, authed });
-    setTryingOn(preset.id);
-    // Гость шлёт запрос без токена: ответ «нужен вход» (403) иначе принимается
-    // за истёкшую сессию и уводит со страницы. Ключ устройства — чтобы сервер
-    // посчитал «одну бесплатную на устройство».
-    const res = await fetchData<{ image: string; charged: number; free?: boolean }>(
-      `cartoon/presets/${preset.id}/try-on/`, "POST",
-      { character_id: heroId, aspect_ratio: aspect }, authed,
-      { "X-Device-Key": getOrCreateDeviceKey() }
-    );
-    setTryingOn(null);
-    if (res.ok && res.data?.image) {
-      const image = res.data.image;
-      // Кадр прежнего формата в новую ленту не ставим.
-      if (aspectRef.current === wanted) {
-        setFramesByChar((prev) => ({ ...prev, [heroId]: { ...(prev[heroId] || {}), [preset.id]: image } }));
-      }
-      if (res.data.charged) void loadBalance();
-      return;
-    }
-    const d = res.data as any;
-    if (d?.need_auth) {
-      openAuth("tryon");
-      return;
-    }
-    if (d?.required) {
-      openPaywall({ required: Number(d.required), balance: Number(d.balance ?? 0), kind: "character" });
-    } else if (rowId != null) {
-      // С телефона блок ошибки вверху страницы не виден — отказ рядом с кнопкой.
-      noteScene(rowId, refusalMessage(d, "studio_ui.err_tryon", true));
-    } else {
-      setError(refusalMessage(d, "studio_ui.err_tryon", true));
-    }
-  };
-
-  /** Изменить ленту гостя и сразу сохранить её в браузере. */
-  const updateDraft = useCallback(
-    (change: (d: StudioDraft) => StudioDraft) => {
-      setDraft((prev) => saveDraft(change(prev || emptyDraft(character?.id ?? null))));
-    },
-    [character]
-  );
-
-  const byAudience = (p: Preset) => audience === "all" || p.audience === audience;
-
-  // Раздел показываем, только если в нём есть что смотреть при текущем выборе
-  // аудитории — иначе человек ткнёт в «Спорт» и увидит пустоту.
-  const visibleCategories = categories.filter((c) =>
-    presets.some((p) => p.category === c.slug && byAudience(p))
-  );
-
-  const picks = presets.filter((p) => p.is_pick && byAudience(p));
-  const popularPresets = popular
-    .map((slug) => presets.find((p) => p.slug === slug))
-    .filter((p): p is Preset => Boolean(p) && byAudience(p as Preset));
-
-  // Свои персонажи показываются всегда: человек загрузил их сам, и прятать их
-  // за чужим делением на «детское/взрослое» было бы странно.
-  const visibleCharacters =
-    audience === "all"
-      ? characters
-      : characters.filter((c) => c.is_mine || c.audience === audience);
-
-  const allPresets =
-    activeCat === "__pick"
-      ? picks
-      : activeCat === "__popular"
-      ? popularPresets
-      : activeCat
-      ? presets.filter((p) => p.category === activeCat && byAudience(p))
-      : presets.filter(byAudience);
-
-  const visiblePresets = allPresets.slice(0, shown);
-  const restCount = Math.max(0, allPresets.length - visiblePresets.length);
-
-  // Сколько роликов крутим разом. На широком экране в поле зрения попадает до
-  // дюжины карточек, и заводить их все — лишний трафик без выигрыша: человек
-  // всё равно смотрит на две-три.
-  const MAX_PLAYING = 6;
-  const playingIds = new Set(
-    autoplay
-      ? visiblePresets.filter((p) => visibleIds.has(p.id)).slice(0, MAX_PLAYING).map((p) => p.id)
-      : []
-  );
-
-  const pickAudience = (next: "all" | "kids" | "adults") => {
-    // Список карточек сменился целиком — прежние отметки видимости больше ни
-    // к чему не относятся, и показ начинаем с первой горсти.
-    setVisibleIds(new Set());
-    setShown(PAGE_SIZE);
-    setAudience(next);
-    if (activeCat && !activeCat.startsWith("__") && next !== "all") {
-      const still = presets.some((p) => p.category === activeCat && p.audience === next);
-      if (!still) setActiveCat("");
-    }
-  };
-
-  const markBusy = (id: number, on: boolean) =>
-    setBusyIds((prev) => {
-      const next = new Set(prev);
-      if (on) next.add(id);
-      else next.delete(id);
-      return next;
-    });
-
-  const loadBalance = useCallback(async () => {
-    const res = await fetchData<any>("users/profile/", "GET", null, true);
-    const b = res?.data?.token_balance ?? res?.data?.data?.token_balance;
-    if (Number.isFinite(Number(b))) setBalance(Number(b));
-  }, []);
-
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      // Язык нужен серверу: названия сцен и героев лежат в базе и переводятся
-      // там же, поэтому витрина просит их сразу на нужном языке.
-      const lang = apiLang(i18n.language);
-      // Первый показ — по пресетам, как раньше: настройки дока станут известны
-      // чуть позже (модели, мультфильм), и витрина перезапросится под них сама.
-      const first = presetsQuery({ lang, aspect: DEFAULT_ASPECT });
-      const [p, c, mine] = await Promise.all([
-        fetchData<{ categories: Category[]; presets: Preset[]; popular: string[] }>(
-          `cartoon/presets/?${first.query}`, "GET", null, true),
-        fetchData<StudioCharacter[]>(`cartoon/characters/?lang=${lang}`, "GET", null, true),
-        fetchData<Project[]>(`cartoon/projects/?lang=${lang}`, "GET", null, true),
-      ]);
-      if (!alive) return;
-      if (p.ok && p.data) {
-        setPresets(p.data.presets || []);
-        setPricedKey(first.key);
-        setCategories(p.data.categories || []);
-        setPopular(p.data.popular || []);
-      }
-      const chars = c.ok && Array.isArray(c.data) ? c.data : [];
-      setCharacters(chars);
-      if (!p.ok) setError(t("studio_ui.err_load"));
-
-      // Витрина открыта всем, а свои мультфильмы есть только у вошедших:
-      // по ответу этого запроса и понимаем, гость перед нами или нет.
-      setAuthed(mine.ok);
-      // Первый шаг воронки. Неделю рекламы студия не отправляла его вовсе —
-      // и о 700 посетителях в день мы узнавали из чужой статистики.
-      trackFunnel("studio_view", { authed: mine.ok });
-
-      if (!mine.ok) {
-        // Гость: поднимаем его ленту, если он уже начинал собирать.
-        const saved = loadDraft();
-        if (saved) {
-          setDraft(saved);
-          const hero = chars.find((x) => x.id === saved.character_id);
-          if (hero) setCharacter(hero);
-        }
-        setLoading(false);
-        return;
-      }
-
-      // Продолжаем последний мультфильм, а не начинаем пустой: сцены стоят
-      // денег, и терять их при перезагрузке страницы недопустимо.
-      const mineList = mine.ok && Array.isArray(mine.data) ? mine.data : [];
-      setProjects(mineList);
-
-      // Только что вошёл, а в браузере лежит лента, собранная гостем: переносим
-      // её в настоящий проект и открываем именно его (просьба клиента: «вернуть
-      // пользователя именно в этот проект»).
-      let imported: Project | null = null;
-      const saved = loadDraft();
-      if (saved?.scenes.length && saved.character_id) {
-        // Сбой переноса не должен оставить студию на заглушке загрузки:
-        // черновик останется в браузере, и перенос повторится при следующем
-        // открытии (сервер по ключу черновика второго проекта не заведёт).
-        try {
-          // Сцены, реплики, формат и выбранные в доке настройки — одним запросом.
-          const res = await fetchData<Project>("cartoon/projects/import/", "POST", importBody(saved), true);
-          if (!alive) return;
-          if (res.ok && res.data) {
-            const fresh = res.data;
-            imported = fresh;
-            clearDraft();
-            setProjects((prev) => [fresh, ...prev.filter((x) => x.id !== fresh.id)]);
-            // Черновик устарел (модель выключили, длительность другая) — сервер
-            // взял ближайшее: говорим об этом, а не меняем молча.
-            const notes = serverNotices(fresh);
-            if (notes.length) setNotices(notes);
-          }
-        } catch {
-          // тихо: остаёмся на обычном открытии студии
-        }
-      } else if (saved && !saved.scenes.length) {
-        // Гость выбрал в доке модель, качество или формат, но сцен ещё не набрал: этот
-        // выбор не теряем — с ним заведётся первый мультфильм (ensureProject).
-        setDraft(saved);
-      } else if (saved) {
-        clearDraft();
-      }
-
-      // Бот и Mini App открывают конкретный мультфильм: ?project=<id>. После
-      // оплаты и входа возвращаемся к тому, что было открыто последним, — а
-      // не к «какому-нибудь последнему с сценами».
-      const wanted = Number(new URLSearchParams(window.location.search).get("project") || 0);
-      const remembered = recallProject();
-      const last = imported
-        || (wanted && mineList.find((x) => x.id === wanted))
-        || (remembered && mineList.find((x) => x.id === remembered))
-        || mineList.find((x) => x.scenes.length > 0);
-      if (last) {
-        showProject(last);
-        if (last.character) setCharacter(last.character);
-      }
-      setLoading(false);
-      void loadBalance();
-      if (imported) {
-        window.setTimeout(
-          () => timelineRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }),
-          400
-        );
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, [loadBalance, i18n.language, showProject, t]);
-
-  // Модели дока с ценами сцен. Открыты всем: гость видит цены до входа.
-  // modelsTry — «Повторить» на кнопке модели, если список не пришёл.
-  const [modelsTry, setModelsTry] = useState(0);
-  useEffect(() => {
-    let alive = true;
-    void (async () => {
-      const res = await fetchData<CartoonModels>("cartoon/models/", "GET", null, true);
-      if (!alive) return;
-      if (res.ok && res.data && Array.isArray(res.data.models)) {
-        setModels(res.data);
-        setModelsError(false);
-      } else {
-        setModelsError(true);
-      }
-    })();
-    return () => {
-      alive = false;
-    };
-  }, [modelsTry]);
-
-  // --- док: модель, качество, длительность ---
-  const modelList = models?.models ?? null;
-  // Мультфильма ещё нет (гость или новый) — настройки живут в черновике.
-  const local = !authed || !project;
-  // Выбранное в доке до мультфильма (черновик) — под нынешний список моделей.
-  const chosen = sanitizeDock(draftDock(draft), modelList);
-  // Чем снимутся сцены без мультфильма: выбранное, иначе — значения по умолчанию из админки.
-  const localExplicit = chosen ?? explicitDefaults(models);
-  const pending = project && dockPending?.projectId === project.id ? dockPending.settings : null;
-  // Док или формат едут на сервер — цены строк ещё прежние: «Снять» ждёт новую цену.
-  const repricing = Boolean(pending) || (project != null && savingProject === project.id);
-  const projectSaved = project ? completeDock(project) : null;
-  const effective = project?.effective ?? null;
-  const dockShown: DockSettings | null = local
-    ? localExplicit ?? displayDefaults(models)
-    : pending ??
-      (effective
-        ? { video_model: effective.video_model, resolution: effective.resolution, duration: effective.duration }
-        : displayDefaults(models));
-  const dockModel = findModel(modelList, dockShown?.video_model);
-  const want = presetsQuery({
-    lang: apiLang(i18n.language),
-    aspect,
-    projectId: local ? null : project?.id ?? null,
-    saved: project
-      ? { video_model: project.video_model ?? null, resolution: project.resolution ?? null, duration: project.duration ?? null }
-      : null,
-    explicit: local ? localExplicit : null,
-  });
-  // Витрина посчитана под нынешние формат и настройки — её числа и показываем.
-  const cardsFresh = pricedKey === want.key;
-  const estimateDock = local ? localExplicit : pending ?? projectSaved;
-  const estimateModel = findModel(modelList, estimateDock?.video_model);
-
-  // Сменились формат, настройки дока или открытый мультфильм — перезапрашиваем
-  // цены витрины. Пауза — человек щёлкает значения подряд.
-  useEffect(() => {
-    if (pricedKey === null || pricedKey === want.key) return;
-    let alive = true;
-    const timer = window.setTimeout(async () => {
-      const res = await fetchData<{ presets: Preset[] }>(`cartoon/presets/?${want.query}`, "GET", null, true);
-      if (!alive || !res.ok || !res.data) return;
-      setPresets(res.data.presets || []);
-      setPricedKey(want.key);
-    }, 250);
-    return () => {
-      alive = false;
+    const feed = feedScrollRef.current;
+    if (!feed) return;
+    let timer = 0;
+    const onIn = (e: FocusEvent) => {
+      if (!isTextField(e.target as Element | null)) return;
       window.clearTimeout(timer);
+      setTyping(true);
     };
-  }, [want.key, want.query, pricedKey]);
-
-  useEffect(() => {
-    void (async () => {
-      const res = await fetchData<AudioConfig>("cartoon/audio/config/", "GET", null, false);
-      if (res.ok && res.data) setAudioConfig(res.data);
-    })();
+    // Док возвращается с паузой: нажатие на кнопку рядом с полем успевает дойти до
+    // неё, а не до дока, который встал бы на её место.
+    const onOut = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        const active = document.activeElement;
+        setTyping(isTextField(active) && feed.contains(active));
+      }, 150);
+    };
+    feed.addEventListener("focusin", onIn);
+    feed.addEventListener("focusout", onOut);
+    return () => {
+      window.clearTimeout(timer);
+      feed.removeEventListener("focusin", onIn);
+      feed.removeEventListener("focusout", onOut);
+    };
   }, []);
 
-  // Опрос, пока что-то считается. adopt — открыть именно этот мультфильм;
-  // без него ответ по мультфильму, который уже не открыт, экран не трогает.
-  const refresh = useCallback(async (id: number, adopt = false) => {
-    const read = async () => {
-      const epoch = patchEpoch.current;
-      const res = await fetchData<Project>(`cartoon/projects/${id}/`, "GET", null, true);
-      return { res, stale: epoch !== patchEpoch.current };
-    };
-    // Пока шёл запрос, на экран лёг ответ правки дока или формата: это чтение
-    // могло уйти раньше правки — не затираем её прежними настройками, читаем ещё раз.
-    let got = await read();
-    for (let attempt = 0; attempt < 2 && got.stale && !adopt && got.res.ok; attempt++) got = await read();
-    const res = got.res;
-    if (res.ok && res.data && (adopt || !got.stale)) {
-      const fresh = res.data;
-      if (adopt || currentIdRef.current === fresh.id) {
-        showProject(fresh);
-        settleNotes(fresh, false);
-      }
-      setProjects((prev) => prev.map((x) => (x.id === fresh.id ? fresh : x)));
-    }
-    return res.data || null;
-  }, [showProject, settleNotes]);
-
+  // Mini App: прокручивается лента внутри оболочки, а не сама страница, и Telegram
+  // принимал бы прокрутку ленты вверх за свайп «свернуть». Уходим — возвращаем свайп.
   useEffect(() => {
-    const busy =
-      !!project &&
-      (project.status === "assembling" ||
-        Boolean(project.voicing && !project.voicing.finished) ||
-        project.scenes.some((s) => WORKING.includes(s.status)));
-    if (!busy || !project) {
-      if (pollRef.current) {
-        window.clearInterval(pollRef.current);
-        pollRef.current = null;
-      }
-      return;
-    }
-    if (pollRef.current) return;
-    pollRef.current = window.setInterval(() => {
-      void refresh(project.id).then(() => void loadBalance());
-    }, 4000);
-    return () => {
-      if (pollRef.current) {
-        window.clearInterval(pollRef.current);
-        pollRef.current = null;
-      }
-    };
-  }, [project, refresh, loadBalance]);
+    if (variant !== "tg") return;
+    const app = window.Telegram?.WebApp;
+    app?.disableVerticalSwipes?.();
+    return () => app?.enableVerticalSwipes?.();
+  }, [variant]);
 
-  const ensureProject = useCallback(async (): Promise<Project | null> => {
-    if (project) return project;
-    if (!character) return null;
-    // Док трогали до первой сцены — мультфильм заводится сразу с этими
-    // настройками; не трогали — сервер даст значения по умолчанию.
-    const dock = sanitizeDock(draftDock(draft), modelList);
-    const res = await fetchData<Project>(
-      "cartoon/projects/", "POST",
-      { character_id: character.id, aspect_ratio: aspect, ...(dock ? dockBody(dock) : {}) }, true
-    );
-    if (res.ok && res.data) {
-      showProject(res.data);
-      setProjects((prev) => [res.data as Project, ...prev]);
-      return res.data;
-    }
-    setError((res.data as any)?.detail || t("studio_ui.err_project"));
-    return null;
-    // Формат — в зависимостях: без него новый мультфильм заводился в
-    // прежнем формате, выбранном до переключения.
-  }, [project, character, aspect, draft, modelList, t, showProject]);
+  // В общем списке открытый мультфильм может отставать от себя же: опрос и
+  // правки обновляют сначала его — в колонке показываем свежую копию.
+  const open = s.project;
+  const movies = open ? s.movies.map((m) => (m.id === open.id ? open : m)) : s.movies;
 
-  // Открытый мультфильм запоминаем: после оплаты и входа студия откроет его же.
-  useEffect(() => {
-    if (project?.id) rememberProject(project.id);
-  }, [project?.id]);
-
-  const addScene = async (preset: Preset) => {
-    if (!authed) {
-      // Гость собирает ленту без входа (просьба клиента): она живёт в браузере,
-      // а войти мы попросим, когда он захочет снимать.
-      if (!character) {
-        setNeedHero(true);
-        heroRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-        return;
-      }
-      if ((draft?.scenes.length || 0) >= MAX_DRAFT_SCENES) {
-        setError(t("studio_ui.err_draft_full"));
-        return;
-      }
-      setNeedHero(false);
-      // Сцена запоминает героя, с которым её добавили: сменил героя для
-      // следующей сцены — предыдущая остаётся со своим (правило клиента).
-      updateDraft((d) => ({
-        ...d,
-        character_id: d.character_id ?? character.id,
-        scenes: [...d.scenes, { key: newSceneKey(), preset_id: preset.id, character_id: character.id }],
-      }));
-      trackFunnel("studio_scene_add", { preset_id: preset.id, authed: false });
-      window.setTimeout(
-        () => timelineRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }),
-        60
-      );
-      return;
-    }
-    if (!character) {
-      // Сцены видны сразу, но снимать их не с кем — ведём к первому шагу.
-      setNeedHero(true);
-      heroRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-      return;
-    }
-    setError("");
-    setNeedHero(false);
-    setShortfall(null);
-    setAdding(preset.id);
-    const p = await ensureProject();
-    if (!p) {
-      setAdding(null);
-      return;
-    }
-    // Героя передаём явно: иначе сцена снялась бы с героем, с которого начат
-    // мультфильм, а не с тем, кого человек выбрал сейчас.
-    const res = await fetchData<StudioScene>(
-      `cartoon/projects/${p.id}/scenes/`, "POST", { preset_id: preset.id, character_id: character.id }, true
-    );
-    setAdding(null);
-    if (res.ok && res.data) {
-      trackFunnel("studio_scene_add", { preset_id: preset.id, authed: true });
-      await refresh(p.id, true);
-      // Лента ниже сцен, и без прокрутки человек не понимает, куда делась
-      // добавленная сцена.
-      timelineRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-    } else {
-      setError((res.data as any)?.detail || t("studio_ui.err_scene"));
-    }
+  const toHeroes = () => {
+    actions.scrollToHeroes();
+    focusHeading(s.refs.heroes);
   };
 
-  /** Снять сцену из ленты. Здесь и только здесь тратятся кредиты. */
-  const renderScene = async (scene: StudioScene) => {
-    if (!project) return;
-    trackFunnel("studio_render_click", { authed: true, scene_id: scene.id });
-    noteScene(scene.id, null);
-    markBusy(scene.id, true);
-    // Цена с кнопки: выросла с тех пор (док сменили в другой вкладке или в боте,
-    // модель выключили) — сервер не снимет и вернёт новую.
-    const res = await fetchData<StudioScene>(
-      `cartoon/scenes/${scene.id}/render/`, "POST", quoteBody(scene.render_credits), true
-    );
-    if (res.ok) {
-      // Строка свободна, когда уже показывает «снимается»: иначе на один запрос
-      // «Снять» снова жалось бы.
-      await refresh(project.id);
-      markBusy(scene.id, false);
-      return;
-    }
-    markBusy(scene.id, false);
-    const d = res.data as ApiRefusal;
-    const changed = priceChanged(res.status, d);
-    if (changed) {
-      // Ничего не снято и не списано: новая цена — в строке, просьба нажать ещё раз — рядом.
-      noteScene(scene.id, priceChangedText(changed, d), "error", changed.credits);
-      await refresh(project.id);
-    } else if (alreadyShot(res.status, d)) {
-      // Строка устарела: сцену уже сняли в другой вкладке или в боте. Второй съёмки
-      // нет — показываем готовую сцену, переснять её можно подписанной кнопкой.
-      noteScene(scene.id, dt("studio_ui.scene_already_shot"), "info");
-      await refresh(project.id);
-    } else if (d?.required) {
-      openPaywall({ required: Number(d.required), balance: Number(d.balance ?? 0) });
-    } else {
-      // «Цены нет», «обновите страницу» — на языке человека, а не русским текстом сервера.
-      noteScene(scene.id, refusalMessage(d, "studio_ui.scene_save_failed", true));
-    }
+  const toTimeline = () => {
+    actions.scrollToTimeline();
+    focusHeading(s.refs.timeline);
   };
 
-  // --- лента гостя: те же действия, что у проекта, но над черновиком ---
-  // У черновика нет id из базы, поэтому сцена ленты получает отрицательный id,
-  // а по нему восстанавливается её место в черновике.
-  const guestIndex = (scene: StudioScene) => -scene.id - 1;
-
-  const guestMove = (scene: StudioScene, dir: -1 | 1) =>
-    updateDraft((d) => {
-      const list = [...d.scenes];
-      const i = guestIndex(scene);
-      const j = i + dir;
-      if (i < 0 || j < 0 || j >= list.length) return d;
-      [list[i], list[j]] = [list[j], list[i]];
-      return { ...d, scenes: list };
-    });
-
-  const guestDelete = (scene: StudioScene) =>
-    updateDraft((d) => ({ ...d, scenes: d.scenes.filter((_, i) => i !== guestIndex(scene)) }));
-
-  const guestPickCharacter = (scene: StudioScene, characterId: number) =>
-    updateDraft((d) => ({
-      ...d,
-      scenes: d.scenes.map((s, i) => (i === guestIndex(scene) ? { ...s, character_id: characterId } : s)),
-    }));
-
-  /** Добавить свою сцену по описанию. Ничего не генерируется и не списывается. */
-  const addCustomScene = async () => {
-    const text = customText.replace(/\s+/g, " ").trim().slice(0, 300);
-    if (text.length < 3) {
-      setError(t("studio_ui.custom_too_short"));
-      return;
-    }
-    if (!character) {
-      setNeedHero(true);
-      heroRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-      return;
-    }
-    setError("");
-    setNeedHero(false);
-    const scrollToTimeline = () =>
-      window.setTimeout(
-        () => timelineRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" }),
-        60
-      );
-
-    if (!authed) {
-      if ((draft?.scenes.length || 0) >= MAX_DRAFT_SCENES) {
-        setError(t("studio_ui.err_draft_full"));
-        return;
-      }
-      updateDraft((d) => ({
-        ...d,
-        character_id: d.character_id ?? character.id,
-        scenes: [...d.scenes, {
-          key: newSceneKey(), preset_id: 0, character_id: character.id, custom_text: text,
-        }],
-      }));
-      trackFunnel("studio_scene_add", { custom: true, authed: false });
-      setCustomText("");
-      scrollToTimeline();
-      return;
-    }
-
-    setAdding(-1);
-    const p = await ensureProject();
-    if (!p) {
-      setAdding(null);
-      return;
-    }
-    const res = await fetchData<StudioScene>(
-      `cartoon/projects/${p.id}/scenes/`, "POST", { custom_text: text, character_id: character.id }, true
-    );
-    setAdding(null);
-    if (res.ok && res.data) {
-      trackFunnel("studio_scene_add", { custom: true, authed: true });
-      setCustomText("");
-      await refresh(p.id, true);
-      scrollToTimeline();
-    } else {
-      setError((res.data as any)?.detail || t("studio_ui.err_scene"));
-    }
+  const openMovie = (id: number) => {
+    void actions.openProject(id);
+    // Открыли мультфильм из списка — показываем его ленту: на прежнем месте
+    // сменились бы только цифры, и было бы непонятно, что произошло.
+    window.requestAnimationFrame(toTimeline);
   };
 
-  /** Кадр своей сцены до съёмки — увидеть, что получится. */
-  const frameScene = async (scene: StudioScene) => {
-    if (!authed || !project) {
-      openAuth("render");
-      return;
-    }
-    setFramingId(scene.id);
-    noteScene(scene.id, null);
-    const res = await fetchData<StudioScene>(`cartoon/scenes/${scene.id}/frame/`, "POST", {}, true);
-    setFramingId(null);
-    if (res.ok) {
-      await refresh(project.id);
-      void loadBalance();
-      return;
-    }
-    const d = res.data as ApiRefusal;
-    if (d?.required) {
-      openPaywall({ required: Number(d.required), balance: Number(d.balance ?? 0), kind: "character" });
-    } else {
-      // Кадр жали у строки ленты — и отказ там же.
-      noteScene(scene.id, refusalMessage(d, "studio_ui.err_tryon", true));
-    }
+  const newMovie = () => {
+    actions.startNewMovie();
+    // Новый мультфильм начинается с героя и сцен — с начала ленты, как «Новая генерация» видеостудии.
+    if (feedScrollRef.current) feedScrollRef.current.scrollTop = 0;
   };
 
-  /** Выбрать героя для следующих сцен. Уже набранные сцены своих героев не меняют. */
-  const pickHero = (c: StudioCharacter) => {
-    setCharacter(c);
-    setNeedHero(false);
-    trackFunnel("studio_hero_pick", { character_id: c.id, authed });
-    // Первый выбранный герой становится героем мультфильма — с ним проект
-    // переедет после входа. Дальше у каждой сцены свой.
-    if (!authed) updateDraft((d) => ({ ...d, character_id: d.character_id ?? c.id }));
+  const top = {
+    loading: s.loading,
+    authed: s.authed,
+    balance: s.balance,
+    balanceFailed: s.balanceFailed,
+    project: s.project,
+    back: home,
+    onRename: (v: string) => void actions.renameMovie(v),
   };
-
-  /** Снимать гость не может — это деньги и аккаунт. Здесь и просим войти. */
-  const guestRender = (from: "scene" | "cta") => {
-    trackFunnel("studio_render_click", { authed: false, from });
-    openAuth("render");
-  };
-
-  /** Название мультфильма. Клиент: человек должен сам назвать свою серию. */
-  const renameMovie = async (value: string) => {
-    if (!project) return;
-    const title = value.replace(/\s+/g, " ").trim().slice(0, 140);
-    if (!title || title === project.title) return;
-    // В общей очереди правок: ответ — мультфильм целиком, и пришедший после ответа
-    // правки дока он вернул бы на экран прежние настройки.
-    const res = await patchProject(project.id, { title }, false);
-    if (res.ok && res.data) {
-      if (currentIdRef.current === res.data.id) showProject(res.data);
-      setProjects((prev) => prev.map((x) => (x.id === res.data!.id ? res.data! : x)));
-    } else {
-      setError((res.data as any)?.detail || t("studio_ui.err_scene"));
-    }
-  };
-
-  /** Реплика героя: её играет модель в кадре и ею же озвучивается сцена. */
-  const setSceneDialogue = async (scene: StudioScene, text: string) => {
-    if (!project) return;
-    noteScene(scene.id, null);
-    markBusy(scene.id, true);
-    const res = await fetchData(`cartoon/scenes/${scene.id}/`, "PATCH", { dialogue: text }, true);
-    markBusy(scene.id, false);
-    if (!res.ok) {
-      noteScene(scene.id, refusalMessage(res.data, "studio_ui.scene_save_failed"));
-      return;
-    }
-    await refresh(project.id);
-  };
-
-  /** Гость реплику тоже пишет — она переедет вместе с лентой после входа. */
-  const guestDialogue = (scene: StudioScene, text: string) =>
-    updateDraft((d) => ({
-      ...d,
-      scenes: d.scenes.map((s, i) => (i === guestIndex(scene) ? { ...s, dialogue: text } : s)),
-    }));
-
-  /** Нарисовать кадр сцены заново: прежний не понравился или вышел не тот герой. */
-  const redrawFrame = async (scene: StudioScene) => {
-    if (!project) return;
-    noteScene(scene.id, null);
-    markBusy(scene.id, true);
-    const res = await fetchData(`cartoon/scenes/${scene.id}/`, "PATCH",
-                                { new_keyframe: true }, true);
-    markBusy(scene.id, false);
-    if (!res.ok) {
-      noteScene(scene.id, refusalMessage(res.data, "studio_ui.scene_save_failed"));
-      return;
-    }
-    // Кадра больше нет — сразу рисуем новый, чтобы человек не искал кнопку.
-    if (scene.custom_text) await frameScene(scene);
-    else await tryOnTimelineScene(scene);
-    await refresh(project.id);
-  };
-
-  /** Поставить на сцену другого героя. Работает, пока сцена не снята. */
-  const setSceneCharacter = async (scene: StudioScene, characterId: number) => {
-    if (!project) return;
-    noteScene(scene.id, null);
-    markBusy(scene.id, true);
-    const res = await fetchData(`cartoon/scenes/${scene.id}/`, "PATCH",
-                                { character_id: characterId }, true);
-    markBusy(scene.id, false);
-    if (!res.ok) noteScene(scene.id, refusalMessage(res.data, "studio_ui.scene_save_failed"));
-    await refresh(project.id);
-  };
-
-  const moveScene = async (scene: StudioScene, dir: -1 | 1) => {
-    if (!project) return;
-    const list = [...project.scenes].sort((a, b) => a.order - b.order);
-    const i = list.findIndex((s) => s.id === scene.id);
-    const j = i + dir;
-    if (i < 0 || j < 0 || j >= list.length) return;
-    // Меняем местами и сохраняем обе позиции: сервер хранит явный порядок,
-    // а не выводит его из времени создания.
-    markBusy(scene.id, true);
-    const a = list[i];
-    const b = list[j];
-    await Promise.all([
-      fetchData(`cartoon/scenes/${a.id}/`, "PATCH", { order: b.order }, true),
-      fetchData(`cartoon/scenes/${b.id}/`, "PATCH", { order: a.order }, true),
-    ]);
-    markBusy(scene.id, false);
-    await refresh(project.id);
-  };
-
-  /** Переснять сцену. Готовую — только после подтверждения с ценой: это
-   *  ~160 кредитов, а кнопку легко задеть случайно. */
-  const retryScene = async (scene: StudioScene) => {
-    if (!project) return;
-    // Цена на кнопке (у готовой — и в вопросе): с ней и уходит запрос.
-    const credits = scene.render_credits ?? scene.preset.credits;
-    if (scene.status === "ready") {
-      // Цены нет (себестоимость модели неизвестна) — «спишется 0 кр.» было бы
-      // неправдой: спрашиваем без суммы, сервер сам откажет и ничего не спишет.
-      // Пересъёмка идёт с нынешними настройками дока — их и называем рядом с ценой.
-      const question = credits != null && scene.config
-        ? dt("studio_ui.reshoot_confirm_cfg", { credits, config: cfgText(scene.config) })
-        : credits != null
-        ? t("studio_ui.reshoot_confirm", {
-            defaultValue: "Переснять сцену заново? Спишется {{credits}} кр., нынешний ролик заменится новым.",
-            credits,
-          })
-        : t("studio_ui.reshoot_confirm_no_price", {
-            defaultValue: "Переснять сцену заново? Нынешний ролик заменится новым.",
-          });
-      if (!window.confirm(question)) return;
-    }
-    noteScene(scene.id, null);
-    markBusy(scene.id, true);
-    // С состоянием строки: у «ошибки» не спрашиваем, и если сцену с тех пор пересняли
-    // (другая вкладка, бот), сервер готовый ролик не заменит.
-    const res = await fetchData<StudioScene>(
-      `cartoon/scenes/${scene.id}/`, "PATCH", retryBody(credits, scene.status), true
-    );
-    if (!res.ok) {
-      // Как у «Снять»: не хватает кредитов — окно покупки, а не тишина;
-      // цена выросла — новая цена у строки, ничего не снято.
-      const d = res.data as ApiRefusal;
-      const changed = priceChanged(res.status, d);
-      if (changed) noteScene(scene.id, priceChangedText(changed, d, true), "error", changed.credits);
-      else if (alreadyShot(res.status, d)) noteScene(scene.id, dt("studio_ui.scene_already_shot"), "info");
-      else if (d?.required) openPaywall({ required: Number(d.required), balance: Number(d.balance ?? 0) });
-      else noteScene(scene.id, refusalMessage(d, "studio_ui.scene_save_failed", true));
-    }
-    // Строка свободна, только когда показывает новое состояние: иначе на один запрос
-    // она жила бы с прежними ценой и кнопками.
-    await refresh(project.id);
-    markBusy(scene.id, false);
-  };
-
-  /**
-   * Док поменяли: у мультфильма — на сервере, без мультфильма — в черновике.
-   * field — что человек тронул: у мультфильма без своих настроек уходит только оно
-   * (dockPatch), и длительности сцен из библиотеки не становятся одной молча.
-   */
-  const applyDock = async (next: DockSettings, notes: DockNotice[], field: DockField) => {
-    if (sameDock(next, dockShown) && !notes.length) return;
-    setDockError("");
-    if (local) {
-      // Свои длительности сцен черновика — под новую модель, как сервер делает у мультфильма.
-      const durations = findModel(modelList, next.video_model)?.caps.durations || [];
-      setNotices([...notes, ...clampSceneDurations(draft?.scenes ?? [], durations).notices]);
-      updateDraft((d) => ({ ...d, ...next, scenes: clampSceneDurations(d.scenes, durations).scenes }));
-      return;
-    }
-    if (!project) return;
-    const id = project.id;
-    const seq = ++dockSeq.current;
-    setNotices(notes);
-    setDockPending({ projectId: id, settings: next });
-    const res = await patchProject(id, dockPatch(project, next, field));
-    // Ответы идут по очереди, каждый — состояние сервера после своей правки: берём
-    // каждый, а «едет на сервер» снимаем с последним.
-    if (seq === dockSeq.current) setDockPending(null);
-    const current = currentIdRef.current === id;
-    if (res.ok && res.data) {
-      const fresh = res.data;
-      if (current) {
-        showProject(fresh);
-        // У строк новые цены: «Цена изменилась: теперь N кр» с прежним N уходит.
-        settleNotes(fresh, true);
-      }
-      setProjects((prev) => prev.map((x) => (x.id === fresh.id ? fresh : x)));
-      // Свои длительности сцен, которых новая модель не умеет, сервер подогнал сам.
-      const more = serverNotices(fresh);
-      if (current && more.length) setNotices((prev) => [...prev, ...more]);
-      return;
-    }
-    if (!current) return;
-    // Не сохранилось: сообщения «подогнали значение» больше не о чём.
-    setNotices([]);
-    setDockError(refusalMessage(res.data, "studio_ui.dock_save_failed"));
-    // Состояние сервера — через ту же очередь, после всех правок.
-    void enqueuePatch(() => refresh(id));
-  };
-
-  const pickDockModel = (id: string) => {
-    if (!modelList) return;
-    const change = switchModel(modelList, dockShown, id);
-    if (change) void applyDock(change.settings, change.notices, "video_model");
-  };
-
-  const pickDockResolution = (value: string) => {
-    const next = modelList && dockShown ? withResolution(modelList, dockShown, value) : null;
-    if (next) void applyDock(next, [], "resolution");
-  };
-
-  const pickDockDuration = (value: number) => {
-    const next = modelList && dockShown ? withDuration(modelList, dockShown, value) : null;
-    if (next) void applyDock(next, [], "duration");
-  };
-
-  /**
-   * Снятая сцена, другая длительность. Сохраняем длительность и берём у
-   * сервера цену новой съёмки (ровно ту, что спишет «Снять»), спрашиваем —
-   * и снимаем. Отказался или не хватило кредитов — возвращаем как было:
-   * длительность не должна расходиться с уже снятым роликом.
-   */
-  const reshootWithDuration = async (scene: StudioScene, value: number | null) => {
-    if (!project) return;
-    const id = scene.id;
-    const before = scene.duration ?? null;
-    // Длина ролика — по съёмке (у снятых до дока сервер отдаёт её по пресету).
-    const was = scene.shot?.duration ?? scene.config?.duration ?? scene.preset.duration ?? null;
-    const patch = (body: Record<string, unknown>) =>
-      fetchData<StudioScene>(`cartoon/scenes/${id}/`, "PATCH", body, true);
-    const finish = async (text: string | null = null, tone: SceneNote["tone"] = "error", price?: number | null) => {
-      await refresh(project.id);
-      markBusy(id, false);
-      if (text) noteScene(id, text, tone, price);
-    };
-    noteScene(id, null);
-    markBusy(id, true);
-    const res = await patch({ duration: value });
-    if (!res.ok || !res.data) {
-      await finish(refusalMessage(res.data, "studio_ui.scene_save_failed"));
-      return;
-    }
-    const next = res.data.config?.duration ?? value;
-    // Ролик уже такой длины — снимать нечего, длительность просто сохранилась.
-    if (next === was) {
-      await finish();
-      return;
-    }
-    const credits = res.data.render_credits;
-    if (credits == null) {
-      // Цены нет — съёмку сервер всё равно не примет.
-      await patch({ duration: before });
-      await finish(t("studio_ui.price_unavailable", { defaultValue: "Цена сейчас недоступна" }));
-      return;
-    }
-    // Переснимется нынешними моделью и качеством дока и в нынешнем формате: отличаются
-    // от прошлой съёмки — вопрос называет их, а не только секунды и цену.
-    const question = reshootDurationQuestion({
-      shot: scene.shot ?? null, next: res.data.config ?? null, from: was ?? "?", to: next ?? "?", credits,
-    });
-    if (!window.confirm(dt(question.key, question.params))) {
-      await patch({ duration: before });
-      await finish();
-      return;
-    }
-    // Снимаем ровно за то, что человек подтвердил: выросла цена — сервер откажет.
-    const shot = await patch(retryBody(credits, scene.status));
-    if (!shot.ok) {
-      await patch({ duration: before });
-      // Как у «Снять»: не хватает кредитов — окно покупки, а не тишина.
-      const d = shot.data as ApiRefusal;
-      const changed = priceChanged(shot.status, d);
-      if (d?.required && !changed && !alreadyShot(shot.status, d)) {
-        openPaywall({ required: Number(d.required), balance: Number(d.balance ?? 0) });
-        await finish();
-        return;
-      }
-      if (changed) {
-        // Цена — за новую длительность, а строка вернулась к прежней: числа на кнопке
-        // такого нет (price null), сообщение снимет правка дока или следующее действие.
-        await finish(priceChangedText(changed, d, true), "error", null);
-      } else if (alreadyShot(shot.status, d)) {
-        // Как у «Снять» и ↻: сцену сняли в другой вкладке — подсказка, а не ошибка.
-        await finish(dt("studio_ui.scene_already_shot"), "info");
-      } else {
-        await finish(refusalMessage(d, "studio_ui.scene_save_failed", true));
-      }
-      return;
-    }
-    await finish();
-  };
-
-  /**
-   * Своя длительность сцены (null — как у мультфильма). У снятой сцены это
-   * новая платная съёмка: сперва сервер называет её цену, потом спрашиваем.
-   */
-  const setSceneDuration = async (scene: StudioScene, value: number | null) => {
-    if (!authed || !project) {
-      updateDraft((d) => ({
-        ...d,
-        scenes: d.scenes.map((s, i) => (i === guestIndex(scene) ? withSceneDuration(s, value) : s)),
-      }));
-      return;
-    }
-    if (value === (scene.duration ?? null)) return;
-    if (scene.status === "ready") {
-      await reshootWithDuration(scene, value);
-      return;
-    }
-    noteScene(scene.id, null);
-    markBusy(scene.id, true);
-    const res = await fetchData<StudioScene>(`cartoon/scenes/${scene.id}/`, "PATCH", { duration: value }, true);
-    // Строка свободна только с новыми длительностью и ценой: иначе на один запрос
-    // «Снять» жалось бы по прежней цене (ревью R1 W2).
-    await refresh(project.id);
-    markBusy(scene.id, false);
-    if (!res.ok) noteScene(scene.id, refusalMessage(res.data, "studio_ui.scene_save_failed"));
-  };
-
-  const deleteScene = async (scene: StudioScene) => {
-    if (!project) return;
-    noteScene(scene.id, null);
-    markBusy(scene.id, true);
-    const res = await fetchData(`cartoon/scenes/${scene.id}/`, "DELETE", null, true);
-    markBusy(scene.id, false);
-    if (!res.ok) noteScene(scene.id, refusalMessage(res.data, "studio_ui.scene_save_failed"));
-    await refresh(project.id);
-  };
-
-  /** ИИ пишет реплики на все сцены — бесплатно, только чтобы показать цену. */
-  const planVoiceAll = async () => {
-    if (!project) return;
-    setPlanning(true);
-    setError("");
-    const res = await fetchData<VoicePlan>(
-      `cartoon/projects/${project.id}/voice-plan/`, "POST",
-      { lang: apiLang(i18n.language) }, true
-    );
-    setPlanning(false);
-    if (res.ok && res.data) {
-      setVoicePlan(res.data);
-      return;
-    }
-    const d = res.data as any;
-    if (d?.required) openPaywall({ required: Number(d.required), balance: Number(d.balance ?? 0), kind: "audio" });
-    else setError(d?.detail || t("studio_ui.voiceall_err"));
-  };
-
-  const assemble = async () => {
-    if (!project || project.status === "assembling") return;
-    // В мультфильм идут только снятые сцены — остальные молча пропали бы.
-    const left = project.scenes.filter((s) => s.status !== "ready").length;
-    if (left > 0 && !window.confirm(t("studio_ui.assemble_skip_confirm", {
-      defaultValue: "Не снятые сцены не войдут в мультфильм: {{n}} шт. Собрать из готовых?",
-      n: left,
-    }))) return;
-    setAssembling(true);
-    setError("");
-    const res = await fetchData<Project>(
-      `cartoon/projects/${project.id}/assemble/`, "POST", {}, true
-    );
-    setAssembling(false);
-    // Сервер сразу отвечает «собирается» — по нему включаются крутилка и опрос.
-    if (res.ok && res.data) {
-      if (currentIdRef.current === res.data.id) showProject(res.data);
-    } else setError((res.data as any)?.detail || t("studio_ui.err_assemble"));
-  };
-
-  /** Начать новый мультфильм: проект обнуляется, герой остаётся выбранным —
-   *  чаще всего следующую историю снимают тем же персонажем. Старый проект
-   *  никуда не девается, к нему можно вернуться списком ниже. */
-  const startNewMovie = () => {
-    setShare(null);
-    showProject(null);
-    setShortfall(null);
-    setError("");
-    setNotices([]);
-    setDockError("");
-    setSceneNotes({});
-    setBusyIds(new Set());
-  };
-
-  const openProject = async (id: number) => {
-    setShare(null);
-    setShortfall(null);
-    setError("");
-    setNotices([]);
-    setDockError("");
-    setSceneNotes({});
-    const known = projects.find((x) => x.id === id);
-    if (known) showProject(known);
-    const fresh = await refresh(id, true);
-    if (fresh?.character) setCharacter(fresh.character);
-  };
-
-  // Пустые черновики в список не берём: проект создаётся при первой сцене, и
-  // брошенная попытка не должна засорять переключатель. Исключение — тот, что
-  // открыт сейчас: человек удалил из него последнюю сцену, и мультфильм не
-  // должен пропасть с экрана вместе с ней (жалоба клиента: «удалил сцену —
-  // исчезли оба»).
-  const myMovies = projects.filter((m) => m.scenes.length > 0 || m.id === project?.id);
-
-  /** Ссылка на публичную страницу мультфильма.
-   *
-   *  Делимся именно ей, а не файлом: страница несёт og:video (мессенджеры
-   *  играют ролик прямо в переписке) и призыв «Создайте свой мультфильм» с
-   *  переходом в студию. Отправленный mp4 не сказал бы про EsAI ничего.
-   */
-  const resultVideo = project?.result_video || "";
-  const shareUrl = share && share.video === resultVideo ? share.url : "";
-  const makeShareLink = useCallback(async () => {
-    if (!resultVideo || shareUrl || sharing) return;
-    setSharing(true);
-    const res = await fetchData<{ share_url: string }>(
-      "ai/video/share/", "POST", { url: resultVideo }, true
-    );
-    setSharing(false);
-    if (res.ok && res.data?.share_url) setShare({ video: resultVideo, url: res.data.share_url });
-  }, [resultVideo, shareUrl, sharing]);
-
-  // Готовый ролик появляется после склейки — ссылку готовим сразу, чтобы
-  // кнопки соцсетей не заставляли ждать ещё один запрос.
-  useEffect(() => {
-    if (resultVideo) void makeShareLink();
-  }, [resultVideo, makeShareLink]);
-
-  // Лента гостя в том же виде, что и сцены проекта: так её рисует та же
-  // SceneTimeline, и гость видит ровно то, что увидит после входа.
-  const presetById = new Map(presets.map((p) => [p.id, p]));
-  // Кадр своей сцены стоит как примерка первой сцены библиотеки. Витрины нет —
-  // цены тоже нет: «4 кр» по памяти разошлось бы с ценой в админке.
-  const frameCredits = presets[0]?.tryon_credits;
-  const charById = new Map(characters.map((c) => [c.id, c]));
-
-  /** Цена и длительность карточки: посчитанные сервером под нынешние настройки,
-   *  а пока витрина пересчитывается — подсказка из таблицы модели. */
-  const cardPrice = (p: Preset): { credits: number | null; duration: number } => {
-    if (!cardsFresh) {
-      const est = cardEstimate(estimateModel, estimateDock, aspect, p.tryon_credits, models?.frame_credits);
-      if (est) return est;
-    }
-    return { credits: p.credits, duration: p.duration };
-  };
-
-  const guestScenes: StudioScene[] =
-    !authed && draft
-      ? draft.scenes.map((s, i) => {
-          const custom = Boolean(s.custom_text);
-          const p = custom ? undefined : presetById.get(s.preset_id);
-          const heroId = s.character_id ?? draft.character_id ?? character?.id ?? null;
-          const hero = heroId ? charById.get(heroId) : undefined;
-          const keyframe = custom ? "" : (heroId && framesByChar[heroId]?.[s.preset_id]) || "";
-          const card = p ? cardPrice(p) : null;
-          const own = s.duration ?? null;
-          // Длительность: своя, иначе дока, иначе — сцены библиотеки (настроек нет).
-          const duration = own ?? (localExplicit ? localExplicit.duration : card?.duration ?? dockShown?.duration ?? null);
-          // Цена — та, что спишет «Снять» после входа: строка равна карточке, своя
-          // длительность и своя сцена — по таблице модели, с кадром из запаса — только видео.
-          const price = guestRowPrice({
-            model: dockModel,
-            resolution: dockShown?.resolution,
-            duration,
-            aspect,
-            custom,
-            ownDuration: own != null,
-            keyframe: Boolean(keyframe),
-            cardCredits: card ? card.credits : undefined,
-            frameCredits: p?.tryon_credits,
-            frameFallback: models?.frame_credits,
-          });
-          // Цены нет по ответу сервера — «Снять» выключено. Цена просто ещё не
-          // известна (модели не загрузились) — гостя ко входу всё равно пускаем.
-          const unavailable = Boolean(dockModel?.price_unavailable) || (!custom && card?.credits === null);
-          return {
-            id: -(i + 1),
-            order: i,
-            custom_text: s.custom_text || "",
-            dialogue: s.dialogue || "",
-            preset: {
-              id: s.preset_id,
-              title: custom ? (s.custom_text || "").slice(0, 60) : p?.title || "…",
-              credits: price.full ?? (unavailable ? null : undefined),
-              duration: duration ?? undefined,
-              poster: custom ? "" : p?.preview_poster,
-              clip: custom ? "" : p?.preview_video,
-            },
-            character: hero ? { id: hero.id, name: hero.name, image: hero.image } : null,
-            keyframe,
-            preview_video: custom ? "" : (heroId && videosByChar[heroId]?.[s.preset_id]) || "",
-            video: "",
-            status: "draft",
-            error: "",
-            credits_spent: 0,
-            render_credits: price.render ?? (unavailable ? null : undefined),
-            duration: own,
-            config: dockShown
-              ? {
-                  video_model: dockShown.video_model,
-                  model_name: dockModel ? modelLabel(dockModel) : "",
-                  resolution: dockShown.resolution,
-                  duration: duration ?? dockShown.duration,
-                  aspect_ratio: aspect,
-                }
-              : null,
-          };
-        })
-      : [];
-
-  const scenes = !authed
-    ? guestScenes
-    : project
-    ? [...project.scenes]
-        .sort((a, b) => a.order - b.order)
-        // Героя сцены сменили — ролик новой пары известен сразу, не дожидаясь
-        // ответа сервера: превью переключается мгновенно (просьба клиента).
-        .map((s) =>
-          s.video || s.preview_video || !s.character || s.custom_text
-            ? s
-            : {
-                ...s,
-                preview_video: videosByChar[s.character.id]?.[s.preset.id] || "",
-                // Примерили из ленты — кадр уже есть в запасе, показываем сразу,
-                // не дожидаясь, пока сервер подставит его в сцену при съёмке.
-                keyframe: s.keyframe || framesByChar[s.character.id]?.[s.preset.id] || "",
-              }
-        )
-    : [];
-
-  // Герои этого мультфильма: все, кого человек уже поставил в сцены. Их
-  // держим под рукой — в следующую сцену чаще берут кого-то из уже занятых.
-  const cast: StudioCharacter[] = [];
-  {
-    const seen = new Set<number>();
-    const push = (id: number | null | undefined) => {
-      if (!id || seen.has(id)) return;
-      const c = charById.get(id);
-      if (c) {
-        seen.add(id);
-        cast.push(c);
-      }
-    };
-    for (const s of scenes) push(s.character?.id);
-  }
-  const castIds = new Set(cast.map((c) => c.id));
-  const timelineCharacters = [...cast, ...visibleCharacters.filter((c) => !castIds.has(c.id))];
-  const readyCount = scenes.filter((s) => s.status === "ready").length;
-  const drafts = scenes.filter((s) => s.status === "draft").length;
-  const working = scenes.some((s) => WORKING.includes(s.status));
-  // Озвучка всего мультфильма прямо сейчас: кнопка ждёт, лента опрашивается.
-  const voicingNow = Boolean(project?.voicing && !project.voicing.finished);
-  // «Итого»: сумма цен строк, которые ещё снимать.
-  const total = timelineTotal(scenes);
-  // Модель мультфильма выключили в админке — сцены снимутся моделью библиотеки.
-  const modelOff = !local && Boolean(project?.video_model) && effective?.model_available === false;
-
-  /** Длительность в карточке ленты: что умеет модель сцены и сколько «по умолчанию». */
-  const durationFor = (s: StudioScene): SceneDurationChoice | null => {
-    const all = findModel(modelList, s.config?.video_model ?? dockShown?.video_model)?.caps.durations || [];
-    if (all.length < 2) return null;
-    // «По умолчанию» у сцены со своей длительностью: длительность мультфильма,
-    // иначе — её сцены из библиотеки.
-    const base = local ? localExplicit?.duration : pending?.duration ?? project?.duration;
-    const card = s.custom_text ? undefined : presetById.get(s.preset.id);
-    const fallback = base ? clampDuration(all, base) : card ? cardPrice(card).duration : dockShown?.duration ?? null;
-    return { options: durationChoices(all, s.duration), fallback };
-  };
-
-  if (loading) {
-    return (
-      <div className="mx-auto max-w-5xl space-y-4 px-4 pt-24 sm:pt-28 pb-16">
-        <div className="h-8 w-64 animate-pulse rounded-lg bg-surface-2" />
-        <div className="h-40 animate-pulse rounded-2xl bg-surface-2" />
-        <div className="h-64 animate-pulse rounded-2xl bg-surface-2" />
-      </div>
-    );
-  }
 
   return (
-    // pt-24/28 — как на /models: шапка сайта fixed, и без отступа заголовок
-    // оказывался ПОД меню (жалоба клиента: «2 текста в одном месте»).
-    <main className="mx-auto max-w-5xl px-4 pt-24 sm:pt-28 pb-16">
-      <header className="mb-6">
-        <h1 className="text-2xl font-bold text-foreground sm:text-3xl">{t("studio_ui.title")}</h1>
-        <p className="mt-1 text-sm text-muted">
-          {t("studio_ui.subtitle")}
-        </p>
-        {/* Студия собирает ролик из готовых сцен. Кому нужен свой сюжет по
-            описанию — тому в видеостудию, а отсюда о ней было не узнать. */}
-        {VSTUDIO_NAV && (
-          <p className="mt-2 text-sm text-muted">
-            {t("studio_ui.vstudio_hint", { defaultValue: "Нужно видео не из готовых сцен?" })}{" "}
-            <Link
-              href="/video-studio"
-              className="font-semibold text-accent-strong underline-offset-4 hover:underline"
-            >
-              {t("studio_ui.vstudio_link", { defaultValue: "Откройте видеостудию" })}
-              <span aria-hidden> →</span>
-            </Link>
-          </p>
-        )}
-      </header>
-
-      {/* Формат будущего ролика (клиент: выбирать заранее и одинаковый на всю
-          серию, иначе сцены не склеятся ровно) — теперь в доке внизу, рядом с
-          моделью, качеством и длительностью. */}
-
-      {/* Для кого снимаем: сужает и библиотеку героев, и разделы сцен. */}
-      {presets.some((p) => p.audience === "adults") && (
-        <div className="mb-6 inline-flex rounded-full border border-border bg-surface p-1">
-          {([
-            ["all", t("studio_ui.aud_all")],
-            ["kids", t("studio_ui.aud_kids")],
-            ["adults", t("studio_ui.aud_adults")],
-          ] as const).map(([key, label]) => (
-            <button
-              key={key}
-              type="button"
-              onClick={() => pickAudience(key)}
-              className={`rounded-full px-4 py-1.5 text-sm font-medium transition-colors cursor-pointer ${
-                audience === key
-                  ? "bg-accent text-on-accent"
-                  : "text-muted hover:text-foreground"
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {error && (
-        <div role="alert" className="mb-4 rounded-xl border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-400">
-          {error}
-        </div>
-      )}
-
-      <StudioPaywallDialog
-        open={Boolean(shortfall)}
-        required={shortfall?.required ?? 0}
-        balance={shortfall?.balance ?? 0}
-        kind={shortfall?.kind ?? "scene"}
-        onClose={() => setShortfall(null)}
-      />
-      <StudioAuthDialog
-        open={Boolean(authFor)}
-        reason={authFor ?? "render"}
-        onClose={() => setAuthFor(null)}
-      />
-      <SceneAudioDialog
-        scene={audioScene}
-        config={audioConfig}
-        characters={timelineCharacters.map((c) => ({ id: c.id, name: c.name }))}
-        onClose={() => setAudioScene(null)}
-        onChanged={() => {
-          void loadBalance();
-          if (project) void refresh(project.id);
-        }}
-        onNeedCredits={(required, bal) => openPaywall({ required, balance: bal, kind: "audio" })}
-      />
-      <VoiceAllDialog
-        open={Boolean(voicePlan)}
-        plan={voicePlan}
-        config={audioConfig}
-        projectId={project?.id ?? null}
-        onClose={() => setVoicePlan(null)}
-        onStarted={() => {
-          if (project) void refresh(project.id);
-        }}
-        onNeedCredits={(required, bal) => openPaywall({ required, balance: bal, kind: "audio" })}
-      />
-
-      {/* Свои мультфильмы. Показываем, только когда есть куда переключаться:
-          иначе строка занимала бы место у того, кто снимает первый ролик. */}
-      {myMovies.some((m) => m.id !== project?.id) && (
-        <div className="mb-6">
-          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-2">
-            {t("studio_ui.my_movies")}
-          </div>
-          <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:mx-0 sm:flex-wrap sm:px-0">
-            {myMovies.map((m) => {
-              const active = project?.id === m.id;
-              return (
-                <button
-                  key={m.id}
-                  type="button"
-                  onClick={() => void openProject(m.id)}
-                  className={`shrink-0 rounded-xl border px-3 py-2 text-left text-xs transition-colors cursor-pointer ${
-                    active
-                      ? "border-accent bg-accent/10 text-foreground"
-                      : "border-border bg-surface text-muted hover:text-foreground"
-                  }`}
-                >
-                  <span className="block font-semibold">
-                    {m.title || t("studio_ui.movie_fallback", { id: m.id })}
-                  </span>
-                  <span className="mt-0.5 block text-muted-2">
-                    {t("studio_ui.movie_scenes", { count: m.scenes.length })}
-                    {m.result_video ? ` · ${t("studio_ui.movie_ready")}` : ""}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      <div ref={heroRef} className="scroll-mt-28">
-        {needHero && !character && (
-          <div className="mb-3 rounded-xl border border-accent/40 bg-accent/5 p-3 text-sm text-foreground">
-            {t("studio_ui.need_hero")}
-          </div>
-        )}
-        <CharacterPicker
-          authed={authed}
-          onNeedAuth={() => openAuth("character")}
-          onNeedCredits={(required, bal) => openPaywall({ required, balance: bal, kind: "character" })}
-          characters={visibleCharacters}
-          value={character}
-          onPick={pickHero}
-          onCreated={(c) => setCharacters((prev) => [c, ...prev])}
-          onDeleted={(id) => {
-            setCharacters((prev) => prev.filter((c) => c.id !== id));
-            if (character?.id === id) setCharacter(null);
-          }}
-          balance={balance}
+    <VStudioShell
+      breakpoint={breakpoint}
+      // Лента во всю ширину колонки: поля и ширину секции задают себе сами (VS_SECTION).
+      home
+      rail={(v) => (
+        <MoviesRail
+          variant={v}
+          host={variant}
+          loading={s.loading}
+          authed={s.authed}
+          movies={movies}
+          currentId={s.project?.id ?? null}
+          balance={s.balance}
+          balanceFailed={s.balanceFailed}
+          onOpen={openMovie}
+          onNew={newMovie}
+          onRename={(value) => void actions.renameMovie(value)}
+          onHeroes={toHeroes}
+          onExpand={() => setRailOpen(true)}
+          onNavigate={() => setRailOpen(false)}
         />
-      </div>
-
-      {/* Сцены показываем сразу, не дожидаясь выбора героя: клиент попросил,
-          чтобы витрину было видно с порога — ради неё в студию и заходят. */}
-      {true && (
-        <>
-          <section className="mt-8 flex flex-col gap-4">
-            <div>
-              <h2 className="text-lg font-bold text-foreground">{t("studio_ui.step2")}</h2>
-              <p className="mt-0.5 text-sm text-muted">
-                {t("studio_ui.step2_note")}
-              </p>
-            </div>
-
-            {/* Своя сцена: второй путь рядом с библиотекой — описать словами, что
-                делает герой. Сцена встаёт в ленту черновиком; студия сама
-                превратит описание в сцену при съёмке, с тем же героем. */}
-            <div className="rounded-2xl border border-border bg-surface-2/60 p-4">
-              <div className="flex items-center gap-2 text-base font-bold text-foreground">
-                <span aria-hidden>✍️</span>
-                {t("studio_ui.custom_title")}
-              </div>
-              <p className="mt-1 text-sm text-muted">{t("studio_ui.custom_note")}</p>
-              <div className="mt-3 flex flex-col gap-2">
-                <textarea
-                  value={customText}
-                  onChange={(e) => setCustomText(e.target.value.slice(0, 300))}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey && adding === null) {
-                      e.preventDefault();
-                      void addCustomScene();
-                    }
-                  }}
-                  rows={3}
-                  placeholder={t("studio_ui.custom_placeholder")}
-                  className="w-full resize-none rounded-xl border-2 border-border bg-surface px-4 py-3 text-base text-foreground shadow-inner outline-none transition-colors placeholder:text-muted focus:border-accent"
-                />
-                <button
-                  type="button"
-                  onClick={() => void addCustomScene()}
-                  disabled={adding !== null || customText.trim().length < 3}
-                  className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-accent px-5 py-3 text-base font-bold text-on-accent transition-colors hover:bg-accent-strong disabled:opacity-50 cursor-pointer"
-                >
-                  {adding === -1 ? <FiLoader className="animate-spin" /> : <FiPlus />}
-                  {t("studio_ui.custom_btn")}
-                </button>
-              </div>
-              <p className="mt-2 text-xs text-muted-2">
-                {character
-                  ? t("studio_ui.custom_hero", { name: character.name })
-                  : t("studio_ui.custom_pick_hero")}
-              </p>
-            </div>
-
-            {/* Герои этого мультфильма — под рукой прямо над сценами: следующую
-                сцену чаще снимают кем-то из уже занятых, и искать его в
-                библиотеке заново не нужно. Сцены показываются с выбранным. */}
-            {cast.length > 0 && (
-              <div className="-mx-4 flex items-center gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:mx-0 sm:flex-wrap sm:px-0">
-                <span className="shrink-0 text-xs font-semibold uppercase tracking-wide text-muted-2">
-                  {t("studio_ui.cast_title")}
-                </span>
-                {cast.map((c) => {
-                  const active = character?.id === c.id;
-                  return (
-                    <button
-                      key={c.id}
-                      type="button"
-                      onClick={() => pickHero(c)}
-                      aria-pressed={active}
-                      className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border py-1 pl-1 pr-2.5 text-xs transition-colors cursor-pointer ${
-                        active
-                          ? "border-accent bg-accent/10 text-foreground"
-                          : "border-border bg-surface text-muted hover:text-foreground"
-                      }`}
-                    >
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={c.image} alt="" loading="lazy" className="size-6 rounded-full object-cover" />
-                      {c.name}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-
-            {/* Разделы: сцен три десятка, и одной простынёй они не читаются —
-                человек ищет не «сцену вообще», а начало, погоню или финал. */}
-            {visibleCategories.length > 1 && (
-              <div className="-mx-4 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden sm:mx-0 sm:flex-wrap sm:px-0">
-                {[
-                  { slug: "", title: t("studio_ui.cat_all"), emoji: "🎞" },
-                  ...(popularPresets.length ? [{ slug: "__popular", title: t("studio_ui.cat_popular"), emoji: "🔥" }] : []),
-                  ...(picks.length ? [{ slug: "__pick", title: t("studio_ui.cat_pick"), emoji: "⭐" }] : []),
-                  ...visibleCategories,
-                ].map((c) => (
-                  <button
-                    key={c.slug || "all"}
-                    type="button"
-                    onClick={() => {
-                      setVisibleIds(new Set());
-                      setShown(PAGE_SIZE);
-                      setActiveCat(c.slug);
-                    }}
-                    className={`shrink-0 rounded-full border px-3 py-1.5 text-[13px] font-medium transition-colors cursor-pointer ${
-                      activeCat === c.slug
-                        ? "border-accent bg-accent text-on-accent"
-                        : "border-border bg-surface text-muted hover:text-foreground"
-                    }`}
-                  >
-                    {c.emoji && <span className="mr-1">{c.emoji}</span>}
-                    {c.title}
-                  </button>
-                ))}
-              </div>
-            )}
-
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-              {visiblePresets.map((p) => {
-                const playing = playingIds.has(p.id) || previewing === p.id;
-                const card = cardPrice(p);
-                return (
-                <div
-                  key={p.id}
-                  className="flex flex-col overflow-hidden rounded-2xl border border-border bg-surface"
-                >
-                  {/* Ролик заводится, когда карточка попала на экран, и
-                      останавливается, когда ушла: сотня одновременно играющих
-                      видео не по силам ни трафику, ни памяти телефона.
-                      Пока ролика нет, стоит лёгкая картинка — она же остаётся
-                      единственным содержимым, если автозапуск выключен. */}
-                  <div
-                    ref={watchCard}
-                    data-preset-id={p.id}
-                    className="relative aspect-video cursor-pointer bg-surface-2"
-                    onClick={() => setPreviewing((cur) => (cur === p.id ? null : p.id))}
-                  >
-                    {character && heroVideos[p.id] ? (
-                      <>
-                        {/* Эту пару уже снимали: показываем настоящий ролик
-                            сцены с выбранным героем — сразу и бесплатно. Играет,
-                            пока карточка на экране, как и обычные превью. */}
-                        {playing ? (
-                          <video
-                            src={heroVideos[p.id]}
-                            poster={tryOn[p.id] || p.preview_poster || undefined}
-                            autoPlay
-                            muted
-                            loop
-                            playsInline
-                            preload="auto"
-                            className="h-full w-full object-cover"
-                          />
-                        ) : (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img
-                            src={tryOn[p.id] || p.preview_poster}
-                            alt=""
-                            loading="lazy"
-                            decoding="async"
-                            className="h-full w-full object-cover"
-                          />
-                        )}
-                        <span className="pointer-events-none absolute left-2 top-2 rounded-full bg-black/55 px-2 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">
-                          {t("studio_ui.with_hero")}
-                        </span>
-                      </>
-                    ) : tryOn[p.id] ? (
-                      <>
-                        {/* Ролика пары ещё нет, но кадр с героем готов: он
-                            медленно движется камерой, чтобы сцена не выглядела
-                            застывшей, и честно подписан «кадр». */}
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={tryOn[p.id]}
-                          alt=""
-                          loading="lazy"
-                          decoding="async"
-                          className={`h-full w-full object-cover ${autoplay ? "studio-live" : ""}`}
-                        />
-                        <span className="pointer-events-none absolute left-2 top-2 rounded-full bg-black/55 px-2 py-0.5 text-[10px] font-medium text-white backdrop-blur-sm">
-                          {t("studio_ui.hero_frame")}
-                        </span>
-                      </>
-                    ) : playing && p.preview_video ? (
-                      <video
-                        src={p.preview_video}
-                        poster={p.preview_poster || undefined}
-                        autoPlay
-                        muted
-                        loop
-                        playsInline
-                        preload="auto"
-                        className="h-full w-full object-cover"
-                      />
-                    ) : p.preview_poster ? (
-                      <>
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img
-                          src={p.preview_poster}
-                          alt=""
-                          loading="lazy"
-                          decoding="async"
-                          className="h-full w-full object-cover"
-                        />
-                        {p.preview_video && !autoplay && (
-                          <span className="pointer-events-none absolute inset-0 grid place-items-center">
-                            <span className="grid size-10 place-items-center rounded-full bg-black/45 text-white backdrop-blur-sm">
-                              <FiPlay className="ml-0.5" />
-                            </span>
-                          </span>
-                        )}
-                      </>
-                    ) : (
-                      <span className="grid h-full w-full place-items-center text-muted-2">
-                        <FiFilm className="text-2xl" />
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex flex-1 flex-col gap-1 p-2.5">
-                    <span className="text-sm font-semibold text-foreground">{p.title}</span>
-                    {p.subtitle && (
-                      <span className="text-[11px] leading-snug text-muted-2">{p.subtitle}</span>
-                    )}
-                    {/* Низ карточки — столбиком: на телефоне цена, примерка и
-                        «В ленту» в одну строку не помещались, и главная кнопка
-                        уезжала за край, оставляя один «+» (жалоба клиента). */}
-                    <div className="mt-auto flex flex-col gap-1.5 pt-2">
-                      <span className="inline-flex items-center gap-1 text-[11px] text-muted">
-                        <FiZap className="text-accent" />
-                        {card.credits != null
-                          ? t("studio_ui.price", { credits: card.credits, duration: card.duration })
-                          : t("studio_ui.price_unavailable", { defaultValue: "Цена сейчас недоступна" })}
-                      </span>
-                      {character && !tryOn[p.id] && (
-                        <button
-                          type="button"
-                          onClick={() => void tryOnScene(p)}
-                          disabled={tryingOn !== null}
-                          title={t("studio_ui.try_on_hint")}
-                          className="inline-flex w-full items-center justify-center gap-1 rounded-lg border border-border px-2 py-1.5 text-[11px] text-muted transition-colors hover:border-accent hover:text-foreground disabled:opacity-60 cursor-pointer"
-                        >
-                          {tryingOn === p.id ? (
-                            <FiLoader className="animate-spin" />
-                          ) : (
-                            <FiUser />
-                          )}
-                          {/* Цена — до нажатия (просьба клиента), гостю тоже:
-                              бесплатной примерки без входа больше нет (11.10.2026). */}
-                          {p.tryon_credits != null
-                            ? t("studio_ui.try_on_price", { credits: p.tryon_credits })
-                            : t("studio_ui.try_on")}
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => void addScene(p)}
-                        disabled={adding !== null}
-                        className="inline-flex w-full items-center justify-center gap-1.5 rounded-xl bg-accent px-3 py-2.5 text-sm font-bold text-on-accent transition-colors hover:bg-accent-strong disabled:opacity-60 cursor-pointer"
-                      >
-                        {adding === p.id ? (
-                          <FiLoader className="animate-spin" />
-                        ) : (
-                          <FiPlus />
-                        )}
-                        {t("studio_ui.add")}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-                );
-              })}
-            </div>
-
-            {restCount > 0 && (
-              <button
-                type="button"
-                onClick={() => setShown((n) => n + PAGE_SIZE)}
-                className="mx-auto inline-flex items-center gap-2 rounded-full border border-border bg-surface px-5 py-2.5 text-sm font-medium text-muted transition-colors hover:border-accent hover:text-foreground cursor-pointer"
-              >
-                {t("studio_ui.show_more")}
-                <span className="text-muted-2">{restCount}</span>
-                <FiChevronDown />
-              </button>
-            )}
-          </section>
-
-          {(character || scenes.length > 0) && (
-          <section ref={timelineRef} className="mt-8 flex flex-col gap-3 scroll-mt-24">
-            <div className="flex flex-wrap items-center gap-2">
-              <h2 className="text-lg font-bold text-foreground">{t("studio_ui.step3")}</h2>
-              {/* Название серии: пишется прямо здесь и сохраняется, когда человек
-                  уходит с поля. Под ним мультфильм потом ищется в «Моих». */}
-              {authed && project && (
-                <input
-                  key={project.id}
-                  defaultValue={project.title}
-                  onBlur={(e) => void renameMovie(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-                  }}
-                  maxLength={140}
-                  aria-label={t("studio_ui.movie_title")}
-                  placeholder={t("studio_ui.movie_title")}
-                  className="min-w-0 flex-1 basis-40 rounded-lg border border-border bg-surface px-3 py-1.5 text-sm text-foreground outline-none placeholder:text-muted focus:border-accent sm:max-w-xs"
-                />
-              )}
-              {authed && project && scenes.length > 0 && (
-                <button
-                  type="button"
-                  onClick={startNewMovie}
-                  className="ml-auto inline-flex items-center gap-1.5 rounded-full border border-border px-3 py-1.5 text-xs font-semibold text-muted transition-colors hover:border-accent hover:text-foreground cursor-pointer"
-                >
-                  <FiPlus />
-                  {t("studio_ui.new_movie")}
-                </button>
-              )}
-              {authed && scenes.length > 0 && (
-                <span className="text-sm text-muted">
-                  {t("studio_ui.progress", { ready: readyCount, total: scenes.length })}
-                  {project && project.credits_spent > 0 &&
-                    t("studio_ui.spent", { count: project.credits_spent })}
-                </span>
-              )}
-            </div>
-
-            <SceneTimeline
-              scenes={scenes}
-              busyIds={busyIds}
-              repricing={repricing}
-              onMove={authed ? moveScene : guestMove}
-              onRetry={authed ? retryScene : () => undefined}
-              onDelete={authed ? deleteScene : guestDelete}
-              onRender={authed ? renderScene : () => guestRender("scene")}
-              characters={timelineCharacters.map((c) => ({
-                id: c.id, name: c.name, image: c.image,
-              }))}
-              onPickCharacter={authed ? setSceneCharacter : guestPickCharacter}
-              onFrame={frameScene}
-              framingId={framingId}
-              frameCredits={frameCredits}
-              onTryOn={tryOnTimelineScene}
-              onRedraw={authed ? redrawFrame : undefined}
-              onDialogue={authed ? setSceneDialogue : guestDialogue}
-              aspect={aspect}
-              onAudio={
-                audioConfig?.enabled
-                  ? authed
-                    ? (s) => setAudioScene(s)
-                    : () => openAuth("render")
-                  : undefined
-              }
-              tryingOnId={tryingOn}
-              tryOnLabel={frameCredits != null ? t("studio_ui.try_on_price", { credits: frameCredits }) : undefined}
-              durationFor={durationFor}
-              onDuration={(s, v) => void setSceneDuration(s, v)}
-              notes={authed ? sceneNotes : undefined}
-              onDismissNote={(s) => noteScene(s.id, null)}
-            />
-
-            {/* «Итого» — сумма строк, которые ещё снимать: то, что спишут их «Снять». */}
-            {total.count > 0 && (
-              <p className="text-sm text-muted tabular-nums">
-                {total.credits != null
-                  ? dt("studio_ui.dock_total_line", { credits: total.credits, count: total.count })
-                  : dt("studio_ui.dock_total_line_unavailable", { count: total.count })}
-              </p>
-            )}
-
-            {/* Гость дособрал ленту: одна понятная кнопка вместо «Собрать» и
-                прогресса съёмки, которых у него ещё нет. */}
-            {!authed && scenes.length > 0 && (
-              <div className="flex flex-col gap-3 rounded-2xl border border-accent/40 bg-accent/5 p-4 sm:flex-row sm:items-center">
-                <div className="flex-1">
-                  <p className="text-sm font-semibold text-foreground">
-                    {t("studio_ui.guest_cta_title", { count: scenes.length })}
-                  </p>
-                  <p className="mt-0.5 text-xs text-muted">{t("studio_ui.guest_cta_note")}</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => guestRender("cta")}
-                  className="inline-flex items-center justify-center gap-2 rounded-full bg-accent px-5 py-2.5 text-sm font-bold text-on-accent transition-colors hover:bg-accent-strong cursor-pointer"
-                >
-                  <FiFilm />
-                  {t("studio_ui.guest_cta_btn")}
-                </button>
-              </div>
-            )}
-            {!authed && scenes.length === 0 && (
-              <span className="text-xs text-muted-2">{t("studio_ui.empty_hint")}</span>
-            )}
-
-            {authed && (
-            <div className="flex flex-wrap items-center gap-3">
-              <button
-                type="button"
-                onClick={() => void assemble()}
-                disabled={!readyCount || assembling || project?.status === "assembling"}
-                className="inline-flex items-center gap-2 rounded-full bg-accent px-5 py-2.5 text-sm font-bold text-on-accent transition-colors hover:bg-accent-strong disabled:opacity-50 cursor-pointer"
-              >
-                {assembling || project?.status === "assembling" ? (
-                  <FiLoader className="animate-spin" />
-                ) : (
-                  <FiFilm />
-                )}
-                {t("studio_ui.assemble")}
-              </button>
-              {/* Клиент: «нажал — и весь мультфильм озвучен». Реплики пишет ИИ,
-                  цену человек видит до запуска, в окне их можно поправить. */}
-              {audioConfig?.enabled && scenes.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => void planVoiceAll()}
-                  disabled={planning || voicingNow}
-                  className="inline-flex items-center gap-2 rounded-full border border-accent px-5 py-2.5 text-sm font-bold text-accent transition-colors hover:bg-accent/10 disabled:opacity-50 cursor-pointer"
-                >
-                  {planning || voicingNow ? <FiLoader className="animate-spin" /> : <FiMic />}
-                  {planning
-                    ? t("studio_ui.voiceall_planning")
-                    : voicingNow
-                    ? t("studio_ui.voiceall_progress", {
-                        done: project!.voicing!.done,
-                        total: project!.voicing!.total,
-                      })
-                    : t("studio_ui.voiceall_cta")}
-                </button>
-              )}
-              {/* Озвучка оборвалась — человек должен понять, почему заговорили
-                  не все сцены. Кредиты за неозвученное не списаны. */}
-              {project?.voicing?.finished && project.voicing.error && (
-                <span className="text-xs text-status-wait">
-                  {t(
-                    project.voicing.error === "not_enough_credits"
-                      ? "studio_ui.voiceall_stopped_credits"
-                      : "studio_ui.voiceall_stopped",
-                    { done: project.voicing.done, total: project.voicing.total }
-                  )}
-                </span>
-              )}
-              {project?.status === "assembling" && (
-                <span className="text-xs text-muted">
-                  {t("studio_ui.assembling_note", {
-                    defaultValue: "Склеиваем мультфильм — это пара минут. Можно не ждать на странице.",
-                  })}
-                </span>
-              )}
-              {working && (
-                <span className="text-xs text-muted">
-                  {t("studio_ui.working_note")}
-                </span>
-              )}
-              {drafts > 0 && (
-                <span className="text-xs text-muted-2">
-                  {t("studio_ui.drafts_hint", { count: drafts })}
-                </span>
-              )}
-              {!readyCount && !working && scenes.length === 0 && (
-                <span className="text-xs text-muted-2">{t("studio_ui.empty_hint")}</span>
-              )}
-            </div>
-            )}
-          </section>
-          )}
-
-          {project?.result_video && (
-            <section className="mt-8 flex flex-col gap-3">
-              <h2 className="text-lg font-bold text-foreground">{t("studio_ui.result")}</h2>
-              <video
-                src={project.result_video}
-                controls
-                playsInline
-                className="w-full rounded-2xl border border-border bg-black"
-              />
-              {/* Не <a download>: на iPhone он не скачивает, а открывает файл
-                  серой заглушкой «Открыть в iMovie» (жалоба клиента). */}
-              <SaveMediaButton
-                url={project.result_video}
-                filename="esai-cartoon.mp4"
-                label={t("studio_ui.download_label")}
-                className="inline-flex w-fit cursor-pointer items-center gap-2 rounded-full border border-accent px-4 py-2 text-sm font-semibold text-accent transition-colors hover:bg-accent-soft"
-              >
-                {t("studio_ui.download")}
-              </SaveMediaButton>
-              <button
-                type="button"
-                onClick={startNewMovie}
-                className="inline-flex w-fit items-center gap-2 rounded-full bg-accent px-4 py-2 text-sm font-semibold text-on-accent transition-colors hover:bg-accent-strong cursor-pointer"
-              >
-                <FiPlus />
-                {t("studio_ui.new_movie")}
-              </button>
-
-              {/* Поделиться. Ссылка ведёт на страницу мультфильма, а не на
-                  файл: там ролик играет прямо в мессенджере и стоит призыв
-                  создать свой — так каждый отправленный мультфильм работает
-                  рекламой студии. */}
-              <div className="mt-2 rounded-2xl border border-border bg-surface-2/50 p-4">
-                <p className="text-sm font-semibold text-foreground">{t("studio_ui.share_title")}</p>
-                <p className="mt-0.5 mb-3 text-xs text-muted-2">{t("studio_ui.share_note")}</p>
-                {shareUrl ? (
-                  <ShareButtons
-                    url={shareUrl}
-                    text={t("studio_ui.share_text")}
-                  />
-                ) : (
-                  <span className="inline-flex items-center gap-2 text-sm text-muted">
-                    <FiLoader className="animate-spin" />
-                    {t("studio_ui.share_preparing")}
-                  </span>
-                )}
-              </div>
-            </section>
-          )}
-
-          {project?.status === "failed" && project.error && (
-            <p className="mt-3 text-sm text-red-400">
-              {t("studio_ui.assemble_failed", {
-                defaultValue: "Склейка не удалась: {{error}}",
-                error: project.error,
-              })}
-            </p>
-          )}
-        </>
       )}
+      railOpen={railOpen}
+      onRailOpenChange={setRailOpen}
+      header={<CartoonHeader {...top} />}
+      topBar={<CartoonTopBar {...top} onMenu={() => setRailOpen(true)} />}
+      banner={s.error ? <ErrorBanner message={s.error} onClose={actions.clearError} /> : null}
+      feed={
+        // pb-6 к отступу оболочки (pb-10): вместе не меньше затухания над доком (56 px),
+        // и кнопки последней карточки не уходят под него.
+        <div className="flex flex-col pb-6">
+          <CartoonIntro host={variant} />
 
-      {/* Док: модель, качество, длительность, формат и «Итого». Прилипает к низу,
-          пока открыта студия; меняет только сцены, которые ещё не снимаются. */}
-      <CartoonDock
-        models={modelList}
-        modelsError={modelsError}
-        onRetryModels={() => setModelsTry((n) => n + 1)}
-        value={{
-          model: dockShown?.video_model ?? null,
-          modelName: effective?.model_name || (dockModel ? modelLabel(dockModel) : ""),
-          resolution: dockShown?.resolution ?? null,
-          duration: dockShown?.duration ?? null,
-          aspect,
-        }}
-        onModel={pickDockModel}
-        onResolution={pickDockResolution}
-        onDuration={pickDockDuration}
-        onAspect={(v) => void setAspect(v)}
-        notices={notices}
-        onDismissNotices={dismissNotices}
-        warning={modelOff ? "studio_ui.dock_model_off" : null}
-        total={total}
-        hasShot={readyCount > 0}
-        frameCredits={models?.frame_credits}
-        saving={!local && project != null && savingProject === project.id}
-        error={dockError || null}
-        onDismissError={() => setDockError("")}
-      />
-    </main>
+          <HeroStrip
+            loading={s.loading}
+            authed={s.authed}
+            heroes={s.heroes.list}
+            cast={s.heroes.cast}
+            selected={s.heroes.selected}
+            needHero={s.heroes.needHero}
+            audience={s.heroes.audience}
+            showAudience={s.heroes.showAudience}
+            balance={s.balance}
+            sectionRef={s.refs.heroes}
+            onAudience={actions.pickAudience}
+            onPick={actions.pickHero}
+            onCreated={actions.heroCreated}
+            onDeleted={actions.heroDeleted}
+            onNeedAuth={() => actions.openAuth("character")}
+            onNeedCredits={(required, bal) => actions.openPaywall({ required, balance: bal, kind: "character" })}
+          />
+
+          {/* Сцены показываем сразу, не дожидаясь выбора героя: клиент попросил,
+              чтобы витрину было видно с порога — ради неё в студию и заходят. */}
+          <SceneLibrary
+            loading={s.loading}
+            authed={s.authed}
+            presets={s.library.presets}
+            restCount={s.library.restCount}
+            categories={s.library.categories}
+            hasPopular={s.library.hasPopular}
+            hasPicks={s.library.hasPicks}
+            activeCat={s.library.activeCat}
+            audience={s.heroes.audience}
+            selected={s.heroes.selected}
+            cast={s.heroes.cast}
+            frames={s.library.frames}
+            heroVideos={s.library.heroVideos}
+            adding={s.library.adding}
+            tryingOn={s.library.tryingOn}
+            customText={s.library.customText}
+            cardPrice={s.library.cardPrice}
+            onCategory={actions.pickCategory}
+            onMore={actions.showMore}
+            onAdd={(p) => void actions.addScene(p)}
+            onTryOn={(p) => void actions.tryOnScene(p)}
+            onPickHero={actions.pickHero}
+            onHeroes={toHeroes}
+            onCustomText={actions.setCustomText}
+            onAddCustom={() => void actions.addCustomScene()}
+          />
+
+          <TimelinePanel
+            loading={s.loading}
+            authed={s.authed}
+            show={s.timeline.show}
+            project={s.project}
+            scenes={s.timeline.scenes}
+            characters={s.timeline.characters}
+            busyIds={s.timeline.busyIds}
+            repricing={s.timeline.repricing}
+            framingId={s.timeline.framingId}
+            frameCredits={s.timeline.frameCredits}
+            tryingOn={s.library.tryingOn}
+            notes={s.timeline.notes}
+            handlers={s.timeline.handlers}
+            aspect={s.aspect}
+            readyCount={s.timeline.readyCount}
+            drafts={s.timeline.drafts}
+            working={s.timeline.working}
+            voicingNow={s.timeline.voicingNow}
+            total={s.timeline.total}
+            audioEnabled={s.timeline.audioEnabled}
+            planning={s.timeline.planning}
+            assembling={s.timeline.assembling}
+            sectionRef={s.refs.timeline}
+            onRename={(v) => void actions.renameMovie(v)}
+            onNewMovie={newMovie}
+            onAssemble={() => void actions.assemble()}
+            onVoiceAll={() => void actions.planVoiceAll()}
+            onGuestRender={() => actions.guestRender("cta")}
+          />
+
+          <ResultPanel
+            project={s.project}
+            shareUrl={s.result.shareUrl}
+            readyCount={s.timeline.readyCount}
+            assembling={s.timeline.assembling}
+            onAssemble={() => void actions.assemble()}
+            onNewMovie={newMovie}
+          />
+        </div>
+      }
+      // Док: модель, качество, длительность, формат, сумма к съёмке и главная кнопка.
+      // Меняет только сцены, которые ещё не снимаются. Пока на телефоне печатают в
+      // ленте, дока нет (typing).
+      composer={
+        typing && breakpoint === "mobile" ? null : (
+          <CartoonDock
+            models={s.dock.models}
+            modelsError={s.dock.modelsError}
+            onRetryModels={actions.retryModels}
+            value={s.dock.value}
+            onModel={actions.pickDockModel}
+            onResolution={actions.pickDockResolution}
+            onDuration={actions.pickDockDuration}
+            onAspect={(v) => void actions.pickAspect(v)}
+            notices={s.dock.notices}
+            onDismissNotices={actions.dismissNotices}
+            warning={s.dock.warning}
+            total={s.dock.total}
+            hasShot={s.dock.hasShot}
+            frameCredits={s.dock.frameCredits}
+            saving={s.dock.saving}
+            // Пока студия грузится, мультфильма и черновика ещё нет: выбор в доке лёг бы
+            // в пустой черновик гостя поверх сохранённого и стёр бы его сцены.
+            disabled={s.loading}
+            error={s.dock.error}
+            onDismissError={actions.dismissDockError}
+            primary={s.dock.primary}
+            onTotal={toTimeline}
+          />
+        )
+      }
+      // Параметров отдельной панелью у мультстудии нет: они в доке.
+      settingsTitle=""
+      settingsOpen={false}
+      onSettingsOpenChange={noop}
+      settingsCollapsed
+      feedScrollRef={feedScrollRef}
+      labels={{
+        history: t("studio_ui.my_movies"),
+        main: t("studio_ui.shell_name", { defaultValue: "Мультстудия" }),
+      }}
+      overlays={
+        <>
+          <StudioPaywallDialog
+            open={Boolean(s.dialogs.shortfall)}
+            required={s.dialogs.shortfall?.required ?? 0}
+            balance={s.dialogs.shortfall?.balance ?? 0}
+            kind={s.dialogs.shortfall?.kind ?? "scene"}
+            onClose={actions.closePaywall}
+          />
+          <StudioAuthDialog
+            open={Boolean(s.dialogs.authFor)}
+            reason={s.dialogs.authFor ?? "render"}
+            onClose={actions.closeAuth}
+          />
+          <SceneAudioDialog
+            scene={s.dialogs.audioScene}
+            config={s.dialogs.audioConfig}
+            characters={s.dialogs.audioCharacters}
+            onClose={actions.closeAudio}
+            onChanged={actions.audioChanged}
+            onNeedCredits={(required, bal) => actions.openPaywall({ required, balance: bal, kind: "audio" })}
+          />
+          <VoiceAllDialog
+            open={Boolean(s.dialogs.voicePlan)}
+            plan={s.dialogs.voicePlan}
+            config={s.dialogs.audioConfig}
+            projectId={s.project?.id ?? null}
+            onClose={actions.closeVoicePlan}
+            onStarted={actions.voiceStarted}
+            onNeedCredits={(required, bal) => actions.openPaywall({ required, balance: bal, kind: "audio" })}
+          />
+        </>
+      }
+    />
   );
 }

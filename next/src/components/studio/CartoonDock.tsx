@@ -1,33 +1,42 @@
 "use client";
 
 /**
- * Мультстудия: нижний док «Модель / Качество / Длительность / Формат».
+ * Мультстудия: нижний док «Модель / Качество / Длительность / Формат», сумма
+ * сцен к съёмке и главная кнопка — как панель запроса видеостудии.
  *
  * Клиент (15.10.2026): по умолчанию Seedance 2.0 Mini в 480p — дешевле, но
- * модель, качество и длительность человек меняет сам. Док прилипает к низу
- * экрана, пока открыта студия, и садится на своё место над подвалом сайта —
- * поэтому последние сцены ленты он не закрывает навсегда.
+ * модель, качество и длительность человек меняет сам. Док стоит внизу оболочки
+ * студии (VStudioShell, слот composer) и виден на любой прокрутке; место и
+ * отступ от «домой» на телефоне даёт оболочка.
+ *
+ * Главная кнопка — только то, что на сайте уже есть (BUILD_D, решение 5):
+ * «Собрать мультфильм», а гостю — «Снять мультфильм», то есть вход. «Снять все»
+ * есть лишь в боте, здесь его нет.
  *
  * Пикеры — те же, что в видеостудии (ModelPicker, ResolutionPicker,
  * DurationPicker): они не зависят от её стора и берут модель в форме ModelJSON,
- * а цены в их таблицах — цены СЦЕНЫ (кадр + видео) в формате мультфильма. На
- * компьютере значение открывается окошком над кнопкой, на телефоне — шторкой.
- * Палитра студии (vs-*) живёт только внутри .vs-root: класс стоит на доке и на
- * окошках, которые рисуются порталом в body.
+ * а цены в их таблицах — цены СЦЕНЫ (кадр + видео) в формате мультфильма. С
+ * 768 px у каждого значения своя кнопка и окошко над ней. На телефоне док — одна
+ * строка, как у видеостудии: кнопка-сводка «2.0 Mini · 480p · 5 с · 16:9»
+ * (SettingsChip) открывает шторку со всеми четырьмя пикерами, рядом сумма и
+ * главная кнопка. Палитра студии (vs-*) живёт только внутри .vs-root: класс
+ * стоит на доке и на окошках, которые рисуются порталом в body.
  */
-import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode, type RefObject } from "react";
+import { useEffect, useId, useRef, useState, useSyncExternalStore, type ReactNode, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
-import { FiChevronDown, FiLoader, FiRefreshCw, FiX } from "react-icons/fi";
+import { FiChevronDown, FiFilm, FiLoader, FiRefreshCw, FiX } from "react-icons/fi";
 import { AspectShape, aspectHint } from "@/components/ui/AspectIcon";
 import AnchoredPopover from "@/components/vstudio/composer/Popover";
 import BottomSheet from "@/components/vstudio/BottomSheet";
+import { EDGE_FADE, useEdgeFade } from "@/components/vstudio/home/strip/useEdgeFade";
 import ModelPicker from "@/components/vstudio/settings/ModelPicker";
 import ResolutionPicker from "@/components/vstudio/settings/ResolutionPicker";
 import DurationPicker from "@/components/vstudio/settings/DurationPicker";
 import { OptionButton, Reason, Section, VendorDot } from "@/components/vstudio/settings/SettingsBits";
 import type { InputCounts } from "@/components/vstudio/settings/settingsModel";
-import { VS_ICON_BTN, VS_LABEL, VS_PILL, vx } from "@/components/vstudio/ui/skin";
+import { VS_BTN_GHOST, VS_FOCUS, VS_ICON_BTN, VS_LABEL, VS_PILL, vx } from "@/components/vstudio/ui/skin";
+import { CS_RUN_GOLD, CS_RUN_OFF } from "./ui/cartoonSkin";
 import {
   DOCK_RU,
   compactModelLabel,
@@ -39,8 +48,11 @@ import {
   type DockNotice,
   type DockTextKey,
 } from "./dockLogic";
+import type { DockPrimary, DockValue } from "./cartoonTypes";
 
 type PillKey = "model" | "resolution" | "duration" | "aspect";
+/** Что открыто: окошко у своей кнопки (с 768 px) или общая шторка параметров (телефон). */
+type OpenKey = PillKey | "sheet";
 
 /** Сцена мультстудии не несёт своих фото: пикеру нечего сверять с материалами. */
 const NO_INPUTS: InputCounts = { refs: 0, refsExcluded: 0, first: false, last: false, uploads: 0 };
@@ -52,15 +64,21 @@ const FORMATS = [
   { value: "1:1", key: "studio_ui.format_square", ru: "Квадрат для ленты" },
 ] as const;
 
-/** Сообщение «подогнали значение» висит столько, потом уходит само. */
+/** Сообщение «подогнали значение» и подсказка у выключенной кнопки висят столько, потом уходят сами. */
 const NOTICE_MS = 10_000;
+const HINT_MS = 6_000;
 
-/** На телефоне 44 px в высоту (правила студии) и уже по бокам — четыре кнопки встают в строку 360 px.
- *  Пока настройки сохраняются, кнопки «заняты» (aria-disabled, а не disabled — фокус остаётся на месте). */
-const PILL = `${VS_PILL} !h-11 !px-2.5 tabular-nums md:!h-9 md:!px-3 aria-disabled:!cursor-progress aria-disabled:opacity-60`;
+/** Кнопки значений (с 768 px). Пока док занят, кнопки «заняты» (aria-disabled, а не disabled — фокус остаётся на месте). */
+const PILL = `${VS_PILL} !px-3 tabular-nums aria-disabled:!cursor-progress aria-disabled:opacity-60`;
 const PILL_OPEN = "!border-vs-ink/25 !bg-vs-ink/[0.08] !text-foreground";
+/** Телефон: сводка параметров во всю свободную ширину строки, 44 px в высоту; длинная — обрезается, а не раздвигает строку. */
+const CHIP = vx(PILL, "!h-11 min-w-0 flex-1 justify-start !gap-2 overflow-hidden");
 /** Значение без выбора (у модели одно качество): текст в рост кнопки, без рамки и нажатия. */
-const PLAIN = "inline-flex h-11 shrink-0 items-center gap-1.5 px-1.5 text-[13px] font-medium tabular-nums text-muted md:h-9";
+const PLAIN = "inline-flex h-9 shrink-0 items-center gap-1.5 px-1.5 text-[13px] font-medium tabular-nums text-muted";
+/** Сумма сцен к съёмке: подпись и сумма столбиком справа, перед главной кнопкой. */
+const TOTAL = "flex min-h-11 min-w-0 shrink-0 flex-col items-end justify-center rounded-xl px-1.5 text-right leading-tight md:px-2";
+/** Подпись суммы: на телефоне строчными — заглавные не помещались в строку с кнопками. */
+const TOTAL_LABEL = vx(VS_LABEL, "max-md:font-medium max-md:normal-case max-md:tracking-normal");
 
 const WIDE_QUERY = "(min-width: 768px)";
 
@@ -71,7 +89,7 @@ function subscribeWide(onChange: () => void): () => void {
   return () => media.removeEventListener("change", onChange);
 }
 
-/** С 768 px — окошко над кнопкой, уже — шторка снизу (как в видеостудии). */
+/** С 768 px — кнопки значений и окошки над ними, уже — сводка и шторка (как в видеостудии). */
 function useWide(): boolean {
   return useSyncExternalStore(
     subscribeWide,
@@ -80,15 +98,7 @@ function useWide(): boolean {
   );
 }
 
-export type DockValue = {
-  /** OpenRouter id модели; null — неизвестна (пусто в библиотеке). */
-  model: string | null;
-  /** Подпись, если модели нет в списке дока (выключили): «Seedance 2.0». */
-  modelName: string;
-  resolution: string | null;
-  duration: number | null;
-  aspect: string;
-};
+export type { DockValue } from "./cartoonTypes";
 
 export type CartoonDockProps = {
   /** null — список ещё грузится. */
@@ -104,7 +114,7 @@ export type CartoonDockProps = {
   onDismissNotices: () => void;
   /** Предупреждение, которое не уходит само (модель мультфильма выключили). */
   warning?: DockTextKey | null;
-  /** «Итого»: сумма строк ленты, которые ещё снимать; credits null — цены нет. */
+  /** Сумма строк ленты, которые ещё снимать; credits null — цены нет. */
   total: { credits: number | null; count: number };
   /** В ленте есть снятые сцены — под форматом подсказка про поля при склейке. */
   hasShot: boolean;
@@ -112,14 +122,22 @@ export type CartoonDockProps = {
   frameCredits?: number | null;
   /** Док или формат едут на сервер: кнопки заняты, пока не придёт ответ. */
   saving?: boolean;
+  /**
+   * Студия ещё грузится: док виден, но не нажимается. Мультфильма и черновика
+   * пока нет, и любой выбор лёг бы в пустой черновик гостя поверх сохранённого.
+   */
+  disabled?: boolean;
   /** Отказ сервера на правку дока или формата — здесь, у кнопок, а не вверху страницы. */
   error?: string | null;
   onDismissError?: () => void;
+  /** Главная кнопка дока: «Собрать мультфильм» или вход гостя; null — кнопки нет. */
+  primary?: DockPrimary | null;
+  /** Нажали сумму — показать ленту сцен. */
+  onTotal?: () => void;
 };
 
-/** Окошко пикера: над кнопкой на компьютере, шторка на телефоне. */
-function PickerHost({
-  wide,
+/** Окошко пикера над его кнопкой (с 768 px). */
+function PickerPopover({
   anchor,
   open,
   onClose,
@@ -127,7 +145,6 @@ function PickerHost({
   width,
   children,
 }: {
-  wide: boolean;
   anchor: RefObject<HTMLButtonElement | null>;
   open: boolean;
   onClose: () => void;
@@ -136,26 +153,19 @@ function PickerHost({
   width: string;
   children: ReactNode;
 }) {
-  if (wide) {
-    return (
-      <AnchoredPopover
-        anchor={anchor}
-        open={open}
-        onClose={onClose}
-        role="dialog"
-        ariaLabel={title}
-        autoFocus
-        closeOnTabOut
-        className="vs-root"
-      >
-        <div className={width}>{children}</div>
-      </AnchoredPopover>
-    );
-  }
   return (
-    <BottomSheet open={open} onClose={onClose} title={title} className="vs-root" zIndex={1050}>
-      {children}
-    </BottomSheet>
+    <AnchoredPopover
+      anchor={anchor}
+      open={open}
+      onClose={onClose}
+      role="dialog"
+      ariaLabel={title}
+      autoFocus
+      closeOnTabOut
+      className="vs-root"
+    >
+      <div className={width}>{children}</div>
+    </AnchoredPopover>
   );
 }
 
@@ -222,18 +232,23 @@ export default function CartoonDock({
   hasShot,
   frameCredits,
   saving = false,
+  disabled = false,
   error = null,
   onDismissError,
+  primary = null,
+  onTotal,
 }: CartoonDockProps) {
   const { t } = useTranslation("common");
   const tf = t as unknown as TFunction;
   const d = (key: DockTextKey, params?: Record<string, string | number>) =>
     t(key, { defaultValue: DOCK_RU[key], ...(params || {}) });
   const wide = useWide();
-  const [open, setOpen] = useState<PillKey | null>(null);
+  const [open, setOpen] = useState<OpenKey | null>(null);
   // Какую кнопку тронули последней: пока сохраняется, крутилка — на ней. В конце
-  // прокручиваемого ряда её на телефоне 360 px не было видно (уезжала за край).
+  // прокручиваемого ряда её на узком экране не было видно (уезжала за край).
   const [picked, setPicked] = useState<PillKey | null>(null);
+  // Нажали выключенную «Собрать мультфильм» на телефоне: причина показывается строкой под доком.
+  const [hint, setHint] = useState(false);
   const modelRef = useRef<HTMLButtonElement | null>(null);
   const resolutionRef = useRef<HTMLButtonElement | null>(null);
   const durationRef = useRef<HTMLButtonElement | null>(null);
@@ -244,42 +259,8 @@ export default function CartoonDock({
     duration: durationRef,
     aspect: aspectRef,
   };
-  // position: sticky здесь не работает: у html и body сайта overflow-x: hidden, и
-  // body становится своим «окном прокрутки». Поэтому — fixed, пока место дока в
-  // конце студии не показалось на экране целиком.
-  const slotRef = useRef<HTMLDivElement | null>(null);
-  const barRef = useRef<HTMLDivElement | null>(null);
-  const [docked, setDocked] = useState(false);
-  const [barH, setBarH] = useState(0);
-
-  useEffect(() => {
-    const slot = slotRef.current;
-    if (!slot || typeof IntersectionObserver === "undefined") return;
-    const io = new IntersectionObserver(([e]) => setDocked(Boolean(e) && e.intersectionRatio >= 0.99), {
-      threshold: [0, 0.99, 1],
-    });
-    io.observe(slot);
-    return () => io.disconnect();
-  }, []);
-
-  useEffect(() => {
-    const bar = barRef.current;
-    if (!bar || typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver(() => setBarH(bar.offsetHeight));
-    ro.observe(bar);
-    return () => ro.disconnect();
-  }, []);
-
-  // Кнопка сайта «Наверх» (fixed, справа внизу) встаёт над доком, а не на него:
-  // высоту дока она берёт из --esai-dock-h на <html> (BackToTop.tsx). Не только
-  // пока док прилеплен: иначе в момент «посадки» кнопка прыгала бы вниз.
-  useEffect(() => {
-    const root = document.documentElement;
-    if (barH) root.style.setProperty("--esai-dock-h", `${barH}px`);
-    return () => {
-      root.style.removeProperty("--esai-dock-h");
-    };
-  }, [barH]);
+  const reasonId = useId();
+  const { attach: pillsRef, fade: pillsFade } = useEdgeFade<HTMLDivElement>();
 
   // Сообщение «подогнали значение» уходит само: оно о только что сделанном
   // выборе, а сами значения и так видны на кнопках.
@@ -288,6 +269,12 @@ export default function CartoonDock({
     const timer = window.setTimeout(onDismissNotices, NOTICE_MS);
     return () => window.clearTimeout(timer);
   }, [notices, onDismissNotices]);
+
+  useEffect(() => {
+    if (!hint) return;
+    const timer = window.setTimeout(() => setHint(false), HINT_MS);
+    return () => window.clearTimeout(timer);
+  }, [hint]);
 
   const aspect = value.aspect;
   // Таблицы цен — формата мультфильма: «от N кр» у квадрата ниже, чем у 16:9.
@@ -303,22 +290,26 @@ export default function CartoonDock({
     duration: Boolean(model) && durations.length > 1,
     aspect: true,
   };
-  const shown = open && can[open] ? open : null;
+  // Окошки — только у кнопок (с 768 px), шторка — только на телефоне: повернули экран — открытое закрылось.
+  const shown: OpenKey | null =
+    open === "sheet" ? (wide ? null : "sheet") : open && wide && can[open] ? open : null;
+  // Занят — сохраняется прежний выбор или студия ещё не загрузилась.
+  const locked = saving || disabled;
   // Пока прежний выбор едет на сервер, новый не начинаем: иначе два PATCH разом и
   // на экране могло остаться не то, что сохранилось.
-  const toggle = (key: PillKey) => {
-    if (saving) return;
+  const toggle = (key: OpenKey) => {
+    if (locked) return;
     setOpen((cur) => (cur === key ? null : key));
   };
   /** Занятость кнопки: видно (aria-disabled) и слышно (aria-busy). */
-  const busy = saving ? ({ "aria-disabled": true, "aria-busy": true } as const) : {};
+  const busy = locked ? ({ "aria-disabled": true, "aria-busy": true } as const) : {};
   /** Сохраняется именно эта кнопка; правка не отсюда — крутилка на первой, она всегда видна. */
   const spinning = (key: PillKey) => saving && (picked ?? "model") === key;
   /** Размер — как у значка, на место которого встаёт: кнопка не прыгает по ширине. */
   const spinner = (size = "size-3.5") => (
     <FiLoader className={vx(size, "shrink-0 animate-spin motion-reduce:animate-none")} aria-hidden />
   );
-  /** Значение выбрано: окошко закрывается, фокус — обратно на кнопку. */
+  /** Значение выбрано: окошко или шторка закрывается, фокус — обратно на кнопку. */
   const done = (key: PillKey) => {
     setPicked(key);
     setOpen(null);
@@ -333,7 +324,12 @@ export default function CartoonDock({
   const formatPrice = (a: string) =>
     model ? tablePrice(model, { resolution: value.resolution, duration: value.duration, aspect: a }, frameCredits) : null;
 
-  let modelPill: ReactNode;
+  const formatTitle = t("studio_ui.format_title", { defaultValue: "Формат видео" });
+  const hasNotes = Boolean(warning) || notices.length > 0;
+  const closeBtn = vx(VS_ICON_BTN, "!size-11 md:!size-8");
+
+  // С 768 px: своя кнопка у каждого значения.
+  let modelPill: ReactNode = null;
   if (can.model) {
     modelPill = (
       <button
@@ -348,8 +344,7 @@ export default function CartoonDock({
         className={vx(PILL, "!gap-2", shown === "model" && PILL_OPEN, warning && "!border-status-wait/50")}
       >
         <VendorDot modelId={value.model} />
-        <span className="max-w-[6.5rem] truncate font-semibold text-foreground sm:hidden">{compactModelLabel(name || "—")}</span>
-        <span className="hidden max-w-[10rem] truncate font-semibold text-foreground sm:inline">{name || "—"}</span>
+        <span className="max-w-[10rem] truncate font-semibold text-foreground">{name || "—"}</span>
         {spinning("model") ? (
           spinner()
         ) : (
@@ -372,15 +367,15 @@ export default function CartoonDock({
       </button>
     );
   } else if (!models) {
-    modelPill = <span className="vs-film h-11 w-28 shrink-0 rounded-full md:h-9" role="status" aria-label={d("studio_ui.dock_model")} />;
-  } else {
+    modelPill = <span className="vs-film h-9 w-28 shrink-0 rounded-full" role="status" aria-label={d("studio_ui.dock_model")} />;
+  } else if (name) {
     // Моделей в доке нет (ни одна не включена): сцены снимаются как в библиотеке.
-    modelPill = name ? (
+    modelPill = (
       <span className={PLAIN}>
         <span className="sr-only">{d("studio_ui.dock_model")}: </span>
         {name}
       </span>
-    ) : null;
+    );
   }
 
   const valuePill = (key: "resolution" | "duration", label: string, text: string) =>
@@ -406,203 +401,437 @@ export default function CartoonDock({
       </span>
     ) : null;
 
-  const formatTitle = t("studio_ui.format_title", { defaultValue: "Формат видео" });
-  const hasNotes = Boolean(warning) || notices.length > 0;
-  const closeBtn = vx(VS_ICON_BTN, "!size-11 md:!size-8");
+  const aspectPill = (
+    <button
+      ref={aspectRef}
+      type="button"
+      onClick={() => toggle("aspect")}
+      aria-haspopup="dialog"
+      aria-expanded={shown === "aspect"}
+      {...busy}
+      aria-label={`${formatTitle}: ${aspect}`}
+      title={aspectHint(tf, aspect)}
+      className={vx(PILL, shown === "aspect" && PILL_OPEN)}
+    >
+      {spinning("aspect") ? spinner("size-4") : <AspectShape ratio={aspect} size={16} className="shrink-0" />}
+      {aspect}
+    </button>
+  );
+
+  // Телефон: одна сводка параметров и шторка.
+  const summaryParts = [
+    modelsError && !can.model ? d("studio_ui.dock_models_error") : name ? compactModelLabel(name) : "",
+    value.resolution || "",
+    value.duration != null ? seconds(value.duration) : "",
+    aspect,
+  ].filter(Boolean);
+  const summary = summaryParts.join(" · ");
+  // Пока модели не пришли, сводке нечего сказать, кроме формата: вместо неё — «плёнка», как у видеостудии.
+  const summaryPending = !models && !modelsError;
+  const chip = (
+    <button
+      type="button"
+      onClick={() => toggle("sheet")}
+      aria-haspopup="dialog"
+      aria-expanded={shown === "sheet"}
+      {...busy}
+      aria-label={`${d("studio_ui.dock_label")}: ${summary}`}
+      title={summary}
+      className={vx(
+        CHIP,
+        shown === "sheet" && PILL_OPEN,
+        (warning || (modelsError && !can.model)) && "!border-status-wait/50",
+      )}
+    >
+      {modelsError && !can.model ? (
+        <FiRefreshCw className="size-3.5 shrink-0 text-status-wait" aria-hidden />
+      ) : (
+        <VendorDot modelId={value.model} />
+      )}
+      {summaryPending ? (
+        <span className="vs-film h-2.5 w-24 min-w-0 rounded-full" aria-hidden />
+      ) : (
+        <span className="min-w-0 truncate font-semibold text-foreground">{summary}</span>
+      )}
+      {saving ? (
+        <span className="ml-auto flex shrink-0">{spinner()}</span>
+      ) : (
+        <FiChevronDown className="ml-auto size-3.5 shrink-0 opacity-70" aria-hidden />
+      )}
+    </button>
+  );
+
+  // Пикеры — одни и те же в окошках у кнопок (с 768 px) и в шторке (телефон).
+  const pickModel = (id: string) => {
+    onModel(id);
+    done("model");
+  };
+  const resolutionPicker =
+    model && can.resolution ? (
+      <ResolutionPicker
+        model={model}
+        value={value.resolution ?? undefined}
+        onChange={(v) => {
+          onResolution(v);
+          done("resolution");
+        }}
+        duration={value.duration ?? undefined}
+        aspect={aspect}
+      />
+    ) : null;
+  const durationPicker =
+    model && can.duration ? (
+      <>
+        <DurationPicker
+          model={model}
+          value={value.duration ?? undefined}
+          onChange={(v) => {
+            onDuration(v);
+            done("duration");
+          }}
+          resolution={value.resolution ?? undefined}
+          aspect={aspect}
+        />
+        <Reason tone="muted">{d("studio_ui.dock_duration_hint")}</Reason>
+      </>
+    ) : null;
+  const formatPicker = (
+    <FormatPicker
+      value={aspect}
+      onChange={(v) => {
+        onAspect(v);
+        done("aspect");
+      }}
+      price={formatPrice}
+      hasShot={hasShot}
+      t={tf}
+    />
+  );
+
+  let modelSection: ReactNode = null;
+  if (can.model) {
+    modelSection = (
+      <ModelPicker
+        kind="video"
+        models={list}
+        value={model?.id ?? null}
+        counts={NO_INPUTS}
+        onSelect={pickModel}
+        // В мультстудии тарифного замка нет (locked всегда false).
+        onLocked={() => setOpen(null)}
+      />
+    );
+  } else if (modelsError) {
+    modelSection = (
+      <Section title={d("studio_ui.dock_model")}>
+        <Reason tone="warn">{d("studio_ui.dock_models_error")}</Reason>
+        <button type="button" onClick={onRetryModels} className={vx(VS_BTN_GHOST, "self-start")}>
+          <FiRefreshCw className="size-3.5" aria-hidden />
+          {d("studio_ui.dock_retry")}
+        </button>
+      </Section>
+    );
+  } else if (!models) {
+    modelSection = (
+      <Section title={d("studio_ui.dock_model")}>
+        <div className="vs-film h-[4.5rem] rounded-2xl" role="status" aria-label={d("studio_ui.dock_model")} />
+      </Section>
+    );
+  } else if (name) {
+    modelSection = (
+      <Section title={d("studio_ui.dock_model")}>
+        <p className="text-sm font-semibold text-foreground">{name}</p>
+      </Section>
+    );
+  }
+
+  // «Собрать мультфильм» (вошёл, есть снятые сцены), она же выключенная (сцены
+  // есть, снятых нет — причина словами рядом) или «Снять мультфильм» гостя, то
+  // есть вход. Других действий у дока нет. На телефоне подпись короче: рядом
+  // сводка параметров и сумма; полную читает диктор.
+  const caption = (full: string, short: string) =>
+    wide ? (
+      <span className="min-w-0 truncate">{full}</span>
+    ) : (
+      <>
+        <span className="min-w-0 truncate" aria-hidden>
+          {short}
+        </span>
+        <span className="sr-only">{full}</span>
+      </>
+    );
+  const assembleShort = t("studio_ui.dock_cta_short", { defaultValue: "Собрать" });
+  let primaryButton: ReactNode = null;
+  let primaryReason: string | null = null;
+  if (primary?.kind === "guest") {
+    primaryButton = (
+      <button type="button" onClick={primary.onClick} className={vx(CS_RUN_GOLD, "min-w-0 max-w-full max-md:!px-4")}>
+        <FiFilm className="size-4 shrink-0" aria-hidden />
+        {caption(t("studio_ui.guest_cta_btn"), t("studio_ui.dock_guest_short", { defaultValue: "Снять" }))}
+      </button>
+    );
+  } else if (primary?.kind === "assemble") {
+    const progress = t("studio_ui.dock_cta_ready", {
+      defaultValue: "Снято сцен: {{ready}} из {{total}}",
+      ready: primary.ready,
+      total: primary.total,
+    });
+    const assembling = t("studio_ui.dock_cta_assembling", { defaultValue: "Собираем…" });
+    primaryButton = (
+      <button
+        type="button"
+        // Не disabled, пока собирается: кнопка остаётся в фокусе, подпись — в полную яркость.
+        onClick={() => {
+          if (!primary.busy) primary.onClick();
+        }}
+        aria-disabled={primary.busy || undefined}
+        aria-busy={primary.busy || undefined}
+        title={progress}
+        className={vx(
+          CS_RUN_GOLD,
+          "min-w-0 max-w-full max-md:!px-4",
+          // Кольцо «готово» — когда сняты все сцены, а склейки ещё не было: время собирать.
+          primary.ready === primary.total && primary.fresh && !primary.busy && "vs-ready",
+          primary.busy && "!cursor-wait active:!scale-100",
+        )}
+      >
+        {primary.busy ? (
+          <FiLoader className="size-4 shrink-0 animate-spin motion-reduce:animate-none" aria-hidden />
+        ) : (
+          <FiFilm className="size-4 shrink-0" aria-hidden />
+        )}
+        {primary.busy ? caption(assembling, assembling) : caption(t("studio_ui.assemble"), assembleShort)}
+        <span className="sr-only">. {progress}</span>
+      </button>
+    );
+  } else if (primary?.kind === "assemble_off") {
+    primaryReason = t("studio_ui.dock_cta_off_reason", { defaultValue: "Сначала снимите хотя бы одну сцену" });
+    primaryButton = (
+      // Не disabled, а aria-disabled: кнопка остаётся в фокусе, и диктор читает причину.
+      // На телефоне причина спрятана (места нет) — нажатие показывает её строкой под доком.
+      <button
+        type="button"
+        onClick={() => setHint(true)}
+        aria-disabled
+        aria-describedby={reasonId}
+        title={primaryReason}
+        className={vx(CS_RUN_OFF, "min-w-0 max-w-full !cursor-not-allowed max-md:!px-4")}
+      >
+        <FiFilm className="size-4 shrink-0" aria-hidden />
+        {caption(t("studio_ui.assemble"), assembleShort)}
+      </button>
+    );
+  }
+
+  // Подпись — «К съёмке: N», а не «Итого»: рядом с «Собрать мультфильм» сумма
+  // читалась как цена склейки, а склейка бесплатна. Это цена ещё не снятых сцен.
+  const totalTitle = d("studio_ui.dock_total_title", { count: total.count });
+  const toTimeline = t("studio_ui.dock_cta_total", { defaultValue: "К ленте сцен" });
+  const unavailable = t("studio_ui.price_unavailable", { defaultValue: "Цена сейчас недоступна" });
+  const totalBody = (
+    <>
+      <span className={vx(TOTAL_LABEL, "max-w-full truncate")} aria-hidden>
+        {t("studio_ui.dock_total_short", { defaultValue: "К съёмке: {{count}}", count: total.count })}
+      </span>
+      <span className="max-w-[9rem] text-sm font-semibold tabular-nums text-foreground" aria-hidden>
+        {total.credits != null ? credits(total.credits) : wide ? unavailable : "—"}
+      </span>
+      <span className="sr-only">
+        {totalTitle}, {total.credits != null ? credits(total.credits) : unavailable}
+      </span>
+    </>
+  );
+  const totalNode =
+    total.count > 0 ? (
+      onTotal ? (
+        // Сумма ведёт к ленте: там видно, из каких сцен она сложилась.
+        <button
+          type="button"
+          onClick={onTotal}
+          title={`${totalTitle} · ${toTimeline}`}
+          className={vx(TOTAL, "cursor-pointer transition-colors hover:bg-vs-ink/[0.06]", VS_FOCUS)}
+        >
+          {totalBody}
+          <span className="sr-only">. {toTimeline}</span>
+        </button>
+      ) : (
+        <div className={TOTAL} title={totalTitle}>
+          {totalBody}
+        </div>
+      )
+    ) : null;
 
   return (
-    // Место дока в конце студии: пока оно не на экране, док прилеплен к низу окна
-    // (fixed), а когда долистали — встаёт сюда и дальше уезжает вместе со
-    // страницей, не закрывая подвал сайта. Высота места = высота дока: последние
-    // сцены ленты док не закрывает. На телефоне — во всю ширину, как нижняя панель.
-    <div ref={slotRef} className="mt-10" style={barH ? { minHeight: barH } : undefined}>
-      <div ref={barRef} data-cartoon-dock="" className={docked ? "relative z-30 -mx-4" : "fixed inset-x-0 bottom-0 z-30"}>
-        <div className="mx-auto w-full max-w-5xl sm:px-4 sm:pb-3">
+    <>
+      {/* Панель — как у видеостудии: непрозрачная (vs-solid), на телефоне плотнее и с
+          меньшим скруглением. data-vs-composer — та же короткая тень в светлой теме:
+          оболочка режет тень по своим полям (globals.css). */}
+      <div role="region" aria-label={d("studio_ui.dock_label")} data-vs-composer="" className="vs-root text-foreground">
+        <div className="vs-solid flex flex-col gap-1.5 rounded-[20px] p-2 transition-[border-color] duration-200 focus-within:!border-vs-ink/25 md:gap-2 md:rounded-[24px] md:p-3">
+          {/* Сообщения: область живая всегда, иначе диктор пропустил бы первое. */}
           <div
-            role="region"
-            aria-label={d("studio_ui.dock_label")}
-            // На телефоне фон панели уходит под полоску «домой» (safe area) — без щели снизу.
-            className="vs-root vs-solid rounded-none !border-x-0 !border-b-0 pb-[env(safe-area-inset-bottom)] text-foreground sm:rounded-2xl sm:!border-x sm:!border-b sm:pb-0"
+            role="status"
+            aria-live="polite"
+            className={hasNotes ? "flex items-start gap-2 rounded-xl bg-vs-ink/[0.03] py-1.5 pl-3 pr-1.5" : "sr-only"}
           >
-            {/* Сообщения: область живая всегда, иначе диктор пропустил бы первое. */}
-            <div role="status" aria-live="polite" className={hasNotes ? "flex items-start gap-2 border-b border-vs-ink/10 py-2 pl-3 pr-2" : "sr-only"}>
-              {hasNotes && (
-                <>
-                  <div className="min-w-0 flex-1 space-y-0.5 py-0.5 text-[12px] leading-snug text-status-wait">
-                    {warning && <p>{d(warning)}</p>}
-                    {notices.map((n, i) => (
-                      <p key={`${n.key}-${i}`}>{d(n.key, n.params)}</p>
-                    ))}
-                  </div>
-                  {notices.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={onDismissNotices}
-                      aria-label={d("studio_ui.dock_hide_notice")}
-                      className={closeBtn}
-                    >
-                      <FiX className="size-4" aria-hidden />
-                    </button>
-                  )}
-                </>
-              )}
-            </div>
-
-            {/* Отказ сервера (не сохранилось, модель выключили) — прямо у кнопок, которые
-                человек только что нажал: блок ошибки вверху страницы с телефона не виден. */}
-            {error && (
-              <div className="flex items-start gap-2 border-b border-vs-ink/10 py-2 pl-3 pr-2">
-                <p role="alert" className="min-w-0 flex-1 py-0.5 text-[12px] leading-snug text-status-fail">
-                  {error}
-                </p>
-                {onDismissError && (
-                  <button type="button" onClick={onDismissError} aria-label={d("studio_ui.dock_hide_notice")} className={closeBtn}>
+            {hasNotes && (
+              <>
+                <div className="min-w-0 flex-1 space-y-0.5 py-1 text-[12px] leading-snug text-status-wait">
+                  {warning && <p>{d(warning)}</p>}
+                  {notices.map((n, i) => (
+                    <p key={`${n.key}-${i}`}>{d(n.key, n.params)}</p>
+                  ))}
+                </div>
+                {notices.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={onDismissNotices}
+                    aria-label={d("studio_ui.dock_hide_notice")}
+                    className={closeBtn}
+                  >
                     <FiX className="size-4" aria-hidden />
                   </button>
                 )}
-              </div>
+              </>
             )}
+          </div>
 
-            {/* Справа место под кнопкой «Наверх» сайта (fixed, 48 px справа внизу): над
-                прилепленным доком она стоит сама, а мимо севшего на место дока проезжает при
-                прокрутке — по полю, не по кнопкам. С 1280 px док уже, и кнопка стоит вне его. */}
-            <div className="flex items-center gap-2 py-1.5 pl-3 pr-16 md:pr-[4.5rem] xl:pr-3">
-              <div
-                // Поля внутри прокрутки — чтобы кольцо фокуса у кнопок не срезалось.
-                className="-my-1 flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto px-0.5 py-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
-                aria-busy={saving || undefined}
-              >
-                {modelPill}
-                {valuePill("resolution", d("studio_ui.dock_quality"), resText)}
-                {valuePill("duration", d("studio_ui.dock_duration"), durText)}
-                <button
-                  ref={aspectRef}
-                  type="button"
-                  onClick={() => toggle("aspect")}
-                  aria-haspopup="dialog"
-                  aria-expanded={shown === "aspect"}
-                  {...busy}
-                  aria-label={`${formatTitle}: ${aspect}`}
-                  title={aspectHint(tf, aspect)}
-                  className={vx(PILL, shown === "aspect" && PILL_OPEN)}
-                >
-                  {spinning("aspect") ? spinner("size-4") : <AspectShape ratio={aspect} size={16} className="shrink-0" />}
-                  {aspect}
+          {/* Отказ сервера (не сохранилось, модель выключили) — прямо у кнопок, которые
+              человек только что нажал: блок ошибки вверху страницы с телефона не виден. */}
+          {error && (
+            <div className="flex items-start gap-2 rounded-xl bg-status-fail/[0.06] py-1.5 pl-3 pr-1.5">
+              <p role="alert" className="min-w-0 flex-1 py-1 text-[12px] leading-snug text-status-fail">
+                {error}
+              </p>
+              {onDismissError && (
+                <button type="button" onClick={onDismissError} aria-label={d("studio_ui.dock_hide_notice")} className={closeBtn}>
+                  <FiX className="size-4" aria-hidden />
                 </button>
-                {/* Крутилка — на самой кнопке (spinning), здесь только текст для чтеца. */}
-                {saving && <span className="sr-only">{d("studio_ui.dock_saving")}</span>}
-              </div>
-              {total.count > 0 && (
-                // На телефоне «Итого» — под лентой: в одну строку с четырьмя кнопками не помещается.
-                <div className="hidden shrink-0 flex-col items-end leading-tight sm:flex" title={d("studio_ui.dock_total_title", { count: total.count })}>
-                  <span className={VS_LABEL}>{d("studio_ui.dock_total")}</span>
-                  <span className="text-sm font-semibold tabular-nums text-foreground">
-                    {total.credits != null
-                      ? credits(total.credits)
-                      : t("studio_ui.price_unavailable", { defaultValue: "Цена сейчас недоступна" })}
-                  </span>
-                  <span className="sr-only">{d("studio_ui.dock_total_title", { count: total.count })}</span>
-                </div>
               )}
             </div>
-          </div>
+          )}
+
+          {/* С 768 px — всё в одну строку: кнопки значений (листаются вбок), сумма и
+              главная кнопка справа, как «Создать» у видеостудии. Телефон — тоже одна
+              строка: сводка параметров, сумма, короткая главная кнопка. */}
+          {wide ? (
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+              <div
+                ref={pillsRef}
+                // Поля внутри прокрутки — чтобы кольцо фокуса у кнопок не срезалось.
+                className={vx("vs-noscroll -my-1 min-w-0 flex-1 basis-0 overflow-x-auto px-0.5 py-1", EDGE_FADE[pillsFade])}
+                aria-busy={locked || undefined}
+              >
+                <div className="flex w-max items-center gap-1.5">
+                  {modelPill}
+                  {valuePill("resolution", d("studio_ui.dock_quality"), resText)}
+                  {valuePill("duration", d("studio_ui.dock_duration"), durText)}
+                  {aspectPill}
+                </div>
+              </div>
+              {totalNode}
+              {primaryButton && <div className="ml-auto flex min-w-0 max-w-full shrink-0">{primaryButton}</div>}
+            </div>
+          ) : (
+            <div className="flex items-center gap-1.5">
+              {chip}
+              {totalNode}
+              {primaryButton && <div className="flex min-w-0 shrink-0">{primaryButton}</div>}
+            </div>
+          )}
+          {/* Крутилка — на самой кнопке (spinning), здесь только текст для чтеца. */}
+          {saving && <span className="sr-only">{d("studio_ui.dock_saving")}</span>}
+          {/* Причина выключенной «Собрать мультфильм» есть всегда (её читает диктор); на
+              телефоне видна только после нажатия на кнопку. */}
+          {primaryReason && (
+            <p
+              id={reasonId}
+              className={wide || hint ? "px-1 text-right text-xs leading-snug text-muted" : "sr-only"}
+            >
+              {primaryReason}
+            </p>
+          )}
         </div>
       </div>
 
-      {can.model && (
-        <PickerHost
-          wide={wide}
-          anchor={modelRef}
-          open={shown === "model"}
-          onClose={() => setOpen(null)}
-          title={d("studio_ui.dock_model")}
-          width="flex w-[min(22.5rem,calc(100vw-1rem))] flex-col p-1.5"
-        >
-          {wide && (
-            <div className={`${VS_LABEL} px-2 pb-2 pt-1.5`} aria-hidden>
-              {d("studio_ui.dock_model")}
-            </div>
+      {wide ? (
+        <>
+          {can.model && (
+            <PickerPopover
+              anchor={modelRef}
+              open={shown === "model"}
+              onClose={() => setOpen(null)}
+              title={d("studio_ui.dock_model")}
+              width="flex w-[min(22.5rem,calc(100vw-1rem))] flex-col p-1.5"
+            >
+              <div className={`${VS_LABEL} px-2 pb-2 pt-1.5`} aria-hidden>
+                {d("studio_ui.dock_model")}
+              </div>
+              <ModelPicker
+                inline
+                kind="video"
+                models={list}
+                value={model?.id ?? null}
+                counts={NO_INPUTS}
+                onSelect={pickModel}
+                // В мультстудии тарифного замка нет (locked всегда false).
+                onLocked={() => setOpen(null)}
+              />
+            </PickerPopover>
           )}
-          <ModelPicker
-            inline
-            kind="video"
-            models={list}
-            value={model?.id ?? null}
-            counts={NO_INPUTS}
-            onSelect={(id) => {
-              onModel(id);
-              done("model");
-            }}
-            // В мультстудии тарифного замка нет (locked всегда false).
-            onLocked={() => setOpen(null)}
-          />
-        </PickerHost>
-      )}
 
-      {model && can.resolution && (
-        <PickerHost
-          wide={wide}
-          anchor={resolutionRef}
-          open={shown === "resolution"}
+          {resolutionPicker && (
+            <PickerPopover
+              anchor={resolutionRef}
+              open={shown === "resolution"}
+              onClose={() => setOpen(null)}
+              title={d("studio_ui.dock_quality")}
+              width="w-[min(18rem,calc(100vw-1rem))] p-3.5"
+            >
+              {resolutionPicker}
+            </PickerPopover>
+          )}
+
+          {durationPicker && (
+            <PickerPopover
+              anchor={durationRef}
+              open={shown === "duration"}
+              onClose={() => setOpen(null)}
+              title={d("studio_ui.dock_duration")}
+              width="flex w-[min(22rem,calc(100vw-1rem))] flex-col gap-2.5 p-3.5"
+            >
+              {durationPicker}
+            </PickerPopover>
+          )}
+
+          <PickerPopover
+            anchor={aspectRef}
+            open={shown === "aspect"}
+            onClose={() => setOpen(null)}
+            title={formatTitle}
+            width="w-[min(20rem,calc(100vw-1rem))] p-3.5"
+          >
+            {formatPicker}
+          </PickerPopover>
+        </>
+      ) : (
+        // Телефон: все четыре пикера одной шторкой, как «Параметры» видеостудии. Выбор
+        // закрывает её, как окошко у кнопки: следующий — после ответа сервера.
+        <BottomSheet
+          open={shown === "sheet"}
           onClose={() => setOpen(null)}
-          title={d("studio_ui.dock_quality")}
-          width="w-[min(18rem,calc(100vw-1rem))] p-3.5"
+          title={d("studio_ui.dock_label")}
+          className="vs-root"
+          zIndex={1050}
         >
-          <ResolutionPicker
-            model={model}
-            value={value.resolution ?? undefined}
-            onChange={(v) => {
-              onResolution(v);
-              done("resolution");
-            }}
-            duration={value.duration ?? undefined}
-            aspect={aspect}
-          />
-        </PickerHost>
+          <div className="flex flex-col gap-5 pt-1">
+            {modelSection}
+            {resolutionPicker}
+            {durationPicker && <div className="flex flex-col gap-2.5">{durationPicker}</div>}
+            {formatPicker}
+          </div>
+        </BottomSheet>
       )}
-
-      {model && can.duration && (
-        <PickerHost
-          wide={wide}
-          anchor={durationRef}
-          open={shown === "duration"}
-          onClose={() => setOpen(null)}
-          title={d("studio_ui.dock_duration")}
-          width="flex w-[min(22rem,calc(100vw-1rem))] flex-col gap-2.5 p-3.5"
-        >
-          <DurationPicker
-            model={model}
-            value={value.duration ?? undefined}
-            onChange={(v) => {
-              onDuration(v);
-              done("duration");
-            }}
-            resolution={value.resolution ?? undefined}
-            aspect={aspect}
-          />
-          <Reason tone="muted">{d("studio_ui.dock_duration_hint")}</Reason>
-        </PickerHost>
-      )}
-
-      <PickerHost
-        wide={wide}
-        anchor={aspectRef}
-        open={shown === "aspect"}
-        onClose={() => setOpen(null)}
-        title={formatTitle}
-        width="w-[min(20rem,calc(100vw-1rem))] p-3.5"
-      >
-        <FormatPicker
-          value={aspect}
-          onChange={(v) => {
-            onAspect(v);
-            done("aspect");
-          }}
-          price={formatPrice}
-          hasShot={hasShot}
-          t={tf}
-        />
-      </PickerHost>
-    </div>
+    </>
   );
 }

@@ -27,6 +27,9 @@ declare global {
         colorScheme?: string;
         setHeaderColor?: (c: string) => void;
         setBackgroundColor?: (c: string) => void;
+        /** Bot API 7.7+: свайп вниз не сворачивает Mini App (страницы со своей прокруткой). */
+        disableVerticalSwipes?: () => void;
+        enableVerticalSwipes?: () => void;
       };
     };
   }
@@ -62,8 +65,10 @@ export default function TgShell({ children }: { children: ReactNode }) {
       } catch {}
     };
     syncColors();
+    // class — тоже: мультстудия ставит на <html> vs-root (VsThemeScope), у её
+    // сцены свой --background, и шапка Telegram должна перейти в него.
     const themeObserver = new MutationObserver(syncColors);
-    themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "class"] });
     const stop = () => themeObserver.disconnect();
 
     const initData = app.initData || "";

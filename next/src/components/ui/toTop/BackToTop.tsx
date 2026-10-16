@@ -57,12 +57,10 @@ export default function BackToTopButton({ threshold = 100, className = "" }: Pro
       aria-label={t("common.back_to_top", { defaultValue: "Back to top" })}
       title={t("common.back_to_top", { defaultValue: "Back to top" })}
       className={[
-        // --esai-dock-h — высота нижнего дока мультстудии (CartoonDock): кнопка встаёт над ним.
-        // С 1280 px док уже окна, и кнопка стоит сбоку от него — поднимать незачем.
-        "fixed right-4 md:right-6 bottom-[calc(var(--esai-dock-h,0px)_+_1.5rem)] xl:bottom-6 z-[1000] cursor-pointer",
+        "fixed right-4 bottom-6 md:right-6 md:bottom-6 z-[1000] cursor-pointer",
         "h-12 w-12 rounded-full border border-border",
         "bg-surface-2/80 backdrop-blur shadow-lg",
-        // Кнопка ездит и за высотой дока (появилось сообщение) — без анимации, если её просили не показывать.
+        // Появление — без анимации, если движение просили не показывать.
         "transition-all duration-300 motion-reduce:transition-none",
         visible ? "opacity-100 translate-y-0" : "opacity-0 translate-y-4 pointer-events-none",
         "hover:bg-surface-3 active:scale-95 focus:outline-none focus:ring-2 focus:ring-yellow-400/60",
