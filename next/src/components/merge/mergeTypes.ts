@@ -5,9 +5,10 @@
  * В запросах фрагменты — только {type, id}: всё остальное сервер собирает сам.
  */
 
-export type MergeSourceType = "vstudio" | "cartoon_scene" | "cartoon_movie" | "chat";
-/** Вкладки выбора: «Мультстудия» отдаёт мультфильмы и сцены вместе. */
-export type MergeTab = "vstudio" | "cartoon" | "chat";
+/** upload — своё видео, загруженное в «Мои файлы» (CONTRACT_M.md §9). */
+export type MergeSourceType = "vstudio" | "cartoon_scene" | "cartoon_movie" | "chat" | "upload";
+/** Вкладки выбора: «Мультстудия» отдаёт мультфильмы и сцены вместе, «Мои файлы» — свои видео. */
+export type MergeTab = "vstudio" | "cartoon" | "chat" | "upload";
 export type MergeStatus = "draft" | "queued" | "rendering" | "ready" | "failed" | "expired";
 export type MergeAspect = "16:9" | "9:16" | "1:1";
 export type MergeFit = "pad" | "crop";
@@ -23,11 +24,54 @@ export interface MergeSourceCard {
   width: number | null;
   height: number | null;
   created_at: string | null;
+  /** Только у своих видео (upload): размер файла, есть ли звук, до какого числа хранится. */
+  size_bytes?: number;
+  has_audio?: boolean;
+  expires_at?: string | null;
 }
 
+/** У upload в идущей и готовой склейке — слепок без size_bytes/has_audio/expires_at. */
 export interface MergeItem extends Omit<MergeSourceCard, "created_at" | "url"> {
   url: string | null;
   available: boolean;
+}
+
+/** Пределы своих видео (config/ → uploads, uploads/ → limits). */
+export interface MergeUploadLimits {
+  max_bytes: number;
+  max_mb: number;
+  min_duration_s: number;
+  max_duration_s: number;
+  max_side: number;
+  /** Кадров в секунду в среднем (Build MU, MU_FIX2); старый сервер не присылает. */
+  max_fps?: number;
+  max_per_project: number;
+  max_files: number;
+  max_total_bytes: number;
+  max_total_mb: number;
+  retention_days: number;
+  extensions: string[];
+  accept: string;
+}
+
+/** Ответ загрузки и строка «Моих файлов»: карточка источника плюс три поля. */
+export interface MergeUploadCard extends MergeSourceCard {
+  size_bytes: number;
+  has_audio: boolean;
+  expires_at: string | null;
+}
+
+export interface MergeUploadUsage {
+  files: number;
+  bytes: number;
+  max_files: number;
+  max_bytes: number;
+}
+
+export interface MergeUploadList {
+  results: MergeUploadCard[];
+  usage: MergeUploadUsage;
+  limits: MergeUploadLimits;
 }
 
 export interface MergeLimits {
@@ -100,6 +144,8 @@ export interface MergeConfig {
   source_types: MergeSourceType[];
   authenticated: boolean;
   balance: MergeBalance | null;
+  /** Build MU; старый сервер его не присылает — тогда пределы по умолчанию. */
+  uploads?: MergeUploadLimits;
 }
 
 export interface MergeSourcesPage {

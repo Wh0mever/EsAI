@@ -1,4 +1,4 @@
-"""Файлы склейки уходят вместе со строкой — откуда бы её ни удалили.
+"""Файлы склейки и своих видео уходят вместе со строкой — откуда бы её ни удалили.
 
 API стирает файлы само (services.delete_project), но строку удаляют и мимо
 него: админка Django, удаление аккаунта (CASCADE). Без этого ролик и обложка
@@ -10,7 +10,7 @@ from django.db import transaction
 from django.db.models.signals import post_delete
 from django.dispatch import receiver
 
-from .models import MergeProject
+from .models import MergeProject, MergeUpload
 from .storage import delete_files
 
 
@@ -19,4 +19,12 @@ def delete_result_files(sender, instance, **kwargs):
     names = tuple(n for n in (instance.result_video, instance.poster) if n)
     if names:
         # После коммита: откатившееся удаление не должно оставить строку без файлов.
+        transaction.on_commit(lambda: delete_files(*names))
+
+
+@receiver(post_delete, sender=MergeUpload, dispatch_uid="merge_upload_files")
+def delete_upload_files(sender, instance, **kwargs):
+    # Своё видео: удаление в «Моих файлах», уборка, удаление аккаунта.
+    names = tuple(n for n in (instance.file, instance.poster) if n)
+    if names:
         transaction.on_commit(lambda: delete_files(*names))

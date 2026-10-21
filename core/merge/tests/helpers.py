@@ -19,7 +19,7 @@ from rest_framework.test import APIClient
 
 from ai.models import GenerationLog, GPTModels
 from cartoon.models import CartoonPreset, CartoonProject, CartoonScene
-from merge.models import MergeProject
+from merge.models import MergeProject, MergeUpload
 from merge.render import Probe
 from vstudio.models import Asset, Take
 from vstudio.tests.factories import make_asset, make_shot, make_take, make_user
@@ -27,8 +27,13 @@ from vstudio.tests.factories import make_asset, make_shot, make_take, make_user
 _seq = itertools.count(1)
 
 
-def probe_ok(duration: float = 5.0, width: int = 1280, height: int = 720, audio: bool = True):
-    return Probe(duration=duration, width=width, height=height, audio=audio, video=True)
+def probe_ok(duration: float = 5.0, width: int = 1280, height: int = 720, audio: bool = True,
+             **extra):
+    """Разбор «как у ffprobe»: одна дорожка H.264 (0) на 30 к/с и звук (1), если он есть."""
+    fields = dict(codec="h264", video_streams=1, video_index=0, audio_index=1 if audio else None,
+                  frames=round(duration * 30) if duration else None)
+    fields.update(extra)
+    return Probe(duration=duration, width=width, height=height, audio=audio, video=True, **fields)
 
 
 def client_for(user=None) -> APIClient:
@@ -60,7 +65,7 @@ class MediaTestCase(TestCase):
         self.probe = patcher.start()
         self.addCleanup(patcher.stop)
 
-    def _probe(self, path):
+    def _probe(self, path, fmt=""):
         for name, value in self.durations.items():
             if str(path).replace("\\", "/").endswith(name):
                 return None if value is None else probe_ok(value)
@@ -125,6 +130,8 @@ class MediaTestCase(TestCase):
 
     @staticmethod
     def ref(obj) -> dict:
+        if isinstance(obj, MergeUpload):
+            return {"type": "upload", "id": obj.uid}
         if isinstance(obj, Take):
             return {"type": "vstudio", "id": obj.uid}
         if isinstance(obj, CartoonScene):
@@ -132,6 +139,27 @@ class MediaTestCase(TestCase):
         if isinstance(obj, CartoonProject):
             return {"type": "cartoon_movie", "id": obj.pk}
         return {"type": "chat", "id": obj.pk}
+
+    def upload(self, user, *, duration: float = 5.0, ext: str = "mp4", expires_in=None,
+               with_file: bool = True, **kw) -> MergeUpload:
+        """Принятое своё видео с файлом и обложкой в хранилище."""
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        n = next(_seq)
+        name = f"merge/uploads/{user.pk}/{n:032x}.{ext}"
+        poster = f"merge/uploads/{user.pk}/{n:032x}.jpg"
+        if with_file:
+            name, poster = store(name), store(poster, b"JPG")
+        fields = dict(user=user, uid=f"{n:032x}", title=f"clip{n}", file=name, poster=poster,
+                      size=1000, duration_s=duration, width=1920, height=1080,
+                      display_width=1920, display_height=1080, has_audio=True, video_codec="h264")
+        if expires_in is not None:
+            fields["expires_at"] = timezone.now() + (expires_in if isinstance(expires_in, timedelta)
+                                                     else timedelta(seconds=expires_in))
+        fields.update(kw)
+        return MergeUpload.objects.create(**fields)
 
     def project(self, user, sources=(), **kw) -> MergeProject:
         from merge import services

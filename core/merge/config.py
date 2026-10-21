@@ -39,6 +39,53 @@ FIT_CROP = "crop"
 FITS = (FIT_PAD, FIT_CROP)
 
 
+MB = 1024 * 1024
+# Свои видео (Build MU). Тело запроса у Cloudflare Free — до 100 МБ, в nginx
+# location загрузки — 95 МБ: файл до 90 МБ проходит обе стены с запасом на
+# обёртку multipart.
+UPLOAD_MAX_BYTES = 90 * MB
+UPLOAD_MIN_DURATION_S = 0.5
+UPLOAD_MAX_DURATION_S = 60
+# Обрезка до «1:00» в галерее телефона даёт 60,03 с — это ещё минута.
+UPLOAD_DURATION_TOLERANCE_S = 0.5
+UPLOAD_MAX_SIDE = 4096
+UPLOAD_MAX_PER_PROJECT = 3
+# Сколько своих видео хранится у человека разом: сервер на двух ядрах и одном
+# диске, а загрузка бесплатна.
+UPLOAD_MAX_FILES = 10
+UPLOAD_MAX_TOTAL_BYTES = 600 * MB
+UPLOAD_RETENTION_DAYS = 30
+UPLOAD_EXTENSIONS = ("mp4", "mov", "m4v", "webm")
+UPLOAD_ACCEPT = "video/mp4,video/quicktime,video/webm,.mp4,.mov,.m4v,.webm"
+# Видеокодеки, которые ffmpeg сервера точно разбирает; прочее (ProRes, DNxHD,
+# MJPEG с камер) — отказ при загрузке, а не сбой склейки потом.
+UPLOAD_CODECS = ("h264", "hevc", "vp8", "vp9", "av1", "mpeg4")
+# Кадров в секунду в среднем (пакеты видеодорожки / длина). Цена нормализации
+# растёт с числом кадров: крошечный файл на тысячи к/с держал слот media до
+# потолка фрагмента, а склейка падала too_slow без списания — бесплатно и без
+# конца. 120 — замедленная съёмка телефонов (4K120 у iPhone) ещё проходит.
+UPLOAD_MAX_FPS = 120
+# Запас на округление длины и лишние пакеты в начале и конце дорожки.
+UPLOAD_FPS_SLACK_FRAMES = 30
+# Звук своего видео, который склейка декодирует; прочий — как немой (тишина).
+# Имена — codec_name ffprobe.
+UPLOAD_AUDIO_CODECS = ("aac", "mp3", "mp2", "opus", "vorbis", "ac3", "eac3", "alac", "flac",
+                       "amr_nb", "amr_wb", "pcm_s16le", "pcm_s16be", "pcm_s24le", "pcm_s24be",
+                       "pcm_s32le", "pcm_s32be", "pcm_f32le", "pcm_f32be", "pcm_u8", "pcm_alaw",
+                       "pcm_mulaw")
+# Декодеры (имена AVCodec, -codec_whitelist), которые ffprobe и ffmpeg вообще
+# откроют в чужом файле: видео из списка выше, звук из списка выше, обложки
+# (mjpeg, png) и текстовые субтитры — их телефоны и дроны кладут рядом с видео.
+# Поток с другим декодером ffprobe не откроет, и файл не пройдёт разбор.
+UPLOAD_DECODERS = ("h264", "hevc", "vp8", "vp9", "av1", "libdav1d", "libaom-av1", "mpeg4",
+                   "aac", "aac_fixed", "mp3float", "mp3", "mp2float", "mp2", "opus", "libopus",
+                   "vorbis", "libvorbis", "ac3", "ac3_fixed", "eac3", "alac", "flac",
+                   "amrnb", "amrwb", "libopencore_amrnb", "libopencore_amrwb",
+                   "pcm_s16le", "pcm_s16be", "pcm_s24le", "pcm_s24be", "pcm_s32le", "pcm_s32be",
+                   "pcm_f32le", "pcm_f32be", "pcm_u8", "pcm_alaw", "pcm_mulaw",
+                   "mjpeg", "png", "mov_text", "subrip", "ass", "ssa", "webvtt", "text")
+
+
 def price_credits() -> int:
     """Цена одной склейки в кредитах (0 — бесплатно). Никогда не бросает.
 
@@ -61,6 +108,25 @@ def limits() -> dict:
     """Пределы для интерфейса: те же числа, что проверяет сервер."""
     return {"min_fragments": MIN_FRAGMENTS, "max_fragments": MAX_FRAGMENTS,
             "max_total_s": MAX_TOTAL_S, "retention_days": RETENTION_DAYS}
+
+
+def upload_limits() -> dict:
+    """Пределы своих видео для интерфейса (подсказки и проверки до загрузки)."""
+    return {
+        "max_bytes": UPLOAD_MAX_BYTES,
+        "max_mb": UPLOAD_MAX_BYTES // MB,
+        "min_duration_s": UPLOAD_MIN_DURATION_S,
+        "max_duration_s": UPLOAD_MAX_DURATION_S,
+        "max_side": UPLOAD_MAX_SIDE,
+        "max_fps": UPLOAD_MAX_FPS,
+        "max_per_project": UPLOAD_MAX_PER_PROJECT,
+        "max_files": UPLOAD_MAX_FILES,
+        "max_total_bytes": UPLOAD_MAX_TOTAL_BYTES,
+        "max_total_mb": UPLOAD_MAX_TOTAL_BYTES // MB,
+        "retention_days": UPLOAD_RETENTION_DAYS,
+        "extensions": list(UPLOAD_EXTENSIONS),
+        "accept": UPLOAD_ACCEPT,
+    }
 
 
 # Подпись по умолчанию на языке запроса: сервер подставляет её, когда клиент

@@ -7,6 +7,8 @@
   4. POST <id>/render/            — запуск: резерв цены, задача в очереди media
   5. GET  <id>/                   — опрос состояния (раз в 3 с, пока queued/rendering)
   6. GET  <id>/download/          — скачать готовый ролик
+Свои видео (Build MU): GET/POST uploads/ — список «Мои файлы» и загрузка
+(multipart, поле file), DELETE uploads/<id>/ — удалить; в склейку — {type: "upload", id}.
 Тело любого отказа — {"error": "<по-русски>", "error_code": "<код>", …}, как в видеостудии.
 """
 from __future__ import annotations
@@ -18,6 +20,7 @@ from django.core.files.storage import default_storage
 from django.db import transaction
 from django.http import FileResponse
 from rest_framework import status as http
+from rest_framework.parsers import MultiPartParser
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.throttling import UserRateThrottle
@@ -28,8 +31,9 @@ from adminapi.permissions import IsStaff
 from core.langutils import request_lang
 from vstudio.errors import error_body, exception_handler
 
-from . import services
-from .config import (ASPECTS, DEFAULT_PRICE, FITS, MAX_PRICE, PRICE_KEY, limits, price_credits)
+from . import services, uploads
+from .config import (ASPECTS, DEFAULT_PRICE, FITS, MAX_PRICE, MB, PRICE_KEY, UPLOAD_MAX_BYTES,
+                     limits, price_credits, upload_limits)
 from .models import MergeProject
 from .serializers import project_brief, project_json
 from .services import MergeError
@@ -44,6 +48,18 @@ LIST_PAGE_SIZE = 50
 DOWNLOAD_SLOTS = 2
 DOWNLOAD_SLOT_TTL = 15 * 60
 MSG_DOWNLOADS_BUSY = "Этот ролик уже скачивается. Дождитесь окончания и попробуйте снова."
+
+# Одна загрузка своего видео за раз у человека: после тела запрос держит поток
+# gunicorn (их 24 на весь сайт) на разбор и обложку — до 50 с, а счётчик
+# «20 в час» не атомарный: пачка параллельных запросов прошла бы его целиком.
+# Срок — страховка на упавший процесс; обычно место освобождается сразу.
+UPLOAD_SLOT_TTL = 120
+MSG_UPLOAD_BUSY = "Уже загружается другое видео. Дождитесь окончания и загрузите следующее."
+# Тело отказанной загрузки дочитываем, но не больше этого: без этого gunicorn
+# закрывает соединение с непрочитанным телом, nginx ещё пишет его и вместо
+# нашего ответа (401 для обновления токена, отказ с текстом) отдаёт 502.
+DRAIN_LIMIT = UPLOAD_MAX_BYTES + 8 * MB
+DRAIN_CHUNK = MB
 
 
 class ReadThrottle(UserRateThrottle):
@@ -64,6 +80,12 @@ class RenderThrottle(UserRateThrottle):
 class DownloadThrottle(UserRateThrottle):
     scope = "merge_download"
     rate = "30/min"
+
+
+class UploadThrottle(UserRateThrottle):
+    # Каждая загрузка — до 90 МБ на диск и разбор ffmpeg на двух ядрах сервера.
+    scope = "merge_upload"
+    rate = "20/hour"
 
 
 def _refusal(exc: MergeError) -> Response:
@@ -115,6 +137,7 @@ class ConfigView(MergeAPIView):
             "source_types": list(TYPES),
             "authenticated": user is not None,
             "balance": _balance(user, price) if user else None,
+            "uploads": upload_limits(),
         })
 
 
@@ -199,6 +222,87 @@ class ProjectDetailView(MergeAPIView):
     def delete(self, request, uid):
         try:
             services.delete_project(request.user, uid)
+        except MergeError as exc:
+            return _refusal(exc)
+        return Response(status=http.HTTP_204_NO_CONTENT)
+
+
+def take_upload_slot(user_id) -> str | None:
+    """Занять место загрузки человека: ключ, "" — кэш недоступен (грузим без
+    учёта, как и скачивания), None — его загрузка уже идёт."""
+    key = f"merge:upload:{user_id}"
+    try:
+        return key if cache.add(key, 1, UPLOAD_SLOT_TTL) else None
+    except Exception:
+        logger.warning("склейка: место загрузки не проверилось", exc_info=True)
+        return ""
+
+
+def release_upload_slot(key: str) -> None:
+    if not key:
+        return
+    try:
+        cache.delete(key)
+    except Exception:
+        logger.warning("склейка: место загрузки не освободилось", exc_info=True)
+
+
+def drain_body(request, limit: int = DRAIN_LIMIT) -> int:
+    """Дочитать (и выбросить) тело запроса, которое отказ не разбирал. Байт прочитано."""
+    raw = getattr(request, "_request", request)
+    read = 0
+    try:
+        while read < limit:
+            chunk = raw.read(min(DRAIN_CHUNK, limit - read))
+            if not chunk:
+                break
+            read += len(chunk)
+    except Exception:
+        logger.info("склейка: тело отказа не дочиталось", exc_info=True)
+    return read
+
+
+class UploadsView(MergeAPIView):
+    """GET uploads/ — свои видео («Мои файлы») и занятое место;
+    POST uploads/ — загрузить своё видео (multipart, поле file) → 201 карточка."""
+
+    parser_classes = [MultiPartParser]
+    throttles = {"POST": UploadThrottle}
+
+    def get(self, request):
+        return Response(uploads.listing(request.user, lang=request_lang(request)))
+
+    def post(self, request):
+        lang = request_lang(request)
+        slot = take_upload_slot(request.user.pk)
+        if slot is None:
+            return _refusal(MergeError("upload_busy", MSG_UPLOAD_BUSY, 429))
+        try:
+            # Размер и квота по числу файлов — до разбора тела: 90 МБ не пишем на диск зря.
+            uploads.precheck(request.user, request.META.get("CONTENT_LENGTH"))
+            row = uploads.accept(request.user, request.FILES.get("file"), lang=lang)
+        except MergeError as exc:
+            return _refusal(exc)
+        finally:
+            release_upload_slot(slot)
+        return Response(uploads.card(row, lang), status=http.HTTP_201_CREATED)
+
+    def finalize_response(self, request, response, *args, **kwargs):
+        # Любой отказ загрузки (401 и 429 до самого метода, отказы precheck) —
+        # тело дочитать: nginx его уже принял и отдаёт целиком.
+        if str(getattr(request, "method", "")).upper() == "POST" and response.status_code >= 400:
+            drain_body(request)
+        return super().finalize_response(request, response, *args, **kwargs)
+
+
+class UploadDetailView(MergeAPIView):
+    """DELETE uploads/<id>/ — удалить своё видео (не во время его склейки)."""
+
+    throttles = {"DELETE": WriteThrottle}
+
+    def delete(self, request, uid):
+        try:
+            uploads.delete_upload(request.user, uid)
         except MergeError as exc:
             return _refusal(exc)
         return Response(status=http.HTTP_204_NO_CONTENT)

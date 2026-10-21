@@ -1,9 +1,21 @@
 "use client";
 
-import { useId, type KeyboardEvent } from "react";
+import { useId, useState, type KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
-import { FiArrowUpRight, FiCheck, FiChevronDown, FiFilm, FiLoader, FiPlus, FiRefreshCw } from "react-icons/fi";
+import {
+  FiArrowUpRight,
+  FiCheck,
+  FiChevronDown,
+  FiChevronsUp,
+  FiFilm,
+  FiLoader,
+  FiPlus,
+  FiRefreshCw,
+  FiTrash2,
+  FiX,
+} from "react-icons/fi";
 import Link from "next/link";
+import { apiLang } from "@/lib/apiLang";
 import {
   VS_BTN_GHOST,
   VS_BTN_LINK,
@@ -18,24 +30,40 @@ import {
   vx,
 } from "@/components/vstudio/ui/skin";
 import { CS_CARD_BTN, CS_EMPTY, CS_SKELETON } from "@/components/studio/ui/cartoonSkin";
+import type { TextSpec } from "./mergeLogic";
 import FilmBlock from "@/components/studio/timeline/FilmBlock";
 import MediaThumb from "./MediaThumb";
 import { SOURCE_RU } from "./MergeTimeline";
-import { TABS, VSTUDIO_NAV, addRefusal, formatDuration, type AddRefusal } from "./mergeLogic";
+import UploadPanel, { useUploadBadge, type UploadPanelProps } from "./UploadPanel";
+import { TABS, VSTUDIO_NAV, addRefusal, fillText, formatDuration, type AddPlace, type AddRefusal } from "./mergeLogic";
+import { formatMb, numberLocale, uploadExpiry } from "./uploadLogic";
 import type { MergeLimits, MergeSourceCard, MergeTab } from "./mergeTypes";
 import type { SourcesState } from "./useMerge";
 
 /**
- * Выбор роликов для склейки: вкладки «Видеостудия / Мультстудия / Чат» и
- * сетка своих готовых видео с длительностью и «+ Добавить». Один ролик можно
- * добавить несколько раз — значок на карточке говорит, сколько он уже стоит в
- * склейке. Предел (30 фрагментов, 5 минут) гасит кнопку с причиной.
+ * Выбор роликов для склейки: вкладки «Видеостудия / Мультстудия / Чат / Мои
+ * файлы» и сетка готовых видео с длительностью и «+ Добавить» (в конец) или
+ * «В начало». Один ролик можно добавить несколько раз — значок на карточке
+ * говорит, сколько он уже стоит в склейке. Предел (30 фрагментов, 5 минут,
+ * 3 своих видео) гасит кнопку с причиной. «Мои файлы» — ещё и загрузка своего
+ * видео и его удаление.
  */
 
 const TAB_RU: Record<MergeTab, string> = {
   vstudio: "Видеостудия",
   cartoon: "Мультстудия",
   chat: "Чат",
+  upload: "Мои файлы",
+};
+
+/** «Мои файлы»: загрузка (UploadPanel) и удаление своих видео. */
+export type PickerUploads = Omit<UploadPanelProps, "buttonId"> & {
+  /** id видео, которые сейчас удаляются. */
+  deleting: readonly string[];
+  /** Почему не удалилось — показываем на той же карточке. */
+  deleteError: { id: string; text: TextSpec } | null;
+  onDismissDeleteError: () => void;
+  onDelete: (card: MergeSourceCard) => void;
 };
 
 export type SourcePickerProps = {
@@ -43,12 +71,17 @@ export type SourcePickerProps = {
   sources: Record<MergeTab, SourcesState>;
   /** Уже в склейке: «тип:id» → сколько раз. */
   counts: Map<string, number>;
-  items: { duration_s: number | null }[];
+  items: { duration_s: number | null; type?: string }[];
   limits: MergeLimits;
+  /** Своих видео в одной склейке. */
+  maxUploads: number;
   onTab: (tab: MergeTab) => void;
-  onAdd: (card: MergeSourceCard) => void;
+  onAdd: (card: MergeSourceCard, place: AddPlace) => void;
   onMore: (tab: MergeTab) => void;
   onReload: (tab: MergeTab) => void;
+  uploads: PickerUploads;
+  /** id кнопки «Загрузить видео» — туда уходит фокус, когда удалённая карточка исчезла. */
+  uploadButtonId: string;
   /** Заголовок секции (на компьютере — колонка слева, на телефоне — своя вкладка). */
   headingId: string;
 };
@@ -59,16 +92,23 @@ export default function SourcePicker({
   counts,
   items,
   limits,
+  maxUploads,
   onTab,
   onAdd,
   onMore,
   onReload,
+  uploads,
+  uploadButtonId,
   headingId,
 }: SourcePickerProps) {
-  const { t } = useTranslation("vstudio", { useSuspense: false });
+  const { t, i18n } = useTranslation("vstudio", { useSuspense: false });
   const panelId = useId();
   const state = sources[tab];
+  const locale = numberLocale(apiLang(i18n.language));
   const tabLabel = (x: MergeTab) => t(`merge.tab.${x}`, { defaultValue: TAB_RU[x] });
+  // Загрузка идёт сама по себе: открыта другая вкладка — ход и итог видны на ярлыке «Мои файлы».
+  const badge = useUploadBadge(uploads.upload, Boolean(uploads.error));
+  const uploadBadge = tab === "upload" ? null : badge;
 
   // ←/→ по вкладкам, как у переключателя «Видео / Картинка».
   const onTabKey = (e: KeyboardEvent<HTMLButtonElement>, index: number) => {
@@ -87,7 +127,7 @@ export default function SourcePicker({
             {t("merge.picker.title", { defaultValue: "Ваши видео" })}
           </h2>
           <p className={vx(VS_SUB, "mt-0.5 text-[13px]")}>
-            {t("merge.picker.sub", { defaultValue: "Готовые ролики из студий и чата" })}
+            {t("merge.picker.sub", { defaultValue: "Готовые ролики из студий и чата или свои файлы" })}
           </p>
         </div>
         <button
@@ -102,7 +142,12 @@ export default function SourcePicker({
         </button>
       </div>
 
-      <div role="tablist" aria-label={t("merge.picker.tabs", { defaultValue: "Откуда взять видео" })} className={vx("grid grid-cols-3 gap-1 rounded-full p-1", VS_SEG_TRACK)}>
+      {/* Четыре вкладки в ряд не помещаются в узкую колонку (телефон, колонка с 1024 px) — там два ряда. */}
+      <div
+        role="tablist"
+        aria-label={t("merge.picker.tabs", { defaultValue: "Откуда взять видео" })}
+        className={vx("grid grid-cols-2 gap-1 rounded-[24px] p-1 sm:grid-cols-4 sm:rounded-full lg:grid-cols-2 lg:rounded-[24px]", VS_SEG_TRACK)}
+      >
         {TABS.map((x, i) => {
           const on = x === tab;
           return (
@@ -123,12 +168,24 @@ export default function SourcePicker({
               )}
             >
               {tabLabel(x)}
+              {x === "upload" && uploadBadge && (
+                <span className={vx("tabular-nums", uploadBadge.failed ? "text-status-fail" : "text-muted-2")}>
+                  {` · ${uploadBadge.text}`}
+                </span>
+              )}
             </button>
           );
         })}
       </div>
 
-      <div id={panelId} role="tabpanel" aria-labelledby={`${panelId}-tab-${tab}`} aria-busy={state.loading || undefined}>
+      <div
+        id={panelId}
+        role="tabpanel"
+        aria-labelledby={`${panelId}-tab-${tab}`}
+        aria-busy={state.loading || undefined}
+        className="flex flex-col gap-3"
+      >
+        {tab === "upload" && <UploadPanel {...uploads} buttonId={uploadButtonId} />}
         {!state.loaded && state.loading ? (
           <PickerSkeleton />
         ) : state.failed && state.items.length === 0 ? (
@@ -140,26 +197,53 @@ export default function SourcePicker({
             </button>
           </div>
         ) : state.items.length === 0 ? (
-          <EmptyTab tab={tab} />
+          // У «Моих файлов» пустое место уже занимает зона загрузки.
+          tab === "upload" ? null : <EmptyTab tab={tab} />
         ) : (
           <>
             <ul className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 lg:grid-cols-2">
-              {state.items.map((card) => (
-                <SourceCard
-                  key={`${card.type}:${card.id}`}
-                  card={card}
-                  count={counts.get(`${card.type}:${card.id}`) ?? 0}
-                  refusal={addRefusal(items, card, limits)}
-                  onAdd={() => onAdd(card)}
-                />
-              ))}
+              {state.items.map((card) => {
+                const count = counts.get(`${card.type}:${card.id}`) ?? 0;
+                return (
+                  <SourceCard
+                    key={`${card.type}:${card.id}`}
+                    card={card}
+                    count={count}
+                    refusal={addRefusal(items, card, limits, maxUploads)}
+                    canStart={items.length > 0}
+                    locale={locale}
+                    onAdd={(place) => onAdd(card, place)}
+                    deleting={card.type === "upload" && uploads.deleting.includes(card.id)}
+                    deleteError={uploads.deleteError?.id === card.id ? uploads.deleteError.text : null}
+                    onDismissDeleteError={uploads.onDismissDeleteError}
+                    onDelete={
+                      card.type === "upload"
+                        ? () => {
+                            const title = card.title.trim() || t("merge.untitled", { defaultValue: "Без названия" });
+                            const ask =
+                              count > 0
+                                ? t("merge.upload.deleteConfirmUsed", {
+                                    defaultValue: "Удалить видео «{{title}}»? Оно стоит в этой склейке — там станет недоступным.",
+                                    title,
+                                  })
+                                : t("merge.upload.deleteConfirm", {
+                                    defaultValue: "Удалить видео «{{title}}»? Вернуть его будет нельзя.",
+                                    title,
+                                  });
+                            if (window.confirm(ask)) uploads.onDelete(card);
+                          }
+                        : undefined
+                    }
+                  />
+                );
+              })}
             </ul>
             {state.hasMore && (
               <button
                 type="button"
                 onClick={() => onMore(tab)}
                 disabled={state.loading}
-                className={vx(VS_BTN_GHOST, "mx-auto mt-4 flex")}
+                className={vx(VS_BTN_GHOST, "mx-auto mt-1 flex")}
               >
                 {state.loading ? (
                   <FiLoader className="animate-spin motion-reduce:animate-none" aria-hidden="true" />
@@ -180,14 +264,31 @@ function SourceCard({
   card,
   count,
   refusal,
+  canStart,
+  locale,
   onAdd,
+  deleting = false,
+  deleteError = null,
+  onDismissDeleteError,
+  onDelete,
 }: {
   card: MergeSourceCard;
   count: number;
   refusal: AddRefusal | null;
-  onAdd: () => void;
+  /** «В начало» — только когда в склейке уже что-то есть: в пустую это то же, что «в конец». */
+  canStart: boolean;
+  locale: string;
+  onAdd: (place: AddPlace) => void;
+  deleting?: boolean;
+  /** Почему своё видео не удалилось. */
+  deleteError?: TextSpec | null;
+  onDismissDeleteError?: () => void;
+  /** Своё видео: «Удалить» на кадре. */
+  onDelete?: () => void;
 }) {
   const { t } = useTranslation("vstudio", { useSuspense: false });
+  // Ролик играет прямо на карточке — корзина не закрывает угол плеера (там громкость на iPhone).
+  const [playing, setPlaying] = useState(false);
   const title = card.title.trim() || t("merge.untitled", { defaultValue: "Без названия" });
   const vertical = Boolean(card.width && card.height && card.height > card.width);
   // Почему добавить нельзя: коротко на кнопке, полностью — в подсказке и для диктора.
@@ -196,6 +297,11 @@ function SourceCard({
     off = {
       short: t("merge.picker.full", { defaultValue: "Уже {{max}}", max: refusal.max }),
       full: t("merge.err.too_many_fragments", { defaultValue: "Можно склеить не больше {{max}} фрагментов.", max: refusal.max }),
+    };
+  } else if (refusal?.code === "too_many_uploads") {
+    off = {
+      short: t("merge.picker.uploadsFull", { defaultValue: "Уже {{max}} своих", max: refusal.max }),
+      full: t("merge.err.too_many_uploads", { defaultValue: "В одной склейке — не больше {{max}} своих видео.", max: refusal.max }),
     };
   } else if (refusal?.code === "too_long") {
     off = {
@@ -212,12 +318,32 @@ function SourceCard({
     };
   }
   const addLabel = t("merge.picker.add", { defaultValue: "Добавить" });
+  const toEnd = t("merge.picker.toEndHint", { defaultValue: "Добавить в конец склейки" });
+  const startLabel = t("merge.picker.toStart", { defaultValue: "В начало" });
+  const toStart = t("merge.picker.toStartHint", { defaultValue: "Добавить в начало склейки" });
   const inMerge = t("merge.picker.inMerge", { defaultValue: "В склейке: {{n}}", n: count });
+  const deleteLabel = t("merge.upload.delete", { defaultValue: "Удалить видео" });
+  // Своё видео: вместо подписи — размер, «без звука» (склеится с тишиной) и до какого числа хранится.
+  const facts =
+    card.type === "upload"
+      ? [
+          typeof card.size_bytes === "number" ? t("merge.upload.size", { defaultValue: "{{n}} МБ", n: formatMb(card.size_bytes, locale) }) : "",
+          card.has_audio === false ? t("merge.upload.noAudio", { defaultValue: "без звука" }) : "",
+        ]
+          .filter(Boolean)
+          .join(" · ")
+      : card.subtitle;
+  const expiry = card.type === "upload" ? uploadExpiry(card.expires_at) : null;
+  const deleteText = deleteError
+    ? deleteError.key
+      ? t(deleteError.key, { defaultValue: deleteError.ru, ...deleteError.params })
+      : fillText(deleteError.ru, deleteError.params)
+    : "";
 
   return (
-    <li className={vx(VS_CARD, "flex min-w-0 flex-col overflow-hidden")}>
+    <li className={vx(VS_CARD, "flex min-w-0 flex-col overflow-hidden", deleting && "opacity-60")}>
       <div className="relative aspect-video">
-        <MediaThumb poster={card.poster} url={card.url} title={title} vertical={vertical} />
+        <MediaThumb poster={card.poster} url={card.url} title={title} vertical={vertical} onPlayingChange={setPlaying} />
         {card.duration_s != null && (
           <span className={vx(VS_ON_MEDIA, "pointer-events-none absolute bottom-1.5 right-1.5 tabular-nums")}>
             {formatDuration(card.duration_s)}
@@ -230,6 +356,28 @@ function SourceCard({
             <span className="sr-only">{inMerge}</span>
           </span>
         )}
+        {onDelete && !playing && (
+          // Поверх кадра — чёрно-белое в любой теме, как кнопка ▶.
+          <button
+            type="button"
+            onClick={() => {
+              if (!deleting) onDelete();
+            }}
+            aria-disabled={deleting || undefined}
+            aria-label={`${deleteLabel}: ${title}`}
+            title={deleteLabel}
+            className={vx(
+              "absolute right-1.5 top-1.5 grid size-9 cursor-pointer place-items-center rounded-full bg-black/55 text-white transition-colors hover:bg-black/75 hover:text-status-fail before:absolute before:-inset-1 motion-reduce:transition-none",
+              VS_FOCUS,
+            )}
+          >
+            {deleting ? (
+              <FiLoader className="size-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+            ) : (
+              <FiTrash2 className="size-4" aria-hidden="true" />
+            )}
+          </button>
+        )}
       </div>
       <div className="flex min-w-0 flex-1 flex-col gap-1 p-2 sm:p-2.5">
         {/* «Мультстудия» отдаёт и целые мультфильмы, и их сцены: без метки легко взять фильм вместе с его же сценами. */}
@@ -241,33 +389,78 @@ function SourceCard({
         <p className="line-clamp-2 text-[13px] font-medium leading-snug text-foreground" title={title}>
           {title}
         </p>
-        {card.subtitle && <p className="truncate text-[11px] text-muted-2">{card.subtitle}</p>}
-        <button
-          type="button"
-          onClick={() => {
-            if (!off) onAdd();
-          }}
-          aria-disabled={off ? true : undefined}
-          title={off?.full ?? addLabel}
-          className={vx(
-            CS_CARD_BTN,
-            "mt-auto",
-            off ? "!cursor-not-allowed opacity-60 hover:!border-vs-ink/12 hover:!bg-vs-ink/[0.05]" : "hover:!border-vs-accent/45",
-          )}
-        >
-          {off ? (
-            <>
-              <span className="truncate">{off.short}</span>
-              <span className="sr-only">. {off.full}</span>
-            </>
-          ) : (
-            <>
-              <FiPlus className="shrink-0 text-vs-accent" aria-hidden="true" />
-              <span className="truncate">{addLabel}</span>
+        {(facts || expiry) && (
+          <p className="truncate text-[11px] text-muted-2">
+            {facts}
+            {expiry && (
+              // Черновик срок не продлевает: видео, которому осталось три дня, скоро станет недоступным.
+              <span className={expiry.soon ? "text-status-wait" : undefined}>
+                {facts ? " · " : ""}
+                <span aria-hidden="true">{t("merge.upload.until", { defaultValue: "до {{date}}", date: expiry.date })}</span>
+                <span className="sr-only">{t("merge.until", { defaultValue: "Хранится до {{date}}", date: expiry.date })}</span>
+              </span>
+            )}
+          </p>
+        )}
+        {deleteText && (
+          <div role="alert" className="flex items-start gap-1.5 text-[11px] leading-snug text-status-fail">
+            <p className="min-w-0 flex-1 break-words">{deleteText}</p>
+            <button
+              type="button"
+              onClick={onDismissDeleteError}
+              aria-label={t("merge.closeError", { defaultValue: "Скрыть" })}
+              title={t("merge.closeError", { defaultValue: "Скрыть" })}
+              className={vx(
+                "relative -mr-1 grid size-6 shrink-0 cursor-pointer place-items-center rounded-full hover:bg-status-fail/15 before:absolute before:-inset-2.5",
+                VS_FOCUS,
+              )}
+            >
+              <FiX className="size-3.5" aria-hidden="true" />
+            </button>
+          </div>
+        )}
+        {/* «+ Добавить» — в конец, главное действие; «В начало» — рядом: на телефоне и планшете с подписью,
+            в узкой колонке компьютера (с 1024 px) значком. */}
+        <div className="mt-auto flex min-w-0 flex-col gap-1.5 lg:flex-row">
+          <button
+            type="button"
+            onClick={() => {
+              if (!off) onAdd("end");
+            }}
+            aria-disabled={off ? true : undefined}
+            title={off?.full ?? toEnd}
+            className={vx(
+              CS_CARD_BTN,
+              "min-w-0 lg:flex-1",
+              off ? "!cursor-not-allowed opacity-60 hover:!border-vs-ink/12 hover:!bg-vs-ink/[0.05]" : "hover:!border-vs-accent/45",
+            )}
+          >
+            {off ? (
+              <>
+                <span className="truncate">{off.short}</span>
+                <span className="sr-only">. {off.full}</span>
+              </>
+            ) : (
+              <>
+                <FiPlus className="shrink-0 text-vs-accent" aria-hidden="true" />
+                <span className="truncate">{addLabel}</span>
+                <span className="sr-only">: {title}</span>
+              </>
+            )}
+          </button>
+          {!off && canStart && (
+            <button
+              type="button"
+              onClick={() => onAdd("start")}
+              title={toStart}
+              className={vx(CS_CARD_BTN, "min-w-0 hover:!border-vs-accent/45 lg:!w-9 lg:shrink-0 lg:!px-0")}
+            >
+              <FiChevronsUp className="shrink-0 text-vs-accent" aria-hidden="true" />
+              <span className="truncate lg:sr-only">{startLabel}</span>
               <span className="sr-only">: {title}</span>
-            </>
+            </button>
           )}
-        </button>
+        </div>
       </div>
     </li>
   );

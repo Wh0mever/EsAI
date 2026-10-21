@@ -2,9 +2,11 @@
  * «Склейка видео»: обёртки над /api/merge/ (CONTRACT_M.md). Ходят через
  * fetchData и никогда не бросают: ответ — VsResult той же формы, что у
  * видеостудии (error_code из тела, русский текст сервера в message).
+ * Загрузка своего видео — через XHR: у fetch нет прогресса отправки.
  */
-import { fetchData } from "@/tools/fetchData";
-import { toResult } from "@/lib/vstudio/errors";
+import Cookies from "js-cookie";
+import { API, ensureAccess, fetchData, getToken } from "@/tools/fetchData";
+import { abortedError, toResult } from "@/lib/vstudio/errors";
 import type { VsResult } from "@/lib/vstudio/types";
 import { isUid } from "./mergeLogic";
 import type {
@@ -15,6 +17,8 @@ import type {
   MergeRenderBody,
   MergeSourcesPage,
   MergeTab,
+  MergeUploadCard,
+  MergeUploadList,
 } from "./mergeTypes";
 
 const M = "merge/";
@@ -37,8 +41,8 @@ function withLang(endpoint: string, lang?: string): string {
 }
 
 /** Кривой id в запрос не уходит: адрес с ним не совпал бы ни с одним маршрутом. */
-function notFound<T>(): VsResult<T> {
-  return { ok: false, status: 404, error: { status: 404, code: "project_not_found", message: "", data: {} } };
+function notFound<T>(code = "project_not_found"): VsResult<T> {
+  return { ok: false, status: 404, error: { status: 404, code, message: "", data: {} } };
 }
 
 export function getConfig(): Promise<VsResult<MergeConfig>> {
@@ -77,4 +81,126 @@ export function renderProject(id: string, body: MergeRenderBody, lang?: string):
   return isUid(id)
     ? call<MergeProject>(withLang(`${M}${id}/render/`, lang), "POST", body)
     : Promise.resolve(notFound<MergeProject>());
+}
+
+/* ---------- свои видео (CONTRACT_M.md §9) ---------- */
+
+/** «Мои файлы»: все свои видео (до 10), занятое место и пределы. */
+export function listUploads(lang?: string): Promise<VsResult<MergeUploadList>> {
+  return call<MergeUploadList>(withLang(`${M}uploads/`, lang), "GET");
+}
+
+/** 204; чужое или уже удалённое — 404 upload_not_found, идёт его склейка — 409 upload_in_use. */
+export function deleteUpload(id: string): Promise<VsResult<null>> {
+  return isUid(id)
+    ? call<null>(`${M}uploads/${id}/`, "DELETE", undefined, true)
+    : Promise.resolve(notFound<null>("upload_not_found"));
+}
+
+export type UploadPhase = "upload" | "processing";
+
+export type UploadVideoOptions = {
+  /** Имя для сервера (uploadName): с расширением, даже если у файла его не было. */
+  filename?: string;
+  lang?: string;
+  /** pct 0…100; processing — байты ушли, сервер проверяет видео и делает обложку. */
+  onProgress?: (pct: number, phase: UploadPhase) => void;
+  signal?: AbortSignal;
+};
+
+function parseJson(text: string): unknown {
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
+}
+
+function readCsrf(): string | undefined {
+  try {
+    return Cookies.get("csrftoken") || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function sendUpload(file: Blob, opts: UploadVideoOptions): Promise<VsResult<MergeUploadCard>> {
+  const { filename, lang, onProgress, signal } = opts;
+  const form = new FormData();
+  const name = filename || (typeof File !== "undefined" && file instanceof File && file.name ? file.name : "video.mp4");
+  form.append("file", file, name);
+
+  return new Promise<VsResult<MergeUploadCard>>((resolve) => {
+    const xhr = new XMLHttpRequest();
+    let settled = false;
+    const done = (r: VsResult<MergeUploadCard>) => {
+      if (settled) return;
+      settled = true;
+      signal?.removeEventListener("abort", onAbort);
+      resolve(r);
+    };
+    const onAbort = () => {
+      try {
+        xhr.abort();
+      } catch {
+        /* уже закрыт */
+      }
+      done({ ok: false, status: 0, error: abortedError() });
+    };
+    const finish = (status: number, text: string) => {
+      // Больше 95 МБ до Django не доходит: nginx (и Cloudflare) отвечают 413 своей HTML-страницей.
+      if (status === 413) {
+        done({ ok: false, status, error: { status, code: "upload_too_big", message: "", data: { max_mb: 90 } } });
+        return;
+      }
+      done(toResult<MergeUploadCard>({ ok: status >= 200 && status < 300, status, data: parseJson(text) }));
+    };
+
+    xhr.open("POST", `${API}${withLang(`${M}uploads/`, lang)}`, true);
+    xhr.setRequestHeader("Accept", "application/json");
+    xhr.setRequestHeader("X-Requested-With", "XMLHttpRequest");
+    const token = getToken("access");
+    if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+    const csrf = readCsrf();
+    if (csrf) xhr.setRequestHeader("X-CSRFToken", csrf);
+
+    if (xhr.upload) {
+      xhr.upload.onprogress = (e: ProgressEvent) => {
+        if (e.lengthComputable && e.total > 0) {
+          onProgress?.(Math.min(99, Math.floor((e.loaded / e.total) * 100)), "upload");
+        }
+      };
+      xhr.upload.onload = () => onProgress?.(100, "processing");
+    }
+    xhr.onload = () => finish(xhr.status, xhr.responseText);
+    xhr.onerror = () => finish(0, "");
+    xhr.ontimeout = () => finish(0, "");
+    xhr.onabort = () => done({ ok: false, status: 0, error: abortedError() });
+    signal?.addEventListener("abort", onAbort);
+
+    onProgress?.(0, "upload");
+    xhr.send(form);
+  });
+}
+
+/**
+ * POST uploads/ (multipart, поле file) → 201 карточка. Токен проверяем прямо
+ * перед отправкой. Сервер видит запрос только целиком: если токен всё же
+ * истёк, пока 90 МБ шли по медленной сети, — обновляем и шлём ещё раз, один.
+ */
+export async function uploadVideo(file: Blob, opts: UploadVideoOptions = {}): Promise<VsResult<MergeUploadCard>> {
+  const unauthorized: VsResult<MergeUploadCard> = {
+    ok: false,
+    status: 401,
+    error: { status: 401, code: "unauthorized", message: "", data: {} },
+  };
+  if (opts.signal?.aborted) return { ok: false, status: 0, error: abortedError() };
+  if (!(await ensureAccess())) return unauthorized;
+  const token = getToken("access");
+  const first = await sendUpload(file, opts);
+  if (first.ok || first.status !== 401 || opts.signal?.aborted) return first;
+  // Токен тот же — второй раз будет тот же отказ.
+  if (!(await ensureAccess()) || getToken("access") === token) return first;
+  return sendUpload(file, opts);
 }

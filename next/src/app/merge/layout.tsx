@@ -6,11 +6,11 @@ import { SITE_NAME, SITE_URL } from "@/lib/seo/site";
 export const metadata: Metadata = {
 	title: "Склейка видео — EsAI",
 	description:
-		"Соберите готовые ролики из видеостудии, мультстудии и чата EsAI в одно видео: выберите фрагменты, расставьте по порядку и скачайте.",
+		"Соберите в одно видео готовые ролики из видеостудии, мультстудии и чата EsAI или свои файлы: выберите фрагменты, расставьте по порядку и скачайте.",
 	alternates: { canonical: `${SITE_URL}/merge` },
 	openGraph: {
 		title: "Склейка видео — EsAI",
-		description: "Готовые ролики из студий и чата EsAI — в одно видео.",
+		description: "Готовые ролики из студий и чата EsAI и свои файлы — в одно видео.",
 		url: `${SITE_URL}/merge`,
 		siteName: SITE_NAME,
 		type: "website",

@@ -778,7 +778,7 @@
 	},
 	"merge": {
 		"name": "Video merge",
-		"sub": "Join your finished videos from the Video Studio, Cartoon Studio and chat into one: pick the clips, put them in order and download.",
+		"sub": "Join your finished videos from the Video Studio, Cartoon Studio and chat, or your own files, into one: pick the clips, put them in order and download.",
 		"new": "New merge",
 		"title_default": "Merge {{date}}",
 		"untitled": "Untitled",
@@ -786,6 +786,7 @@
 		"closeError": "Hide",
 		"openActive": "Open the running merge",
 		"added": "Added: {{title}}",
+		"addedStart": "Added to the start: {{title}}",
 		"preview": "Watch: {{title}}",
 		"view": "What to show",
 		"viewTimeline": "Merge",
@@ -826,12 +827,12 @@
 		},
 		"guest": {
 			"title": "Sign in to merge videos",
-			"text": "Video merge joins your finished videos — from the Video Studio, Cartoon Studio and chat — into one.",
+			"text": "Video merge joins your finished videos from the Video Studio, Cartoon Studio and chat, as well as your own files, into one.",
 			"price": "It costs {{price}} cr — credits are charged only for a finished video."
 		},
 		"picker": {
 			"title": "Your videos",
-			"sub": "Finished videos from the studios and chat",
+			"sub": "Finished videos from the studios and chat, or your own files",
 			"reload": "Refresh the list",
 			"tabs": "Where to take videos from",
 			"failed": "Couldn't load the videos",
@@ -846,12 +847,44 @@
 			"emptyCartoon": "Shot scenes and assembled cartoons will appear here.",
 			"emptyChat": "Videos created in the chat since 21 September will appear here.",
 			"toVstudio": "Open the Video Studio",
-			"toCartoon": "Open the Cartoon Studio"
+			"toCartoon": "Open the Cartoon Studio",
+			"uploadsFull": "Max {{max}} uploads",
+			"toStart": "To start",
+			"toStartHint": "Add to the start of the merge",
+			"toEndHint": "Add to the end of the merge"
+		},
+		"upload": {
+			"drop": "Drag a video here or choose a file",
+			"pick": "A video from your gallery or files",
+			"button": "Upload video",
+			"limits": "MP4, MOV or WebM · up to {{n}} of your videos per merge · up to {{mb}} MB · up to {{sec}} s",
+			"usage": "Uploaded: {{files}} of {{maxFiles}} · {{used}} of {{maxMb}} MB · kept for {{days}} days",
+			"checking": "Checking the file…",
+			"processing": "Checking the video — this takes a few seconds…",
+			"sending": "Uploading… {{pct}}%",
+			"sendingSr": "Uploading the video",
+			"cancel": "Cancel",
+			"cancelled": "Upload cancelled",
+			"done": "Video uploaded: {{title}}. Add it to the start or the end of the merge.",
+			"fallbackName": "Video",
+			"delete": "Delete video",
+			"deleteConfirm": "Delete the video “{{title}}”? It can't be restored.",
+			"deleteConfirmUsed": "Delete the video “{{title}}”? It's in this merge and will become unavailable there.",
+			"deleted": "Video deleted: {{title}}",
+			"size": "{{n}} MB",
+			"noAudio": "no sound",
+			"until": "until {{date}}",
+			"onlyFirst": "Videos upload one at a time: “{{name}}” was taken. Add the others after it.",
+			"retry": "Retry",
+			"badgePct": "{{pct}}%",
+			"badgeChecking": "checking",
+			"badgeFailed": "error"
 		},
 		"tab": {
 			"vstudio": "Video Studio",
 			"cartoon": "Cartoon Studio",
-			"chat": "Chat"
+			"chat": "Chat",
+			"upload": "My files"
 		},
 		"tl": {
 			"title": "Clip order",
@@ -867,13 +900,15 @@
 			"removed": "“{{title}}” removed from the merge",
 			"number": "Clip {{n}}:",
 			"unavailable": "Video unavailable — remove it from the merge",
-			"unsaved": "Changes not saved"
+			"unsaved": "Changes not saved",
+			"unavailableReady": "This video is gone — “Edit and merge again” will leave it out"
 		},
 		"source": {
 			"vstudio": "Video Studio",
 			"cartoon_scene": "Cartoon scene",
 			"cartoon_movie": "Cartoon",
-			"chat": "Chat"
+			"chat": "Chat",
+			"upload": "Your video"
 		},
 		"rail": {
 			"title": "My merges",
@@ -932,7 +967,24 @@
 			"storage_unavailable": "Merging is unavailable right now: the server is short on space. Try later — no credits were charged.",
 			"method_not_allowed": "This request isn't supported here.",
 			"server_error": "Something went wrong. Please try again.",
-			"network": "No connection to the server. Check your internet and try again."
+			"network": "No connection to the server. Check your internet and try again.",
+			"too_many_uploads": "A merge can include up to {{max}} of your own videos.",
+			"bad_request_file": "Choose a video to upload.",
+			"upload_too_big": "The file is larger than 90 MB. Compress or trim the video and upload it again.",
+			"upload_bad_type": "Only MP4, MOV or WebM videos are supported.",
+			"upload_unreadable": "The file can't be read — it may be damaged. Choose another video.",
+			"upload_no_video": "The file has no suitable video: it needs one H.264, HEVC, VP8, VP9, AV1 or MPEG-4 video track.",
+			"upload_too_short": "The video is shorter than half a second — it can't be merged.",
+			"upload_too_long": "The video is longer than 60 seconds. Trim it and upload it again.",
+			"upload_resolution": "The frame is larger than 4096 pixels on a side. Lower the resolution and upload it again.",
+			"upload_quota": "Your space for own videos is full: up to 10 files and 600 MB are kept. Delete old ones in “My files” and upload again.",
+			"upload_unavailable": "Uploading is unavailable right now: the server is low on space. Try again later.",
+			"upload_not_found": "Video not found.",
+			"upload_in_use": "This video is being merged right now — you can delete it once that's done.",
+			"upload_frame_rate": "The video has more than 120 frames per second, so it can't be merged. Save it at 30 or 60 fps and upload it again.",
+			"upload_busy": "Another video is already uploading. Wait for it to finish, then upload the next one.",
+			"upload_throttled": "Too many uploads this hour — you can upload the next one in {{min}} min.",
+			"copy_dropped": "Clips that no longer exist were left out of the new merge: {{n}}."
 		},
 		"fail": {
 			"fragment_unreadable": "Clip #{{n}} can't be read — remove it from the merge and try again.",

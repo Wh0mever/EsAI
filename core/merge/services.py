@@ -25,9 +25,10 @@ from django.utils import timezone
 
 from . import render as ffmpeg
 from .config import (ASPECTS, DEFAULT_TITLE, FITS, MAX_FRAGMENTS, MAX_PROJECTS, MAX_READY,
-                     MAX_TOTAL_S, MIN_FRAGMENTS, RETENTION_DAYS, localized, price_credits)
+                     MAX_TOTAL_S, MIN_FRAGMENTS, RETENTION_DAYS, UPLOAD_MAX_PER_PROJECT, localized,
+                     price_credits)
 from .models import ACTIVE, DELETABLE, EDITABLE, MergeProject
-from .sources import TYPES, local_path, resolve, valid_id
+from .sources import TYPE_UPLOAD, TYPES, local_path, resolve, valid_id
 from .storage import (delete_files, ensure_user_dir, result_names, save_file, storage_ready)
 
 logger = logging.getLogger(__name__)
@@ -50,6 +51,10 @@ QUEUE_TIMEOUT = timedelta(hours=2)
 # Живая склейка не может идти дольше жёсткого лимита задачи.
 STALE_RENDER_AFTER = timedelta(seconds=RENDER_HARD_LIMIT) + timedelta(minutes=5)
 
+# Свои видео в запущенной склейке живут не меньше суток: очередь (до 2 ч) и
+# работа (до 26 мин) не должны пересечься с уборкой истёкших загрузок.
+UPLOAD_RENDER_HOLD = timedelta(days=1)
+
 # Уборка истёкших: пачка и потолок пачек за один запуск (задача — до 5 минут).
 PURGE_BATCH = 500
 PURGE_MAX_BATCHES = 200
@@ -63,6 +68,7 @@ MSG_BAD_ASPECT = "Формат склейки: 16:9, 9:16 или 1:1."
 MSG_BAD_FIT = "Заполнение кадра: pad (поля) или crop (обрезать)."
 MSG_TOO_MANY = "Можно склеить не больше {max} фрагментов."
 MSG_TOO_FEW = "Добавьте хотя бы {min} фрагмента, чтобы склеить."
+MSG_TOO_MANY_UPLOADS = "В одной склейке — не больше {max} своих видео."
 MSG_UNAVAILABLE = ("Фрагмент №{n} недоступен: видео не найдено, удалено или ещё не готово. "
                    "Уберите его из склейки.")
 MSG_UNREADABLE = "Фрагмент №{n} не читается — уберите его из склейки."
@@ -143,7 +149,12 @@ def parse_items(raw) -> list[tuple[str, str]]:
 
 def check_sources(user, refs, *, lang: str = "ru") -> list:
     """Источники по порядку: свои, готовые, с файлом и известной длиной, вместе
-    не длиннее MAX_TOTAL_S. Бросает MergeError (400)."""
+    не длиннее MAX_TOTAL_S, своих видео — не больше UPLOAD_MAX_PER_PROJECT.
+    Бросает MergeError (400)."""
+    if sum(1 for kind, _ in refs if kind == TYPE_UPLOAD) > UPLOAD_MAX_PER_PROJECT:
+        # Каждое своё видео — до минуты 4K с телефона: на двух ядрах это минуты работы.
+        raise MergeError("too_many_uploads", MSG_TOO_MANY_UPLOADS.format(max=UPLOAD_MAX_PER_PROJECT),
+                         max=UPLOAD_MAX_PER_PROJECT)
     found = resolve(user, refs, lang=lang)
     out = []
     for index, key in enumerate(refs):
@@ -456,7 +467,10 @@ def start_render(user, uid, data: dict | None = None, *, lang: str = "ru") -> tu
                 raise MergeError(refusal.pop("error_code"), refusal.pop("error"), 402, **refusal)
 
         now = timezone.now()
+        from .uploads import hold, upload_ids
+
         project.items = snapshot(sources)
+        hold(locked.pk, upload_ids(project.items), now + UPLOAD_RENDER_HOLD)
         project.status = MergeProject.STATUS_QUEUED
         project.credits_reserved = price
         project.credits_charged = 0
@@ -496,18 +510,20 @@ def _progress(mine):
     return report
 
 
-def _materialize(sources, workdir: str) -> list[str]:
-    """Пути к файлам фрагментов: на локальном диске — сами файлы, иначе копия."""
+def _materialize(sources, workdir: str) -> list:
+    """Файлы фрагментов: на локальном диске — сами файлы, иначе копия. Своё
+    видео человека — render.Input с демуксером: ffmpeg читает его строго."""
     from django.core.files.storage import default_storage
 
     paths = []
     for index, source in enumerate(sources):
         path = local_path(source.file)
         if path is None:
-            path = os.path.join(workdir, f"src{index:03d}.mp4")
+            ext = os.path.splitext(source.file)[1] or ".mp4"
+            path = os.path.join(workdir, f"src{index:03d}{ext}")
             with default_storage.open(source.file, "rb") as src, open(path, "wb") as dst:
                 shutil.copyfileobj(src, dst, 1024 * 1024)
-        paths.append(path)
+        paths.append(ffmpeg.Input(path, source.input_format) if source.input_format else path)
     return paths
 
 
@@ -554,12 +570,18 @@ def _finish(project_pk: int, user_id: int, started, *, video: str, poster: str,
         charged, _partial = charge(user, row.credits_reserved,
                                    {"merge": row.uid, "fragments": fragments,
                                     "duration_s": round(duration, 1)})
+        expires = now + timedelta(days=RETENTION_DAYS)
         MergeProject.objects.filter(pk=row.pk).update(
             status=MergeProject.STATUS_READY, result_video=video, poster=poster,
             duration_s=round(duration, 3), credits_charged=charged, credits_reserved=0,
-            expires_at=now + timedelta(days=RETENTION_DAYS), finished_at=now, error="",
+            expires_at=expires, finished_at=now, error="",
             error_code="", error_fragment=None, progress_stage="", progress_done=fragments,
             progress_total=fragments, updated_at=now)
+        # Свои видео готовой склейки хранятся, пока хранится она сама: её
+        # фрагменты остаются видны, и «склеить заново» не упрётся в пустоту.
+        from .uploads import hold, upload_ids
+
+        hold(user_id, upload_ids(row.items), expires)
     return charged
 
 

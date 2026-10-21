@@ -3,19 +3,23 @@
 import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { PaywallContext } from "@/components/chat/PaywallModal";
-import { paywallContext } from "@/lib/vstudio/errors";
+import { isAborted, paywallContext } from "@/lib/vstudio/errors";
 import type { VsError } from "@/lib/vstudio/types";
 import { apiLang } from "@/lib/apiLang";
 import { ensureAccess } from "@/tools/fetchData";
 import {
   createProject,
   deleteProject,
+  deleteUpload as deleteUploadApi,
   getConfig,
   getProject,
   listProjects,
   listSources,
+  listUploads,
   patchProject,
   renderProject,
+  uploadVideo,
+  type UploadPhase,
 } from "./mergeApi";
 import {
   DEFAULT_LIMITS,
@@ -25,6 +29,7 @@ import {
   addRefusal,
   appendUnique,
   cardToItem,
+  insertItem,
   isActive,
   isAspect,
   isEditable,
@@ -43,11 +48,24 @@ import {
   toLocal,
   totalDuration,
   transientSaveError,
+  type AddPlace,
   type ItemRef,
   type LocalBlock,
   type LocalItem,
   type TextSpec,
 } from "./mergeLogic";
+import {
+  DEFAULT_UPLOAD_LIMITS,
+  precheckFile,
+  precheckMedia,
+  precheckText,
+  probeVideoFile,
+  retryableUpload,
+  uploadErrorCode,
+  uploadErrorText,
+  uploadName,
+} from "./uploadLogic";
+import { MERGE_ERROR_RU } from "./mergeText";
 import type {
   MergeAspect,
   MergeBalance,
@@ -58,6 +76,9 @@ import type {
   MergeProjectBrief,
   MergeSourceCard,
   MergeTab,
+  MergeUploadCard,
+  MergeUploadLimits,
+  MergeUploadUsage,
 } from "./mergeTypes";
 
 /**
@@ -73,6 +94,9 @@ import type {
  * Деньги решает сервер: цена резервируется при запуске и списывается, только
  * когда ролик сохранён. Здесь — только показать цену, спросить подтверждение и
  * открыть пополнение на 402.
+ *
+ * Свои видео («Мои файлы»): загрузка бесплатная, одна за раз, с прогрессом и
+ * отменой; в склейку видео встаёт как любой фрагмент — в начало или в конец.
  */
 
 const SAVE_DEBOUNCE_MS = 600;
@@ -110,6 +134,12 @@ export type EditState = { items: LocalItem[]; aspect: MergeAspect; fit: MergeFit
 
 /** Плашка над лентой: текст и, для «уже идёт другая», ссылка на неё. */
 export type MergeBanner = { text: TextSpec; openId?: string };
+
+/**
+ * Идущая загрузка своего видео: checking — читаем длину и кадр на месте,
+ * upload — байты идут (pct), processing — дошли, сервер проверяет видео.
+ */
+export type UploadState = { name: string; phase: "checking" | UploadPhase; pct: number };
 
 type Prefs = { aspect: MergeAspect; fit: MergeFit; tab: MergeTab | null };
 
@@ -228,7 +258,18 @@ export function useMerge() {
     vstudio: EMPTY_SOURCES,
     cartoon: EMPTY_SOURCES,
     chat: EMPTY_SOURCES,
+    upload: EMPTY_SOURCES,
   });
+  const [uploadLimits, setUploadLimits] = useState<MergeUploadLimits>(DEFAULT_UPLOAD_LIMITS);
+  const [uploadUsage, setUploadUsage] = useState<MergeUploadUsage | null>(null);
+  const [upload, setUpload] = useState<UploadState | null>(null);
+  const [uploadError, setUploadError] = useState<TextSpec | null>(null);
+  /** Файл последней загрузки, которая сорвалась не из-за самого файла: «Повторить» без нового выбора. */
+  const [retryFile, setRetryFile] = useState<File | null>(null);
+  /** Какие свои видео сейчас удаляются (id) — их может быть несколько разом. */
+  const [deletingUploads, setDeletingUploads] = useState<readonly string[]>([]);
+  /** Отказ удаления — на той карточке, где нажали корзину, а не над зоной загрузки. */
+  const [deleteError, setDeleteError] = useState<{ id: string; text: TextSpec } | null>(null);
   const [tab, setTabState] = useState<MergeTab>("vstudio");
   /** Куда вернуть гостя после входа: та же страница, вместе с ?add= из мультстудии. */
   const [returnPath, setReturnPath] = useState(MERGE_PATH);
@@ -255,6 +296,15 @@ export function useMerge() {
   const mountedRef = useRef(false);
   const flushRef = useRef<() => Promise<boolean>>(() => Promise.resolve(true));
   const langRef = useRef(lang);
+  /** Отмена идущей загрузки; есть — значит, загрузка идёт (одна за раз). */
+  const uploadAbort = useRef<AbortController | null>(null);
+  const uploadLimitsRef = useRef(uploadLimits);
+  const uploadUsageRef = useRef(uploadUsage);
+
+  useEffect(() => {
+    uploadLimitsRef.current = uploadLimits;
+    uploadUsageRef.current = uploadUsage;
+  }, [uploadLimits, uploadUsage]);
 
   useEffect(() => {
     langRef.current = lang;
@@ -327,6 +377,7 @@ export function useMerge() {
     setConfig(res.data);
     setPrice(res.data.price_credits);
     if (res.data.limits) setLimits(res.data.limits);
+    if (res.data.uploads) setUploadLimits(res.data.uploads);
     if (res.data.balance) applyBalance(res.data.balance);
   }, [applyBalance]);
 
@@ -352,8 +403,25 @@ export function useMerge() {
     return data;
   }, []);
 
+  /** «Мои файлы» — одним списком (их не больше 10) вместе с занятым местом. */
+  const loadUploads = useCallback(async () => {
+    setSources((s) => ({ ...s, upload: { ...s.upload, loading: true, failed: false } }));
+    const res = await listUploads(lang);
+    setSources((s) => {
+      const cur = s.upload;
+      if (!res.ok) return { ...s, upload: { ...cur, loading: false, loaded: true, failed: true } };
+      return { ...s, upload: { items: res.data.results, page: 1, hasMore: false, loading: false, loaded: true, failed: false } };
+    });
+    if (res.ok) {
+      setUploadUsage(res.data.usage);
+      if (res.data.limits) setUploadLimits(res.data.limits);
+    }
+    return res.ok ? res.data.results.length : 0;
+  }, [lang]);
+
   const loadSources = useCallback(
     async (which: MergeTab, page = 1) => {
+      if (which === "upload") return loadUploads();
       setSources((s) => ({ ...s, [which]: { ...s[which], loading: true, failed: false } }));
       const res = await listSources(which, page, lang);
       setSources((s) => {
@@ -364,7 +432,7 @@ export function useMerge() {
       });
       return res.ok ? res.data.results.length : 0;
     },
-    [lang],
+    [lang, loadUploads],
   );
 
   /* ---------- сохранение ---------- */
@@ -613,21 +681,44 @@ export function useMerge() {
     [commitEdit, commitProject, showError],
   );
 
-  /** Готовую склейку менять нельзя — новая с теми же фрагментами, форматом и заполнением. */
+  /**
+   * Готовую склейку менять нельзя — новая с теми же фрагментами, форматом и
+   * заполнением. Фрагмента, которого больше нет (своё видео удалили, ролик
+   * истёк), в новой не будет: из готовой его не убрать, и отказ сервера был бы
+   * тупиком. Сервер нашёл ещё один пропавший — убираем и его и пробуем снова.
+   */
   const copyProject = useCallback(async () => {
     const p = projectRef.current;
     if (!p) return;
-    const res = await createProject(
-      { aspect: p.aspect, fit: p.fit, items: itemRefs(p.items), title: defaultTitle() },
-      langRef.current,
-    );
-    if (!res.ok) {
-      showError(res.error);
-      return;
+    let items = itemRefs(p.items.filter((i) => i.available));
+    let dropped = p.items.length - items.length;
+    const notice = (): MergeBanner | null =>
+      dropped > 0
+        ? { text: { key: "merge.err.copy_dropped", ru: MERGE_ERROR_RU.copy_dropped, params: { n: dropped } } }
+        : null;
+    while (items.length > 0) {
+      const res = await createProject({ aspect: p.aspect, fit: p.fit, items, title: defaultTitle() }, langRef.current);
+      if (res.ok) {
+        switchTo(res.data.id);
+        applyServer(res.data, true);
+        setError(notice());
+        return;
+      }
+      const index = res.error.data.index;
+      if (res.error.code !== "source_unavailable" || typeof index !== "number" || !(index >= 0 && index < items.length)) {
+        showError(res.error);
+        return;
+      }
+      items = removeAt(items, index);
+      dropped += 1;
     }
-    switchTo(res.data.id);
-    applyServer(res.data, true);
-  }, [applyServer, defaultTitle, showError, switchTo]);
+    // Не осталось ни одного фрагмента — новая пустая склейка (пустые черновики сервер не заводит).
+    await flush();
+    switchTo(null);
+    setOpening(false);
+    resetToNew();
+    setError(notice());
+  }, [applyServer, defaultTitle, flush, resetToNew, showError, switchTo]);
 
   /* ---------- правка фрагментов ---------- */
 
@@ -646,14 +737,126 @@ export function useMerge() {
     [commitEdit, scheduleSave],
   );
 
+  /** «+ Добавить» — в конец склейки, «В начало» — первым фрагментом. */
   const addSource = useCallback(
-    (card: MergeSourceCard): boolean => {
+    (card: MergeSourceCard, place: AddPlace = "end"): boolean => {
       const cur = editRef.current;
-      if (addRefusal(cur.items, card, limits)) return false;
-      change({ ...cur, items: [...cur.items, { ...cardToItem(card), key: makeKey() }] });
+      if (addRefusal(cur.items, card, limits, uploadLimits.max_per_project)) return false;
+      change({ ...cur, items: insertItem(cur.items, { ...cardToItem(card), key: makeKey() }, place) });
       return true;
     },
-    [change, limits, makeKey],
+    [change, limits, makeKey, uploadLimits.max_per_project],
+  );
+
+  /* ---------- свои видео ---------- */
+
+  /**
+   * Загрузить своё видео в «Мои файлы»: сначала то, что видно на месте
+   * (размер, расширение, место, длина и кадр), потом файл — с прогрессом и
+   * отменой. В склейку само не добавляется: человек выбирает «В начало» или
+   * «В конец» на карточке. Вернёт карточку или null (отказ, отмена).
+   */
+  const uploadFile = useCallback(
+    async (file: File): Promise<MergeUploadCard | null> => {
+      if (uploadAbort.current) return null;
+      const limitsNow = uploadLimitsRef.current;
+      setUploadError(null);
+      setRetryFile(null);
+      const refusal = precheckFile(file, limitsNow, uploadUsageRef.current);
+      if (refusal) {
+        setUploadError(precheckText(refusal));
+        return null;
+      }
+      const ctrl = new AbortController();
+      uploadAbort.current = ctrl;
+      const name = file.name || t("merge.upload.fallbackName", { defaultValue: "Видео" });
+      setUpload({ name, phase: "checking", pct: 0 });
+      try {
+        const bad = precheckMedia(await probeVideoFile(file), limitsNow);
+        if (ctrl.signal.aborted) return null;
+        if (bad) {
+          setUploadError(precheckText(bad));
+          return null;
+        }
+        const res = await uploadVideo(file, {
+          filename: uploadName(file, limitsNow) ?? undefined,
+          lang: langRef.current,
+          signal: ctrl.signal,
+          onProgress: (pct, phase) => {
+            if (!ctrl.signal.aborted) setUpload({ name, phase, pct });
+          },
+        });
+        if (!res.ok) {
+          if (isAborted(res.error)) return null;
+          setUploadError(uploadErrorText(res.error));
+          // Связь, сбой, лимит — тот же файл можно отправить ещё раз, не выбирая 90 МБ из галереи заново.
+          if (retryableUpload(uploadErrorCode(res.error))) setRetryFile(file);
+          // Место кончилось раньше, чем думал экран (загрузка из другой вкладки) — сверяемся.
+          if (res.error.code === "upload_quota") void loadUploads();
+          return null;
+        }
+        const card = res.data;
+        setSources((s) => ({
+          ...s,
+          upload: { ...s.upload, items: [card, ...s.upload.items.filter((c) => c.id !== card.id)], loaded: true, failed: false },
+        }));
+        setUploadUsage((u) => (u ? { ...u, files: u.files + 1, bytes: u.bytes + (card.size_bytes || 0) } : u));
+        return card;
+      } finally {
+        // Отменённую уже убрал cancelUpload — следующая загрузка могла начаться, её не трогаем.
+        if (uploadAbort.current === ctrl) {
+          uploadAbort.current = null;
+          setUpload(null);
+        }
+      }
+    },
+    [loadUploads, t],
+  );
+
+  /** Отмена — пока файл читается или идёт; когда байты ушли, сервер его всё равно примет. */
+  const cancelUpload = useCallback(() => {
+    const ctrl = uploadAbort.current;
+    if (!ctrl) return;
+    uploadAbort.current = null;
+    ctrl.abort();
+    setUpload(null);
+  }, []);
+
+  // Ушли со страницы посреди загрузки — запрос не бросаем висеть.
+  useEffect(() => () => uploadAbort.current?.abort(), []);
+
+  /**
+   * Удалить своё видео. В открытом черновике его строки становятся
+   * «недоступно» — запуск погаснет с причиной. Отказ (идёт его склейка, нет
+   * связи) — на самой карточке: зона загрузки на телефоне далеко вверху.
+   */
+  const removeUpload = useCallback(
+    async (card: MergeSourceCard): Promise<boolean> => {
+      setDeleteError((e) => (e && e.id === card.id ? null : e));
+      setDeletingUploads((ids) => (ids.includes(card.id) ? ids : [...ids, card.id]));
+      const res = await deleteUploadApi(card.id);
+      setDeletingUploads((ids) => ids.filter((id) => id !== card.id));
+      if (!res.ok && res.error.code !== "upload_not_found") {
+        setDeleteError({ id: card.id, text: uploadErrorText(res.error) });
+        return false;
+      }
+      // Место освободилось — прежний отказ «место занято» больше не про сейчас.
+      setUploadError((e) => (e && e.key === "merge.err.upload_quota" ? null : e));
+      setSources((s) => ({ ...s, upload: { ...s.upload, items: s.upload.items.filter((c) => c.id !== card.id) } }));
+      setUploadUsage((u) =>
+        u ? { ...u, files: Math.max(0, u.files - 1), bytes: Math.max(0, u.bytes - (card.size_bytes || 0)) } : u,
+      );
+      const p = projectRef.current;
+      const cur = editRef.current;
+      if ((!p || isEditable(p.status)) && cur.items.some((i) => i.type === "upload" && i.id === card.id)) {
+        commitEdit({
+          ...cur,
+          items: cur.items.map((i) => (i.type === "upload" && i.id === card.id ? { ...i, available: false, url: null } : i)),
+        });
+      }
+      return true;
+    },
+    [commitEdit],
   );
 
   const removeItem = useCallback(
@@ -697,10 +900,11 @@ export function useMerge() {
 
   // Идёт другая склейка — запуск этой получил бы отказ busy: причина видна у кнопки ещё до подтверждения.
   const otherRunning = list.activeId && list.activeId !== openId ? list.activeId : null;
+  const maxUploads = uploadLimits.max_per_project;
   const block = useMemo<LocalBlock | null>(() => {
     if (!editable) return null;
-    return renderBlock(edit.items, limits) ?? (otherRunning ? { code: "busy" } : null);
-  }, [editable, edit.items, limits, otherRunning]);
+    return renderBlock(edit.items, limits, maxUploads) ?? (otherRunning ? { code: "busy" } : null);
+  }, [editable, edit.items, limits, maxUploads, otherRunning]);
   const total = totalDuration(edit.items);
   const freeCredits = balance ? balance.available : null;
   const short = price > 0 && freeCredits != null && freeCredits < price ? price - freeCredits : 0;
@@ -966,6 +1170,13 @@ export function useMerge() {
     confirm,
     sources,
     tab,
+    uploadLimits,
+    uploadUsage,
+    upload,
+    uploadError,
+    retryFile,
+    deletingUploads,
+    deleteError,
     actions: {
       newMerge: () => void newMerge(),
       open: (id: string) => void open(id),
@@ -984,6 +1195,14 @@ export function useMerge() {
       setTab,
       loadMoreSources: (which: MergeTab) => void loadSources(which, sources[which].page + 1),
       reloadSources: (which: MergeTab) => void loadSources(which, 1),
+      uploadFile,
+      cancelUpload,
+      removeUpload,
+      dismissUploadError: () => {
+        setUploadError(null);
+        setRetryFile(null);
+      },
+      dismissDeleteError: () => setDeleteError(null),
       loadMoreProjects: () => void loadList(list.page + 1),
       reloadProjects: () => void loadList(1),
       dismissError: () => setError(null),

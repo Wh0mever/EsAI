@@ -30,9 +30,12 @@ export const MERGE_PATH = "/merge";
 /** Видеостудия открыта всем — тот же флаг, что у пункта меню сайта и колонки мультстудии. */
 export const VSTUDIO_NAV = process.env.NEXT_PUBLIC_VSTUDIO_NAV === "1";
 
-export const TABS: readonly MergeTab[] = ["vstudio", "cartoon", "chat"];
+export const TABS: readonly MergeTab[] = ["vstudio", "cartoon", "chat", "upload"];
 export const ASPECTS: readonly MergeAspect[] = ["16:9", "9:16", "1:1"];
 export const FITS: readonly MergeFit[] = ["pad", "crop"];
+/** Своих видео в одной склейке (сервер: max_per_project, отказ too_many_uploads). */
+export const DEFAULT_MAX_UPLOADS = 3;
+/** Виды для ссылки ?add= из студий: свои видео по ссылке не приходят. */
 const SOURCE_TYPES: readonly MergeSourceType[] = ["vstudio", "cartoon_scene", "cartoon_movie", "chat"];
 
 const UID_RE = /^[0-9a-f]{32}$/;
@@ -140,19 +143,34 @@ export function removeAt<T>(list: readonly T[], index: number): T[] {
   return list.filter((_, i) => i !== index);
 }
 
+/** Куда встаёт добавленный ролик: «В конец» — главное действие, «В начало» — рядом. */
+export type AddPlace = "start" | "end";
+
+export function insertItem<T>(list: readonly T[], item: T, place: AddPlace = "end"): T[] {
+  return place === "start" ? [item, ...list] : [...list, item];
+}
+
+/** Сколько своих видео уже в склейке (повторы одного файла считаются, как у сервера). */
+export function uploadCount(items: readonly { type?: string }[]): number {
+  return items.reduce((n, i) => (i.type === "upload" ? n + 1 : n), 0);
+}
+
 export type AddRefusal =
   | { code: "too_many_fragments"; max: number }
+  | { code: "too_many_uploads"; max: number }
   | { code: "too_long"; max_s: number; total_s: number }
   | { code: "source_unreadable" };
 
 /** Можно ли добавить ролик: null — можно, иначе почему нет (кнопка «+» гаснет с подсказкой). */
 export function addRefusal(
-  items: readonly { duration_s: number | null }[],
-  card: { duration_s: number | null },
+  items: readonly { duration_s: number | null; type?: string }[],
+  card: { duration_s: number | null; type?: string },
   limits: MergeLimits = DEFAULT_LIMITS,
+  maxUploads: number = DEFAULT_MAX_UPLOADS,
 ): AddRefusal | null {
   if (!(typeof card.duration_s === "number" && card.duration_s > 0)) return { code: "source_unreadable" };
   if (items.length >= limits.max_fragments) return { code: "too_many_fragments", max: limits.max_fragments };
+  if (card.type === "upload" && uploadCount(items) >= maxUploads) return { code: "too_many_uploads", max: maxUploads };
   const total = totalDuration(items) + card.duration_s;
   if (total > limits.max_total_s + DURATION_TOLERANCE_S) {
     return { code: "too_long", max_s: limits.max_total_s, total_s: Math.round(total * 10) / 10 };
@@ -163,6 +181,7 @@ export function addRefusal(
 export type LocalBlock =
   | { code: "too_few_fragments"; min: number }
   | { code: "too_many_fragments"; max: number }
+  | { code: "too_many_uploads"; max: number }
   | { code: "source_unavailable"; index: number }
   | { code: "source_unreadable"; index: number }
   | { code: "too_long"; total_s: number; max_s: number }
@@ -174,11 +193,13 @@ export type LocalBlock =
  * же при запуске). Первая причина по порядку проверок сервера.
  */
 export function renderBlock(
-  items: readonly { available: boolean; duration_s: number | null }[],
+  items: readonly { available: boolean; duration_s: number | null; type?: string }[],
   limits: MergeLimits = DEFAULT_LIMITS,
+  maxUploads: number = DEFAULT_MAX_UPLOADS,
 ): LocalBlock | null {
   if (items.length < limits.min_fragments) return { code: "too_few_fragments", min: limits.min_fragments };
   if (items.length > limits.max_fragments) return { code: "too_many_fragments", max: limits.max_fragments };
+  if (uploadCount(items) > maxUploads) return { code: "too_many_uploads", max: maxUploads };
   const gone = items.findIndex((i) => !i.available);
   if (gone >= 0) return { code: "source_unavailable", index: gone };
   const unreadable = items.findIndex((i) => !(typeof i.duration_s === "number" && i.duration_s > 0));
@@ -346,6 +367,12 @@ export type TextSpec = { key: string; ru: string; params: Record<string, string 
 const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
 const str = (v: unknown): string => (typeof v === "string" ? v : "");
 
+/** Сколько ждать после 429, в минутах (wait сервера — секунды); нет — null. */
+export function waitMinutes(wait: unknown): number | null {
+  const s = num(wait);
+  return s != null && s > 0 ? Math.max(1, Math.ceil(s / 60)) : null;
+}
+
 /**
  * Отказ запроса → ключ перевода, русский текст и подстановки. index у
  * фрагмента в отказе — с нуля, в тексте — номер с единицы. Неизвестный код —
@@ -364,7 +391,14 @@ export function refusalText(code: string, data: Record<string, unknown> = {}, se
   if (credits != null) params.credits = credits;
   const total = num(data.total_s);
   if (total != null) params.total = formatDuration(total);
+  const min = waitMinutes(data.wait);
+  if (min != null) params.min = min;
   if (code === "too_many_fragments" && params.max == null) params.max = DEFAULT_LIMITS.max_fragments;
+  if (code === "too_many_uploads" && params.max == null) params.max = DEFAULT_MAX_UPLOADS;
+  // Минут ожидания нет — общий «подождите немного», а не текст с дыркой.
+  if (code === "upload_throttled" && params.min == null) {
+    return { key: "merge.err.throttled", ru: MERGE_ERROR_RU.throttled, params };
+  }
   // Номер фрагмента или длина не пришли — текст с подстановкой вышел бы с дыркой.
   const missing = (code === "too_long" && params.total == null) || (/^source_/.test(code) && params.n == null);
   if (missing) {
@@ -402,6 +436,8 @@ export function blockText(block: LocalBlock): TextSpec {
       return refusalText("too_few_fragments", { min: block.min });
     case "too_many_fragments":
       return refusalText("too_many_fragments", { max: block.max });
+    case "too_many_uploads":
+      return refusalText("too_many_uploads", { max: block.max });
     case "source_unavailable":
       return refusalText("source_unavailable", { index: block.index });
     case "source_unreadable":

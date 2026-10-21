@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { FiLogIn, FiPlus, FiScissors } from "react-icons/fi";
 import PaywallModal from "@/components/chat/PaywallModal";
@@ -27,12 +27,14 @@ import MergeResult from "./MergeResult";
 import MergeTimeline, { TimelineSkeleton } from "./MergeTimeline";
 import MergeTopBar, { MergeErrorBanner, MergeHeader, signInHref } from "./MergeTopBar";
 import SourcePicker, { PickerSkeleton } from "./SourcePicker";
-import { MERGE_PATH, blockText, isActive } from "./mergeLogic";
+import { useUploadBadge } from "./UploadPanel";
+import { MERGE_PATH, blockText, isActive, type AddPlace } from "./mergeLogic";
+import type { MergeSourceCard } from "./mergeTypes";
 import { useMerge } from "./useMerge";
 
 /**
  * Страница «Склейка видео» (/merge): свои готовые ролики из видеостудии,
- * мультстудии и чата — в один. Каркас тот же, что у студий (VStudioShell):
+ * мультстудии и чата и загруженные файлы — в один. Каркас тот же, что у студий (VStudioShell):
  * слева «Мои склейки» (на узком — шторка), сверху название и баланс, в
  * середине выбор роликов и порядок фрагментов, внизу док с форматом,
  * заполнением кадра, итогом и «Склеить · 20 кр».
@@ -56,9 +58,27 @@ export default function MergeStudio() {
   const [railOpen, setRailOpen] = useState(false);
   // Телефон и планшет: что на экране — лента склейки или выбор роликов.
   const [view, setView] = useState<"timeline" | "picker">("timeline");
+  /** Что сказать диктору: добавили, загрузили, удалили своё видео. */
   const [added, setAdded] = useState("");
   const pickerHeading = useId();
   const timelineHeading = useId();
+  const uploadButtonId = useId();
+  // Загрузка видна и тогда, когда на телефоне открыта лента, а не выбор роликов.
+  const uploadBadge = useUploadBadge(m.upload, Boolean(m.uploadError));
+
+  // Файл, брошенный мимо зоны загрузки (другая вкладка, лента, готовая склейка), браузер
+  // открыл бы вместо страницы — со всей несохранённой правкой. Ловим его на всей странице.
+  useEffect(() => {
+    const guard = (e: globalThis.DragEvent) => {
+      if (e.dataTransfer && Array.from(e.dataTransfer.types).includes("Files")) e.preventDefault();
+    };
+    window.addEventListener("dragover", guard);
+    window.addEventListener("drop", guard);
+    return () => {
+      window.removeEventListener("dragover", guard);
+      window.removeEventListener("drop", guard);
+    };
+  }, []);
 
   const project = m.project;
   const active = isActive(project?.status ?? null);
@@ -83,6 +103,43 @@ export default function MergeStudio() {
     actions.open(id);
     setView("timeline");
     if (feedScrollRef.current) feedScrollRef.current.scrollTop = 0;
+  };
+
+  const untitled = (card: MergeSourceCard) => card.title.trim() || t("merge.untitled", { defaultValue: "Без названия" });
+
+  const addSource = (card: MergeSourceCard, place: AddPlace) => {
+    if (!actions.addSource(card, place)) return;
+    const title = untitled(card);
+    setAdded(
+      place === "start"
+        ? t("merge.addedStart", { defaultValue: "Добавлено в начало: {{title}}", title })
+        : t("merge.added", { defaultValue: "Добавлено: {{title}}", title }),
+    );
+  };
+
+  const uploadFile = async (file: File) => {
+    const card = await actions.uploadFile(file);
+    if (card) {
+      setAdded(
+        t("merge.upload.done", {
+          defaultValue: "Видео загружено: {{title}}. Добавьте его в начало или в конец склейки.",
+          title: untitled(card),
+        }),
+      );
+    }
+  };
+
+  const cancelUpload = () => {
+    actions.cancelUpload();
+    setAdded(t("merge.upload.cancelled", { defaultValue: "Загрузка отменена" }));
+  };
+
+  const removeUpload = async (card: MergeSourceCard) => {
+    if (!(await actions.removeUpload(card))) return;
+    setAdded(t("merge.upload.deleted", { defaultValue: "Видео удалено: {{title}}", title: untitled(card) }));
+    // Карточка с кнопкой исчезла — фокус не должен упасть в начало страницы.
+    const focused = document.activeElement;
+    if (!focused || focused === document.body) document.getElementById(uploadButtonId)?.focus();
   };
 
   const primary: MergePrimary =
@@ -139,6 +196,11 @@ export default function MergeStudio() {
                 <>
                   <FiPlus className="shrink-0" aria-hidden="true" />
                   <span className="truncate">{t("merge.tl.add", { defaultValue: "Добавить видео" })}</span>
+                  {!on && uploadBadge && (
+                    <span className={vx("shrink-0 tabular-nums", uploadBadge.failed ? "text-status-fail" : "text-muted-2")}>
+                      {uploadBadge.text}
+                    </span>
+                  )}
                 </>
               )}
             </button>
@@ -159,14 +221,29 @@ export default function MergeStudio() {
             counts={m.counts}
             items={m.edit.items}
             limits={m.limits}
+            maxUploads={m.uploadLimits.max_per_project}
             onTab={actions.setTab}
-            onAdd={(card) => {
-              if (actions.addSource(card)) {
-                setAdded(t("merge.added", { defaultValue: "Добавлено: {{title}}", title: card.title || t("merge.untitled", { defaultValue: "Без названия" }) }));
-              }
-            }}
+            onAdd={addSource}
             onMore={actions.loadMoreSources}
             onReload={actions.reloadSources}
+            uploads={{
+              limits: m.uploadLimits,
+              usage: m.uploadUsage,
+              upload: m.upload,
+              error: m.uploadError,
+              canRetry: m.retryFile !== null,
+              deleting: m.deletingUploads,
+              deleteError: m.deleteError,
+              onFile: (file) => void uploadFile(file),
+              onRetry: () => {
+                if (m.retryFile) void uploadFile(m.retryFile);
+              },
+              onCancel: cancelUpload,
+              onDismissError: actions.dismissUploadError,
+              onDismissDeleteError: actions.dismissDeleteError,
+              onDelete: (card) => void removeUpload(card),
+            }}
+            uploadButtonId={uploadButtonId}
             headingId={pickerHeading}
           />
         </div>
@@ -217,7 +294,8 @@ export default function MergeStudio() {
         </h1>
         <p className={vx(VS_SUB, "mt-1.5 max-w-2xl")}>
           {t("merge.sub", {
-            defaultValue: "Соберите готовые ролики из видеостудии, мультстудии и чата в одно видео: выберите фрагменты, расставьте по порядку — и скачайте.",
+            defaultValue:
+              "Соберите в одно видео готовые ролики из видеостудии, мультстудии и чата или свои файлы: выберите фрагменты, расставьте по порядку — и скачайте.",
           })}
         </p>
       </header>
@@ -325,7 +403,8 @@ function GuestCard({ price, back }: { price: number; back: string }) {
       <h2 className={VS_H2}>{t("merge.guest.title", { defaultValue: "Войдите, чтобы склеить видео" })}</h2>
       <p className={VS_SUB}>
         {t("merge.guest.text", {
-          defaultValue: "Склейка собирает в один ролик ваши готовые видео — из видеостудии, мультстудии и чата.",
+          defaultValue:
+            "Склейка собирает в один ролик ваши готовые видео из видеостудии, мультстудии и чата, а также ваши собственные файлы.",
         })}{" "}
         {price > 0
           ? t("merge.guest.price", {

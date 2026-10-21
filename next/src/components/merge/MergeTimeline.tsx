@@ -23,6 +23,7 @@ export const SOURCE_RU: Record<MergeSourceType, string> = {
   cartoon_scene: "Сцена мультфильма",
   cartoon_movie: "Мультфильм",
   chat: "Чат",
+  upload: "Своё видео",
 };
 
 /** У края прокрутки лента сама едет за пальцем. */
@@ -276,7 +277,12 @@ export default function MergeTimeline({
                     {!it.available && (
                       <p className="mt-1 flex items-start gap-1 text-[12px] leading-snug text-status-fail">
                         <FiAlertCircle className="mt-0.5 shrink-0" aria-hidden="true" />
-                        {t("merge.tl.unavailable", { defaultValue: "Видео недоступно — уберите его из склейки" })}
+                        {editable
+                          ? t("merge.tl.unavailable", { defaultValue: "Видео недоступно — уберите его из склейки" })
+                          : // В готовой склейке убирать нечем: «склеить заново» само его не возьмёт.
+                            t("merge.tl.unavailableReady", {
+                              defaultValue: "Этого видео больше нет — в «Изменить и склеить заново» оно не войдёт",
+                            })}
                       </p>
                     )}
                   </div>

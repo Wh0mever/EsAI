@@ -1624,7 +1624,8 @@ def _queue_render(request, scene, *, new_keyframe: bool = False, quoted: int | N
     from django.utils import timezone
 
     from ai.pricing import PriceUnavailable
-    from vstudio.reserve import vstudio_reserved  # дубли видеостудии в работе тоже держат баланс
+    # Дубли видеостудии и склейки в работе тоже держат баланс.
+    from vstudio.reserve import merge_reserved, vstudio_reserved
 
     from .models import CartoonKeyframe
     from .pricing import reserved_credits, snapshot_fields
@@ -1648,7 +1649,8 @@ def _queue_render(request, scene, *, new_keyframe: bool = False, quoted: int | N
         # один и тот же свободный остаток.
         locked = get_user_model().objects.select_for_update().get(pk=request.user.pk)
         balance = int(getattr(locked, "token_balance", 0) or 0)
-        reserved = reserved_credits(request.user, exclude_scene_id=scene.pk) + vstudio_reserved(request.user)
+        reserved = (reserved_credits(request.user, exclude_scene_id=scene.pk)
+                    + vstudio_reserved(request.user) + merge_reserved(request.user))
         free = max(0, balance - reserved)
         if free < need:
             return _no_credits(need, free, reserved)

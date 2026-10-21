@@ -13,6 +13,8 @@
   Принадлежность видео чата верна только по тому, что записал сервер: журнал
   (с 21.09.2026) хранит владельца и путь выданного ролика. Вложения сообщений
   пишет клиент, им не верим; ролики до журнала в склейку не попадают.
+- upload         — своё видео, загруженное в склейку (uid загрузки): принятое,
+  не истёкшее. Размеры и длина — из разбора при загрузке, ffprobe не нужен.
 """
 from __future__ import annotations
 
@@ -35,7 +37,8 @@ TYPE_VSTUDIO = "vstudio"
 TYPE_SCENE = "cartoon_scene"
 TYPE_MOVIE = "cartoon_movie"
 TYPE_CHAT = "chat"
-TYPES = (TYPE_VSTUDIO, TYPE_SCENE, TYPE_MOVIE, TYPE_CHAT)
+TYPE_UPLOAD = "upload"
+TYPES = (TYPE_VSTUDIO, TYPE_SCENE, TYPE_MOVIE, TYPE_CHAT, TYPE_UPLOAD)
 # Вкладка «Мультстудия» в выборе фрагментов — мультфильмы и сцены вместе.
 TAB_CARTOON = "cartoon"
 LIST_TYPES = TYPES + (TAB_CARTOON,)
@@ -53,6 +56,7 @@ FALLBACK_TITLES = {
     TYPE_SCENE: {"ru": "Сцена", "en": "Scene", "kg": "Көрүнүш"},
     TYPE_MOVIE: {"ru": "Мультфильм", "en": "Cartoon", "kg": "Мультфильм"},
     TYPE_CHAT: {"ru": "Видео из чата", "en": "Chat video", "kg": "Чаттагы видео"},
+    TYPE_UPLOAD: {"ru": "Моё видео", "en": "My video", "kg": "Менин видеом"},
 }
 
 _HEX32 = re.compile(r"[0-9a-f]{32}")
@@ -74,6 +78,10 @@ class Source:
     width: int | None = None
     height: int | None = None
     created_at: datetime | None = field(default=None, compare=False)
+    # Демуксер для своего видео человека (render.Input); "" — наш файл.
+    input_format: str = ""
+    # Поля карточки сверх общих (у своих видео — размер и срок хранения).
+    extra: dict = field(default_factory=dict, compare=False)
 
     @property
     def key(self) -> tuple[str, str]:
@@ -92,6 +100,7 @@ class Source:
             "width": self.width,
             "height": self.height,
             "created_at": self.created_at.isoformat() if self.created_at else None,
+            **self.extra,
         }
 
     def snapshot(self) -> dict:
@@ -110,7 +119,7 @@ def valid_id(kind: str, raw) -> str | None:
     if isinstance(raw, bool) or raw is None:
         return None
     value = str(raw).strip().lower()
-    if kind == TYPE_VSTUDIO:
+    if kind in (TYPE_VSTUDIO, TYPE_UPLOAD):
         return value if _HEX32.fullmatch(value) else None
     if kind in (TYPE_SCENE, TYPE_MOVIE, TYPE_CHAT):
         return value if _DIGITS.fullmatch(value) else None
@@ -236,6 +245,15 @@ def _chat_qs(user):
         result_url__startswith=prefix)
 
 
+def _upload_qs(user):
+    from django.utils import timezone
+
+    from .models import MergeUpload
+
+    return MergeUpload.objects.filter(user=user, status=MergeUpload.STATUS_READY,
+                                      expires_at__gt=timezone.now()).exclude(file="")
+
+
 def _from_take(take, lang: str) -> Source:
     asset = take.result_asset
     prompt = getattr(take.shot, "prompt_text", "") or ""
@@ -272,6 +290,20 @@ def _from_chat(row, poster: str, lang: str) -> Source:
                   subtitle=short(row.model, 60), file=_media_name(row.result_url, "ai_videos/"),
                   poster=poster, duration_s=_number(params.get("duration")),
                   created_at=row.created_at)
+
+
+def _from_upload(row, lang: str) -> Source:
+    return Source(type=TYPE_UPLOAD, id=row.uid, title=row.title or fallback_title(TYPE_UPLOAD, lang),
+                  file=row.file, poster=row.poster or "", duration_s=row.duration_s,
+                  width=row.display_width, height=row.display_height, created_at=row.created_at,
+                  input_format=row.container,
+                  extra={"size_bytes": row.size, "has_audio": row.has_audio,
+                         "expires_at": row.expires_at.isoformat() if row.expires_at else None})
+
+
+def upload_source(row, lang: str = "ru") -> Source:
+    """Карточка своего видео (ответ загрузки и список «Мои файлы»)."""
+    return _from_upload(row, lang)
 
 
 def _number(value) -> float | None:
@@ -316,6 +348,8 @@ def _build(user, kind: str, rows, lang: str) -> list[Source]:
     if kind == TYPE_MOVIE:
         posters = _movie_posters(p.pk for p in rows)
         return [_from_movie(p, posters.get(p.pk, ""), lang) for p in rows]
+    if kind == TYPE_UPLOAD:
+        return [_from_upload(row, lang) for row in rows]
     names = {row.pk: _media_name(row.result_url, "ai_videos/") for row in rows}
     posters = _chat_posters(user, names.values())
     return [_from_chat(row, posters.get(names[row.pk], ""), lang) for row in rows]
@@ -323,14 +357,19 @@ def _build(user, kind: str, rows, lang: str) -> list[Source]:
 
 def _qs(user, kind: str):
     return {TYPE_VSTUDIO: _vstudio_qs, TYPE_SCENE: _scene_qs, TYPE_MOVIE: _movie_qs,
-            TYPE_CHAT: _chat_qs}[kind](user)
+            TYPE_CHAT: _chat_qs, TYPE_UPLOAD: _upload_qs}[kind](user)
 
 
 def _complete(source: Source) -> Source:
     """Длительность и размер — из файла: у сцен и мультфильмов в базе их нет,
-    у видео чата длительность в журнале — только нового куска («Продлить»)."""
-    if source.type == TYPE_VSTUDIO and source.duration_s and source.width and source.height:
-        return source
+    у видео чата длительность в журнале — только нового куска («Продлить»).
+    Видеостудия и свои видео знают их из базы (своё — из разбора при загрузке)."""
+    if source.type in (TYPE_VSTUDIO, TYPE_UPLOAD):
+        if source.duration_s and source.width and source.height:
+            return source
+        if source.type == TYPE_UPLOAD:
+            # Чужой файл без разбора не читаем (разбор при загрузке — строгий).
+            return source
     meta = media_meta(source.file)
     if not meta:
         return source
@@ -368,7 +407,7 @@ def resolve(user, refs, *, lang: str = "ru", check_files: bool = True) -> dict:
         return out
     for kind, ids in wanted.items():
         qs = _qs(user, kind)
-        if kind == TYPE_VSTUDIO:
+        if kind in (TYPE_VSTUDIO, TYPE_UPLOAD):
             qs = qs.filter(uid__in=ids)
         else:
             qs = qs.filter(pk__in=[int(i) for i in ids])
@@ -420,5 +459,5 @@ def list_page(user, kind: str, page: int = 1, *, lang: str = "ru",
 
 
 __all__ = ["TYPES", "LIST_TYPES", "TAB_CARTOON", "TYPE_VSTUDIO", "TYPE_SCENE", "TYPE_MOVIE",
-           "TYPE_CHAT", "Source", "resolve", "list_page", "valid_id", "media_meta", "local_path",
-           "media_url", "short", "file_exists"]
+           "TYPE_CHAT", "TYPE_UPLOAD", "Source", "resolve", "list_page", "valid_id", "media_meta",
+           "local_path", "media_url", "short", "file_exists", "upload_source", "fallback_title"]

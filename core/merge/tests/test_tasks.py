@@ -240,7 +240,7 @@ class ExpiryTests(MediaTestCase):
         fresh_video = store("merge/1/new.mp4")
         fresh = self.project(owner, status="ready", result_video=fresh_video,
                              expires_at=timezone.now() + timedelta(days=1))
-        self.assertEqual(tasks.purge_expired.run(), 1)
+        self.assertEqual(tasks.purge_expired.run(), {"merges": 1, "uploads": 0})
         old.refresh_from_db()
         fresh.refresh_from_db()
         self.assertEqual((old.status, old.result_video, old.poster), ("expired", "", ""))
@@ -279,6 +279,23 @@ class WiringTests(SimpleTestCase):
         self.assertEqual(tasks.render_merge.soft_time_limit, services.RENDER_SOFT_LIMIT)
         self.assertEqual(tasks.render_merge.time_limit, services.RENDER_HARD_LIMIT)
         self.assertGreater(services.STALE_RENDER_AFTER.total_seconds(), services.RENDER_HARD_LIMIT)
+
+    def test_media_worker_waits_for_the_longest_merge(self):
+        # Выкладка пересоздаёт celery_media: docker ждёт stop_grace_period и
+        # убивает воркер. Меньше лимита склейки — идущая склейка обрывается.
+        import re
+        from pathlib import Path
+
+        compose = Path(settings.BASE_DIR).parent / "compose.yaml"
+        if not compose.exists():
+            self.skipTest("нет compose.yaml (копия без корня репозитория)")
+        text = compose.read_text(encoding="utf-8")
+        block = text[text.index("\n  celery_media:"):]
+        block = block[:block.index("\n  # ", 1)] if "\n  # " in block[1:] else block
+        found = re.search(r"\n    stop_grace_period: (\d+)(m|s)\b", block)
+        self.assertIsNotNone(found, "у celery_media нет stop_grace_period")
+        grace = int(found.group(1)) * (60 if found.group(2) == "m" else 1)
+        self.assertGreaterEqual(grace, services.RENDER_HARD_LIMIT + 180)
 
     def test_runtime_key_registered(self):
         from adminapi.runtime import KEYS

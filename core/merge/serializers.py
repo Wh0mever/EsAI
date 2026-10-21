@@ -3,38 +3,62 @@ from __future__ import annotations
 
 from urllib.parse import quote
 
+from django.utils import timezone
+
 from .config import limits
-from .models import EDITABLE, MergeProject
+from .models import EDITABLE, MergeProject, MergeUpload
 from .services import download_token, render_block, total_duration
-from .sources import media_url
+from .sources import TYPE_UPLOAD, media_url
 
 
 def _iso(value):
     return value.isoformat() if value else None
 
 
-def item_json(item: dict, live: dict | None) -> dict:
-    """Фрагмент склейки. live — свежая проверка (у черновика и неудачной), иначе снимок."""
+def item_json(item: dict, live: dict | None, gone: frozenset = frozenset()) -> dict:
+    """Фрагмент склейки. live — свежая проверка (у черновика и неудачной), иначе
+    снимок; gone — свои видео снимка, которых больше нет (удалены, истекли)."""
     kind, ident = item.get("type"), str(item.get("id"))
     source = live.get((kind, ident)) if live is not None else None
     if source is not None:
         card = source.card()
         card.pop("created_at", None)
         return {**card, "available": True}
+    available = live is None and not (kind == TYPE_UPLOAD and ident in gone)
     # Пропавший источник не проигрываем: файла может уже не быть.
-    url = media_url(item.get("file") or "") if live is None else ""
+    url = media_url(item.get("file") or "") if available else ""
+    # Своё видео, которого нет, — и без обложки: её файл стёрт вместе с ним.
+    poster = "" if kind == TYPE_UPLOAD and not available else media_url(item.get("poster") or "")
     return {
         "type": kind,
         "id": ident,
         "title": item.get("title") or "",
         "subtitle": item.get("subtitle") or "",
-        "poster": media_url(item.get("poster") or "") or None,
+        "poster": poster or None,
         "url": url or None,
         "duration_s": item.get("duration_s"),
         "width": item.get("width"),
         "height": item.get("height"),
-        "available": live is None,
+        "available": available,
     }
+
+
+def gone_uploads(project: MergeProject, items: list[dict]) -> frozenset:
+    """Свои видео в снимке готовой или идущей склейки, которых больше нет.
+
+    Человек удаляет файлы сам (квота просит), а снимок помнит их ссылки: без
+    этой сверки ▶ открывал бы 404, а «Изменить и склеить заново» упиралось бы
+    в отказ, который из готовой склейки не исправить. Один запрос на склейку.
+    """
+    if project.status in EDITABLE:
+        return frozenset()
+    ids = {str(i.get("id")) for i in items if i.get("type") == TYPE_UPLOAD}
+    if not ids:
+        return frozenset()
+    alive = set(MergeUpload.objects.filter(
+        user_id=project.user_id, uid__in=ids, status=MergeUpload.STATUS_READY,
+        expires_at__gt=timezone.now()).exclude(file="").values_list("uid", flat=True))
+    return frozenset(ids - alive)
 
 
 def _progress(project: MergeProject) -> dict | None:
@@ -74,9 +98,10 @@ def project_json(project: MergeProject, *, live: dict | None = None, price: int 
     if ready:
         download = f"/api/merge/{project.uid}/download/?t={quote(download_token(project))}"
     block = render_block(project, live)
+    gone = gone_uploads(project, items) if live is None else frozenset()
     return {
         **project_brief(project),
-        "items": [item_json(i, live) for i in items],
+        "items": [item_json(i, live, gone) for i in items],
         "progress": _progress(project),
         "result_url": project.result_url if ready else None,
         "download_url": download,
@@ -90,4 +115,4 @@ def project_json(project: MergeProject, *, live: dict | None = None, price: int 
     }
 
 
-__all__ = ["project_json", "project_brief", "item_json"]
+__all__ = ["project_json", "project_brief", "item_json", "gone_uploads"]

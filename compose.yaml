@@ -150,10 +150,12 @@ services:
       - ./logs:/app/logs
       - ./core:/app
     restart: always
-    # Сцена снимается до ~10 минут. По умолчанию docker ждёт 10 секунд и
-    # убивает воркер — каждая выкладка обрывала съёмки, за которые провайдер
-    # уже взял деньги. Celery на SIGTERM дорабатывает начатое.
-    stop_grace_period: 12m
+    # Сцена снимается до ~10 минут, склейка — до 21 минуты (жёсткий лимит
+    # задачи, merge/services.py RENDER_HARD_LIMIT) и ещё запас. По умолчанию
+    # docker ждёт 10 секунд и убивает воркер — каждая выкладка обрывала съёмки,
+    # за которые провайдер уже взял деньги, и склейки. Celery на SIGTERM
+    # дорабатывает начатое; пересоздание ждёт, только пока задачи идут.
+    stop_grace_period: 25m
     healthcheck:
       test: ["CMD-SHELL", "test -f /tmp/celery_media.pid && kill -0 $(cat /tmp/celery_media.pid)"]
       interval: 10s

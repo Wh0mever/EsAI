@@ -209,11 +209,21 @@ test("blockText: подсказка у выключенной кнопки", () 
 });
 
 test("тексты: подстановки только известные, у fail нет пустых", () => {
-  const allowed = new Set(["n", "max", "credits", "total"]);
+  const allowed = new Set(["n", "max", "credits", "total", "min"]);
   for (const [code, text] of Object.entries({ ...MERGE_ERROR_RU, ...MERGE_FAIL_RU })) {
     assert.ok(text.trim(), code);
     for (const mm of text.matchAll(/\{\{\s*(\w+)\s*\}\}/g)) assert.ok(allowed.has(mm[1]), `${code}: ${mm[1]}`);
   }
+});
+
+test("refusalText: минуты ожидания из wait, без них — общий текст", () => {
+  assert.equal(m.waitMinutes(61), 2);
+  assert.equal(m.waitMinutes(0), null);
+  assert.equal(m.waitMinutes("60"), null);
+  const slow = m.refusalText("upload_throttled", { wait: 3599 });
+  assert.equal(m.fillText(slow.ru, slow.params), "Загрузок за час слишком много — следующую можно через 60 мин.");
+  assert.equal(m.refusalText("upload_throttled").key, "merge.err.throttled");
+  assert.equal(m.refusalText("copy_dropped", { n: 2 }).key, "merge.err.copy_dropped");
 });
 
 test("blockText busy: идёт другая склейка — тем же текстом, что отказ сервера", () => {
@@ -247,6 +257,66 @@ test("appendUnique: «Показать ещё» без повторов карт
   const next = m.appendUnique(first, [card("chat", "2"), card("chat", "1"), card("cartoon_scene", "2")]);
   assert.deepEqual(next.map((c) => `${c.type}:${c.id}`), ["chat:3", "chat:2", "chat:1", "cartoon_scene:2"]);
   assert.deepEqual(first.map((c) => c.id), ["3", "2"], "исходный список не меняется");
+});
+
+test("insertItem: «В конец» — главное действие, «В начало» — первым; исходный список не меняется", () => {
+  const list = [item(1), item(2)];
+  assert.deepEqual(ids(m.insertItem(list, item(3))), ["1", "2", "3"], "по умолчанию — в конец");
+  assert.deepEqual(ids(m.insertItem(list, item(3), "end")), ["1", "2", "3"]);
+  assert.deepEqual(ids(m.insertItem(list, item(3), "start")), ["3", "1", "2"]);
+  assert.deepEqual(ids(m.insertItem([], item(9), "start")), ["9"], "в пустую — то же, что в конец");
+  assert.deepEqual(ids(list), ["1", "2"]);
+  // Порядок уходит на сервер как есть: первый в items — первый в ролике.
+  const refs = m.itemRefs(m.insertItem(list, item("u", 4, { type: "upload" }), "start"));
+  assert.deepEqual(refs[0], { type: "upload", id: "u" });
+});
+
+test("свои видео: не больше 3 в склейке, повторы считаются, остальные виды не ограничены", () => {
+  const up = (id) => item(id, 4, { type: "upload" });
+  assert.equal(m.uploadCount([up("a"), item(1), up("a")]), 2);
+  const three = [up("a"), up("b"), up("a"), item(1)];
+  assert.deepEqual(m.addRefusal(three, up("c"), LIMITS), { code: "too_many_uploads", max: 3 });
+  assert.equal(m.addRefusal(three, item(2), LIMITS), null, "чужой вид — можно");
+  assert.equal(m.addRefusal([up("a"), up("b")], up("c"), LIMITS), null);
+  assert.deepEqual(m.addRefusal([up("a")], up("b"), LIMITS, 1), { code: "too_many_uploads", max: 1 }, "предел с сервера");
+  // Предел фрагментов проверяется раньше — как у сервера.
+  const thirty = Array.from({ length: 30 }, (_, i) => item(i, 1));
+  assert.equal(m.addRefusal(thirty, up("z"), LIMITS).code, "too_many_fragments");
+  assert.deepEqual(m.renderBlock([up("a"), up("b"), up("c"), up("d")], LIMITS), { code: "too_many_uploads", max: 3 });
+  assert.equal(m.renderBlock([up("a"), up("b"), up("c")], LIMITS), null);
+  const block = m.blockText({ code: "too_many_uploads", max: 3 });
+  assert.equal(block.key, "merge.err.too_many_uploads");
+  assert.equal(m.fillText(block.ru, block.params), "В одной склейке — не больше 3 своих видео.");
+  assert.equal(m.refusalText("too_many_uploads").params.max, 3, "max не пришёл — 3");
+  assert.ok(m.TABS.includes("upload") && m.isTab("upload"));
+});
+
+test("отказы загрузки: тексты сервера (CONTRACT_M §9.6), поле file", () => {
+  const server = {
+    upload_too_big: "Файл больше 90 МБ. Сожмите или обрежьте видео и загрузите снова.",
+    upload_bad_type: "Подходят только видео MP4, MOV или WebM.",
+    upload_unreadable: "Файл не читается — возможно, он повреждён. Выберите другое видео.",
+    upload_no_video: "В файле нет подходящего видео: нужна одна видеодорожка H.264, HEVC, VP8, VP9, AV1 или MPEG-4.",
+    upload_too_short: "Видео короче полсекунды — такое не склеить.",
+    upload_too_long: "Видео длиннее 60 секунд. Обрежьте его и загрузите снова.",
+    upload_resolution: "Кадр больше 4096 точек по стороне. Уменьшите разрешение и загрузите снова.",
+    upload_quota:
+      "Место для своих видео занято: хранится до 10 файлов и до 600 МБ. Удалите старые в «Моих файлах» и загрузите снова.",
+    upload_unavailable: "Загрузка сейчас недоступна: на сервере не хватает места. Попробуйте позже.",
+    upload_not_found: "Видео не найдено.",
+    upload_in_use: "Это видео сейчас склеивается — удалить его можно после окончания.",
+    upload_frame_rate:
+      "В видео больше 120 кадров в секунду — такое не склеить. Сохраните его с частотой 30 или 60 кадров и загрузите снова.",
+    upload_busy: "Уже загружается другое видео. Дождитесь окончания и загрузите следующее.",
+  };
+  for (const [code, text] of Object.entries(server)) {
+    const spec = m.refusalText(code, {}, "текст сервера");
+    assert.equal(spec.key, `merge.err.${code}`, code);
+    assert.equal(spec.ru, text, code);
+  }
+  const noFile = m.refusalText("bad_request", { field: "file" });
+  assert.equal(noFile.key, "merge.err.bad_request_file");
+  assert.equal(noFile.ru, "Выберите видео для загрузки.");
 });
 
 test("saveRetryDelay: повторяем только проходящие сбои и не бесконечно", () => {

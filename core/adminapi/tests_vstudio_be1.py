@@ -118,6 +118,16 @@ class SummarySpendTests(_StaffCall, TestCase):
         self.assertEqual(data["requests_total"], 3)
         self.assertEqual(data["requests_today"], 3)
 
+    @patch("adminapi.views._openrouter_summary", return_value={})
+    def test_merge_counted_in_spend(self, _or):
+        self._tx("chat", -10)
+        self._tx("merge_video", -20)
+        data = self._get(SummaryView, "/s/").data
+        self.assertEqual((data["credits_spent_total"], data["credits_spent_today"]), (30, 30))
+        self.assertEqual((data["requests_total"], data["requests_today"]), (2, 2))
+        # Склейка — не видеостудия: её строка не меняется.
+        self.assertEqual(data["credits_spent_vstudio_total"], 0)
+
 
 class ResultUrlTests(TestCase):
     """«Результат» из журнала открывается: путь файла превращается в адрес /media/."""

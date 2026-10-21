@@ -184,6 +184,16 @@ def vstudio_reserved(user) -> int:
     return _soft(_studio_reserved, user, "резерв видеостудии")
 
 
+def merge_reserved(user) -> int:
+    """Кредиты в резерве у склеек (в очереди и в работе) — добавка к гейтам
+    чата, бота и мультстудии рядом с vstudio_reserved: без неё склейка и съёмка
+    проходили проверку по одному и тому же балансу, а склейка потом списывала
+    остаток. Мягко, как vstudio_reserved."""
+    if not getattr(user, "pk", None):
+        return 0
+    return _soft(_merge_reserved, user, "резерв склеек")
+
+
 def total_reserved(user, *, strict: bool = False) -> int:
     """Все резервы сайта: видео чата и бота + сцены мультстудии + дубли студии + склейки.
 
@@ -377,7 +387,8 @@ def charge_on_delivery(user, amount: int, reason: str, meta=None) -> Charge:
 
 
 __all__ = [
-    "SpendRefused", "AlreadyStarted", "Charge", "spend_gate", "vstudio_reserved", "total_reserved",
+    "SpendRefused", "AlreadyStarted", "Charge", "spend_gate", "vstudio_reserved", "merge_reserved",
+    "total_reserved",
     "balance_snapshot", "balance_refusal", "provider_refusal", "charge_on_delivery",
     "reason_for", "max_open", "min_provider_usd", "DEFAULT_MAX_OPEN",
 ]

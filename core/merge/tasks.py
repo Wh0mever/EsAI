@@ -25,6 +25,9 @@ def fail_stale_renders() -> dict:
 
 
 @shared_task(ignore_result=True, soft_time_limit=300, time_limit=330)
-def purge_expired() -> int:
-    """Раз в сутки: стереть ролики, срок хранения которых вышел (30 дней)."""
-    return services.purge_expired()
+def purge_expired() -> dict:
+    """Раз в сутки: стереть ролики, срок хранения которых вышел (30 дней), и
+    истёкшие свои видео людей, если их не склеивают прямо сейчас."""
+    from . import uploads
+
+    return {"merges": services.purge_expired(), "uploads": uploads.purge()}

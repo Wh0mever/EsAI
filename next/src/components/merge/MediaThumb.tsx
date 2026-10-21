@@ -59,6 +59,8 @@ export type MediaThumbProps = {
   playable?: boolean;
   /** Маленькая кнопка ▶ (миниатюра в строке ленты). */
   compact?: boolean;
+  /** Ролик на карточке заиграл или встал (пауза, конец): соседние кнопки уступают место плееру. */
+  onPlayingChange?: (playing: boolean) => void;
   className?: string;
 };
 
@@ -69,6 +71,7 @@ export default function MediaThumb({
   vertical = false,
   playable = true,
   compact = false,
+  onPlayingChange,
   className,
 }: MediaThumbProps) {
   const { t } = useTranslation("vstudio", { useSuspense: false });
@@ -87,7 +90,12 @@ export default function MediaThumb({
           autoPlay
           playsInline
           preload="metadata"
-          onPlay={(e) => onPlay(e.currentTarget)}
+          onPlay={(e) => {
+            onPlay(e.currentTarget);
+            onPlayingChange?.(true);
+          }}
+          onPause={() => onPlayingChange?.(false)}
+          onEnded={() => onPlayingChange?.(false)}
           className="h-full w-full bg-black object-contain"
         />
       ) : (

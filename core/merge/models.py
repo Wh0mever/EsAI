@@ -1,8 +1,8 @@
 """Склейка (/merge): готовые ролики человека → один ролик.
 
-Источники — только свои готовые видео EsAI (дубли видеостудии, сцены и
-мультфильмы мультстудии, видео чата); загрузок своих файлов в этой фазе нет:
-им нужно отдельное хранилище и сервер сильнее.
+Источники — только свои видео человека: готовые ролики EsAI (дубли
+видеостудии, сцены и мультфильмы мультстудии, видео чата) и загруженные им
+самим файлы (MergeUpload, Build MU: до 90 МБ и 60 с, хранятся 30 дней).
 
 Деньги — как в видеостудии: при запуске цена встаёт в резерв (credits_reserved
 у строки в очереди или в работе), списание — только за готовый ролик, сбой
@@ -12,13 +12,15 @@ UPDATE: вторая копия задачи или уборка не спишу
 from __future__ import annotations
 
 import uuid
+from datetime import timedelta
 
 from django.conf import settings
 from django.core.files.storage import default_storage
 from django.db import models
 from django.db.models import Q
+from django.utils import timezone
 
-from .config import ASPECTS, FIT_PAD, FITS
+from .config import ASPECTS, FIT_PAD, FITS, UPLOAD_RETENTION_DAYS
 
 STATUS_DRAFT = "draft"
 STATUS_QUEUED = "queued"
@@ -133,4 +135,64 @@ class MergeProject(models.Model):
         return default_storage.url(self.poster) if self.poster else ""
 
 
-__all__ = ["MergeProject", "ACTIVE", "EDITABLE", "DELETABLE", "FITS"]
+def _upload_expiry():
+    return timezone.now() + timedelta(days=UPLOAD_RETENTION_DAYS)
+
+
+class MergeUpload(models.Model):
+    """Своё видео человека для склейки (вкладка «Мои файлы»).
+
+    Файл лежит под именем, которое придумал сервер (uid), — имя с телефона
+    остаётся только подписью. Отклонённая загрузка (rejected) — строка без
+    файла: видно, что и почему не приняли.
+    """
+
+    STATUS_READY = "ready"
+    STATUS_REJECTED = "rejected"
+    STATUS_CHOICES = [(STATUS_READY, "Готово"), (STATUS_REJECTED, "Отклонено")]
+
+    # Публичный идентификатор и имя файла: чужое видео неотличимо от несуществующего.
+    uid = models.CharField(max_length=32, unique=True, default=_uid, editable=False)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE,
+                             related_name="merge_uploads", verbose_name="Пользователь")
+    title = models.CharField(max_length=80, blank=True, default="", verbose_name="Подпись")
+    # Пути в default_storage: merge/uploads/<user_id>/<uid>.mp4|webm и обложка .jpg.
+    file = models.CharField(max_length=512, blank=True, default="", verbose_name="Файл")
+    poster = models.CharField(max_length=512, blank=True, default="", verbose_name="Обложка")
+    size = models.PositiveBigIntegerField(default=0, verbose_name="Размер, байт")
+    duration_s = models.FloatField(null=True, blank=True, verbose_name="Длительность, с")
+    # Размер кадра в файле и на экране: телефон пишет вертикальное видео
+    # горизонтальным кадром с пометкой «повернуть» — показываем по повороту.
+    width = models.PositiveIntegerField(null=True, blank=True, verbose_name="Ширина в файле")
+    height = models.PositiveIntegerField(null=True, blank=True, verbose_name="Высота в файле")
+    display_width = models.PositiveIntegerField(null=True, blank=True, verbose_name="Ширина")
+    display_height = models.PositiveIntegerField(null=True, blank=True, verbose_name="Высота")
+    rotation = models.SmallIntegerField(default=0, verbose_name="Поворот, °")
+    has_audio = models.BooleanField(default=False, verbose_name="Есть звук")
+    video_codec = models.CharField(max_length=16, blank=True, default="", verbose_name="Кодек")
+    hdr = models.BooleanField(default=False, verbose_name="HDR")
+    status = models.CharField(max_length=10, choices=STATUS_CHOICES, default=STATUS_READY,
+                              db_index=True, verbose_name="Состояние")
+    # Почему отклонено (код отказа API) — для разбора, человеку отвечает API.
+    error_code = models.CharField(max_length=40, blank=True, default="", verbose_name="Код отказа")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Загружено")
+    # 30 дней с загрузки; склейка, в которую видео вошло, продлевает его до
+    # своего срока хранения (уборка не трогает видео идущей склейки).
+    expires_at = models.DateTimeField(default=_upload_expiry, db_index=True,
+                                      verbose_name="Хранится до")
+
+    class Meta:
+        verbose_name = "Своё видео"
+        verbose_name_plural = "Свои видео"
+        indexes = [models.Index(fields=["user", "status", "-created_at"], name="merge_upload_user")]
+
+    def __str__(self):
+        return self.title or f"Видео {self.uid[:8]}"
+
+    @property
+    def container(self) -> str:
+        """Демуксер ffmpeg для файла: тип определён по первым байтам при загрузке."""
+        return "matroska" if self.file.endswith(".webm") else "mov"
+
+
+__all__ = ["MergeProject", "MergeUpload", "ACTIVE", "EDITABLE", "DELETABLE", "FITS"]
