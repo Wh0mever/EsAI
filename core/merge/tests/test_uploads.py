@@ -220,7 +220,7 @@ class UploadRefusalTests(_Uploads):
     def test_header_command_never_decodes(self):
         from merge import render
         cmd = render.upload_header_cmd("/m/a.mov", "mov")
-        self.assertEqual(cmd[cmd.index("-find_stream_info") + 1], "0")
+        self.assertIn("-nofind_stream_info", cmd)
         self.assertNotIn("-codec_whitelist", cmd)
         self.assertEqual(cmd[cmd.index("-protocol_whitelist") + 1], "file")
         self.assertEqual(cmd[-1], "file:/m/a.mov")

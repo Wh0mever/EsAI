@@ -192,7 +192,7 @@ def upload_probe_cmd(path: str, fmt: str) -> list[str]:
 
 
 def upload_header_cmd(path: str, fmt: str) -> list[str]:
-    """Только заголовки контейнера — без декодеров (-find_stream_info 0).
+    """Только заголовки контейнера — без декодеров (-nofind_stream_info).
 
     Нужен, когда строгий разбор не открыл файл: ffprobe со списком декодеров
     падает на дорожке вне списка (ProRes с айфона), и без этого человек прочёл
@@ -202,7 +202,7 @@ def upload_header_cmd(path: str, fmt: str) -> list[str]:
         raise ValueError(f"unknown upload format {fmt!r}")
     return ["ffprobe", "-v", "error", "-hide_banner",
             "-probesize", UPLOAD_PROBE_SIZE, "-analyzeduration", UPLOAD_ANALYZE_US,
-            "-protocol_whitelist", "file", "-f", fmt, "-find_stream_info", "0",
+            "-protocol_whitelist", "file", "-f", fmt, "-nofind_stream_info",
             "-show_entries", "stream=codec_type,codec_name", "-of", "json", input_path(path, fmt)]
 
 
