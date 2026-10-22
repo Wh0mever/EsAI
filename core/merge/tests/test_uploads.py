@@ -39,7 +39,9 @@ class _Uploads(MediaTestCase):
         self.api = client_for(self.owner)
         for target, kwargs in (("merge.uploads.free_bytes", {"return_value": 10 ** 13}),
                                ("merge.render.make_upload_poster", {"side_effect": _poster_ok}),
-                               ("merge.services.storage_ready", {"return_value": (True, "")})):
+                               ("merge.services.storage_ready", {"return_value": (True, "")}),
+                               # Заголовки контейнера по умолчанию «не читаются»: без ffprobe на машине.
+                               ("merge.render.upload_video_codecs", {"return_value": None})):
             patcher = patch(target, **kwargs)
             setattr(self, target.rsplit(".", 1)[-1], patcher.start())
             self.addCleanup(patcher.stop)
@@ -202,6 +204,26 @@ class UploadRefusalTests(_Uploads):
         body = self.refused(self.send(), "upload_unreadable")
         self.assertEqual(body["error"], "Файл не читается — возможно, он повреждён. Выберите другое видео.")
         self.assertEqual(MergeUpload.objects.get().error_code, "upload_unreadable")
+
+    def test_unsupported_codec_is_not_called_broken(self):
+        # Строгий разбор с белым списком декодеров не открыл ProRes, а заголовки показали дорожку.
+        self.probe.side_effect = lambda path, fmt="": None
+        self.upload_video_codecs.return_value = ["prores"]
+        body = self.refused(self.send(), "upload_no_video")
+        self.assertIn("H.264, HEVC", body["error"])
+
+    def test_allowed_codec_in_headers_stays_unreadable(self):
+        self.probe.side_effect = lambda path, fmt="": None
+        self.upload_video_codecs.return_value = ["h264"]
+        self.refused(self.send(), "upload_unreadable")
+
+    def test_header_command_never_decodes(self):
+        from merge import render
+        cmd = render.upload_header_cmd("/m/a.mov", "mov")
+        self.assertEqual(cmd[cmd.index("-find_stream_info") + 1], "0")
+        self.assertNotIn("-codec_whitelist", cmd)
+        self.assertEqual(cmd[cmd.index("-protocol_whitelist") + 1], "file")
+        self.assertEqual(cmd[-1], "file:/m/a.mov")
 
     def test_no_video_stream(self):
         self.probe_returns(video_streams=0, codec="", video_index=None)

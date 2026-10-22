@@ -269,6 +269,12 @@ def _accept(user, fileobj, title: str, size: int) -> MergeUpload:
         path = default_storage.path(name)
         info = ffmpeg.probe(path, fmt)
         refusal = verdict(info)
+        if info is None:
+            # Строгий разбор не открыл файл: если в заголовках есть видео в неподходящем
+            # формате (ProRes и т. п.), честнее сказать про формат, чем про поломку.
+            codecs = ffmpeg.upload_video_codecs(path, fmt)
+            if codecs and any(codec not in UPLOAD_CODECS for codec in codecs):
+                refusal = _refuse("upload_no_video", MSG_NO_VIDEO)
         if refusal is not None:
             raise refusal
         poster = f"{folder(user.pk)}/{uid}.jpg"

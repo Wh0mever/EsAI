@@ -191,6 +191,37 @@ def upload_probe_cmd(path: str, fmt: str) -> list[str]:
             input_path(path, fmt)]
 
 
+def upload_header_cmd(path: str, fmt: str) -> list[str]:
+    """Только заголовки контейнера — без декодеров (-find_stream_info 0).
+
+    Нужен, когда строгий разбор не открыл файл: ffprobe со списком декодеров
+    падает на дорожке вне списка (ProRes с айфона), и без этого человек прочёл
+    бы «файл повреждён» вместо «формат видео не подходит».
+    """
+    if fmt not in UPLOAD_FORMATS:
+        raise ValueError(f"unknown upload format {fmt!r}")
+    return ["ffprobe", "-v", "error", "-hide_banner",
+            "-probesize", UPLOAD_PROBE_SIZE, "-analyzeduration", UPLOAD_ANALYZE_US,
+            "-protocol_whitelist", "file", "-f", fmt, "-find_stream_info", "0",
+            "-show_entries", "stream=codec_type,codec_name", "-of", "json", input_path(path, fmt)]
+
+
+def upload_video_codecs(path: str, fmt: str) -> list[str] | None:
+    """Кодеки видеодорожек по заголовкам; None — не читаются и заголовки."""
+    try:
+        result = _run(upload_header_cmd(path, fmt), UPLOAD_PROBE_TIMEOUT_S)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if result.returncode != 0:
+        return None
+    try:
+        data = json.loads(result.stdout or b"{}") or {}
+        return [str(s.get("codec_name") or "") for s in data.get("streams") or []
+                if isinstance(s, dict) and s.get("codec_type") == "video"]
+    except (ValueError, TypeError, AttributeError):
+        return None
+
+
 def _rotation(stream: dict) -> int:
     """Поворот для показа по часовой (0/90/180/270): матрица кадра, иначе старый тег rotate."""
     value = None
