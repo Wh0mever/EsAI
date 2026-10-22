@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import Link from "next/link";
 import { FiFilm, FiArrowRight, FiGrid } from "react-icons/fi";
+import { fetchData } from "@/tools/fetchData";
 import TaskCatalogSheet from "./TaskCatalogSheet";
 
 type Props = {
@@ -78,6 +79,57 @@ const STUDIO_CARD_ICON = "grid h-9 w-9 shrink-0 place-items-center rounded-xl bg
 const STUDIO_CARD_BADGE =
   "shrink-0 rounded-full bg-accent px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-on-accent";
 const STUDIO_CARD_ARROW = "shrink-0 text-base text-accent transition-transform group-hover:translate-x-0.5";
+const STUDIO_CARD_DESC = "mt-0.5 block text-xs leading-snug text-muted";
+
+/** Цена склейки — на вкладку: главную открывают часто, а цену меняют только из админки. */
+const MERGE_PRICE_KEY = "esai:merge-price";
+const MERGE_PRICE_TTL_MS = 10 * 60 * 1000;
+
+function cachedMergePrice(): number | null {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(MERGE_PRICE_KEY) || "null") as { price?: unknown; at?: unknown } | null;
+    if (!saved || typeof saved.price !== "number" || typeof saved.at !== "number") return null;
+    return Date.now() - saved.at < MERGE_PRICE_TTL_MS ? saved.price : null;
+  } catch {
+    // Нет sessionStorage (приватный режим) — просто спросим сервер.
+    return null;
+  }
+}
+
+/**
+ * Склейка сейчас бесплатная? Цена — runtime-ключ сервера (merge/config/), её
+ * правят без выкладки: «бесплатно» на карточке говорим только по ответу сервера,
+ * иначе при платной склейке главная обещала бы неправду. null — ещё не знаем.
+ */
+function useMergeFree(): boolean | null {
+  const [price, setPrice] = useState<number | null>(null);
+  useEffect(() => {
+    let alive = true;
+    const cached = cachedMergePrice();
+    if (cached != null) {
+      // Из кэша — тем же путём, что ответ сервера: setState прямо в эффекте линтер не пускает.
+      void Promise.resolve().then(() => {
+        if (alive) setPrice(cached);
+      });
+    } else {
+      // Без входа: цене всё равно, кто спрашивает, а с токеном сервер считал бы ещё и баланс.
+      void fetchData<{ price_credits?: unknown }>("merge/config/", "GET").then((res) => {
+        const value = res.ok ? res.data?.price_credits : undefined;
+        if (!alive || typeof value !== "number") return;
+        setPrice(value);
+        try {
+          sessionStorage.setItem(MERGE_PRICE_KEY, JSON.stringify({ price: value, at: Date.now() }));
+        } catch {
+          // Не сохранилось — в следующий раз спросим снова.
+        }
+      });
+    }
+    return () => {
+      alive = false;
+    };
+  }, []);
+  return price == null ? null : price === 0;
+}
 
 /**
  * StartScreen — the first screen of the chat: the chat input, quick-prompt
@@ -99,6 +151,7 @@ const STUDIO_CARD_ARROW = "shrink-0 text-base text-accent transition-transform g
 export default function StartScreen({ onUsePrompt, composerSlot, belowComposerSlot, showQuickPrompts, bottomAligned, keyboardOpen }: Props) {
   const { t } = useTranslation("common");
   const [catalogOpen, setCatalogOpen] = useState(false);
+  const mergeFree = useMergeFree();
 
   // Прижимаем к низу распоркой, а НЕ justify-end: в прокручиваемом контейнере
   // justify-end обрезает верх, когда содержимое выше экрана, и до него нельзя
@@ -161,15 +214,17 @@ export default function StartScreen({ onUsePrompt, composerSlot, belowComposerSl
 
         {/* Флагман-баннер: «Создание мультфильмов» → студия /studio. Компактная
             карточка-ссылка (сжато по просьбе клиента — раньше была крупнее).
-            С флагом сборки рядом встаёт близнец «Видеостудия»: на телефоне
-            карточки идут друг под другом, с sm — в два столбца одной высоты. */}
-        <div className={VSTUDIO_NAV ? "mt-4 grid w-full gap-2 sm:grid-cols-2" : "mt-4 w-full"}>
+            Рядом «Склейка видео», а с флагом сборки — ещё «Видеостудия». На
+            телефоне карточки идут друг под другом; три встают в ряд с 768 px
+            (уже заголовки с «Новинкой» не помещались), две — с 640 px. Высоты
+            ровные: ячейки сетки тянутся по самой высокой. */}
+        <div className={VSTUDIO_NAV ? "mt-4 grid w-full gap-2 md:grid-cols-3" : "mt-4 grid w-full gap-2 sm:grid-cols-2"}>
           <Link href="/studio" className={STUDIO_CARD}>
             <span className={STUDIO_CARD_ICON}>
               🎬
             </span>
             <span className="min-w-0 flex-1">
-              <span className="flex items-center gap-2">
+              <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
                 <span className="text-sm font-bold text-foreground">
                   {t("chat.start.studio_title", { defaultValue: "Создание мультфильмов" })}
                 </span>
@@ -177,10 +232,16 @@ export default function StartScreen({ onUsePrompt, composerSlot, belowComposerSl
                   {t("common.new_badge", { defaultValue: "Новинка" })}
                 </span>
               </span>
+              {/* Описание есть у всех трёх карточек: без него ряд выглядел неровным. */}
+              <span className={STUDIO_CARD_DESC}>
+                {t("chat.start.studio_desc", {
+                  defaultValue: "Выберите героя и сцены — мультфильм с озвучкой за несколько минут",
+                })}
+              </span>
             </span>
-            {/* В паре карточка вдвое уже: декоративный значок съедал место
-                заголовка, и «Новинка» упиралась в стрелку. */}
-            {VSTUDIO_NAV ? null : <FiFilm className="hidden sm:block shrink-0 text-lg text-accent" />}
+            {/* В ряду карточка уже: декоративный значок съедал место заголовка, и
+                «Новинка» упиралась в стрелку. Две карточки — значок с 1024 px. */}
+            {VSTUDIO_NAV ? null : <FiFilm className="hidden lg:block shrink-0 text-lg text-accent" />}
             <FiArrowRight className={STUDIO_CARD_ARROW} />
           </Link>
 
@@ -190,7 +251,7 @@ export default function StartScreen({ onUsePrompt, composerSlot, belowComposerSl
                 🎥
               </span>
               <span className="min-w-0 flex-1">
-                <span className="flex items-center gap-2">
+                <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
                   <span className="text-sm font-bold text-foreground">
                     {t("chat.start.vstudio_title", { defaultValue: "Видеостудия" })}
                   </span>
@@ -200,7 +261,7 @@ export default function StartScreen({ onUsePrompt, composerSlot, belowComposerSl
                 </span>
                 {/* Одна строка о том, чем студия отличается от мультфильмов по
                     соседству: свой запрос и свои фото вместо готовых сцен. */}
-                <span className="mt-0.5 block text-xs leading-snug text-muted">
+                <span className={STUDIO_CARD_DESC}>
                   {t("chat.start.vstudio_desc", {
                     defaultValue: "Видео и картинки по описанию и вашим фото — несколько моделей в одном окне",
                   })}
@@ -209,6 +270,33 @@ export default function StartScreen({ onUsePrompt, composerSlot, belowComposerSl
               <FiArrowRight className={STUDIO_CARD_ARROW} />
             </Link>
           ) : null}
+
+          {/* Склейка открыта всем (своего флага у неё нет), как и мультстудия. */}
+          <Link href="/merge" prefetch={false} className={STUDIO_CARD}>
+            <span className={STUDIO_CARD_ICON} aria-hidden>
+              🎞️
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                <span className="text-sm font-bold text-foreground">
+                  {t("chat.start.merge_title", { defaultValue: "Склейка видео" })}
+                </span>
+                <span className={STUDIO_CARD_BADGE}>
+                  {t("common.new_badge", { defaultValue: "Новинка" })}
+                </span>
+              </span>
+              <span className={STUDIO_CARD_DESC}>
+                {mergeFree
+                  ? t("chat.start.merge_desc_free", {
+                      defaultValue: "Соедините ролики из студий, чата и свои видео в один ролик — бесплатно",
+                    })
+                  : t("chat.start.merge_desc", {
+                      defaultValue: "Соедините ролики из студий, чата и свои видео в один ролик",
+                    })}
+              </span>
+            </span>
+            <FiArrowRight className={STUDIO_CARD_ARROW} />
+          </Link>
         </div>
       </div>
     </div>

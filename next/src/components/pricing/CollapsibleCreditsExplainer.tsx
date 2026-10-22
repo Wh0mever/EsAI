@@ -54,9 +54,14 @@ export default function CollapsibleCreditsExplainer() {
         />
       </button>
 
+      {/* relative — не украшение: без него невидимые подписи для чтеца (sr-only —
+          это position:absolute) внутри свёрнутой таблицы считались от всей страницы,
+          overflow-hidden их не обрезал, и под футером оставалось пустое поле высотой
+          со всю таблицу. inert — свёрнутую таблицу не читает диктор и не ловит Tab. */}
       <div
-        className="overflow-hidden transition-[max-height] duration-300 ease-in-out"
+        className="relative overflow-hidden transition-[max-height] duration-300 ease-in-out"
         style={{ maxHeight }}
+        inert={!open}
       >
         <div ref={contentRef}>
           <CreditsExplainer />

@@ -205,7 +205,11 @@ export default function MergeDock({
   );
 
   const priceText = (price: number) => (price > 0 ? credits(price) : t("merge.dock.free", { defaultValue: "бесплатно" }));
-  const runFull = (price: number) => t("merge.dock.run", { defaultValue: "Склеить · {{price}}", price: priceText(price) });
+  // Бесплатно — «Склеить бесплатно», а не «Склеить · 0 кр» и не «Склеить · бесплатно».
+  const runFull = (price: number) =>
+    price > 0
+      ? t("merge.dock.run", { defaultValue: "Склеить · {{price}}", price: priceText(price) })
+      : t("merge.dock.run_free", { defaultValue: "Склеить бесплатно" });
   // Оплаченный звук: «Склеить · 20 кр» спишет только склейку.
   const paidText = soundText.paid(sound.paid);
   let reason: string | null = null;

@@ -16,11 +16,17 @@
  * Пикеры — те же, что в видеостудии (ModelPicker, ResolutionPicker,
  * DurationPicker): они не зависят от её стора и берут модель в форме ModelJSON,
  * а цены в их таблицах — цены СЦЕНЫ (кадр + видео) в формате мультфильма. С
- * 768 px у каждого значения своя кнопка и окошко над ней. На телефоне док — одна
+ * 768 px у каждого значения своя кнопка; любая открывает одно окошко над доком со
+ * всеми четырьмя пикерами и сразу показывает свой раздел. На телефоне док — одна
  * строка, как у видеостудии: кнопка-сводка «2.0 Mini · 480p · 5 с · 16:9»
- * (SettingsChip) открывает шторку со всеми четырьмя пикерами, рядом сумма и
- * главная кнопка. Палитра студии (vs-*) живёт только внутри .vs-root: класс
- * стоит на доке и на окошках, которые рисуются порталом в body.
+ * (SettingsChip) открывает шторку с теми же пикерами, рядом сумма и главная кнопка.
+ *
+ * Клиент (22.10.2026): окно не закрывается после каждого выбора — как «Параметры»
+ * видеостудии, характеристики выбираются подряд до «Готово». Пока выбор едет на
+ * сервер, пикеры на миг заняты: второй PATCH поверх первого не уходит.
+ *
+ * Палитра студии (vs-*) живёт только внутри .vs-root: класс стоит на доке и на
+ * окошках, которые рисуются порталом в body.
  */
 import { useEffect, useId, useRef, useState, useSyncExternalStore, type ReactNode, type RefObject } from "react";
 import { useTranslation } from "react-i18next";
@@ -30,7 +36,7 @@ import { AspectShape, aspectHint } from "@/components/ui/AspectIcon";
 import AnchoredPopover from "@/components/vstudio/composer/Popover";
 import BottomSheet from "@/components/vstudio/BottomSheet";
 import { EDGE_FADE, useEdgeFade } from "@/components/vstudio/home/strip/useEdgeFade";
-import ModelPicker from "@/components/vstudio/settings/ModelPicker";
+import ModelPicker, { openModelPicker } from "@/components/vstudio/settings/ModelPicker";
 import ResolutionPicker from "@/components/vstudio/settings/ResolutionPicker";
 import DurationPicker from "@/components/vstudio/settings/DurationPicker";
 import { OptionButton, Reason, Section, VendorDot } from "@/components/vstudio/settings/SettingsBits";
@@ -51,8 +57,11 @@ import {
 import type { DockPrimary, DockValue } from "./cartoonTypes";
 
 type PillKey = "model" | "resolution" | "duration" | "aspect";
-/** Что открыто: окошко у своей кнопки (с 768 px) или общая шторка параметров (телефон). */
-type OpenKey = PillKey | "sheet";
+/**
+ * Окно параметров открыто: from — какой кнопкой (его раздел показываем первым и
+ * туда возвращаем фокус); null — сводкой на телефоне.
+ */
+type OpenState = { from: PillKey | null };
 
 /** Сцена мультстудии не несёт своих фото: пикеру нечего сверять с материалами. */
 const NO_INPUTS: InputCounts = { refs: 0, refsExcluded: 0, first: false, last: false, uploads: 0 };
@@ -136,39 +145,6 @@ export type CartoonDockProps = {
   onTotal?: () => void;
 };
 
-/** Окошко пикера над его кнопкой (с 768 px). */
-function PickerPopover({
-  anchor,
-  open,
-  onClose,
-  title,
-  width,
-  children,
-}: {
-  anchor: RefObject<HTMLButtonElement | null>;
-  open: boolean;
-  onClose: () => void;
-  title: string;
-  /** Ширина окошка (Tailwind): у списка моделей шире, чем у сетки значений. */
-  width: string;
-  children: ReactNode;
-}) {
-  return (
-    <AnchoredPopover
-      anchor={anchor}
-      open={open}
-      onClose={onClose}
-      role="dialog"
-      ariaLabel={title}
-      autoFocus
-      closeOnTabOut
-      className="vs-root"
-    >
-      <div className={width}>{children}</div>
-    </AnchoredPopover>
-  );
-}
-
 function FormatPicker({
   value,
   onChange,
@@ -243,7 +219,7 @@ export default function CartoonDock({
   const d = (key: DockTextKey, params?: Record<string, string | number>) =>
     t(key, { defaultValue: DOCK_RU[key], ...(params || {}) });
   const wide = useWide();
-  const [open, setOpen] = useState<OpenKey | null>(null);
+  const [open, setOpen] = useState<OpenState | null>(null);
   // Какую кнопку тронули последней: пока сохраняется, крутилка — на ней. В конце
   // прокручиваемого ряда её на узком экране не было видно (уезжала за край).
   const [picked, setPicked] = useState<PillKey | null>(null);
@@ -259,6 +235,9 @@ export default function CartoonDock({
     duration: durationRef,
     aspect: aspectRef,
   };
+  // Ряд кнопок значений — якорь окна параметров: нажатие на соседнюю кнопку его не закрывает.
+  const pillsRowRef = useRef<HTMLDivElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
   const reasonId = useId();
   const { attach: pillsRef, fade: pillsFade } = useEdgeFade<HTMLDivElement>();
 
@@ -290,17 +269,58 @@ export default function CartoonDock({
     duration: Boolean(model) && durations.length > 1,
     aspect: true,
   };
-  // Окошки — только у кнопок (с 768 px), шторка — только на телефоне: повернули экран — открытое закрылось.
-  const shown: OpenKey | null =
-    open === "sheet" ? (wide ? null : "sheet") : open && wide && can[open] ? open : null;
+  // Окно одно: с 768 px — окошко над кнопками, уже — шторка.
+  const isOpen = open !== null;
+  const from = open?.from ?? null;
+  /** Окно открыто этой кнопкой: она подсвечена, как нажатая. */
+  const openedBy = (key: PillKey) => isOpen && from === key;
   // Занят — сохраняется прежний выбор или студия ещё не загрузилась.
   const locked = saving || disabled;
-  // Пока прежний выбор едет на сервер, новый не начинаем: иначе два PATCH разом и
-  // на экране могло остаться не то, что сохранилось.
-  const toggle = (key: OpenKey) => {
-    if (locked) return;
-    setOpen((cur) => (cur === key ? null : key));
+  /**
+   * Кнопка значения: открыть окно на её разделе; повторное нажатие — закрыть.
+   * При открытом окне другая кнопка только переводит к своему разделу.
+   */
+  const toggle = (key: PillKey | null) => {
+    if (isOpen && from === key) {
+      closePanel();
+      return;
+    }
+    if (locked && !isOpen) return;
+    if (isOpen && key === "model") openModelPicker();
+    setOpen({ from: key });
   };
+  /** «Готово», Esc, клик мимо: окно закрывается, фокус — на кнопку, которой открыли. */
+  const closePanel = () => {
+    const back = from ?? "model";
+    setOpen(null);
+    // Шторка возвращает фокус сама; окошку над кнопками — помогаем, если фокус
+    // не ушёл туда, куда человек нажал мимо окна.
+    if (!wide) return;
+    requestAnimationFrame(() => {
+      const at = document.activeElement;
+      if (at && at !== document.body) return;
+      refs[back].current?.focus();
+    });
+  };
+
+  // Окно открыли кнопкой значения (или перешли к другой): показать её раздел и
+  // поставить фокус на выбранное значение.
+  useEffect(() => {
+    if (!isOpen || !wide) return;
+    let raf = requestAnimationFrame(() => {
+      raf = requestAnimationFrame(() => {
+        const part = panelRef.current?.querySelector<HTMLElement>(`[data-dock-part="${from ?? "model"}"]`);
+        if (!part) return;
+        part.scrollIntoView({ block: "nearest" });
+        const target =
+          part.querySelector<HTMLElement>('button[aria-pressed="true"]:not([disabled])') ??
+          part.querySelector<HTMLElement>("button:not([disabled])");
+        target?.focus({ preventScroll: true });
+      });
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [isOpen, wide, from]);
+
   /** Занятость кнопки: видно (aria-disabled) и слышно (aria-busy). */
   const busy = locked ? ({ "aria-disabled": true, "aria-busy": true } as const) : {};
   /** Сохраняется именно эта кнопка; правка не отсюда — крутилка на первой, она всегда видна. */
@@ -309,13 +329,19 @@ export default function CartoonDock({
   const spinner = (size = "size-3.5") => (
     <FiLoader className={vx(size, "shrink-0 animate-spin motion-reduce:animate-none")} aria-hidden />
   );
-  /** Значение выбрано: окошко или шторка закрывается, фокус — обратно на кнопку. */
-  const done = (key: PillKey) => {
-    setPicked(key);
-    setOpen(null);
-    // Шторка возвращает фокус сама, окошку над кнопкой — помогаем.
-    if (wide) refs[key].current?.focus();
-  };
+  /**
+   * Выбор в окне: окно остаётся открытым (следующую характеристику выбирают
+   * сразу), крутилка встаёт на кнопку этого значения. Пока прежний выбор едет на
+   * сервер, новый не принимаем: иначе два PATCH разом и на экране могло остаться
+   * не то, что сохранилось.
+   */
+  const choose =
+    <T,>(key: PillKey, apply: (value: T) => void) =>
+    (value: T) => {
+      if (locked) return;
+      setPicked(key);
+      apply(value);
+    };
 
   const seconds = (n: number) => d("studio_ui.dock_seconds", { n });
   const credits = (n: number) => `${n} ${t("studio_ui.credits_short", { defaultValue: "кр" })}`;
@@ -337,11 +363,11 @@ export default function CartoonDock({
         type="button"
         onClick={() => toggle("model")}
         aria-haspopup="dialog"
-        aria-expanded={shown === "model"}
+        aria-expanded={openedBy("model")}
         {...busy}
         aria-label={`${d("studio_ui.dock_model")}: ${name || "—"}`}
         title={d("studio_ui.dock_model")}
-        className={vx(PILL, "!gap-2", shown === "model" && PILL_OPEN, warning && "!border-status-wait/50")}
+        className={vx(PILL, "!gap-2", openedBy("model") && PILL_OPEN, warning && "!border-status-wait/50")}
       >
         <VendorDot modelId={value.model} />
         <span className="max-w-[10rem] truncate font-semibold text-foreground">{name || "—"}</span>
@@ -351,7 +377,7 @@ export default function CartoonDock({
           <FiChevronDown
             className={vx(
               "size-3.5 shrink-0 opacity-70 transition-transform duration-200 motion-reduce:transition-none",
-              shown === "model" && "rotate-180",
+              openedBy("model") && "rotate-180",
             )}
             aria-hidden
           />
@@ -385,11 +411,11 @@ export default function CartoonDock({
         type="button"
         onClick={() => toggle(key)}
         aria-haspopup="dialog"
-        aria-expanded={shown === key}
+        aria-expanded={openedBy(key)}
         {...busy}
         aria-label={`${label}: ${text}`}
         title={label}
-        className={vx(PILL, shown === key && PILL_OPEN)}
+        className={vx(PILL, openedBy(key) && PILL_OPEN)}
       >
         {text}
         {spinning(key) && spinner()}
@@ -407,11 +433,11 @@ export default function CartoonDock({
       type="button"
       onClick={() => toggle("aspect")}
       aria-haspopup="dialog"
-      aria-expanded={shown === "aspect"}
+      aria-expanded={openedBy("aspect")}
       {...busy}
       aria-label={`${formatTitle}: ${aspect}`}
       title={aspectHint(tf, aspect)}
-      className={vx(PILL, shown === "aspect" && PILL_OPEN)}
+      className={vx(PILL, openedBy("aspect") && PILL_OPEN)}
     >
       {spinning("aspect") ? spinner("size-4") : <AspectShape ratio={aspect} size={16} className="shrink-0" />}
       {aspect}
@@ -431,15 +457,15 @@ export default function CartoonDock({
   const chip = (
     <button
       type="button"
-      onClick={() => toggle("sheet")}
+      onClick={() => toggle(null)}
       aria-haspopup="dialog"
-      aria-expanded={shown === "sheet"}
+      aria-expanded={isOpen}
       {...busy}
       aria-label={`${d("studio_ui.dock_label")}: ${summary}`}
       title={summary}
       className={vx(
         CHIP,
-        shown === "sheet" && PILL_OPEN,
+        isOpen && PILL_OPEN,
         (warning || (modelsError && !can.model)) && "!border-status-wait/50",
       )}
     >
@@ -461,20 +487,13 @@ export default function CartoonDock({
     </button>
   );
 
-  // Пикеры — одни и те же в окошках у кнопок (с 768 px) и в шторке (телефон).
-  const pickModel = (id: string) => {
-    onModel(id);
-    done("model");
-  };
+  // Пикеры — одни и те же в окошке над кнопками (с 768 px) и в шторке (телефон).
   const resolutionPicker =
     model && can.resolution ? (
       <ResolutionPicker
         model={model}
         value={value.resolution ?? undefined}
-        onChange={(v) => {
-          onResolution(v);
-          done("resolution");
-        }}
+        onChange={choose("resolution", onResolution)}
         duration={value.duration ?? undefined}
         aspect={aspect}
       />
@@ -485,10 +504,7 @@ export default function CartoonDock({
         <DurationPicker
           model={model}
           value={value.duration ?? undefined}
-          onChange={(v) => {
-            onDuration(v);
-            done("duration");
-          }}
+          onChange={choose("duration", onDuration)}
           resolution={value.resolution ?? undefined}
           aspect={aspect}
         />
@@ -498,10 +514,7 @@ export default function CartoonDock({
   const formatPicker = (
     <FormatPicker
       value={aspect}
-      onChange={(v) => {
-        onAspect(v);
-        done("aspect");
-      }}
+      onChange={choose("aspect", onAspect)}
       price={formatPrice}
       hasShot={hasShot}
       t={tf}
@@ -516,9 +529,11 @@ export default function CartoonDock({
         models={list}
         value={model?.id ?? null}
         counts={NO_INPUTS}
-        onSelect={pickModel}
+        onSelect={choose("model", onModel)}
+        // Открыли кнопкой модели — список уже раскрыт (окно монтируется заново при каждом открытии).
+        defaultOpen={from === "model"}
         // В мультстудии тарифного замка нет (locked всегда false).
-        onLocked={() => setOpen(null)}
+        onLocked={closePanel}
       />
     );
   } else if (modelsError) {
@@ -544,6 +559,46 @@ export default function CartoonDock({
       </Section>
     );
   }
+
+  // Сообщения дока — и в самом окне: на телефоне шторка закрывает док, и
+  // «подогнали значение» или отказ сервера иначе остались бы под ней. Живая
+  // область для диктора — одна, в доке; здесь — просто текст.
+  const panelNotes =
+    hasNotes || error ? (
+      <div className="flex flex-col gap-1 rounded-xl bg-vs-ink/[0.03] px-3 py-2 text-[12px] leading-snug">
+        {warning && <p className="text-status-wait">{d(warning)}</p>}
+        {notices.map((n, i) => (
+          <p key={`${n.key}-${i}`} className="text-status-wait">
+            {d(n.key, n.params)}
+          </p>
+        ))}
+        {error && <p className="text-status-fail">{error}</p>}
+      </div>
+    ) : null;
+
+  // Все четыре характеристики одним списком. Пока выбор сохраняется, список
+  // приглушён и не нажимается — с задержкой, чтобы быстрый ответ не мигал.
+  const panelBody = (
+    <div
+      ref={panelRef}
+      aria-busy={locked || undefined}
+      className={vx(
+        "flex flex-col gap-5 transition-opacity duration-200 motion-reduce:transition-none",
+        locked && "pointer-events-none opacity-60 delay-150",
+      )}
+    >
+      {panelNotes}
+      {modelSection && <div data-dock-part="model">{modelSection}</div>}
+      {resolutionPicker && <div data-dock-part="resolution">{resolutionPicker}</div>}
+      {durationPicker && (
+        <div data-dock-part="duration" className="flex flex-col gap-2.5">
+          {durationPicker}
+        </div>
+      )}
+      <div data-dock-part="aspect">{formatPicker}</div>
+    </div>
+  );
+  const doneLabel = t("studio_ui.dock_done", { defaultValue: "Готово" });
 
   // «Собрать мультфильм» (вошёл, есть снятые сцены), она же выключенная (сцены
   // есть, снятых нет — причина словами рядом) или «Снять мультфильм» гостя, то
@@ -722,7 +777,7 @@ export default function CartoonDock({
                 className={vx("vs-noscroll -my-1 min-w-0 flex-1 basis-0 overflow-x-auto px-0.5 py-1", EDGE_FADE[pillsFade])}
                 aria-busy={locked || undefined}
               >
-                <div className="flex w-max items-center gap-1.5">
+                <div ref={pillsRowRef} className="flex w-max items-center gap-1.5">
                   {modelPill}
                   {valuePill("resolution", d("studio_ui.dock_quality"), resText)}
                   {valuePill("duration", d("studio_ui.dock_duration"), durText)}
@@ -755,81 +810,46 @@ export default function CartoonDock({
       </div>
 
       {wide ? (
-        <>
-          {can.model && (
-            <PickerPopover
-              anchor={modelRef}
-              open={shown === "model"}
-              onClose={() => setOpen(null)}
-              title={d("studio_ui.dock_model")}
-              width="flex w-[min(22.5rem,calc(100vw-1rem))] flex-col p-1.5"
-            >
-              <div className={`${VS_LABEL} px-2 pb-2 pt-1.5`} aria-hidden>
-                {d("studio_ui.dock_model")}
-              </div>
-              <ModelPicker
-                inline
-                kind="video"
-                models={list}
-                value={model?.id ?? null}
-                counts={NO_INPUTS}
-                onSelect={pickModel}
-                // В мультстудии тарифного замка нет (locked всегда false).
-                onLocked={() => setOpen(null)}
-              />
-            </PickerPopover>
-          )}
-
-          {resolutionPicker && (
-            <PickerPopover
-              anchor={resolutionRef}
-              open={shown === "resolution"}
-              onClose={() => setOpen(null)}
-              title={d("studio_ui.dock_quality")}
-              width="w-[min(18rem,calc(100vw-1rem))] p-3.5"
-            >
-              {resolutionPicker}
-            </PickerPopover>
-          )}
-
-          {durationPicker && (
-            <PickerPopover
-              anchor={durationRef}
-              open={shown === "duration"}
-              onClose={() => setOpen(null)}
-              title={d("studio_ui.dock_duration")}
-              width="flex w-[min(22rem,calc(100vw-1rem))] flex-col gap-2.5 p-3.5"
-            >
-              {durationPicker}
-            </PickerPopover>
-          )}
-
-          <PickerPopover
-            anchor={aspectRef}
-            open={shown === "aspect"}
-            onClose={() => setOpen(null)}
-            title={formatTitle}
-            width="w-[min(20rem,calc(100vw-1rem))] p-3.5"
-          >
-            {formatPicker}
-          </PickerPopover>
-        </>
+        // Одно окошко над кнопками значений; выбор его не закрывает — только «Готово»,
+        // Esc, повторное нажатие на кнопку или клик мимо.
+        <AnchoredPopover
+          anchor={pillsRowRef}
+          open={isOpen}
+          onClose={closePanel}
+          role="dialog"
+          ariaLabel={d("studio_ui.dock_label")}
+          closeOnTabOut
+          className="vs-root"
+        >
+          <div className="flex min-h-0 w-[min(24rem,calc(100vw-1rem))] flex-col">
+            <div className="flex shrink-0 items-center gap-2 px-4 pb-1 pt-3.5">
+              <h2 className={vx(VS_LABEL, "min-w-0 flex-1 truncate")}>{d("studio_ui.dock_label")}</h2>
+              {saving && spinner()}
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-3 pt-2">{panelBody}</div>
+            <div className="flex shrink-0 justify-end border-t border-vs-ink/10 px-4 py-2.5">
+              <button type="button" onClick={closePanel} className={VS_BTN_GHOST}>
+                {doneLabel}
+              </button>
+            </div>
+          </div>
+        </AnchoredPopover>
       ) : (
-        // Телефон: все четыре пикера одной шторкой, как «Параметры» видеостудии. Выбор
-        // закрывает её, как окошко у кнопки: следующий — после ответа сервера.
+        // Телефон: все четыре пикера одной шторкой, как «Параметры» видеостудии.
+        // Выбор её не закрывает — «Готово» внизу, крестик, свайп или тап по фону.
         <BottomSheet
-          open={shown === "sheet"}
-          onClose={() => setOpen(null)}
+          open={isOpen}
+          onClose={closePanel}
           title={d("studio_ui.dock_label")}
           className="vs-root"
           zIndex={1050}
+          footer={
+            <button type="button" onClick={closePanel} className={vx(VS_BTN_GHOST, "w-full")}>
+              {doneLabel}
+            </button>
+          }
         >
-          <div className="flex flex-col gap-5 pt-1">
-            {modelSection}
-            {resolutionPicker}
-            {durationPicker && <div className="flex flex-col gap-2.5">{durationPicker}</div>}
-            {formatPicker}
-          </div>
+          <div className="pt-1">{panelBody}</div>
         </BottomSheet>
       )}
     </>

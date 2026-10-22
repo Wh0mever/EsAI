@@ -149,6 +149,8 @@ export interface MergeConfig {
   balance: MergeBalance | null;
   /** Build MU; старый сервер его не присылает — тогда пределы по умолчанию. */
   uploads?: MergeUploadLimits;
+  /** Бесплатных склеек в сутки (только при цене 0); null или нет поля — предела нет. */
+  free_daily_limit?: number | null;
 }
 
 export interface MergeSourcesPage {

@@ -364,6 +364,67 @@ class RenderStartTests(_Api):
         self.assertEqual(response.status_code, 202)
         self.assertEqual(response.json()["credits_reserved"], 0)
 
+    def _run_and_finish(self, user, api):
+        """Запустить новую склейку и сразу закрыть её как готовую (в работе — одна на человека)."""
+        project = self.project(user, self.two(user))
+        response = self.render(project, client=api)
+        MergeProject.objects.filter(pk=project.pk, status="queued").update(status="ready",
+                                                                          credits_reserved=0)
+        return response
+
+    def test_free_merges_have_a_daily_limit(self):
+        set_runtime("merge_price_credits", 0)
+        set_runtime("merge_free_daily_limit", 2)
+        broke = self.user(balance=0)
+        api = client_for(broke)
+        for _ in range(2):
+            self.assertEqual(self._run_and_finish(broke, api).status_code, 202)
+        project = self.project(broke, self.two(broke))
+        response = self.render(project, {"aspect": "9:16"}, client=api)
+        self.assertEqual(response.status_code, 429)
+        self.assertEqual(response.json(), {
+            "error": "Бесплатных склеек на сегодня больше нет: можно 2 в сутки. "
+                     "Новую можно будет запустить завтра.",
+            "error_code": "free_limit", "max": 2})
+        project.refresh_from_db()
+        self.assertEqual((project.status, project.aspect, project.credits_reserved),
+                         ("draft", "16:9", 0))
+        # «Склеил — скачал — удалил» попытку не возвращает: счёт не по строкам склеек.
+        MergeProject.objects.filter(user=broke, status="ready").delete()
+        self.assertEqual(self.render(project, client=api).status_code, 429)
+        self.assertFalse(TokenTransaction.objects.filter(user=broke).exists())
+        # Наступили новые сутки — снова можно.
+        tomorrow = timezone.now() + timedelta(days=1)
+        with patch("django.utils.timezone.now", return_value=tomorrow):
+            self.assertEqual(services.free_used(broke.pk), 0)
+            self.assertEqual(self.render(project, client=api).status_code, 202)
+
+    def test_free_limit_counts_only_new_starts(self):
+        set_runtime("merge_price_credits", 0)
+        set_runtime("merge_free_daily_limit", 1)
+        project = self.project(self.owner, self.two())
+        self.assertEqual(self.render(project).status_code, 202)
+        # Повторный клик по уже идущей — та же склейка, попытка не тратится и отказа нет.
+        self.assertEqual(self.render(project).status_code, 200)
+        self.assertEqual(services.free_used(self.owner.pk), 1)
+
+    def test_paid_merges_and_zero_limit_are_not_limited(self):
+        set_runtime("merge_free_daily_limit", 1)
+        for _ in range(2):
+            self.assertEqual(self._run_and_finish(self.owner, self.api).status_code, 202)
+        self.assertEqual(services.free_used(self.owner.pk), 0)
+        set_runtime("merge_price_credits", 0)
+        set_runtime("merge_free_daily_limit", 0)
+        for _ in range(3):
+            self.assertEqual(self._run_and_finish(self.owner, self.api).status_code, 202)
+
+    def test_config_shows_free_limit_only_when_free(self):
+        self.assertIsNone(self.api.get(BASE + "config/").json()["free_daily_limit"])
+        set_runtime("merge_price_credits", 0)
+        self.assertEqual(self.api.get(BASE + "config/").json()["free_daily_limit"], 10)
+        set_runtime("merge_free_daily_limit", 0)
+        self.assertIsNone(self.api.get(BASE + "config/").json()["free_daily_limit"])
+
     def test_one_active_render_per_user(self):
         busy = self.project(self.owner, self.two(), status="rendering", credits_reserved=20)
         project = self.project(self.owner, self.two())

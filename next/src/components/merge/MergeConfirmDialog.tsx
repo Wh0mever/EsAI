@@ -27,6 +27,7 @@ export default function MergeConfirmDialog({
   sound,
   paid,
   voiceFrom = null,
+  freeLimit = null,
   onConfirm,
   onClose,
 }: {
@@ -41,6 +42,8 @@ export default function MergeConfirmDialog({
   paid: "voice" | "music" | "both" | null;
   /** С какого ролика голос за кадром: номер с единицы и название; null — голоса нет. */
   voiceFrom?: { n: number; title: string } | null;
+  /** Бесплатных склеек в сутки (только при цене 0); null — предела нет. */
+  freeLimit?: number | null;
   onConfirm: () => void;
   onClose: () => void;
 }) {
@@ -95,7 +98,12 @@ export default function MergeConfirmDialog({
               ? t("merge.confirm.charge", {
                   defaultValue: "Спишутся, только когда ролик будет готов. Не получится — кредиты останутся у вас.",
                 })
-              : t("merge.confirm.free", { defaultValue: "Склейка сейчас бесплатная." })}
+              : freeLimit
+                ? t("merge.confirm.free_limit", {
+                    defaultValue: "Склейка сейчас бесплатная — до {{max}} склеек в сутки.",
+                    max: freeLimit,
+                  })
+                : t("merge.confirm.free", { defaultValue: "Склейка сейчас бесплатная." })}
           </p>
           {paidText && <p className="mt-1 text-[13px] leading-snug text-muted">{paidText}.</p>}
         </div>
@@ -111,7 +119,9 @@ export default function MergeConfirmDialog({
           </button>
           <button ref={confirmRef} type="button" onClick={onConfirm} className={vx(VS_BTN_GOLD, "w-full sm:w-auto")}>
             <FiScissors aria-hidden="true" />
-            {t("merge.dock.run", { defaultValue: "Склеить · {{price}}", price: priceText })}
+            {price > 0
+              ? t("merge.dock.run", { defaultValue: "Склеить · {{price}}", price: priceText })
+              : t("merge.dock.run_free", { defaultValue: "Склеить бесплатно" })}
           </button>
         </div>
       </div>

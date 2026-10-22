@@ -112,6 +112,10 @@ KEYS = (
     # значения — MERGE_MUSIC_CONCURRENCY из окружения, 2). Панели нет — пишется из shell
     # (docs/UPDATE.md); читает merge.config.music_concurrency, он же зажимает в границы.
     "merge_music_concurrency",
+    # Склейка: бесплатных склеек (при цене 0) у человека за сутки по Бишкеку (целое
+    # 0…1000, 0 — без предела, нет значения — 10). При цене больше нуля не действует.
+    # Панели нет — пишется из shell; читает merge.config.free_daily_limit.
+    "merge_free_daily_limit",
     # Цены по себестоимости (ai/pricing.py): режим legacy/markup, общая наценка и
     # нижний порог в процентах к себестоимости OpenRouter (0…1000), закреплённый
     # курс сом/$ (пусто — живой). Проверка — ai.pricing.validate_setting, после

@@ -720,6 +720,7 @@
 			"studio_title": "Cartoon creation",
 			"studio_desc": "Come up with a story, draw the heroes and bring them to life in video — no skills needed.",
 			"vstudio_title": "Video studio",
+			"studio_desc": "Pick a hero and scenes — a voiced cartoon in a few minutes",
 			"vstudio_desc": "Videos and images from your description and your own photos — several models in one window",
 			"quick": {
 				"article": "Write an article",
@@ -739,7 +740,10 @@
 				"business": "Come up with a business idea",
 				"business_prompt": "Suggest a business idea for ",
 				"all_tasks": "All capabilities"
-			}
+			},
+			"merge_title": "Video merge",
+			"merge_desc": "Join clips from the studios, the chat and your own videos into one video",
+			"merge_desc_free": "Join clips from the studios, the chat and your own videos into one video — for free"
 		},
 		"catalog": {
 			"title": "Choose a task",
@@ -2146,7 +2150,8 @@
 		"lib_empty": "No scenes yet",
 		"tl_pause": "Pause",
 		"tl_sound_on": "Turn the sound on",
-		"tl_sound_off": "Turn the sound off"
+		"tl_sound_off": "Turn the sound off",
+		"dock_done": "Done"
 	},
 	"crypto": {
 		"title_invoice": "Pay with crypto",

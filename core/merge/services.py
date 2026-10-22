@@ -19,14 +19,15 @@ from datetime import timedelta
 from celery.exceptions import SoftTimeLimitExceeded
 from django.contrib.auth import get_user_model
 from django.core import signing
+from django.core.cache import cache
 from django.db import IntegrityError, transaction
 from django.db.models import Sum
 from django.utils import timezone
 
 from . import render as ffmpeg
 from .config import (ASPECTS, DEFAULT_TITLE, FITS, MAX_FRAGMENTS, MAX_PROJECTS, MAX_READY,
-                     MAX_TOTAL_S, MIN_FRAGMENTS, RETENTION_DAYS, UPLOAD_MAX_PER_PROJECT, localized,
-                     price_credits)
+                     MAX_TOTAL_S, MIN_FRAGMENTS, RETENTION_DAYS, UPLOAD_MAX_PER_PROJECT,
+                     free_daily_limit, localized, price_credits)
 from .models import ACTIVE, DELETABLE, EDITABLE, MergeAudio, MergeProject
 from .sources import TYPE_UPLOAD, TYPES, local_path, resolve, valid_id
 from .storage import (delete_files, ensure_user_dir, result_names, save_file, storage_ready)
@@ -59,6 +60,12 @@ UPLOAD_RENDER_HOLD = timedelta(days=1)
 PURGE_BATCH = 500
 PURGE_MAX_BATCHES = 200
 
+# Счётчик бесплатных склеек: ключ на человека и сутки (по Бишкеку), живёт с запасом
+# на смену суток. Он в кэше, а не в строках склеек: удалённая готовая склейка
+# иначе возвращала бы попытку, и предел обходился бы «склеил — скачал — удалил».
+FREE_USE_PREFIX = "merge:free:"
+FREE_USE_TTL = 26 * 3600
+
 DOWNLOAD_SALT = "merge.download"
 DOWNLOAD_MAX_AGE = 6 * 3600
 
@@ -80,6 +87,8 @@ MSG_NOT_READY = "Ролик ещё не готов."
 MSG_FILE_GONE = "Файл склейки не найден — возможно, истёк срок хранения."
 MSG_BUSY = "Уже идёт другая склейка. Дождитесь её окончания и запустите эту."
 MSG_PRICE_CHANGED = "Цена изменилась: теперь {credits} кр. Проверьте и нажмите «Склеить» ещё раз."
+MSG_FREE_LIMIT = ("Бесплатных склеек на сегодня больше нет: можно {max} в сутки. "
+                  "Новую можно будет запустить завтра.")
 MSG_STORAGE = ("Склейка сейчас недоступна: на сервере не хватает места. "
                "Попробуйте позже — кредиты не списаны.")
 MSG_NO_CREDITS = "Недостаточно кредитов для склейки."
@@ -388,6 +397,33 @@ def charge(user, amount: int, meta: dict, *, reason: str = REASON) -> tuple[int,
         return int(got or 0), True
 
 
+# ---------------------------------------------------------------- бесплатный предел
+
+def _free_key(user_id: int, now=None) -> str:
+    return f"{FREE_USE_PREFIX}{user_id}:{timezone.localdate(now).isoformat()}"
+
+
+def free_used(user_id: int, now=None) -> int:
+    """Сколько бесплатных склеек человек запустил сегодня. Кэш недоступен — 0:
+    предел — защита сервера, а не деньги, и склейку из-за него не запираем."""
+    try:
+        return int(cache.get(_free_key(user_id, now)) or 0)
+    except Exception:
+        logger.warning("склейка: счётчик бесплатных не прочитался user=%s", user_id, exc_info=True)
+        return 0
+
+
+def _count_free_use(user_id: int, now=None) -> None:
+    """Засчитать запуск бесплатной склейки. Сбой счёта и неудачная склейка попытку
+    не возвращают: работа сервера на неё уже ушла."""
+    key = _free_key(user_id, now)
+    try:
+        cache.add(key, 0, FREE_USE_TTL)
+        cache.incr(key)
+    except Exception:
+        logger.warning("склейка: бесплатный запуск не засчитан user=%s", user_id, exc_info=True)
+
+
 # ---------------------------------------------------------------- запуск
 
 def fail_stale(user=None, now=None) -> dict:
@@ -442,9 +478,9 @@ def start_render(user, uid, data: dict | None = None, *, lang: str = "ru") -> tu
     Порядок: уборка своих оборвавшихся → замок строки пользователя (два
     запуска разом выстраиваются в очередь) → склейка → правка из тела, если
     есть → проверка фрагментов заново → «одна склейка в работе» → готовых не
-    больше MAX_READY → цена из тела против текущей → хранилище → свободный
-    остаток (баланс минус все резервы сайта) → queued с резервом. Любой отказ
-    откатывает всё, включая правку.
+    больше MAX_READY → цена из тела против текущей → бесплатная — не больше
+    суточного предела → хранилище → свободный остаток (баланс минус все резервы
+    сайта) → queued с резервом. Любой отказ откатывает всё, включая правку.
     Повторный клик по уже идущей склейке — (она же, False), без второго резерва.
     """
     data = data if isinstance(data, dict) else {}
@@ -492,6 +528,11 @@ def start_render(user, uid, data: dict | None = None, *, lang: str = "ru") -> tu
             if expected != price:
                 raise MergeError("price_changed", MSG_PRICE_CHANGED.format(credits=price), 409,
                                  credits=price)
+        # Предел — только у бесплатной: платную ограничивает баланс.
+        free_limit = free_daily_limit() if price == 0 else 0
+        if free_limit and free_used(locked.pk) >= free_limit:
+            raise MergeError("free_limit", MSG_FREE_LIMIT.format(max=free_limit), 429,
+                             max=free_limit)
 
         ok, why = storage_ready(locked.pk)
         if not ok:
@@ -532,6 +573,9 @@ def start_render(user, uid, data: dict | None = None, *, lang: str = "ru") -> tu
         except IntegrityError:
             # Гонка мимо замка (другой процесс без него): индекс «одна в работе».
             raise MergeError("busy", MSG_BUSY, 409) from None
+        if free_limit:
+            # Под замком строки пользователя: два запуска разом не проскочат предел вдвоём.
+            _count_free_use(locked.pk, now)
         transaction.on_commit(lambda pk=project.pk: _enqueue(pk))
     return project, True
 

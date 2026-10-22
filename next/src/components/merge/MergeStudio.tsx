@@ -503,6 +503,7 @@ export default function MergeStudio() {
             sound={audio.info}
             paid={audio.paid}
             voiceFrom={voiceFrom}
+            freeLimit={m.price === 0 ? (m.config?.free_daily_limit ?? null) : null}
             onConfirm={() => actions.run(audio.flushSettings)}
             onClose={actions.cancelRun}
           />

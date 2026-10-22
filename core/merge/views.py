@@ -33,7 +33,7 @@ from vstudio.errors import error_body, exception_handler
 
 from . import services, uploads
 from .config import (ASPECTS, DEFAULT_PRICE, FITS, MAX_PRICE, MB, PRICE_KEY, UPLOAD_MAX_BYTES,
-                     limits, price_credits, upload_limits)
+                     free_daily_limit, limits, price_credits, upload_limits)
 from .models import MergeProject
 from .serializers import project_brief, project_json
 from .services import MergeError
@@ -131,6 +131,8 @@ class ConfigView(MergeAPIView):
         user = request.user if request.user and request.user.is_authenticated else None
         return Response({
             "price_credits": price,
+            # Бесплатных склеек в сутки (действует только при цене 0); null — предела нет.
+            "free_daily_limit": (free_daily_limit() or None) if price == 0 else None,
             "limits": limits(),
             "aspects": list(ASPECTS),
             "fits": list(FITS),

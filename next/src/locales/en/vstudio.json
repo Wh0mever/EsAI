@@ -816,7 +816,8 @@
 			"saving": "Saving…",
 			"done": "Done",
 			"soundState": "Sound: {{state}}",
-			"soundEmpty": "Sound: voice-over and music"
+			"soundEmpty": "Sound: voice-over and music",
+			"run_free": "Merge for free"
 		},
 		"confirm": {
 			"title": "Merge the videos?",
@@ -826,7 +827,8 @@
 			"price": "Price",
 			"charge": "Charged only when the video is ready. If it fails, you keep your credits.",
 			"free": "Merging is free right now.",
-			"keep": "The finished video is stored for {{days}} days — download it so you don't lose it."
+			"keep": "The finished video is stored for {{days}} days — download it so you don't lose it.",
+			"free_limit": "Merging is free right now — up to {{max}} merges a day."
 		},
 		"guest": {
 			"title": "Sign in to merge videos",
@@ -981,7 +983,8 @@
 			"saidMusicQueued": "The music is being made — about a minute",
 			"saidUploaded": "Your track is uploaded",
 			"saidVoiceRemoved": "Voice-over removed",
-			"saidMusicRemoved": "Music removed"
+			"saidMusicRemoved": "Music removed",
+			"money_free": "The voice-over and music are paid for once, when they're ready; if they fail, no credits are charged. Merging itself is free right now, and the sound isn't charged again."
 		},
 		"tab": {
 			"vstudio": "Video Studio",
@@ -1045,7 +1048,8 @@
 			"expired": "The storage period has ended and the video was deleted. You can merge it again — credits will be charged again.",
 			"mixing": "Mixing the sound",
 			"sound": "Sound: {{list}}",
-			"copySound": "“Edit and merge again” keeps the sound too — no need to pay for the voice-over and music again."
+			"copySound": "“Edit and merge again” keeps the sound too — no need to pay for the voice-over and music again.",
+			"expired_free": "The storage period has ended and the video was deleted. You can merge it again."
 		},
 		"err": {
 			"bad_request": "Couldn't read the clip list. Refresh the page and try again.",
@@ -1122,7 +1126,8 @@
 			"audio_stale": "The sound wasn't made in time — no credits were charged, please try again.",
 			"audio_queue_down": "The music didn't start — no credits were charged, please try again.",
 			"audio_unsupported": "This track won't work: it has more than 8 channels or a sample rate above 192 kHz. Save it as regular stereo, for example as an MP3, and upload it again.",
-			"music_busy": "A lot of music is being made right now — please try again in a minute. No credits were charged."
+			"music_busy": "A lot of music is being made right now — please try again in a minute. No credits were charged.",
+			"free_limit": "You've used up today's free merges: {{max}} a day. You can start a new one tomorrow."
 		},
 		"fail": {
 			"fragment_unreadable": "Clip #{{n}} can't be read — remove it from the merge and try again.",

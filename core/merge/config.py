@@ -16,6 +16,12 @@ logger = logging.getLogger(__name__)
 PRICE_KEY = "merge_price_credits"
 DEFAULT_PRICE = 20
 MAX_PRICE = 100000
+# Бесплатная склейка (цена 0) — это минуты работы двух ядер сервера на каждый
+# запуск: без предела один аккаунт склеивал бы по кругу и занимал очередь media,
+# общую с оплаченными съёмками. Runtime-ключ, правится без выкладки; 0 — без предела.
+FREE_DAILY_KEY = "merge_free_daily_limit"
+FREE_DAILY_DEFAULT = 10
+FREE_DAILY_MAX = 1000
 
 MIN_FRAGMENTS = 2
 MAX_FRAGMENTS = 30
@@ -180,6 +186,25 @@ def music_concurrency() -> int:
     except Exception:
         logger.warning("склейка: предел музыки не прочитался, беру %s", value, exc_info=True)
     return min(MUSIC_CONCURRENCY_MAX, max(1, value))
+
+
+def free_daily_limit() -> int:
+    """Сколько бесплатных склеек (цена 0) человек запускает за сутки; 0 — без предела.
+
+    При цене больше нуля предел не действует: склейку ограничивает баланс. Никогда
+    не бросает; чтение — в savepoint, как у цены.
+    """
+    value = FREE_DAILY_DEFAULT
+    try:
+        from adminapi.runtime import get_runtime
+
+        with transaction.atomic():
+            value = int(get_runtime(FREE_DAILY_KEY, FREE_DAILY_DEFAULT))
+    except Exception:
+        logger.warning("склейка: суточный предел не прочитался, беру %s", FREE_DAILY_DEFAULT,
+                       exc_info=True)
+        value = FREE_DAILY_DEFAULT
+    return min(FREE_DAILY_MAX, max(0, value))
 
 
 def limits() -> dict:

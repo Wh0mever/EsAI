@@ -1,19 +1,70 @@
 /**
- * saveMedia — надёжное «Скачать» для картинок/видео, работающее в установленном PWA (iOS).
+ * saveMedia — надёжное «Скачать» для картинок/видео: на телефоне — системное окно
+ * «Сохранить видео/фото», на компьютере — обычный файл в «Загрузки».
  *
- * Проблема: в iOS <a download> ИГНОРИРУЕТСЯ WebKit — ссылка уводит webview на файл
- * и показывает «глушилку» (Quick Look-предпросмотр). Нужно вместо этого открыть
- * НАТИВНЫЙ шитшет «Сохранить видео/фото» через Web Share API с файлом.
+ * Телефоны и планшеты (iPhone, iPad, Android). В iOS <a download> ИГНОРИРУЕТСЯ
+ * WebKit — ссылка уводит webview на файл и показывает «глушилку» (Quick Look-
+ * предпросмотр). Поэтому там открываем НАТИВНЫЙ шитшет через Web Share API с файлом.
+ *
+ * Компьютер (в т.ч. Safari на macOS и Edge/Chrome на Windows): шитшет там тоже
+ * «умеет файлы», но в нём нет пункта «Сохранить» — клиент отправлял сцену в
+ * «Избранное» Telegram и получал только текст «esai-scene-1.mp4». Там — только
+ * загрузка файла через <a download> из blob.
  *
  * Тонкость iOS: navigator.share({files}) требует «user activation» (жеста). Если
  * ПЕРЕД share долго тянуть файл через await fetch (видео 6–7 МБ), активация
- * истекает → iOS отклоняет шитшет и открывает тот самый предпросмотр. Поэтому:
- *   1) prefetchMedia() стартует загрузку заранее (на нажатие пальцем), чтобы к
- *      клику файл был уже готов и share() вызвался почти без await;
- *   2) share пробуем ВСЕГДА, когда браузер умеет делиться файлами (не завязываясь
- *      на display-mode — раньше гейт standalone мог не сработать);
- *   3) на iOS НЕ используем <a download> вообще (он и есть источник «глушилки»).
+ * истекает → iOS отклоняет шитшет и открывает тот самый предпросмотр. Поэтому
+ * prefetchMedia() стартует загрузку заранее (на нажатие пальцем), чтобы к клику
+ * файл был уже готов и share() вызвался почти без await.
  */
+
+/** Что известно об устройстве — отдельно от navigator, чтобы выбор пути проверялся тестом. */
+export type DeviceHints = {
+  userAgent: string;
+  platform: string;
+  maxTouchPoints: number;
+  /** navigator.userAgentData.mobile (Chromium); нет — null. */
+  uaMobile?: boolean | null;
+};
+
+/** share — системное окно, download — файл, open — открыть файл (старый iOS без файлового Share). */
+export type SaveRoute = "share" | "download" | "open";
+
+/** iPhone/iPod/iPad, включая iPadOS, который выдаёт себя за Mac, но с тачскрином. */
+export function isAppleHandheld(h: DeviceHints): boolean {
+  return /iP(hone|ad|od)/.test(h.userAgent) || (h.platform === "MacIntel" && h.maxTouchPoints > 1);
+}
+
+/**
+ * Телефон или планшет. Ноутбук с сенсорным экраном — компьютер: тач у него есть,
+ * а «мобильного» признака в user agent нет.
+ */
+export function isHandheld(h: DeviceHints): boolean {
+  if (isAppleHandheld(h) || /Android/i.test(h.userAgent) || h.uaMobile === true) return true;
+  return h.maxTouchPoints > 0 && /Mobi|Tablet|Silk|KFAPWI/i.test(h.userAgent);
+}
+
+/** Как сохранять: шитшет — только на телефоне/планшете, который умеет делиться файлом. */
+export function pickSaveRoute(h: DeviceHints, canShareFile: boolean): SaveRoute {
+  if (isHandheld(h) && canShareFile) return "share";
+  // В iOS <a download> не скачивает — открываем файл, у предпросмотра есть «Поделиться».
+  if (isAppleHandheld(h)) return "open";
+  return "download";
+}
+
+type ShareNavigator = Navigator & {
+  canShare?: (data?: ShareData) => boolean;
+  userAgentData?: { mobile?: boolean };
+};
+
+function deviceHints(nav: ShareNavigator): DeviceHints {
+  return {
+    userAgent: nav.userAgent || "",
+    platform: nav.platform || "",
+    maxTouchPoints: nav.maxTouchPoints || 0,
+    uaMobile: typeof nav.userAgentData?.mobile === "boolean" ? nav.userAgentData.mobile : null,
+  };
+}
 
 // Гвард от повторных запусков по одному url: пока идёт сохранение, лишние тапы
 // (пользователь думает «не жмётся») не плодят несколько шитшетов подряд.
@@ -41,19 +92,22 @@ export function prefetchMedia(url: string): void {
   _fetchBlob(url).catch(() => {});
 }
 
-function isIOS(): boolean {
-  if (typeof navigator === "undefined") return false;
-  const ua = navigator.userAgent || "";
-  // iPhone/iPod/iPad + iPadOS (маскируется под Mac, но с тач-экраном).
-  return (
-    /iP(hone|ad|od)/.test(ua) ||
-    (navigator.platform === "MacIntel" && (navigator as any).maxTouchPoints > 1)
-  );
+function downloadBlob(blob: Blob, filename: string): void {
+  const objUrl = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = objUrl;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(objUrl), 4000);
 }
 
 export async function saveMedia(url: string, filename: string): Promise<void> {
   if (!url || _inFlight.has(url)) return;
   _inFlight.add(url);
+  const nav = navigator as ShareNavigator;
+  const hints = deviceHints(nav);
   try {
     // Берём заранее начатую загрузку (prefetch на pointerdown), иначе качаем сейчас.
     const blob = await (_blobCache.get(url) || _fetchBlob(url));
@@ -61,30 +115,27 @@ export async function saveMedia(url: string, filename: string): Promise<void> {
       type: blob.type || "application/octet-stream",
     });
 
-    // Web Share с файлом = нативный шитшет «Сохранить видео/фото». Работает и в
-    // iOS Safari, и в установленном PWA. Пробуем всегда, когда поддерживается.
-    const nav = navigator as any;
-    if (typeof nav.canShare === "function" && nav.canShare({ files: [file] })) {
+    // canShare спрашиваем только у телефона: на компьютере шитшет не нужен вовсе.
+    const canShareFile =
+      isHandheld(hints) &&
+      typeof nav.share === "function" &&
+      typeof nav.canShare === "function" &&
+      nav.canShare({ files: [file] });
+    const route = pickSaveRoute(hints, canShareFile);
+
+    if (route === "share") {
       try {
         await nav.share({ files: [file], title: filename });
         return;
       } catch (e) {
         // Закрыл шитшет — это не ошибка, ничего не качаем.
-        if ((e as any)?.name === "AbortError") return;
-        // Иначе — проваливаемся в фолбэк ниже.
+        if ((e as { name?: unknown } | null)?.name === "AbortError") return;
+        // Иначе — запасной путь ниже.
       }
     }
 
-    // Не-iOS (десктоп/Android): обычное скачивание в файл.
-    if (!isIOS()) {
-      const objUrl = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = objUrl;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(objUrl), 4000);
+    if (route !== "open" && !isAppleHandheld(hints)) {
+      downloadBlob(blob, filename);
       return;
     }
 

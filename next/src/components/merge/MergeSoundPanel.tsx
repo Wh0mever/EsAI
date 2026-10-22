@@ -107,11 +107,16 @@ export default function MergeSoundPanel({ audio, items, price, variant, headingI
         <SoundMusic audio={audio} items={items} />
         <ClipBlock audio={audio} />
         <p className="px-1 text-xs leading-snug text-muted-2">
-          {t("merge.audio.money", {
-            defaultValue:
-              "Голос и музыка оплачиваются один раз — когда готовы; не получится — кредиты не спишутся. «Склеить» стоит {{price}}: звук второй раз не списывается.",
-            price: priceText,
-          })}
+          {price > 0
+            ? t("merge.audio.money", {
+                defaultValue:
+                  "Голос и музыка оплачиваются один раз — когда готовы; не получится — кредиты не спишутся. «Склеить» стоит {{price}}: звук второй раз не списывается.",
+                price: priceText,
+              })
+            : t("merge.audio.money_free", {
+                defaultValue:
+                  "Голос и музыка оплачиваются один раз — когда готовы; не получится — кредиты не спишутся. Сама склейка сейчас бесплатная, и звук второй раз не списывается.",
+              })}
         </p>
       </>
     );

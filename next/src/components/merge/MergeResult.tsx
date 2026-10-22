@@ -201,9 +201,13 @@ export default function MergeResult({ project, onNew, onCopy }: MergeResultProps
       <div role="status" className={vx(CS_NOTE_GOLD, "flex items-start gap-2.5")}>
         <FiClock className="mt-0.5 shrink-0 text-vs-accent" aria-hidden="true" />
         <p className="min-w-0 flex-1">
-          {t("merge.result.expired", {
-            defaultValue: "Срок хранения вышел, и ролик удалён. Его можно склеить снова — кредиты спишутся ещё раз.",
-          })}
+          {project.price_credits === 0
+            ? t("merge.result.expired_free", {
+                defaultValue: "Срок хранения вышел, и ролик удалён. Его можно склеить снова.",
+              })
+            : t("merge.result.expired", {
+                defaultValue: "Срок хранения вышел, и ролик удалён. Его можно склеить снова — кредиты спишутся ещё раз.",
+              })}
         </p>
       </div>
     );
