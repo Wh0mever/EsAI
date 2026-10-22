@@ -202,7 +202,7 @@ class SweepTests(MediaTestCase):
         other = self.user()
         dead = self.project(other, status="rendering", credits_reserved=20,
                             render_started_at=self.now - timedelta(minutes=40))
-        self.assertEqual(tasks.fail_stale_renders.run(), {"queued": 1, "rendering": 1})
+        self.assertEqual(tasks.fail_stale_renders.run(), {"queued": 1, "rendering": 1, "audio": 0})
         for row, text, code in (
                 (lost, "Склейка не дождалась очереди — кредиты не списаны, попробуйте ещё раз.",
                  "queue_timeout"),
@@ -217,7 +217,7 @@ class SweepTests(MediaTestCase):
         other = self.user()
         working = self.project(other, status="rendering", credits_reserved=20,
                                render_started_at=self.now - timedelta(minutes=10))
-        self.assertEqual(tasks.fail_stale_renders.run(), {"queued": 0, "rendering": 0})
+        self.assertEqual(tasks.fail_stale_renders.run(), {"queued": 0, "rendering": 0, "audio": 0})
         waiting.refresh_from_db()
         working.refresh_from_db()
         self.assertEqual((waiting.status, working.status), ("queued", "rendering"))
@@ -240,7 +240,7 @@ class ExpiryTests(MediaTestCase):
         fresh_video = store("merge/1/new.mp4")
         fresh = self.project(owner, status="ready", result_video=fresh_video,
                              expires_at=timezone.now() + timedelta(days=1))
-        self.assertEqual(tasks.purge_expired.run(), {"merges": 1, "uploads": 0})
+        self.assertEqual(tasks.purge_expired.run(), {"merges": 1, "uploads": 0, "audio": 0})
         old.refresh_from_db()
         fresh.refresh_from_db()
         self.assertEqual((old.status, old.result_video, old.poster), ("expired", "", ""))

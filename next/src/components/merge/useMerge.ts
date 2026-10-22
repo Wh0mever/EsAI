@@ -29,6 +29,8 @@ import {
   addRefusal,
   appendUnique,
   cardToItem,
+  deleteRefusal,
+  deleteRefusalStale,
   insertItem,
   isActive,
   isAspect,
@@ -42,6 +44,7 @@ import {
   refusalText,
   removeAt,
   renderBlock,
+  reopenAfterRefusal,
   saveRetryDelay,
   shortDate,
   signature,
@@ -49,6 +52,7 @@ import {
   totalDuration,
   transientSaveError,
   type AddPlace,
+  type DeleteRefusal,
   type ItemRef,
   type LocalBlock,
   type LocalItem,
@@ -270,6 +274,10 @@ export function useMerge() {
   const [deletingUploads, setDeletingUploads] = useState<readonly string[]>([]);
   /** Отказ удаления — на той карточке, где нажали корзину, а не над зоной загрузки. */
   const [deleteError, setDeleteError] = useState<{ id: string; text: TextSpec } | null>(null);
+  /** Склейку не удалили (идёт, делается её звук, нет связи) — отказ у её строки в «Моих склейках». */
+  const [projectDeleteError, setProjectDeleteError] = useState<DeleteRefusal | null>(null);
+  /** Открытую склейку закрыли только на время её удаления: откажет сервер — она вернётся вместе со своим «Звуком». */
+  const [parked, setParked] = useState<string | null>(null);
   const [tab, setTabState] = useState<MergeTab>("vstudio");
   /** Куда вернуть гостя после входа: та же страница, вместе с ?add= из мультстудии. */
   const [returnPath, setReturnPath] = useState(MERGE_PATH);
@@ -300,6 +308,11 @@ export function useMerge() {
   const uploadAbort = useRef<AbortController | null>(null);
   const uploadLimitsRef = useRef(uploadLimits);
   const uploadUsageRef = useRef(uploadUsage);
+  const refusalRef = useRef(projectDeleteError);
+
+  useEffect(() => {
+    refusalRef.current = projectDeleteError;
+  }, [projectDeleteError]);
 
   useEffect(() => {
     uploadLimitsRef.current = uploadLimits;
@@ -357,6 +370,8 @@ export function useMerge() {
     (p: MergeProject, reset: boolean) => {
       commitProject(p);
       setList((l) => upsertBrief(l, p));
+      // Отказ удаления у её строки — пока его причина правда: звук доделался — отказ снят.
+      setProjectDeleteError((e) => (deleteRefusalStale(e, p.id, { status: p.status, pending: p.audio?.pending }) ? null : e));
       if (typeof p.price_credits === "number") setPrice(p.price_credits);
       if (p.limits) setLimits(p.limits);
       if (reset) {
@@ -381,6 +396,22 @@ export function useMerge() {
     if (res.data.balance) applyBalance(res.data.balance);
   }, [applyBalance]);
 
+  /**
+   * Список перечитали — отказ удаления у строки сверяем с самой склейкой (в списке не
+   * видно, делается ли её звук). Открытую не спрашиваем: её звук и так перечитывается.
+   */
+  const recheckRefusal = useCallback(async () => {
+    const r = refusalRef.current;
+    if (!r || r.id === openIdRef.current) return;
+    const res = await getProject(r.id, langRef.current);
+    if (res.ok) {
+      const p = res.data;
+      setProjectDeleteError((e) => (deleteRefusalStale(e, p.id, { status: p.status, pending: p.audio?.pending }) ? null : e));
+    } else if (res.error.code === "project_not_found") {
+      setProjectDeleteError((e) => (e && e.id === r.id ? null : e));
+    }
+  }, []);
+
   const loadList = useCallback(async (page = 1) => {
     setList((l) => ({ ...l, loading: true }));
     const res = await listProjects(page);
@@ -388,6 +419,7 @@ export function useMerge() {
       setList((l) => ({ ...l, loading: false, loaded: true, failed: true }));
       return null;
     }
+    if (page === 1) void recheckRefusal();
     const data = res.data;
     setList((l) => ({
       items: page > 1 ? [...l.items, ...data.results.filter((x) => !l.items.some((y) => y.id === x.id))] : data.results,
@@ -401,7 +433,7 @@ export function useMerge() {
     setPrice(data.price_credits);
     if (data.limits) setLimits(data.limits);
     return data;
-  }, []);
+  }, [recheckRefusal]);
 
   /** «Мои файлы» — одним списком (их не больше 10) вместе с занятым местом. */
   const loadUploads = useCallback(async () => {
@@ -550,6 +582,25 @@ export function useMerge() {
     void flush();
   }, [flush]);
 
+  /**
+   * Звук: заказ уходит только после того, что на экране, — иначе сервер считал
+   * бы длину музыки и номер фрагмента голоса по старому списку. Вернёт id
+   * склейки (первое сохранение её и заводит) или null.
+   */
+  const ensureSaved = useCallback(async (): Promise<string | null> => {
+    await flush();
+    return openIdRef.current;
+  }, [flush]);
+
+  /** Склейку поменяли со стороны звука (неудачная после правки звука снова черновик) — берём её с сервера. */
+  const refreshProject = useCallback(async () => {
+    const id = openIdRef.current;
+    if (!id) return;
+    const epoch = epochRef.current;
+    const res = await getProject(id, langRef.current);
+    if (res.ok && epoch === epochRef.current && openIdRef.current === id) applyServer(res.data, false);
+  }, [applyServer]);
+
   // Недосохранённую правку не теряем: вкладку свернули или закрыли, ушли по
   // ссылке в колонке раньше, чем кончилась пауза автосохранения.
   useEffect(() => {
@@ -585,6 +636,7 @@ export function useMerge() {
       setSaving(false);
       setError(null);
       setConfirm(false);
+      setParked(null);
       commitOpenId(id);
       replaceUrl(id);
       remember(id);
@@ -642,21 +694,42 @@ export function useMerge() {
 
   const remove = useCallback(
     async (id: string) => {
-      // Открытую сначала закрываем: её недосохранённая правка ушла бы уже удалённой склейке.
-      if (openIdRef.current === id) {
+      setProjectDeleteError((e) => (e && e.id === id ? null : e));
+      // Открытую сначала дописываем, как при переходе к другой: откажет сервер — правка из
+      // паузы автосохранения не пропала. Потом закрываем: правка, ушедшая после удаления,
+      // завела бы склейку заново.
+      if (openIdRef.current === id) await flush();
+      const wasOpen = openIdRef.current === id;
+      let closedAt = -1;
+      if (wasOpen) {
         switchTo(null);
         setOpening(false);
         resetToNew();
+        setParked(id);
+        closedAt = epochRef.current;
       }
       const res = await deleteProject(id);
-      if (!res.ok && res.error.code !== "project_not_found") {
-        showError(res.error);
-        return false;
+      if (!res.ok) {
+        const refusal = deleteRefusal(res.error);
+        if (refusal) {
+          // У строки, где нажали «Удалить»: на телефоне список открыт поверх ленты, и плашка над
+          // лентой осталась бы под ним. Открытая склейка цела — возвращаем её на экран, если
+          // человек за это время не открыл другую и не начал новую.
+          setProjectDeleteError({ id, code: res.error.code, text: refusal });
+          const dirty = pendingRef.current || editRef.current.items.length > 0;
+          if (wasOpen && reopenAfterRefusal({ closedAt, epoch: epochRef.current, openId: openIdRef.current, dirty })) {
+            void open(id);
+          } else {
+            setParked((p) => (p === id ? null : p));
+          }
+          return false;
+        }
       }
+      setParked((p) => (p === id ? null : p));
       setList((l) => ({ ...l, items: l.items.filter((x) => x.id !== id) }));
       return true;
     },
-    [resetToNew, showError, switchTo],
+    [flush, open, resetToNew, switchTo],
   );
 
   const rename = useCallback(
@@ -682,8 +755,9 @@ export function useMerge() {
   );
 
   /**
-   * Готовую склейку менять нельзя — новая с теми же фрагментами, форматом и
-   * заполнением. Фрагмента, которого больше нет (своё видео удалили, ролик
+   * Готовую склейку менять нельзя — новая с теми же фрагментами, форматом,
+   * заполнением и звуком (сервер копирует голос и музыку бесплатно, своими
+   * файлами). Фрагмента, которого больше нет (своё видео удалили, ролик
    * истёк), в новой не будет: из готовой его не убрать, и отказ сервера был бы
    * тупиком. Сервер нашёл ещё один пропавший — убираем и его и пробуем снова.
    */
@@ -697,7 +771,10 @@ export function useMerge() {
         ? { text: { key: "merge.err.copy_dropped", ru: MERGE_ERROR_RU.copy_dropped, params: { n: dropped } } }
         : null;
     while (items.length > 0) {
-      const res = await createProject({ aspect: p.aspect, fit: p.fit, items, title: defaultTitle() }, langRef.current);
+      const res = await createProject(
+        { aspect: p.aspect, fit: p.fit, items, title: defaultTitle(), copy_audio_from: p.id },
+        langRef.current,
+      );
       if (res.ok) {
         switchTo(res.data.id);
         applyServer(res.data, true);
@@ -921,7 +998,12 @@ export function useMerge() {
 
   const cancelRun = useCallback(() => setConfirm(false), []);
 
-  const run = useCallback(async () => {
+  /**
+   * Запуск после подтверждения. prepare — что должно дойти до сервера раньше
+   * запуска, кроме фрагментов (звук: useMergeAudio.flushSettings); false — не
+   * дошло, склейку не запускаем.
+   */
+  const run = useCallback(async (prepare?: () => Promise<boolean>) => {
     setConfirm(false);
     if (runningRef.current) return;
     runningRef.current = true;
@@ -937,6 +1019,14 @@ export function useMerge() {
       const id = openIdRef.current;
       if (!id) return;
       const epoch = epochRef.current;
+      // Правка звука в пути (или ползунок ещё не отправлен) — сначала она: запуск
+      // запирает склейку, и опоздавшая правка получила бы отказ, а сведение взяло
+      // бы прежний звук, хотя окно подтверждения показало новый.
+      if (prepare && !(await prepare())) {
+        if (epoch === epochRef.current) setError({ text: refusalText("audio_settings_unsaved") });
+        return;
+      }
+      if (epoch !== epochRef.current) return;
       const cur = editRef.current;
       // Фрагменты, формат и заполнение — тем же запросом: запускается ровно то, что на экране.
       const res = await renderProject(
@@ -1177,6 +1267,8 @@ export function useMerge() {
     retryFile,
     deletingUploads,
     deleteError,
+    projectDeleteError,
+    parked,
     actions: {
       newMerge: () => void newMerge(),
       open: (id: string) => void open(id),
@@ -1190,7 +1282,7 @@ export function useMerge() {
       setFit,
       requestRun,
       cancelRun,
-      run: () => void run(),
+      run: (prepare?: () => Promise<boolean>) => void run(prepare),
       retrySave,
       setTab,
       loadMoreSources: (which: MergeTab) => void loadSources(which, sources[which].page + 1),
@@ -1203,9 +1295,18 @@ export function useMerge() {
         setRetryFile(null);
       },
       dismissDeleteError: () => setDeleteError(null),
+      dismissProjectDeleteError: () => setProjectDeleteError(null),
+      /** Звук склейки id доделался (ответ сервера): отказ удаления «звук ещё делается» снят. */
+      soundIdle: (id: string) => setProjectDeleteError((e) => (deleteRefusalStale(e, id, { pending: false }) ? null : e)),
       loadMoreProjects: () => void loadList(list.page + 1),
       reloadProjects: () => void loadList(1),
       dismissError: () => setError(null),
+      ensureSaved,
+      refreshProject: () => void refreshProject(),
+      /** Баланс после оплаты звука (ответ POST) или когда музыка доделалась. */
+      applyBalance,
+      refreshBalance: () => void refreshConfig(),
+      showPaywall: (ctx: PaywallContext) => setPaywall(ctx),
       closePaywall: () => setPaywall(null),
       openTopup: () => {
         setPaywall(null);

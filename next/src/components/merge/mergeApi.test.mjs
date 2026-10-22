@@ -210,3 +210,107 @@ test("список и удаление своих видео: пути; крив
     globalThis.fetch = prev;
   }
 });
+
+/* ---------- звук склейки (CONTRACT_M.md §10) ---------- */
+
+const PID = "3c0917b144dc454092047e74d12a079f";
+const TRACK = "1814eb6841284714b356aa88f5d67b29";
+const AUDIO = { project_id: PID, status: "draft", editable: true, tracks: [], fragments: 2 };
+const song = () => new File([new Uint8Array([0x49, 0x44, 0x33, 4])], "Песня.mp3", { type: "audio/mpeg" });
+
+test("звук: пути и тела запросов; кривой id не уходит в сеть", async () => {
+  const calls = [];
+  const prev = globalThis.fetch;
+  globalThis.fetch = async (url, init = {}) => {
+    calls.push({ line: `${init.method} ${url}`, body: init.body ? JSON.parse(init.body) : null });
+    const status = String(url).endsWith("voice/") ? 201 : String(url).endsWith("music/") ? 202 : 200;
+    const body = String(url).includes("cartoon/audio/voices/") && !String(url).includes("preview") ? [] : String(url).includes("preview") ? { url: "/media/p.mp3" } : AUDIO;
+    return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+  };
+  try {
+    assert.equal((await api.getAudio(PID)).ok, true);
+    await api.patchAudio(PID, { clip_sound: "quiet" });
+    const voice = await api.makeVoice(PID, { text: "Привет", voice_id: "v1", start_fragment: 1, price: 5, request_id: "r1" });
+    assert.equal(voice.status, 201);
+    const music = await api.makeMusic(PID, { prompt: "пианино", price: 8, request_id: "r2" });
+    assert.equal(music.status, 202);
+    await api.deleteTrack(PID, TRACK);
+    assert.deepEqual((await api.listVoices()).data, []);
+    assert.equal((await api.voicePreview("EXAVITQu4vr4xnSDxMaL", "kg")).data.url, "/media/p.mp3");
+    assert.equal((await api.getAudio("../x")).error.code, "project_not_found");
+    assert.equal((await api.deleteTrack(PID, "x")).error.code, "audio_not_found");
+    assert.equal((await api.voicePreview("../../secret", "ru")).ok, false);
+    assert.deepEqual(
+      calls.map((c) => c.line),
+      [
+        `GET /api/merge/${PID}/audio/`,
+        `PATCH /api/merge/${PID}/audio/`,
+        `POST /api/merge/${PID}/audio/voice/`,
+        `POST /api/merge/${PID}/audio/music/`,
+        `DELETE /api/merge/${PID}/audio/${TRACK}/`,
+        "GET /api/cartoon/audio/voices/",
+        "GET /api/cartoon/audio/voices/EXAVITQu4vr4xnSDxMaL/preview/?lang=kg",
+      ],
+    );
+    assert.deepEqual(calls[1].body, { clip_sound: "quiet" });
+    assert.deepEqual(calls[2].body, { text: "Привет", voice_id: "v1", start_fragment: 1, price: 5, request_id: "r1" });
+    assert.deepEqual(calls[3].body, { prompt: "пианино", price: 8, request_id: "r2" });
+  } finally {
+    globalThis.fetch = prev;
+  }
+});
+
+test("свой трек: XHR на music/upload/, имя для сервера, прогресс, 413 nginx → audio_too_big 20 МБ", async () => {
+  FakeXHR.plans = [
+    { status: 201, body: JSON.stringify({ ...AUDIO, track: { id: TRACK } }), progress: [[1, 2], [2, 2]] },
+    { status: 413, body: "<html><body>413 Request Entity Too Large</body></html>" },
+    { status: 400, body: JSON.stringify({ error: "Трек длиннее 5 минут.", error_code: "audio_too_long", max_s: 300 }) },
+  ];
+  const progress = [];
+  const ok = await api.uploadMusic(PID, song(), { filename: "Песня.mp3", onProgress: (p, phase) => progress.push(`${phase}:${p}`) });
+  assert.equal(ok.ok, true);
+  assert.equal(ok.data.track.id, TRACK);
+  const x = FakeXHR.sent[0];
+  assert.equal(x.url, `/api/merge/${PID}/audio/music/upload/`);
+  assert.equal(x.body.get("file").name, "Песня.mp3");
+  assert.deepEqual(progress, ["upload:0", "upload:50", "upload:99", "processing:100"]);
+  const big = await api.uploadMusic(PID, song());
+  assert.equal(big.error.code, "audio_too_big");
+  assert.equal(big.error.data.max_mb, 20);
+  const long = await api.uploadMusic(PID, song());
+  assert.equal(long.error.code, "audio_too_long");
+  assert.equal((await api.uploadMusic("nope", song())).error.code, "project_not_found");
+  assert.equal(FakeXHR.sent.length, 3, "кривой id не уходит в сеть");
+});
+
+test("свой трек: имя без расширения — то, что дал audioUploadName; отмена", async () => {
+  FakeXHR.plans = [{ status: 201, body: JSON.stringify(AUDIO) }, { hang: true }];
+  await api.uploadMusic(PID, new File([new Uint8Array([1])], "Запись 12", { type: "audio/x-m4a" }), { filename: "Запись 12.m4a" });
+  assert.equal(FakeXHR.sent[0].body.get("file").name, "Запись 12.m4a");
+  const ctrl = new AbortController();
+  const pending = api.uploadMusic(PID, song(), { signal: ctrl.signal });
+  await new Promise((r) => setTimeout(r, 0));
+  ctrl.abort();
+  assert.equal((await pending).error.code, "aborted");
+});
+
+test("удаление склейки: 409 audio_busy (звук ещё делается) — отказ с текстом сервера (MA_FIX4)", async () => {
+  const { deleteRefusal } = await import("./mergeLogic.ts");
+  const calls = [];
+  const prev = globalThis.fetch;
+  const body = { error: "Звук для этой склейки ещё делается — дождитесь его.", error_code: "audio_busy" };
+  globalThis.fetch = async (url, init = {}) => {
+    calls.push(`${init.method} ${url}`);
+    return new Response(JSON.stringify(body), { status: 409, headers: { "content-type": "application/json" } });
+  };
+  try {
+    const res = await api.deleteProject(PID);
+    assert.equal(res.ok, false);
+    assert.equal(res.error.code, "audio_busy");
+    assert.equal(res.error.status, 409);
+    assert.deepEqual(deleteRefusal(res.error), { key: "merge.err.audio_busy", ru: body.error, params: {} });
+    assert.deepEqual(calls, [`DELETE /api/merge/${PID}/`]);
+  } finally {
+    globalThis.fetch = prev;
+  }
+});

@@ -17,7 +17,9 @@ from __future__ import annotations
 import json
 import logging
 import math
+import os
 import re
+import shutil
 import subprocess
 import tempfile
 import uuid
@@ -116,9 +118,9 @@ def _headers() -> dict:
     return {"xi-api-key": key, "Content-Type": "application/json"}
 
 
-def _post_audio(path: str, body: dict) -> bytes:
+def _post_audio(path: str, body: dict, timeout=None) -> bytes:
     r = requests.post(f"{API_URL}{path}", json=body, headers=_headers(),
-                      params={"output_format": "mp3_44100_128"}, timeout=TIMEOUT)
+                      params={"output_format": "mp3_44100_128"}, timeout=timeout or TIMEOUT)
     if not (200 <= r.status_code < 300):
         raise AudioProviderError(f"{path}: http {r.status_code}: {r.text[:300]}")
     if not r.content:
@@ -144,9 +146,11 @@ def sound_effect(prompt: str, seconds: float | None = None) -> bytes:
     return _post_audio("/v1/sound-generation", body)
 
 
-def music(prompt: str, seconds: float, instrumental: bool = True) -> bytes:
+def music(prompt: str, seconds: float, instrumental: bool = True, timeout=None) -> bytes:
+    """timeout — свой (connect, read) для длинной музыки: /v1/music отвечает, только
+    когда трек готов, а пять минут склейки делаются дольше общих 180 с."""
     return _post_audio("/v1/music", {"prompt": prompt, "music_length_ms": int(float(seconds) * 1000),
-                                     "force_instrumental": bool(instrumental)})
+                                     "force_instrumental": bool(instrumental)}, timeout=timeout)
 
 
 def list_voices() -> list:
@@ -282,19 +286,62 @@ def upload_suffix(filename: str) -> str:
     return f".{ext}" if ext in UPLOAD_EXTENSIONS else ""
 
 
+def _nice() -> list[str]:
+    """«nice -n 10» перед пересборкой на Linux: она идёт и в потоке API (загрузки),
+    и чужой файл не должен отнимать процессор у сайта."""
+    if os.name != "posix":
+        return []
+    path = shutil.which("nice")
+    return [path, "-n", "10"] if path else []
+
+
+# Пересборка пишет mp3 160 кбит/с с постоянным битрейтом: 20 000 байт на секунду.
+OUTPUT_BYTES_PER_S = 160_000 // 8
+# Запас сверх потолка длины: две секунды звука и место под теги и заголовок Xing.
+OUTPUT_SLACK_S = 2
+OUTPUT_SLACK_BYTES = 256 * 1024
+
+
+def output_cap(max_seconds: float) -> int:
+    """Потолок байтов пересобранного mp3 для потолка длины max_seconds."""
+    return int((float(max_seconds) + OUTPUT_SLACK_S) * OUTPUT_BYTES_PER_S) + OUTPUT_SLACK_BYTES
+
+
 def save_audio(raw: bytes, suffix: str = ".mp3", folder: str = "cartoon/audio",
-               max_seconds: float | None = None) -> tuple[str, float]:
-    """Любой звук (mp3, webm с диктофона, m4a) → mp3 в хранилище. (путь, секунды)."""
+               max_seconds: float | None = None, input_options: list[str] | tuple = ()) -> tuple[str, float]:
+    """Любой звук (mp3, webm с диктофона, m4a) → mp3 в хранилище. (путь, секунды).
+
+    input_options — опции чтения перед -i (склейка: тот же демуксер и те же
+    декодеры, что у её строгого разбора).
+    """
     ext = suffix.lstrip(".").lower() if suffix else ""
     suffix = f".{ext}" if ext in UPLOAD_EXTENSIONS else ".bin"
+    # Длину в заголовке пишет кто угодно: «10 секунд» могут оказаться часами
+    # звука, и без -t ffmpeg честно декодировал бы их все, а потолок ниже
+    # отказал бы только потом. С -t работа ограничена потолком + секундой.
+    # -t ffmpeg меряет по меткам времени кадров, а их тоже пишет файл (Matroska,
+    # Ogg, ASF): метки по кругу 0–5 с, и -t не наступал бы никогда. asetpts
+    # переставляет метки по счёту декодированных сэмплов — потолок считает звук.
+    # Но счётчик asetpts живёт в графе фильтров, а граф ffmpeg собирает заново при
+    # каждой смене частоты или раскладки посреди файла — и метки снова с нуля.
+    # -fs — потолок байтов готового mp3 (160 кбит/с = 20 000 Б/с): от меток и от
+    # графа он не зависит, а обрезанный по нему файл длиннее потолка — его
+    # отклонит проверка длины ниже.
+    # Теги и главы чужого файла ffmpeg иначе переносит в ID3 готового mp3, и они
+    # тоже съедают -fs: честный трек на пять минут с мегабайтом текста в тегах
+    # молча обрезался бы. Нам они не нужны — в mp3 только звук. Звук провайдера
+    # (без потолка) пересобирается как раньше: теги там крошечные, а -fs нет.
+    limit = (["-t", f"{float(max_seconds) + 1:g}", "-af", "asetpts=N/SR/TB",
+              "-fs", str(output_cap(max_seconds)), "-map_metadata", "-1", "-map_chapters", "-1"]
+             if max_seconds else [])
     with tempfile.TemporaryDirectory() as tmp:
         src = Path(tmp) / f"in{suffix}"
         dst = Path(tmp) / "out.mp3"
         src.write_bytes(raw)
         # Вход — только локальный файл: даже если внутри окажется плейлист,
         # ffmpeg не пойдёт по ссылкам из него ни в сеть, ни в другие протоколы.
-        if not _run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
-                     "-protocol_whitelist", "file", "-i", f"file:{src}",
+        if not _run([*_nice(), "ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y",
+                     "-protocol_whitelist", "file", *input_options, "-i", f"file:{src}", *limit,
                      "-vn", "-ac", "2", "-ar", "44100", "-b:a", "160k", str(dst)]):
             raise AudioProviderError("звук не читается")
         info = probe(dst)

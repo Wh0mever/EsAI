@@ -20,7 +20,7 @@ from ai.models import GPTModels
 from content.models import BlogPost, SiteSettings
 from payments.models import Payment
 from plans.models import (ExitDiscountOffer, PromoCode, TokenPackage, TokenTransaction,
-                          TokenTransactionReason, VSTUDIO_SPEND_REASONS)
+                          MERGE_SPEND_REASONS, VSTUDIO_SPEND_REASONS)
 from plans.wallet import clawback_tokens, credit_tokens
 
 from .permissions import IsStaff
@@ -125,10 +125,10 @@ class SummaryView(StaffAPIView):
         # Списания за чат идут с delta < 0 — знак разворачиваем в положительный расход.
         # Видеостудия списывает под своими причинами (vstudio_*): без них её
         # выручка на дашборде не видна вовсе, поэтому считаем их вместе с чатом
-        # и отдельной строкой. Склейка (merge_video) — тоже трата за готовый
-        # ролик, она в общей сумме.
+        # и отдельной строкой. Склейка (merge_video) и её звук (merge_voice,
+        # merge_music) — тоже траты за готовое, они в общей сумме.
         spend_qs = TokenTransaction.objects.filter(reason__in=(
-            "chat", *VSTUDIO_SPEND_REASONS, TokenTransactionReason.MERGE_VIDEO.value))
+            "chat", *VSTUDIO_SPEND_REASONS, *MERGE_SPEND_REASONS))
         spend_today_qs = spend_qs.filter(created_at__date=today)
         spent_total = -(spend_qs.aggregate(s=Sum("delta"))["s"] or 0)
         spent_today = -(spend_today_qs.aggregate(s=Sum("delta"))["s"] or 0)

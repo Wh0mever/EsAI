@@ -14,6 +14,7 @@ import {
   FiTrash2,
   FiUser,
   FiVideo,
+  FiX,
 } from "react-icons/fi";
 import EsaiLogo from "@/components/brand/EsaiLogo";
 import ThemeToggle from "@/components/vstudio/ThemeToggle";
@@ -32,7 +33,7 @@ import {
 } from "@/components/vstudio/ui/skin";
 import { CS_DOT, CS_MENU_POP, CS_SKELETON } from "@/components/studio/ui/cartoonSkin";
 import { rememberReturnPath } from "@/tools/authNext";
-import { MERGE_PATH, VSTUDIO_NAV, isActive, shortDate } from "./mergeLogic";
+import { MERGE_PATH, VSTUDIO_NAV, fillText, isActive, shortDate, type TextSpec } from "./mergeLogic";
 import { MergeBalance, signInHref } from "./MergeTopBar";
 import type { MergeProjectBrief, MergeStatus } from "./mergeTypes";
 import type { ListState } from "./useMerge";
@@ -73,6 +74,9 @@ export type MergeRailProps = {
   onOpen: (id: string) => void;
   onNew: () => void;
   onDelete: (id: string) => void;
+  /** Склейку не удалили — отказ у её строки (у какой — id). */
+  deleteError?: { id: string; text: TextSpec } | null;
+  onDismissDeleteError?: () => void;
   onMore: () => void;
   /** Список не загрузился — «Попробовать снова». */
   onReload: () => void;
@@ -97,6 +101,8 @@ function FullRail({
   onOpen,
   onNew,
   onDelete,
+  deleteError = null,
+  onDismissDeleteError,
   onMore,
   onReload,
   onTopup,
@@ -185,6 +191,8 @@ function FullRail({
                     onNavigate?.();
                   }}
                   onDelete={() => onDelete(p.id)}
+                  deleteError={deleteError?.id === p.id ? deleteError.text : null}
+                  onDismissDeleteError={onDismissDeleteError}
                 />
               ))}
             </ul>
@@ -254,16 +262,20 @@ function MergeItem({
   running,
   onOpen,
   onDelete,
+  deleteError,
+  onDismissDeleteError,
 }: {
   project: MergeProjectBrief;
   active: boolean;
   running: boolean;
   onOpen: () => void;
   onDelete: () => void;
+  deleteError: TextSpec | null;
+  onDismissDeleteError?: () => void;
 }) {
   const { t } = useTranslation("vstudio", { useSuspense: false });
   const [menu, setMenu] = useState(false);
-  const box = useRef<HTMLLIElement>(null);
+  const box = useRef<HTMLDivElement>(null);
   const title = project.title.trim() || t("merge.untitled", { defaultValue: "Без названия" });
   const status = t(`merge.status.${project.status}`, { defaultValue: STATUS_RU[project.status] });
   const until = project.status === "ready" ? shortDate(project.expires_at) : "";
@@ -276,6 +288,12 @@ function MergeItem({
   const runningLabel = t("merge.status.rendering", { defaultValue: STATUS_RU.rendering });
   const menuLabel = t("merge.rail.menu", { defaultValue: "Меню склейки" });
   const deleteLabel = t("library.delete", { defaultValue: "Удалить" });
+  const closeLabel = t("merge.closeError", { defaultValue: "Скрыть" });
+  const deleteText = deleteError
+    ? deleteError.key
+      ? t(deleteError.key, { defaultValue: deleteError.ru, ...deleteError.params })
+      : fillText(deleteError.ru, deleteError.params)
+    : "";
 
   useEffect(() => {
     if (!menu) return;
@@ -294,86 +312,110 @@ function MergeItem({
   }, [menu]);
 
   return (
-    <li ref={box} className="group relative">
-      <a
-        href={`${MERGE_PATH}?id=${project.id}`}
-        onClick={(e) => {
-          if (!plainClick(e)) return;
-          e.preventDefault();
-          onOpen();
-        }}
-        aria-current={active ? "page" : undefined}
-        className={vx(
-          "relative flex min-h-11 items-center gap-2.5 rounded-xl py-1.5 pl-2.5 pr-10 text-sm transition-colors",
-          VS_FOCUS,
-          active
-            ? "bg-vs-ink/[0.08] text-foreground dark:bg-vs-ink/[0.06]"
-            : "text-foreground/70 hover:bg-vs-ink/[0.05] hover:text-foreground dark:hover:bg-vs-ink/[0.04]",
-        )}
-      >
-        {active && <span className="absolute inset-y-2.5 left-0 w-0.5 rounded-full bg-vs-accent" aria-hidden="true" />}
-        {project.poster_url ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={project.poster_url}
-            alt=""
-            loading="lazy"
-            decoding="async"
-            className="h-[25px] w-11 shrink-0 rounded-md bg-surface-3 object-cover ring-1 ring-vs-ink/10 dark:bg-black"
-          />
-        ) : (
-          <span
-            className="grid h-[25px] w-11 shrink-0 place-items-center rounded-md bg-vs-ink/[0.05] text-muted-2 ring-1 ring-vs-ink/10"
-            aria-hidden="true"
-          >
-            <FiFilm className="text-xs" />
-          </span>
-        )}
-        <span className="min-w-0 flex-1">
-          <span className="block truncate">{title}</span>
-          <span className={vx("block truncate text-[11px]", project.status === "failed" ? "text-status-fail" : "text-muted-2")}>
-            {meta}
-          </span>
-        </span>
-        {running && (
-          <span className={vx(CS_DOT, "motion-safe:animate-pulse")} role="img" aria-label={runningLabel} title={runningLabel} />
-        )}
-      </a>
-      {/* Удалять нельзя, пока склейка идёт: кредиты в резерве, сервер ответит отказом. */}
-      {!isActive(project.status) && (
-        <button
-          type="button"
-          onClick={() => setMenu((v) => !v)}
-          aria-haspopup="menu"
-          aria-expanded={menu}
-          aria-label={menuLabel}
+    <li className="group">
+      {/* Строка со своими ⋯ и меню: отказ удаления ниже растит пункт, а не сдвигает их. */}
+      <div ref={box} className="relative">
+        <a
+          href={`${MERGE_PATH}?id=${project.id}`}
+          onClick={(e) => {
+            if (!plainClick(e)) return;
+            e.preventDefault();
+            onOpen();
+          }}
+          aria-current={active ? "page" : undefined}
           className={vx(
-            "absolute right-1 top-1/2 grid size-9 -translate-y-1/2 cursor-pointer place-items-center rounded-full text-muted transition-[opacity,background-color,color] hover:bg-vs-ink/[0.1] hover:text-foreground focus-visible:opacity-100 before:absolute before:-inset-1",
+            "relative flex min-h-11 items-center gap-2.5 rounded-xl py-1.5 pl-2.5 pr-10 text-sm transition-colors",
             VS_FOCUS,
-            menu || active ? "opacity-100" : "opacity-100 pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100",
+            active
+              ? "bg-vs-ink/[0.08] text-foreground dark:bg-vs-ink/[0.06]"
+              : "text-foreground/70 hover:bg-vs-ink/[0.05] hover:text-foreground dark:hover:bg-vs-ink/[0.04]",
           )}
         >
-          <FiMoreHorizontal aria-hidden="true" />
-        </button>
-      )}
-      {menu && (
-        <div role="menu" className={vx(VS_MENU, CS_MENU_POP, "absolute right-1 top-full z-30 mt-1 w-48")}>
+          {active && <span className="absolute inset-y-2.5 left-0 w-0.5 rounded-full bg-vs-accent" aria-hidden="true" />}
+          {project.poster_url ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={project.poster_url}
+              alt=""
+              loading="lazy"
+              decoding="async"
+              className="h-[25px] w-11 shrink-0 rounded-md bg-surface-3 object-cover ring-1 ring-vs-ink/10 dark:bg-black"
+            />
+          ) : (
+            <span
+              className="grid h-[25px] w-11 shrink-0 place-items-center rounded-md bg-vs-ink/[0.05] text-muted-2 ring-1 ring-vs-ink/10"
+              aria-hidden="true"
+            >
+              <FiFilm className="text-xs" />
+            </span>
+          )}
+          <span className="min-w-0 flex-1">
+            <span className="block truncate">{title}</span>
+            <span className={vx("block truncate text-[11px]", project.status === "failed" ? "text-status-fail" : "text-muted-2")}>
+              {meta}
+            </span>
+          </span>
+          {running && (
+            <span className={vx(CS_DOT, "motion-safe:animate-pulse")} role="img" aria-label={runningLabel} title={runningLabel} />
+          )}
+        </a>
+        {/* Удалять нельзя, пока склейка идёт: кредиты в резерве, сервер ответит отказом. */}
+        {!isActive(project.status) && (
           <button
             type="button"
-            role="menuitem"
-            onClick={() => {
-              setMenu(false);
-              const ask = t("merge.rail.deleteConfirm", {
-                defaultValue: "Удалить склейку «{{title}}»? Готовый ролик тоже удалится.",
-                title,
-              });
-              if (window.confirm(ask)) onDelete();
-            }}
-            className={vx(VS_MENU_ITEM, "hover:!text-status-fail")}
+            onClick={() => setMenu((v) => !v)}
+            aria-haspopup="menu"
+            aria-expanded={menu}
+            aria-label={menuLabel}
+            className={vx(
+              "absolute right-1 top-1/2 grid size-9 -translate-y-1/2 cursor-pointer place-items-center rounded-full text-muted transition-[opacity,background-color,color] hover:bg-vs-ink/[0.1] hover:text-foreground focus-visible:opacity-100 before:absolute before:-inset-1",
+              VS_FOCUS,
+              menu || active ? "opacity-100" : "opacity-100 pointer-fine:opacity-0 pointer-fine:group-hover:opacity-100",
+            )}
           >
-            <FiTrash2 className="shrink-0 text-muted" aria-hidden="true" />
-            {deleteLabel}
+            <FiMoreHorizontal aria-hidden="true" />
           </button>
+        )}
+        {menu && (
+          <div role="menu" className={vx(VS_MENU, CS_MENU_POP, "absolute right-1 top-full z-30 mt-1 w-48")}>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setMenu(false);
+                const ask = t("merge.rail.deleteConfirm", {
+                  defaultValue: "Удалить склейку «{{title}}»? Готовый ролик тоже удалится.",
+                  title,
+                });
+                if (window.confirm(ask)) onDelete();
+              }}
+              className={vx(VS_MENU_ITEM, "hover:!text-status-fail")}
+            >
+              <FiTrash2 className="shrink-0 text-muted" aria-hidden="true" />
+              {deleteLabel}
+            </button>
+          </div>
+        )}
+      </div>
+      {deleteText && (
+        // ✕ опущен на запас своей зоны нажатия (10 px): зона в 44 px начинается у нижнего края
+        // строки и не накрывает ⋯, а нижний отступ блока её вмещает.
+        <div role="alert" className="flex items-start gap-1.5 px-2.5 pb-2.5 pt-0.5 text-[11px] leading-snug text-status-fail">
+          <p className="min-w-0 flex-1 break-words">{deleteText}</p>
+          {onDismissDeleteError && (
+            <button
+              type="button"
+              onClick={onDismissDeleteError}
+              aria-label={closeLabel}
+              title={closeLabel}
+              className={vx(
+                "relative -mr-1 mt-2 grid size-6 shrink-0 cursor-pointer place-items-center rounded-full hover:bg-status-fail/15 before:absolute before:-inset-2.5",
+                VS_FOCUS,
+              )}
+            >
+              <FiX className="size-3.5" aria-hidden="true" />
+            </button>
+          )}
         </div>
       )}
     </li>

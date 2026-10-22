@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import MergeProject, MergeUpload
+from .models import MergeAudio, MergeProject, MergeUpload
 
 
 @admin.register(MergeProject)
@@ -28,6 +28,21 @@ class MergeUploadAdmin(admin.ModelAdmin):
     search_fields = ("uid", "title", "user__email")
     raw_id_fields = ("user",)
     readonly_fields = [f.name for f in MergeUpload._meta.fields]
+
+    def has_add_permission(self, request):
+        return False
+
+
+@admin.register(MergeAudio)
+class MergeAudioAdmin(admin.ModelAdmin):
+    """Звук склеек: смотреть; деньги и файлы меняют заказ, задача и уборка."""
+
+    list_display = ("uid", "project", "kind", "source", "status", "error_code", "duration_s",
+                    "credits_reserved", "credits_charged", "created_at", "expires_at")
+    list_filter = ("kind", "source", "status")
+    search_fields = ("uid", "project__uid", "project__user__email")
+    raw_id_fields = ("project",)
+    readonly_fields = [f.name for f in MergeAudio._meta.fields]
 
     def has_add_permission(self, request):
         return False

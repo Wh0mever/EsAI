@@ -8,6 +8,9 @@
 у строки в очереди или в работе), списание — только за готовый ролик, сбой
 снимает резерв тем же UPDATE, что закрывает склейку. Все переходы — условные
 UPDATE: вторая копия задачи или уборка не спишут и не закроют второй раз.
+
+Звук (Build MA) — MergeAudio: голос за кадром и фоновая музыка склейки, тем же
+правилом денег (резерв строки → списание только за готовый звук).
 """
 from __future__ import annotations
 
@@ -20,7 +23,8 @@ from django.db import models
 from django.db.models import Q
 from django.utils import timezone
 
-from .config import ASPECTS, FIT_PAD, FITS, UPLOAD_RETENTION_DAYS
+from .config import (ASPECTS, AUDIO_RETENTION_DAYS, CLIP_KEEP, CLIP_OFF, CLIP_QUIET, FIT_PAD, FITS,
+                     MUSIC_VOLUME_DEFAULT, UPLOAD_RETENTION_DAYS, VOICE_VOLUME_DEFAULT)
 
 STATUS_DRAFT = "draft"
 STATUS_QUEUED = "queued"
@@ -63,6 +67,7 @@ class MergeProject(models.Model):
 
     ASPECT_CHOICES = [(a, a) for a in ASPECTS]
     FIT_CHOICES = [("pad", "Поля (размытый фон)"), ("crop", "Обрезать по центру")]
+    CLIP_SOUND_CHOICES = [(CLIP_KEEP, "Оставить"), (CLIP_QUIET, "Тише"), (CLIP_OFF, "Выключить")]
 
     # Публичный идентификатор — только uid: чужая склейка неотличима от несуществующей.
     uid = models.CharField(max_length=32, unique=True, default=_uid, editable=False)
@@ -101,6 +106,12 @@ class MergeProject(models.Model):
     finished_at = models.DateTimeField(null=True, blank=True, verbose_name="Закончена")
     expires_at = models.DateTimeField(null=True, blank=True, db_index=True,
                                       verbose_name="Хранится до")
+    # Звук (Build MA): что делать со звуком самих роликов и громкости дорожек
+    # MergeAudio. Сводится при склейке; оставить звук без дорожек — прежняя склейка.
+    clip_sound = models.CharField(max_length=5, choices=CLIP_SOUND_CHOICES, default=CLIP_KEEP,
+                                  verbose_name="Звук роликов")
+    music_volume = models.FloatField(default=MUSIC_VOLUME_DEFAULT, verbose_name="Громкость музыки")
+    voice_volume = models.FloatField(default=VOICE_VOLUME_DEFAULT, verbose_name="Громкость голоса")
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="Создана")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="Изменена")
 
@@ -195,4 +206,116 @@ class MergeUpload(models.Model):
         return "matroska" if self.file.endswith(".webm") else "mov"
 
 
-__all__ = ["MergeProject", "MergeUpload", "ACTIVE", "EDITABLE", "DELETABLE", "FITS"]
+def _audio_expiry():
+    return timezone.now() + timedelta(days=AUDIO_RETENTION_DAYS)
+
+
+class MergeAudio(models.Model):
+    """Звуковая дорожка склейки: голос за кадром или фоновая музыка (Build MA).
+
+    Голос и созданная музыка оплачиваются только готовыми: пока звук делается,
+    его цена — резерв строки (credits_reserved при pending), готово — списание
+    в той же транзакции, что делает строку ready; сбой снимает резерв тем же
+    UPDATE, что пишет failed. У склейки не больше одной готовой дорожки каждого
+    вида: новая заменяет прежнюю (строку и файл).
+    """
+
+    KIND_VOICE = "voice"
+    KIND_MUSIC = "music"
+    KIND_CHOICES = [(KIND_VOICE, "Голос за кадром"), (KIND_MUSIC, "Музыка")]
+    SOURCE_GENERATED = "generated"
+    SOURCE_UPLOAD = "upload"
+    SOURCE_CHOICES = [(SOURCE_GENERATED, "Создано"), (SOURCE_UPLOAD, "Свой трек")]
+    STATUS_PENDING = "pending"
+    STATUS_READY = "ready"
+    STATUS_FAILED = "failed"
+    STATUS_CHOICES = [(STATUS_PENDING, "Делается"), (STATUS_READY, "Готово"),
+                      (STATUS_FAILED, "Не получилось")]
+
+    # Публичный идентификатор: чужая дорожка неотличима от несуществующей.
+    uid = models.CharField(max_length=32, unique=True, default=_uid, editable=False)
+    project = models.ForeignKey(MergeProject, on_delete=models.CASCADE, related_name="audio_tracks",
+                                verbose_name="Склейка")
+    kind = models.CharField(max_length=5, choices=KIND_CHOICES, verbose_name="Вид")
+    source = models.CharField(max_length=9, choices=SOURCE_CHOICES, default=SOURCE_GENERATED,
+                              verbose_name="Откуда")
+    status = models.CharField(max_length=7, choices=STATUS_CHOICES, default=STATUS_PENDING,
+                              db_index=True, verbose_name="Состояние")
+    # mp3 в default_storage (save_audio мультстудии): merge/audio/<user_id>/<uuid>.mp3.
+    file = models.CharField(max_length=512, blank=True, default="", verbose_name="Файл")
+    duration_s = models.FloatField(null=True, blank=True, verbose_name="Длительность, с")
+    text = models.TextField(blank=True, default="", verbose_name="Текст голоса")
+    prompt = models.CharField(max_length=400, blank=True, default="", verbose_name="Описание музыки")
+    # Подпись своего трека — имя файла без папок и расширения.
+    title = models.CharField(max_length=80, blank=True, default="", verbose_name="Название трека")
+    voice_id = models.CharField(max_length=64, blank=True, default="", verbose_name="Голос")
+    voice_name = models.CharField(max_length=120, blank=True, default="", verbose_name="Имя голоса")
+    # С какого фрагмента (номер с 0) звучит голос; 0 — с начала склейки.
+    start_fragment = models.PositiveSmallIntegerField(default=0, verbose_name="С фрагмента")
+    # Сколько секунд музыки заказано (длина склейки на момент заказа).
+    seconds = models.FloatField(null=True, blank=True, verbose_name="Заказано секунд")
+    credits_reserved = models.PositiveIntegerField(default=0, verbose_name="В резерве, кр")
+    credits_charged = models.PositiveIntegerField(default=0, verbose_name="Списано, кр")
+    error = models.CharField(max_length=300, blank=True, default="", verbose_name="Ошибка")
+    error_code = models.CharField(max_length=40, blank=True, default="", verbose_name="Код ошибки")
+    # Ключ клика: повтор того же запроса (сеть, двойная отправка) отвечает той же
+    # дорожкой и второй раз не платится.
+    request_id = models.CharField(max_length=64, blank=True, default="", verbose_name="Ключ запроса")
+    # Задача музыки взяла работу: вторая копия задачи провайдера не зовёт.
+    started_at = models.DateTimeField(null=True, blank=True, verbose_name="Начато")
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Создано")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="Изменено")
+    # 30 дней; склейка, в которую дорожка вошла, продлевает её до своего срока.
+    expires_at = models.DateTimeField(default=_audio_expiry, db_index=True, verbose_name="Хранится до")
+
+    class Meta:
+        verbose_name = "Звук склейки"
+        verbose_name_plural = "Звук склеек"
+        constraints = [
+            # Резерв — только у дорожки, которая делается.
+            models.CheckConstraint(name="merge_audio_reserve_only_pending",
+                                   condition=Q(status="pending") | Q(credits_reserved=0)),
+            # Один голос и одна музыка на склейку; и не больше одной в работе на вид:
+            # второй клик или вторая вкладка не закажут (и не оплатят) звук дважды.
+            models.UniqueConstraint(fields=["project", "kind"], condition=Q(status="ready"),
+                                    name="merge_audio_one_ready"),
+            models.UniqueConstraint(fields=["project", "kind"], condition=Q(status="pending"),
+                                    name="merge_audio_one_pending"),
+        ]
+        indexes = [models.Index(fields=["status", "created_at"], name="merge_audio_status")]
+
+    def __str__(self):
+        return f"{self.get_kind_display()} {self.uid[:8]}"
+
+
+class MergeAudioRequest(models.Model):
+    """Ключ заказа звука, чья дорожка ушла: её заменил новый звук того же вида, свой трек
+    или её убрали (MA_FIX6-REFIX1).
+
+    Ключ живёт в строке дорожки, а замена строку стирает. Вкладка, у которой ответ на
+    заказ не дошёл, повторяет его тем же ключом — и без этой памяти сервер заказал бы
+    и списал звук второй раз. Здесь — каким заказ был, когда ушёл (track_json без файла):
+    повтор отвечает 200 этим снимком и текущим звуком склейки, ничего не заказывая.
+    Хранится столько же, сколько звук (уборка purge).
+    """
+
+    project = models.ForeignKey(MergeProject, on_delete=models.CASCADE, related_name="audio_requests",
+                                verbose_name="Склейка")
+    kind = models.CharField(max_length=5, choices=MergeAudio.KIND_CHOICES, verbose_name="Вид")
+    request_id = models.CharField(max_length=64, verbose_name="Ключ запроса")
+    track = models.JSONField(default=dict, verbose_name="Дорожка, когда ушла")
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True, verbose_name="Ушла")
+
+    class Meta:
+        verbose_name = "Ключ ушедшего заказа звука"
+        verbose_name_plural = "Ключи ушедших заказов звука"
+        constraints = [
+            models.UniqueConstraint(fields=["project", "kind", "request_id"], name="merge_audio_request_once"),
+        ]
+
+    def __str__(self):
+        return f"{self.kind} {self.request_id}"
+
+
+__all__ = ["MergeProject", "MergeUpload", "MergeAudio", "MergeAudioRequest", "ACTIVE", "EDITABLE", "DELETABLE",
+           "FITS"]

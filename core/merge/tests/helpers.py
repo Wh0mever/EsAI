@@ -65,7 +65,7 @@ class MediaTestCase(TestCase):
         self.probe = patcher.start()
         self.addCleanup(patcher.stop)
 
-    def _probe(self, path, fmt=""):
+    def _probe(self, path, fmt="", timeout=None):
         for name, value in self.durations.items():
             if str(path).replace("\\", "/").endswith(name):
                 return None if value is None else probe_ok(value)

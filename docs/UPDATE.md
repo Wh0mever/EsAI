@@ -112,6 +112,53 @@ dc exec -T core sh -c "ffmpeg -hide_banner -filters | grep -c zscale; ffmpeg -hi
 ежедневная задача `merge:purge_expired`). Квота — 10 файлов и 600 МБ на человека;
 при свободном месте на диске меньше 2 ГБ загрузка отвечает 503 и ничего не пишет.
 
+## Склейка: звук — голос за кадром, музыка, звук роликов (22.10.2026)
+
+Миграции `merge/0003_merge_audio` и `plans/0026_reason_merge_audio` применятся на
+старте core (свой трек — до 20 МБ, общий лимит `/api/` — 25 МБ, отдельного location
+не нужно). Обязательно пересоздать воркеры: музыку делает новая задача
+`merge.tasks.make_music` в очереди media (`celery_media`). И nginx: в обоих
+`nginx/nginx*.conf` новый `location ^~ /media/merge/audio/` — звук склейки отдаётся с
+`Cache-Control: private, no-store`, как свои видео (удалённая дорожка не живёт неделю
+в кэше Cloudflare и браузера). Файл примонтирован одиночным bind-mount — сначала
+проверка, потом только пересоздание (не reload).
+Голос и музыка по описанию идут через ключ ElevenLabs мультстудии (runtime
+`ELEVENLABS_API_KEY`) и по её ценам (`studio_voice_credits_per_1k`,
+`studio_voice_min_credits`, `studio_music_credits_per_min`); без ключа кнопки
+«Озвучить»/«Создать» скрыты, загрузка своего трека работает.
+
+```bash
+dc up -d --force-recreate core
+dc up -d --force-recreate --no-deps celery celery_beat celery_media celery_vstudio
+# задача музыки видна воркеру media (ждём строку с merge.tasks.make_music):
+dc exec -T celery_media celery -A core inspect registered | grep make_music
+# nginx: проверить НОВЫЙ файл во временном контейнере (ждём «syntax is ok» и «test is successful»),
+# потом пересоздать; звук склейки — без кэша (404 несуществующего файла отдаёт тот же location):
+dc run --rm --no-deps nginx nginx -t
+dc up -d --force-recreate --no-deps nginx
+curl -sI https://esai.kg/media/merge/audio/0/00000000000000000000000000000000.mp3 | grep -i cache-control   # ждём «private, no-store»
+# сведение звука — один раз прогнать настоящим ffmpeg/ffprobe внутри core (скрипт из
+# заметок сборки, нужен core/settings_sqlitetest.py; ElevenLabs в нём подменён; ждём «ИТОГ: N из N»):
+#   dc cp real_mix_check.py core:/tmp/ && dc exec -T -e MA_CORE=/app core python /tmp/real_mix_check.py
+```
+
+Файлы звука лежат в `media/merge/audio/<id пользователя>/` и живут столько же, сколько
+склейка (30 дней; уборка — та же `merge:purge_expired`).
+
+Музыка по описанию держит место в `celery_media` до 540 с ожидания ElevenLabs, поэтому
+разом на весь сайт делается не больше двух (заказ сверх этого получает «Сейчас готовится
+много музыки — попробуйте через минуту», кредиты не трогаются). Предел — runtime-ключ
+`merge_music_concurrency` (1…8, без выкладки; в панели его пока нет — из shell, действует
+сразу: `set_runtime` сбрасывает кэш), без него — `MERGE_MUSIC_CONCURRENCY` в `.env`
+(по умолчанию 2). Места живут в Redis-кэше (`merge:music-slot:<n>`, 12 минут): после
+падения воркера они освобождаются сами, чистить руками ничего не нужно. Голос за кадром
+склейки — до 2000 знаков (у мультстудии на сцену — по-прежнему 1000).
+
+```bash
+# поднять предел до трёх (вернуть — delete_runtime):
+dc exec -T core python manage.py shell -c "from adminapi.runtime import set_runtime; set_runtime('merge_music_concurrency', 3)"
+```
+
 ## Бот и очередь генераций
 
 ```bash

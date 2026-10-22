@@ -27,7 +27,7 @@ from . import render as ffmpeg
 from .config import (ASPECTS, DEFAULT_TITLE, FITS, MAX_FRAGMENTS, MAX_PROJECTS, MAX_READY,
                      MAX_TOTAL_S, MIN_FRAGMENTS, RETENTION_DAYS, UPLOAD_MAX_PER_PROJECT, localized,
                      price_credits)
-from .models import ACTIVE, DELETABLE, EDITABLE, MergeProject
+from .models import ACTIVE, DELETABLE, EDITABLE, MergeAudio, MergeProject
 from .sources import TYPE_UPLOAD, TYPES, local_path, resolve, valid_id
 from .storage import (delete_files, ensure_user_dir, result_names, save_file, storage_ready)
 
@@ -268,14 +268,25 @@ def get_project(user, uid, *, lock: bool = False) -> MergeProject:
 
 
 def create_project(user, data: dict, *, lang: str = "ru") -> MergeProject:
+    """Новая склейка. copy_audio_from — uid своей склейки, чей звук перейдёт в новую
+    («Изменить и склеить заново», Build MA); чужая или пропавшая — 404."""
+    data = data or {}
     kept = MergeProject.objects.filter(user=user).exclude(status=MergeProject.STATUS_EXPIRED)
     if kept.count() >= MAX_PROJECTS:
         raise MergeError("too_many_projects", MSG_TOO_MANY_PROJECTS, 409, max=MAX_PROJECTS)
-    fields = validate_changes(user, None, data or {}, lang=lang)
+    source = None
+    if isinstance(data, dict) and data.get("copy_audio_from") not in (None, ""):
+        source = get_project(user, data["copy_audio_from"])
+    fields = validate_changes(user, None, data, lang=lang)
     fields.pop("status", None)
     if not fields.get("title"):
         fields["title"] = default_title(lang=lang)
-    return MergeProject.objects.create(user=user, **fields)
+    project = MergeProject.objects.create(user=user, **fields)
+    if source is not None:
+        from .audio import copy_audio
+
+        copy_audio(source, project)
+    return project
 
 
 def update_project(user, uid, data: dict, *, lang: str = "ru") -> MergeProject:
@@ -289,18 +300,40 @@ def update_project(user, uid, data: dict, *, lang: str = "ru") -> MergeProject:
 
 
 def delete_project(user, uid) -> None:
-    project = get_project(user, uid)
-    # Условно: между проверкой и удалением склейку могли запустить.
-    deleted, _ = MergeProject.objects.filter(pk=project.pk, status__in=DELETABLE).delete()
-    if not deleted:
-        raise MergeError("render_in_progress", MSG_IN_PROGRESS, 409)
+    """DELETE <id>/. Нельзя, пока склейка идёт, и пока её голос или музыка делаются
+    (в том числе музыка в очереди): провайдер звука уже работает и берёт деньги, а
+    заказ удалённой склейки не списался бы — «заказать и удалить» было бы бесплатно
+    (MA_FIX4). Заказ не висит вечно: его закрывает его же задача или уборка оборванных."""
+    from . import audio
+
+    refusal = None
+    with transaction.atomic():
+        # Замки — как у запуска и заказа звука (audio.LOCK_ORDER: пользователь, склейка,
+        # дорожки): запуск или заказ, пришедшие одновременно, ждут удаления, и проверки
+        # ниже не устаревают.
+        locked = get_user_model().objects.select_for_update().get(pk=user.pk)
+        project = get_project(locked, uid, lock=True)
+        # Свой оборванный заказ звука закрываем сразу, а не ждём уборки раз в пять минут.
+        # Под замком склейки: дорожки — последние в порядке замков, как у доставки звука.
+        audio.fail_stale(project_id=project.pk)
+        if project.status not in DELETABLE:
+            refusal = MergeError("render_in_progress", MSG_IN_PROGRESS, 409)
+        elif audio.pending(project.pk):
+            refusal = MergeError("audio_busy", audio.MSG_BUSY, 409)
+        else:
+            project.delete()
+    if refusal is not None:
+        # Отказ — уже за блоком: исключение внутри откатило бы и закрытие оборванных заказов
+        # выше (их резерв висел бы до уборки). Проверки сделаны под замками, отказу они не нужны.
+        raise refusal
     delete_files(project.result_video, project.poster)
 
 
 # ---------------------------------------------------------------- резерв и списание
 
 def reserved_credits(user) -> int:
-    """Кредиты в резерве у склеек человека (в очереди и в работе).
+    """Кредиты в резерве у склеек человека (в очереди и в работе) и у звука
+    склеек, который делается (Build MA).
 
     Для общих гейтов сайта (vstudio.reserve.total_reserved и все, кто его
     зовёт). Мягко: при сбое 0 и warning, платящего не блокируем.
@@ -308,9 +341,12 @@ def reserved_credits(user) -> int:
     if not getattr(user, "pk", None):
         return 0
     try:
+        from .audio import reserved as audio_reserved
+
         with transaction.atomic():
             total = MergeProject.objects.filter(user_id=user.pk, status__in=ACTIVE).aggregate(
                 s=Sum("credits_reserved"))["s"]
+            total = int(total or 0) + audio_reserved(user.pk)
         return max(0, int(total or 0))
     except Exception:
         logger.warning("склейка: резерв не посчитан, не учтён", exc_info=True)
@@ -328,8 +364,9 @@ def balance_refusal(balance: int, reserved: int, need: int) -> dict | None:
     return refusal
 
 
-def charge(user, amount: int, meta: dict) -> tuple[int, bool]:
-    """Списать за готовую склейку: (сколько списано, частично ли).
+def charge(user, amount: int, meta: dict, *, reason: str = REASON) -> tuple[int, bool]:
+    """Списать за готовую склейку (или готовый звук склейки — reason merge_voice /
+    merge_music): (сколько списано, частично ли).
 
     Резерв гарантировал остаток, но чат и бот проверяют баланс без замка, а
     возврат платежа может изъять кредиты: тогда берём сколько есть — ролик
@@ -341,10 +378,10 @@ def charge(user, amount: int, meta: dict) -> tuple[int, bool]:
     if amount <= 0:
         return 0, False
     try:
-        charge_tokens(user, amount, REASON, meta=meta)
+        charge_tokens(user, amount, reason, meta=meta)
         return amount, False
     except InsufficientTokens as exc:
-        got = clawback_tokens(user, amount, reason=REASON,
+        got = clawback_tokens(user, amount, reason=reason,
                               meta={**meta, "partial": True, "wanted": amount,
                                     "balance_before": int(exc.balance or 0)})
         logger.warning("склейка %s: списано частично %s из %s", meta.get("merge"), got, amount)
@@ -430,6 +467,11 @@ def start_render(user, uid, data: dict | None = None, *, lang: str = "ru") -> tu
             raise MergeError("too_few_fragments", MSG_TOO_FEW.format(min=MIN_FRAGMENTS),
                              min=MIN_FRAGMENTS)
         sources = check_sources(locked, refs, lang=lang)
+        from . import audio
+
+        if audio.pending(project.pk):
+            # Голос или музыка ещё делаются (и оплачиваются): без них склейка вышла бы не той.
+            raise MergeError("audio_pending", audio.MSG_PENDING, 409)
 
         other = (MergeProject.objects.filter(user=locked, status__in=ACTIVE)
                  .exclude(pk=project.pk).values_list("uid", flat=True).first())
@@ -471,6 +513,7 @@ def start_render(user, uid, data: dict | None = None, *, lang: str = "ru") -> tu
 
         project.items = snapshot(sources)
         hold(locked.pk, upload_ids(project.items), now + UPLOAD_RENDER_HOLD)
+        audio.hold(project.pk, now + UPLOAD_RENDER_HOLD)
         project.status = MergeProject.STATUS_QUEUED
         project.credits_reserved = price
         project.credits_charged = 0
@@ -579,9 +622,12 @@ def _finish(project_pk: int, user_id: int, started, *, video: str, poster: str,
             progress_total=fragments, updated_at=now)
         # Свои видео готовой склейки хранятся, пока хранится она сама: её
         # фрагменты остаются видны, и «склеить заново» не упрётся в пустоту.
+        # Звук — так же: «Изменить и склеить заново» копирует его в новую склейку.
+        from . import audio
         from .uploads import hold, upload_ids
 
         hold(user_id, upload_ids(row.items), expires)
+        audio.hold(row.pk, expires)
     return charged
 
 
@@ -619,8 +665,13 @@ def run_render(project_id: int, *, soft_limit: float | None = RENDER_SOFT_LIMIT)
         ensure_user_dir(project.user_id)
         with tempfile.TemporaryDirectory(prefix="merge-") as workdir:
             paths = _materialize(sources, workdir)
+            from .audio import mix_for
+
+            # Звук (Build MA) — только если он есть: без него вызов тот же, что и раньше.
+            mix = mix_for(project, workdir, sum(s.duration_s or 0 for s in sources))
+            extra = {"audio": mix} if mix is not None else {}
             result = ffmpeg.render(paths, aspect=project.aspect, fit=project.fit, workdir=workdir,
-                                   progress=_progress(mine), deadline=deadline)
+                                   progress=_progress(mine), deadline=deadline, **extra)
             if result.duration > MAX_TOTAL_S + RENDER_TOLERANCE_S:
                 raise ffmpeg.RenderError(MSG_RENDER_TOO_LONG, f"итог {result.duration} с",
                                          code="too_long")
@@ -661,18 +712,29 @@ def purge_expired(now=None, *, batch: int = PURGE_BATCH) -> int:
     """Стереть ролики, чей срок хранения вышел; строка остаётся как «истекла».
 
     Пачками до пустой: за сутки может истечь больше одной пачки, и без
-    повтора файлы жили бы дольше обещанных 30 дней.
+    повтора файлы жили бы дольше обещанных 30 дней. Звук склейки (Build MA)
+    истекает вместе с ней.
+
+    У готовой склейки звук не делается (запуск ждёт звук, а заказ звука делает
+    склейку черновиком). Если бы делался — склейку не трогаем до следующего
+    запуска: заказ к тому времени закроет его задача или уборка оборванных
+    (голос — 10 мин, музыка — до 2 ч в очереди и 16 мин в работе), а под
+    работающей задачей ничего не стираем.
     """
+    from .audio import drop
+
     now = now or timezone.now()
     count = 0
+    expiring = (MergeProject.objects.filter(status=MergeProject.STATUS_READY)
+                .exclude(audio_tracks__status=MergeAudio.STATUS_PENDING))
     for _ in range(PURGE_MAX_BATCHES):
-        rows = list(MergeProject.objects.filter(status=MergeProject.STATUS_READY, expires_at__lt=now)
+        rows = list(expiring.filter(expires_at__lt=now)
                     .order_by("expires_at").only("pk", "expires_at", "result_video", "poster")[:batch])
         for row in rows:
-            if MergeProject.objects.filter(pk=row.pk, status=MergeProject.STATUS_READY,
-                                           expires_at=row.expires_at).update(
+            if expiring.filter(pk=row.pk, expires_at=row.expires_at).update(
                     status=MergeProject.STATUS_EXPIRED, result_video="", poster="", updated_at=now):
                 delete_files(row.result_video, row.poster)
+                drop(row.pk)
                 count += 1
         if len(rows) < batch:
             break

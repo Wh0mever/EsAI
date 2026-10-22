@@ -88,7 +88,8 @@ export interface MergeBalance {
   after: number;
 }
 
-export type MergeStage = "queued" | "preparing" | "normalizing" | "joining" | "saving";
+/** mixing — сведение звука после склейки (только у склеек со звуком, Build MA). */
+export type MergeStage = "queued" | "preparing" | "normalizing" | "joining" | "mixing" | "saving";
 
 export interface MergeProgress {
   stage: MergeStage;
@@ -97,7 +98,7 @@ export interface MergeProgress {
 }
 
 export interface MergeRenderBlock {
-  error_code: "too_few_fragments" | "source_unavailable" | "too_long";
+  error_code: "too_few_fragments" | "source_unavailable" | "too_long" | "audio_pending";
   error: string;
   index?: number;
 }
@@ -134,6 +135,8 @@ export interface MergeProject extends MergeProjectBrief {
   limits: MergeLimits;
   /** Только в ответе render/. */
   balance?: MergeBalance;
+  /** Коротко о звуке (Build MA); старый сервер не присылает. */
+  audio?: MergeAudioSummary;
 }
 
 export interface MergeConfig {
@@ -171,9 +174,137 @@ export interface MergeEditBody {
   aspect?: MergeAspect;
   fit?: MergeFit;
   items?: { type: MergeSourceType; id: string }[];
+  /** Только при создании: звук своей склейки переходит в новую (копии файлов, бесплатно). */
+  copy_audio_from?: string;
 }
 
 export interface MergeRenderBody extends MergeEditBody {
   /** Цена, показанная на кнопке: разошлась с серверной — 409 price_changed. */
   price?: number;
+}
+
+/* ---------- звук (CONTRACT_M.md §10, Build MA) ---------- */
+
+/** Звук самих роликов в сведении: как есть, тише (0,3) или выключен. */
+export type MergeClipSound = "keep" | "quiet" | "off";
+export type MergeTrackKind = "voice" | "music";
+
+export interface MergeTrack {
+  id: string;
+  kind: MergeTrackKind;
+  /** upload — свой трек (только музыка). */
+  source: "generated" | "upload";
+  status: "pending" | "ready" | "failed";
+  url: string | null;
+  duration_s: number | null;
+  text: string;
+  prompt: string;
+  title: string;
+  voice_id: string;
+  voice_name: string;
+  /** С какого фрагмента голос (с нуля); у музыки null. */
+  start_fragment: number | null;
+  /** Где голос начнётся сейчас: фрагменты убрали — с последнего. */
+  start_fragment_effective: number | null;
+  /** Сколько секунд музыки заказано. */
+  seconds: number | null;
+  credits_reserved: number;
+  credits_charged: number;
+  error: string;
+  error_code: string | null;
+  /** Ключ нажатия, которым дорожку заказали (MA_FIX6); у своего трека и копий — null. */
+  request_id: string | null;
+  created_at: string | null;
+  expires_at: string | null;
+}
+
+export interface MergeAudioLimits {
+  voice_chars: number;
+  prompt_min_chars: number;
+  prompt_chars: number;
+  music_min_s: number;
+  music_max_s: number;
+  upload_max_bytes: number;
+  upload_max_mb: number;
+  upload_max_s: number;
+  extensions: string[];
+  accept: string;
+  music_volume_max: number;
+  voice_volume_max: number;
+  clip_sounds: MergeClipSound[];
+  clip_volumes: Record<MergeClipSound, number>;
+  retention_days: number;
+}
+
+export interface MergeAudioPrices {
+  voice_per_1k: number;
+  voice_min: number;
+  music_per_min: number;
+}
+
+export interface MergeAudioState {
+  project_id: string;
+  status: MergeStatus;
+  editable: boolean;
+  edit_block: { error_code: string; error: string } | null;
+  /** Ключ ElevenLabs задан: без него — только свой трек. */
+  configured: boolean;
+  clip_sound: MergeClipSound;
+  music_volume: number;
+  voice_volume: number;
+  tracks: MergeTrack[];
+  fragments: number;
+  total_duration_s: number;
+  prices: MergeAudioPrices;
+  music_quote: { seconds: number; credits: number } | null;
+  limits: MergeAudioLimits;
+  /** Ответы POST: дорожка этого запроса и баланс. */
+  track?: MergeTrack;
+  balance?: MergeBalance;
+}
+
+/** ProjectJSON.audio: есть ли готовый голос и музыка, делается ли что-то. */
+export interface MergeAudioSummary {
+  clip_sound: MergeClipSound;
+  music_volume: number;
+  voice_volume: number;
+  voice: boolean;
+  music: boolean;
+  pending: boolean;
+}
+
+/** PATCH audio/: любое из полей; отказ одного — отказ всей правки. */
+export interface MergeAudioSettings {
+  clip_sound?: MergeClipSound;
+  music_volume?: number;
+  voice_volume?: number;
+  voice_start_fragment?: number;
+}
+
+export interface MergeVoiceBody {
+  text: string;
+  voice_id: string;
+  start_fragment: number;
+  /** Цена на кнопке: разошлась с серверной — 409 audio_price_changed. */
+  price?: number;
+  /** Один на нажатие: повтор того же запроса не спишет второй раз. */
+  request_id?: string;
+}
+
+export interface MergeMusicBody {
+  prompt: string;
+  price?: number;
+  request_id?: string;
+}
+
+/** Голос ElevenLabs из общего списка мультстудии (/api/cartoon/audio/voices/). */
+export interface MergeVoice {
+  id: string;
+  name: string;
+  gender: string;
+  age: string;
+  accent: string;
+  description: string;
+  use_case: string;
+  preview: string;
 }

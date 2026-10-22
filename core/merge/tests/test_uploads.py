@@ -608,7 +608,7 @@ class UploadCleanupTests(_Uploads):
         self.expire(gone, in_draft, merging)
         old_reject = MergeUpload.objects.create(user=self.stranger, status="rejected",
                                                 expires_at=timezone.now() - timedelta(minutes=1))
-        self.assertEqual(tasks.purge_expired.run(), {"merges": 0, "uploads": 3})
+        self.assertEqual(tasks.purge_expired.run(), {"merges": 0, "uploads": 3, "audio": 0})
         left = set(MergeUpload.objects.values_list("pk", flat=True))
         self.assertEqual(left, {merging.pk, fresh.pk})
         self.assertNotIn(old_reject.pk, left)

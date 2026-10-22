@@ -123,7 +123,7 @@ export default function SourcePicker({
     <section aria-labelledby={headingId} className="flex min-w-0 flex-col gap-3">
       <div className="flex items-end justify-between gap-3">
         <div className="min-w-0">
-          <h2 id={headingId} className="text-base font-semibold text-foreground">
+          <h2 id={headingId} tabIndex={-1} className="text-base font-semibold text-foreground focus:outline-none">
             {t("merge.picker.title", { defaultValue: "Ваши видео" })}
           </h2>
           <p className={vx(VS_SUB, "mt-0.5 text-[13px]")}>

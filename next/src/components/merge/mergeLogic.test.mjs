@@ -330,3 +330,53 @@ test("saveRetryDelay: повторяем только проходящие сб�
   assert.equal(m.saveRetryDelay("too_long", 0), 0);
   assert.equal(m.saveRetryDelay("source_unavailable", 0), 0);
 });
+
+test("склейку не удалили: текст у её строки — тот же, что у сервера; уже нет — не отказ (MA_FIX4)", () => {
+  const busy = m.deleteRefusal({ code: "audio_busy", data: {}, message: "Звук для этой склейки ещё делается — дождитесь его." });
+  assert.deepEqual(busy, { key: "merge.err.audio_busy", ru: MERGE_ERROR_RU.audio_busy, params: {} });
+  assert.equal(busy.ru, "Звук для этой склейки ещё делается — дождитесь его.");
+  assert.equal(m.deleteRefusal({ code: "render_in_progress", data: {}, message: "" }).key, "merge.err.render_in_progress");
+  assert.equal(m.deleteRefusal({ code: "project_not_found", data: {}, message: "Склейка не найдена." }), null);
+  assert.equal(m.deleteRefusal({ code: "network", data: {}, message: "" }).key, "merge.err.network");
+  // Незнакомый код — русский текст сервера, а не пустая строка.
+  assert.deepEqual(m.deleteRefusal({ code: "brand_new", data: {}, message: "Новый отказ." }), { key: "", ru: "Новый отказ.", params: {} });
+});
+
+test("отказ удаления у строки снимается, когда сервер показал, что причины больше нет (MA_FIX5, V4 money W1)", () => {
+  const X = "a".repeat(32);
+  const Y = "b".repeat(32);
+  const busy = { id: X, code: "audio_busy" };
+  // Звук ещё делается — отказ правда; доделался — снят.
+  assert.equal(m.deleteRefusalStale(busy, X, { status: "draft", pending: true }), false);
+  assert.equal(m.deleteRefusalStale(busy, X, { status: "draft", pending: false }), true);
+  assert.equal(m.deleteRefusalStale(busy, X, { pending: false }), true, "ответ про звук без склейки (опрос звука)");
+  // Старый сервер без audio в ответе — не знаем, отказ остаётся.
+  assert.equal(m.deleteRefusalStale(busy, X, { status: "draft", pending: undefined }), false);
+  assert.equal(m.deleteRefusalStale(busy, X, { status: "draft" }), false);
+  // Ответ про другую склейку или отказа нет.
+  assert.equal(m.deleteRefusalStale(busy, Y, { status: "draft", pending: false }), false);
+  assert.equal(m.deleteRefusalStale(null, X, { status: "draft", pending: false }), false);
+  // «Идёт» — пока склейка в очереди или склеивается.
+  const running = { id: X, code: "render_in_progress" };
+  assert.equal(m.deleteRefusalStale(running, X, { status: "rendering", pending: false }), false);
+  assert.equal(m.deleteRefusalStale(running, X, { status: "queued" }), false);
+  assert.equal(m.deleteRefusalStale(running, X, { status: "ready" }), true);
+  assert.equal(m.deleteRefusalStale(running, X, { pending: false }), false, "статус не пришёл");
+  // Связь, лимит — до ✕ или следующей попытки.
+  for (const code of ["network", "throttled", "server_error"]) {
+    assert.equal(m.deleteRefusalStale({ id: X, code }, X, { status: "draft", pending: false }), false, code);
+  }
+});
+
+test("открытую склейку после отказа удаления открываем снова, только если ничего другого не открыли (MA_FIX5, V4 frontend W2)", () => {
+  const ok = { closedAt: 7, epoch: 7, openId: null, dirty: false };
+  assert.equal(m.reopenAfterRefusal(ok), true);
+  // «Новая склейка» или другая склейка за время запроса — эпоха сдвинулась.
+  assert.equal(m.reopenAfterRefusal({ ...ok, epoch: 8 }), false);
+  // В пустом редакторе добавили ролик, и он уже сохранился новой склейкой.
+  assert.equal(m.reopenAfterRefusal({ ...ok, openId: "c".repeat(32) }), false);
+  // Добавили, но ещё в паузе автосохранения.
+  assert.equal(m.reopenAfterRefusal({ ...ok, dirty: true }), false);
+  // Удаляли не открытую склейку — возвращать нечего.
+  assert.equal(m.reopenAfterRefusal({ ...ok, closedAt: -1, epoch: -1 }), false);
+});

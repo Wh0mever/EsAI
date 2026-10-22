@@ -149,6 +149,10 @@ class StrictCommandTests(SimpleTestCase):
         graph = cmd[cmd.index("-filter_complex") + 1]
         self.assertTrue(graph.startswith("[0:2]fps=30,"), graph)
         self.assertIn("[0:0]aresample=48000", graph)
+        # Звук чужого файла — с потолком по сэмплам (3,5 + 1 с при 48 кГц): метки времени файла
+        # могут врать, и -t по ним не наступил бы.
+        self.assertIn("channel_layouts=stereo,atrim=end_sample=216000,apad[a]", graph)
+        self.assertNotIn("asetpts", graph)
         self.assertNotIn("zscale", graph)
         self.assertNotIn("setparams", graph)
         self.assertNotIn("-color_trc", cmd)
@@ -186,6 +190,12 @@ class StrictCommandTests(SimpleTestCase):
         self.assertNotIn("-protocol_whitelist", cmd)
         self.assertEqual(cmd[cmd.index("-i") + 1], "in.mp4")
         self.assertTrue(cmd[cmd.index("-filter_complex") + 1].startswith("[0:v]fps=30,"))
+        self.assertNotIn("atrim", cmd[cmd.index("-filter_complex") + 1])
+
+    def test_silent_upload_has_no_audio_cap(self):
+        cmd = render.normalize_cmd("/m/a.mp4", "out.mp4", aspect="16:9", fit="pad", duration=4,
+                                   has_audio=False, fmt="mov", video_index=0)
+        self.assertNotIn("atrim", cmd[cmd.index("-filter_complex") + 1])
 
     def test_upload_poster(self):
         cmd = render.poster_cmd("/m/a.mp4", "/m/a.jpg", at=0.5, fmt="mov", video_index=1)

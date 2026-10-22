@@ -2,12 +2,13 @@
 
 import { useSyncExternalStore, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
-import { FiAlertCircle, FiClock, FiDownload, FiEdit3, FiLoader, FiPlus } from "react-icons/fi";
+import { FiAlertCircle, FiClock, FiDownload, FiEdit3, FiLoader, FiMusic, FiPlus } from "react-icons/fi";
 import SaveMediaButton from "@/components/ui/SaveMediaButton";
 import VideoPlayer from "@/components/video/VideoPlayer";
 import FilmBlock from "@/components/studio/timeline/FilmBlock";
 import { VS_BTN_GHOST, VS_BTN_GOLD, VS_CARD, VS_SUB, vx } from "@/components/vstudio/ui/skin";
 import { CS_NOTE_FAIL, CS_NOTE_GOLD } from "@/components/studio/ui/cartoonSkin";
+import { hasSound, soundInfo } from "./audioLogic";
 import {
   aspectRatio,
   currentFragment,
@@ -21,12 +22,14 @@ import {
   type TextSpec,
 } from "./mergeLogic";
 import type { MergeProject } from "./mergeTypes";
+import { useSoundText } from "./soundText";
 
 /**
  * Итог склейки над лентой фрагментов:
  *  - идёт — «плёнка» в пропорциях будущего ролика, что сейчас делается
  *    («Обрабатываю фрагмент 2 из 5», «Склеиваю») и полоска хода;
- *  - готова — плеер, «Скачать», «Новая склейка», до какого числа хранится;
+ *  - готова — плеер, «Скачать», «Новая склейка», до какого числа хранится,
+ *    какой звук сведён (он перейдёт в «Изменить и склеить заново» без оплаты);
  *  - не удалась — почему, словами сервера (кредиты не списаны);
  *  - срок хранения вышел — что ролик удалён и его можно склеить снова.
  */
@@ -58,6 +61,7 @@ export type MergeResultProps = {
 export default function MergeResult({ project, onNew, onCopy }: MergeResultProps) {
   const { t } = useTranslation("vstudio", { useSuspense: false });
   const appleTouch = useAppleTouch();
+  const soundText = useSoundText();
   const say = (spec: TextSpec) => (spec.key ? t(spec.key, { defaultValue: spec.ru, ...spec.params }) : fillText(spec.ru, spec.params));
   const ratio = aspectRatio(project.aspect);
 
@@ -72,6 +76,7 @@ export default function MergeResult({ project, onNew, onCopy }: MergeResultProps
         total: progress.total,
       });
     else if (progress?.stage === "joining") stage = t("merge.result.joining", { defaultValue: "Склеиваю фрагменты" });
+    else if (progress?.stage === "mixing") stage = t("merge.result.mixing", { defaultValue: "Свожу звук" });
     else if (progress?.stage === "saving") stage = t("merge.result.saving", { defaultValue: "Сохраняю ролик" });
     const share = Math.round(progressShare(progress) * 100);
     return (
@@ -110,6 +115,8 @@ export default function MergeResult({ project, onNew, onCopy }: MergeResultProps
     const until = shortDate(project.expires_at);
     const filename = downloadName(project.finished_at);
     const downloadLabel = t("merge.result.download", { defaultValue: "Скачать" });
+    const sound = soundInfo(null, project.audio);
+    const soundList = hasSound(sound) ? soundText.list(sound) : "";
     return (
       <div className={vx(VS_CARD, "flex flex-col gap-3 p-3 sm:p-4")}>
         <div className="mx-auto" style={frameStyle(ratio)}>
@@ -130,6 +137,12 @@ export default function MergeResult({ project, onNew, onCopy }: MergeResultProps
             <span className="inline-flex items-center gap-1.5">
               <FiClock className="size-3.5 shrink-0" aria-hidden="true" />
               {t("merge.until", { defaultValue: "Хранится до {{date}}", date: until })}
+            </span>
+          )}
+          {soundList && (
+            <span className="inline-flex items-center gap-1.5">
+              <FiMusic className="size-3.5 shrink-0" aria-hidden="true" />
+              {t("merge.result.sound", { defaultValue: "Звук: {{list}}", list: soundList })}
             </span>
           )}
         </div>
@@ -163,6 +176,13 @@ export default function MergeResult({ project, onNew, onCopy }: MergeResultProps
             {t("merge.result.copy", { defaultValue: "Изменить и склеить заново" })}
           </button>
         </div>
+        {(sound.voice || sound.music) && (
+          <p className="text-[13px] leading-snug text-muted">
+            {t("merge.result.copySound", {
+              defaultValue: "«Изменить и склеить заново» возьмёт и звук — платить за голос и музыку ещё раз не нужно.",
+            })}
+          </p>
+        )}
       </div>
     );
   }

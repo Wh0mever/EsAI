@@ -2,7 +2,7 @@
  * «Склейка видео»: обёртки над /api/merge/ (CONTRACT_M.md). Ходят через
  * fetchData и никогда не бросают: ответ — VsResult той же формы, что у
  * видеостудии (error_code из тела, русский текст сервера в message).
- * Загрузка своего видео — через XHR: у fetch нет прогресса отправки.
+ * Загрузка своего видео и своего трека — через XHR: у fetch нет прогресса отправки.
  */
 import Cookies from "js-cookie";
 import { API, ensureAccess, fetchData, getToken } from "@/tools/fetchData";
@@ -10,15 +10,20 @@ import { abortedError, toResult } from "@/lib/vstudio/errors";
 import type { VsResult } from "@/lib/vstudio/types";
 import { isUid } from "./mergeLogic";
 import type {
+  MergeAudioSettings,
+  MergeAudioState,
   MergeConfig,
   MergeEditBody,
   MergeList,
+  MergeMusicBody,
   MergeProject,
   MergeRenderBody,
   MergeSourcesPage,
   MergeTab,
   MergeUploadCard,
   MergeUploadList,
+  MergeVoice,
+  MergeVoiceBody,
 } from "./mergeTypes";
 
 const M = "merge/";
@@ -125,16 +130,25 @@ function readCsrf(): string | undefined {
   }
 }
 
-function sendUpload(file: Blob, opts: UploadVideoOptions): Promise<VsResult<MergeUploadCard>> {
-  const { filename, lang, onProgress, signal } = opts;
+/** Отказ 413 от nginx (HTML, без кода): какой код и предел показать человеку. */
+type TooBig = { code: string; maxMb: number };
+
+/** multipart с полем file через XHR: прогресс отправки, отмена, 413 nginx → свой код. */
+function sendFile<T>(
+  endpoint: string,
+  file: Blob,
+  name: string,
+  tooBig: TooBig,
+  opts: { onProgress?: (pct: number, phase: UploadPhase) => void; signal?: AbortSignal },
+): Promise<VsResult<T>> {
+  const { onProgress, signal } = opts;
   const form = new FormData();
-  const name = filename || (typeof File !== "undefined" && file instanceof File && file.name ? file.name : "video.mp4");
   form.append("file", file, name);
 
-  return new Promise<VsResult<MergeUploadCard>>((resolve) => {
+  return new Promise<VsResult<T>>((resolve) => {
     const xhr = new XMLHttpRequest();
     let settled = false;
-    const done = (r: VsResult<MergeUploadCard>) => {
+    const done = (r: VsResult<T>) => {
       if (settled) return;
       settled = true;
       signal?.removeEventListener("abort", onAbort);
@@ -149,15 +163,15 @@ function sendUpload(file: Blob, opts: UploadVideoOptions): Promise<VsResult<Merg
       done({ ok: false, status: 0, error: abortedError() });
     };
     const finish = (status: number, text: string) => {
-      // Больше 95 МБ до Django не доходит: nginx (и Cloudflare) отвечают 413 своей HTML-страницей.
+      // Больше предела nginx до Django не доходит: nginx (и Cloudflare) отвечают 413 своей HTML-страницей.
       if (status === 413) {
-        done({ ok: false, status, error: { status, code: "upload_too_big", message: "", data: { max_mb: 90 } } });
+        done({ ok: false, status, error: { status, code: tooBig.code, message: "", data: { max_mb: tooBig.maxMb } } });
         return;
       }
-      done(toResult<MergeUploadCard>({ ok: status >= 200 && status < 300, status, data: parseJson(text) }));
+      done(toResult<T>({ ok: status >= 200 && status < 300, status, data: parseJson(text) }));
     };
 
-    xhr.open("POST", `${API}${withLang(`${M}uploads/`, lang)}`, true);
+    xhr.open("POST", `${API}${endpoint}`, true);
     xhr.setRequestHeader("Accept", "application/json");
     xhr.setRequestHeader("X-Requested-With", "XMLHttpRequest");
     const token = getToken("access");
@@ -185,22 +199,98 @@ function sendUpload(file: Blob, opts: UploadVideoOptions): Promise<VsResult<Merg
 }
 
 /**
- * POST uploads/ (multipart, поле file) → 201 карточка. Токен проверяем прямо
- * перед отправкой. Сервер видит запрос только целиком: если токен всё же
- * истёк, пока 90 МБ шли по медленной сети, — обновляем и шлём ещё раз, один.
+ * Токен проверяем прямо перед отправкой. Сервер видит запрос только целиком:
+ * если токен всё же истёк, пока файл шёл по медленной сети, — обновляем и
+ * шлём ещё раз, один.
  */
-export async function uploadVideo(file: Blob, opts: UploadVideoOptions = {}): Promise<VsResult<MergeUploadCard>> {
-  const unauthorized: VsResult<MergeUploadCard> = {
+async function sendWithFreshToken<T>(send: () => Promise<VsResult<T>>, signal?: AbortSignal): Promise<VsResult<T>> {
+  const unauthorized: VsResult<T> = {
     ok: false,
     status: 401,
     error: { status: 401, code: "unauthorized", message: "", data: {} },
   };
-  if (opts.signal?.aborted) return { ok: false, status: 0, error: abortedError() };
+  if (signal?.aborted) return { ok: false, status: 0, error: abortedError() };
   if (!(await ensureAccess())) return unauthorized;
   const token = getToken("access");
-  const first = await sendUpload(file, opts);
-  if (first.ok || first.status !== 401 || opts.signal?.aborted) return first;
+  const first = await send();
+  if (first.ok || first.status !== 401 || signal?.aborted) return first;
   // Токен тот же — второй раз будет тот же отказ.
   if (!(await ensureAccess()) || getToken("access") === token) return first;
-  return sendUpload(file, opts);
+  return send();
+}
+
+/** POST uploads/ (multipart, поле file) → 201 карточка. */
+export function uploadVideo(file: Blob, opts: UploadVideoOptions = {}): Promise<VsResult<MergeUploadCard>> {
+  const name = opts.filename || (typeof File !== "undefined" && file instanceof File && file.name ? file.name : "video.mp4");
+  const endpoint = withLang(`${M}uploads/`, opts.lang);
+  return sendWithFreshToken(
+    () => sendFile<MergeUploadCard>(endpoint, file, name, { code: "upload_too_big", maxMb: 90 }, opts),
+    opts.signal,
+  );
+}
+
+/* ---------- звук склейки (CONTRACT_M.md §10) ---------- */
+
+function audioPath(id: string, tail = ""): string {
+  return `${M}${id}/audio/${tail}`;
+}
+
+/** Всё о звуке склейки: дорожки, звук роликов, громкости, цены, пределы. */
+export function getAudio(id: string): Promise<VsResult<MergeAudioState>> {
+  return isUid(id) ? call<MergeAudioState>(audioPath(id), "GET") : Promise.resolve(notFound<MergeAudioState>());
+}
+
+/** Звук роликов, громкости, фрагмент голоса — бесплатно; отказ одного поля — отказ всей правки. */
+export function patchAudio(id: string, body: MergeAudioSettings): Promise<VsResult<MergeAudioState>> {
+  return isUid(id) ? call<MergeAudioState>(audioPath(id), "PATCH", body) : Promise.resolve(notFound<MergeAudioState>());
+}
+
+/** 201 — голос сделан и оплачен (ответ ждёт ElevenLabs); 200 — этот request_id уже был. */
+export function makeVoice(id: string, body: MergeVoiceBody): Promise<VsResult<MergeAudioState>> {
+  return isUid(id)
+    ? call<MergeAudioState>(audioPath(id, "voice/"), "POST", body)
+    : Promise.resolve(notFound<MergeAudioState>());
+}
+
+/** 202 — кредиты в резерве, музыку делает очередь (опрашивать GET audio/); 200 — этот request_id уже был. */
+export function makeMusic(id: string, body: MergeMusicBody): Promise<VsResult<MergeAudioState>> {
+  return isUid(id)
+    ? call<MergeAudioState>(audioPath(id, "music/"), "POST", body)
+    : Promise.resolve(notFound<MergeAudioState>());
+}
+
+/** Убрать дорожку → 200 и состояние звука; ещё делается — 409 audio_busy. */
+export function deleteTrack(id: string, trackId: string): Promise<VsResult<MergeAudioState>> {
+  return isUid(id) && isUid(trackId)
+    ? call<MergeAudioState>(audioPath(id, `${trackId}/`), "DELETE")
+    : Promise.resolve(notFound<MergeAudioState>("audio_not_found"));
+}
+
+export type UploadMusicOptions = {
+  /** Имя для сервера (audioUploadName): с расширением, даже если у файла его не было. */
+  filename?: string;
+  onProgress?: (pct: number, phase: UploadPhase) => void;
+  signal?: AbortSignal;
+};
+
+/** Свой трек вместо музыки (multipart, поле file) → 201 и состояние звука; бесплатно. */
+export function uploadMusic(id: string, file: Blob, opts: UploadMusicOptions = {}): Promise<VsResult<MergeAudioState>> {
+  if (!isUid(id)) return Promise.resolve(notFound<MergeAudioState>());
+  const name = opts.filename || (typeof File !== "undefined" && file instanceof File && file.name ? file.name : "music.mp3");
+  return sendWithFreshToken(
+    () => sendFile<MergeAudioState>(audioPath(id, "music/upload/"), file, name, { code: "audio_too_big", maxMb: 20 }, opts),
+    opts.signal,
+  );
+}
+
+/** Голоса — общие с мультстудией; ElevenLabs выключен или лежит — пустой список. */
+export function listVoices(): Promise<VsResult<MergeVoice[]>> {
+  return call<MergeVoice[]>("cartoon/audio/voices/", "GET");
+}
+
+/** Пример голоса на языке страницы: {url} mp3. Ответ мультстудии — {detail} при отказе. */
+export function voicePreview(voiceId: string, lang: string): Promise<VsResult<{ url: string }>> {
+  if (!/^[A-Za-z0-9_-]{2,64}$/.test(voiceId)) return Promise.resolve(notFound<{ url: string }>("not_found"));
+  const q = new URLSearchParams({ lang });
+  return call<{ url: string }>(`cartoon/audio/voices/${voiceId}/preview/?${q}`, "GET");
 }

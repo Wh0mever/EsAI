@@ -91,13 +91,19 @@ def project_brief(project: MergeProject) -> dict:
 
 
 def project_json(project: MergeProject, *, live: dict | None = None, price: int | None = None) -> dict:
-    """Вся склейка: фрагменты, состояние, итог, ссылка на скачивание."""
+    """Вся склейка: фрагменты, состояние, итог, ссылка на скачивание, коротко о звуке."""
+    from .audio import MSG_PENDING, summary
+
     items = [i for i in project.items or [] if isinstance(i, dict)]
     ready = project.status == MergeProject.STATUS_READY and bool(project.result_video)
     download = None
     if ready:
         download = f"/api/merge/{project.uid}/download/?t={quote(download_token(project))}"
+    sound = summary(project)
     block = render_block(project, live)
+    if block is None and project.status in EDITABLE and sound["pending"]:
+        # Голос или музыка ещё делаются: «Склеить» откажет (audio_pending) — кнопка знает заранее.
+        block = {"error_code": "audio_pending", "error": MSG_PENDING}
     gone = gone_uploads(project, items) if live is None else frozenset()
     return {
         **project_brief(project),
@@ -112,6 +118,7 @@ def project_json(project: MergeProject, *, live: dict | None = None, price: int 
         "render_block": block,
         "finished_at": _iso(project.finished_at),
         "limits": limits(),
+        "audio": sound,
     }
 
 

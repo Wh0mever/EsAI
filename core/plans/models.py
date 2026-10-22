@@ -460,12 +460,19 @@ class TokenTransactionReason(models.TextChoices):
     VSTUDIO_IMAGE = "vstudio_image", "Видеостудия: картинка"
     # Склейка тоже списывает только за готовый ролик (merge.services).
     MERGE_VIDEO = "merge_video", "Склейка видео"
+    # Звук склейки — только за готовый голос и готовую музыку (merge.audio).
+    MERGE_VOICE = "merge_voice", "Склейка: голос"
+    MERGE_MUSIC = "merge_music", "Склейка: музыка"
 
 
 # Списания видеостудии. Метрики трат считают их вместе с чатом — иначе
 # выручка студии в админке не видна вовсе.
 VSTUDIO_SPEND_REASONS = (TokenTransactionReason.VSTUDIO_VIDEO.value,
                          TokenTransactionReason.VSTUDIO_IMAGE.value)
+# Списания склейки: ролик и его звук — в общей сумме трат админки.
+MERGE_SPEND_REASONS = (TokenTransactionReason.MERGE_VIDEO.value,
+                       TokenTransactionReason.MERGE_VOICE.value,
+                       TokenTransactionReason.MERGE_MUSIC.value)
 
 
 class TokenTransaction(models.Model):

@@ -5,13 +5,16 @@ import { useTranslation } from "react-i18next";
 import { FiScissors } from "react-icons/fi";
 import { Modal } from "@/components/dialog/Dialog";
 import { VS_BTN_GHOST, VS_BTN_GOLD, VS_LABEL, vx } from "@/components/vstudio/ui/skin";
+import type { SoundInfo } from "./audioLogic";
 import { formatDuration } from "./mergeLogic";
 import type { MergeAspect, MergeFit } from "./mergeTypes";
+import { useSoundText } from "./soundText";
 
 /**
  * Подтверждение перед склейкой: что склеится и сколько это стоит. Цена —
  * та же, что на кнопке; кредиты резервируются при запуске, а списываются,
- * только когда ролик сохранён.
+ * только когда ролик сохранён. Звук сведётся вместе с роликом; голос и
+ * музыка уже оплачены, и в цену склейки не входят.
  */
 export default function MergeConfirmDialog({
   open,
@@ -21,6 +24,9 @@ export default function MergeConfirmDialog({
   fit,
   price,
   retentionDays,
+  sound,
+  paid,
+  voiceFrom = null,
   onConfirm,
   onClose,
 }: {
@@ -31,10 +37,17 @@ export default function MergeConfirmDialog({
   fit: MergeFit;
   price: number;
   retentionDays: number;
+  sound: SoundInfo;
+  paid: "voice" | "music" | "both" | null;
+  /** С какого ролика голос за кадром: номер с единицы и название; null — голоса нет. */
+  voiceFrom?: { n: number; title: string } | null;
   onConfirm: () => void;
   onClose: () => void;
 }) {
   const { t } = useTranslation("vstudio", { useSuspense: false });
+  const soundText = useSoundText();
+  const soundList = soundText.list(sound);
+  const paidText = soundText.paid(paid);
   const confirmRef = useRef<HTMLButtonElement>(null);
   // Окно открылось — фокус на «Склеить»: Enter подтверждает, Esc закрывает.
   useEffect(() => {
@@ -55,6 +68,24 @@ export default function MergeConfirmDialog({
           <dd className="text-foreground">
             {aspect} · {fitText}
           </dd>
+          {soundList && (
+            <>
+              <dt className="text-muted">{t("merge.audio.title", { defaultValue: "Звук" })}</dt>
+              <dd className="first-letter:uppercase text-foreground">{soundList}</dd>
+            </>
+          )}
+          {voiceFrom && (
+            <>
+              <dt className="text-muted">{t("merge.confirm.voice", { defaultValue: "Голос" })}</dt>
+              <dd className="min-w-0 break-words text-foreground">
+                {t("merge.confirm.voiceFrom", {
+                  defaultValue: "с №{{n}} — {{title}}",
+                  n: voiceFrom.n,
+                  title: voiceFrom.title,
+                })}
+              </dd>
+            </>
+          )}
         </dl>
         <div className="rounded-2xl border border-vs-accent/35 bg-accent/[0.08] px-4 py-3">
           <p className={VS_LABEL}>{t("merge.confirm.price", { defaultValue: "Цена" })}</p>
@@ -66,6 +97,7 @@ export default function MergeConfirmDialog({
                 })
               : t("merge.confirm.free", { defaultValue: "Склейка сейчас бесплатная." })}
           </p>
+          {paidText && <p className="mt-1 text-[13px] leading-snug text-muted">{paidText}.</p>}
         </div>
         <p className="text-[13px] leading-snug text-muted">
           {t("merge.confirm.keep", {

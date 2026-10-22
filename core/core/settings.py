@@ -741,6 +741,9 @@ CELERY_MEDIA_QUEUE = env.str("CELERY_MEDIA_QUEUE", default="media")
 # дубля ждёт провайдера до 150 с. Пусто — студия идёт в media, а если пуста
 # и она — в общую очередь (локальный стенд с одним воркером).
 CELERY_VSTUDIO_QUEUE = env.str("CELERY_VSTUDIO_QUEUE", default="vstudio").strip()
+# Музыка склейки по описанию ждёт ElevenLabs в слоте media до 540 с: сколько таких
+# заказов разом на весь сайт (runtime-ключ merge_music_concurrency важнее).
+MERGE_MUSIC_CONCURRENCY = env.int("MERGE_MUSIC_CONCURRENCY", default=2)
 # Общая очередь — стандартное имя Celery. Названа явно, чтобы на неё можно
 # было сослаться в маршрутах: её слушает воркер celery без -Q.
 CELERY_TASK_DEFAULT_QUEUE = "celery"
@@ -757,6 +760,8 @@ if CELERY_MEDIA_QUEUE:
         "cartoon.tasks.make_audio": {"queue": CELERY_MEDIA_QUEUE},
         # Склейка — ffmpeg на минуты: туда же, где мультфильмы склеиваются.
         "merge.tasks.render_merge": {"queue": CELERY_MEDIA_QUEUE},
+        # Музыка склейки ждёт провайдера минутами (merge.audio ставит её и с явной очередью).
+        "merge.tasks.make_music": {"queue": CELERY_MEDIA_QUEUE},
     })
 CELERY_TASK_ROUTES.update({
     # Страховка и чистка — в общую очередь: sweep обязан находить потерянные

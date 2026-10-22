@@ -2,18 +2,24 @@
 
 import { useId, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { FiLoader, FiScissors, FiSliders, FiZap } from "react-icons/fi";
+import { FiCheck, FiLoader, FiMusic, FiScissors, FiSliders, FiZap } from "react-icons/fi";
 import BottomSheet from "@/components/vstudio/BottomSheet";
 import { VS_BTN_GHOST, VS_FOCUS, VS_LABEL, VS_PILL, VS_PILL_ON, vx } from "@/components/vstudio/ui/skin";
-import { CS_RUN_GOLD, CS_RUN_OFF } from "@/components/studio/ui/cartoonSkin";
+import { CS_DOT, CS_RUN_GOLD, CS_RUN_OFF } from "@/components/studio/ui/cartoonSkin";
+import { hasSound, type SoundInfo } from "./audioLogic";
 import { ASPECTS, FITS, fillText, formatDuration, type TextSpec } from "./mergeLogic";
 import type { MergeAspect, MergeFit } from "./mergeTypes";
+import { useSoundText } from "./soundText";
 
 /**
  * Док склейки — как панель запроса видеостудии: формат (16:9 / 9:16 / 1:1),
- * заполнение кадра («Поля» / «Обрезать»), итог «N фрагм. · M:SS» и одна
- * золотая кнопка «Склеить · 20 кр». С 768 px всё в одну строку; на телефоне —
- * сводка параметров (нажатие открывает шторку с выбором), итог и кнопка.
+ * заполнение кадра («Поля» / «Обрезать»), «Звук», итог «N фрагм. · M:SS» и
+ * одна золотая кнопка «Склеить · 20 кр». С 768 px всё в одну строку; на
+ * телефоне — две: сводка параметров (нажатие открывает шторку с выбором) и
+ * «Звук», под ними итог и кнопка во всю ширину.
+ *
+ * Голос и музыку оплачивают, когда они готовы; цена на кнопке — только
+ * склейка, и строка рядом говорит, что оплаченный звук второй раз не спишется.
  *
  * Кнопка не disabled, а aria-disabled: фокус остаётся на ней, а причина
  * («добавьте хотя бы 2 фрагмента») читается диктором и видна строкой.
@@ -78,6 +84,20 @@ export type MergePrimary =
   /** Запрос ушёл или склейка идёт. */
   | { kind: "busy" };
 
+/** «Звук» в доке: что уже есть и куда открывается панель. */
+export type MergeDockSound = {
+  info: SoundInfo;
+  /** Что из звука уже оплачено. */
+  paid: "voice" | "music" | "both" | null;
+  open: boolean;
+  /** Открывается шторкой (телефон, планшет); иначе — колонкой слева. */
+  popup: boolean;
+  buttonId: string;
+  /** id панели в колонке — для aria-controls. */
+  panelId: string;
+  onToggle: () => void;
+};
+
 export type MergeDockProps = {
   aspect: MergeAspect;
   fit: MergeFit;
@@ -92,6 +112,7 @@ export type MergeDockProps = {
   onRun: () => void;
   /** «N фрагм. · M:SS» — к ленте. */
   onTotal: () => void;
+  sound: MergeDockSound;
 };
 
 export default function MergeDock({
@@ -106,13 +127,16 @@ export default function MergeDock({
   onFit,
   onRun,
   onTotal,
+  sound,
 }: MergeDockProps) {
   const { t } = useTranslation("vstudio", { useSuspense: false });
+  const soundText = useSoundText();
   const wide = useWide();
   const [sheet, setSheet] = useState(false);
   const [hint, setHint] = useState(false);
   const reasonId = useId();
   const choiceId = useId();
+  const paidId = useId();
 
   const credits = (n: number) => t("top.balance", { defaultValue: "{{n}} кр", n });
   const fitLabel = (f: MergeFit) => t(`merge.fit.${f}`, { defaultValue: FIT_RU[f] });
@@ -182,33 +206,25 @@ export default function MergeDock({
 
   const priceText = (price: number) => (price > 0 ? credits(price) : t("merge.dock.free", { defaultValue: "бесплатно" }));
   const runFull = (price: number) => t("merge.dock.run", { defaultValue: "Склеить · {{price}}", price: priceText(price) });
-  const runShort = t("merge.dock.runShort", { defaultValue: "Склеить" });
+  // Оплаченный звук: «Склеить · 20 кр» спишет только склейку.
+  const paidText = soundText.paid(sound.paid);
   let reason: string | null = null;
   let button: ReactNode;
   if (primary.kind === "busy") {
     const busy = t("merge.dock.busy", { defaultValue: "Склеиваем…" });
     button = (
-      <button type="button" aria-disabled aria-busy className={vx(CS_RUN_GOLD, "!cursor-wait active:!scale-100 max-md:!px-4")}>
+      <button type="button" aria-disabled aria-busy className={vx(CS_RUN_GOLD, "!cursor-wait active:!scale-100 max-md:w-full max-md:!px-4")}>
         <FiLoader className="size-4 shrink-0 animate-spin motion-reduce:animate-none" aria-hidden="true" />
         {busy}
       </button>
     );
   } else if (primary.kind === "short") {
     const label = t("merge.dock.short", { defaultValue: "Пополнить · не хватает {{n}}", n: credits(primary.missing) });
-    // На телефоне рядом сводка и итог — коротко; полностью читает диктор.
+    // На телефоне у кнопки своя строка во всю ширину — подпись та же, что на компьютере.
     button = (
-      <button type="button" onClick={onRun} title={label} className={vx(CS_RUN_GOLD, "min-w-0 max-w-full max-md:!px-4")}>
+      <button type="button" onClick={onRun} title={label} className={vx(CS_RUN_GOLD, "min-w-0 max-w-full max-md:w-full max-md:!px-4")}>
         <FiZap className="size-4 shrink-0" aria-hidden="true" />
-        {wide ? (
-          <span className="min-w-0 truncate">{label}</span>
-        ) : (
-          <>
-            <span className="min-w-0 truncate" aria-hidden="true">
-              {t("top.topup", { defaultValue: "Пополнить" })}
-            </span>
-            <span className="sr-only">{label}</span>
-          </>
-        )}
+        <span className="min-w-0 truncate">{label}</span>
       </button>
     );
   } else if (primary.kind === "off") {
@@ -222,15 +238,20 @@ export default function MergeDock({
         aria-disabled
         aria-describedby={reasonId}
         title={reason}
-        className={vx(CS_RUN_OFF, "min-w-0 max-w-full !cursor-not-allowed max-md:!px-4")}
+        className={vx(CS_RUN_OFF, "min-w-0 max-w-full !cursor-not-allowed max-md:w-full max-md:!px-4")}
       >
         <FiScissors className="size-4 shrink-0" aria-hidden="true" />
-        <span className="min-w-0 truncate">{wide ? runFull(primary.price) : runShort}</span>
+        <span className="min-w-0 truncate">{runFull(primary.price)}</span>
       </button>
     );
   } else {
     button = (
-      <button type="button" onClick={onRun} className={vx(CS_RUN_GOLD, "min-w-0 max-w-full max-md:!px-4")}>
+      <button
+        type="button"
+        onClick={onRun}
+        aria-describedby={paidText ? paidId : undefined}
+        className={vx(CS_RUN_GOLD, "min-w-0 max-w-full max-md:w-full max-md:!px-4")}
+      >
         <FiScissors className="size-4 shrink-0" aria-hidden="true" />
         <span className="min-w-0 truncate">{runFull(primary.price)}</span>
       </button>
@@ -238,6 +259,46 @@ export default function MergeDock({
   }
 
   const summary = `${aspect} · ${fitLabel(fit)}`;
+
+  // «Звук»: колонка слева или шторка; пока склейка идёт — недоступен, как остальные параметры.
+  const soundList = soundText.list(sound.info);
+  const soundName = t("merge.audio.title", { defaultValue: "Звук" });
+  const soundLabel = soundList
+    ? t("merge.dock.soundState", { defaultValue: "Звук: {{state}}", state: soundList })
+    : t("merge.dock.soundEmpty", { defaultValue: "Звук: голос за кадром и музыка" });
+  const soundOn = hasSound(sound.info);
+  const soundPill = (stretch: boolean) => (
+    <button
+      id={sound.buttonId}
+      type="button"
+      onClick={() => {
+        if (!locked) sound.onToggle();
+      }}
+      {...lock}
+      aria-label={soundLabel}
+      title={soundLabel}
+      aria-expanded={sound.open}
+      aria-haspopup={sound.popup ? "dialog" : undefined}
+      aria-controls={!sound.popup && sound.open ? sound.panelId : undefined}
+      className={vx(PILL, stretch ? "!h-11 min-w-0 flex-1 justify-start !gap-2 overflow-hidden" : "shrink-0", sound.open && VS_PILL_ON)}
+    >
+      {sound.info.pending ? (
+        <FiLoader className="shrink-0 animate-spin text-vs-accent motion-reduce:animate-none" aria-hidden="true" />
+      ) : (
+        <FiMusic className={vx("shrink-0", soundOn ? "text-vs-accent" : "text-muted")} aria-hidden="true" />
+      )}
+      <span className="min-w-0 truncate" aria-hidden="true">
+        {stretch && soundList ? `${soundName} · ${soundList}` : soundName}
+      </span>
+      {soundOn && !stretch && <span className={CS_DOT} aria-hidden="true" />}
+    </button>
+  );
+  const paidNode = paidText ? (
+    <p id={paidId} className="ml-auto inline-flex items-start gap-1 text-right">
+      <FiCheck className="mt-0.5 shrink-0 text-vs-accent" aria-hidden="true" />
+      <span>{paidText}</span>
+    </p>
+  ) : null;
 
   return (
     <>
@@ -252,33 +313,39 @@ export default function MergeDock({
                   {fitPills}
                 </div>
               </div>
+              {soundPill(false)}
               {totalNode}
               <div className="ml-auto flex min-w-0 max-w-full shrink-0">{button}</div>
             </div>
           ) : (
-            <div className="flex items-center gap-1.5">
-              <button
-                type="button"
-                onClick={() => {
-                  // Пока склейка идёт, шторка закрыта; нажатие не должно открыть её потом само.
-                  if (!locked) setSheet(true);
-                }}
-                {...lock}
-                aria-haspopup="dialog"
-                aria-expanded={sheet}
-                className={vx(PILL, "!h-11 min-w-0 flex-1 justify-start !gap-2 overflow-hidden")}
-              >
-                <FiSliders className="shrink-0 text-muted" aria-hidden="true" />
-                <AspectIcon aspect={aspect} />
-                <span className="min-w-0 truncate" aria-hidden="true">
-                  {summary}
-                </span>
-                <span className="sr-only">
-                  {formatTitle}: {aspect}. {fillTitle}: {fitLabel(fit)}
-                </span>
-              </button>
-              {totalNode}
-              <div className="flex min-w-0 shrink-0">{button}</div>
+            <div className="flex flex-col gap-1.5">
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    // Пока склейка идёт, шторка закрыта; нажатие не должно открыть её потом само.
+                    if (!locked) setSheet(true);
+                  }}
+                  {...lock}
+                  aria-haspopup="dialog"
+                  aria-expanded={sheet}
+                  className={vx(PILL, "!h-11 min-w-0 flex-1 justify-start !gap-2 overflow-hidden")}
+                >
+                  <FiSliders className="shrink-0 text-muted" aria-hidden="true" />
+                  <AspectIcon aspect={aspect} />
+                  <span className="min-w-0 truncate" aria-hidden="true">
+                    {summary}
+                  </span>
+                  <span className="sr-only">
+                    {formatTitle}: {aspect}. {fillTitle}: {fitLabel(fit)}
+                  </span>
+                </button>
+                {soundPill(true)}
+              </div>
+              <div className="flex items-center gap-1.5">
+                {totalNode}
+                <div className="flex min-w-0 flex-1">{button}</div>
+              </div>
             </div>
           )}
           {wide ? (
@@ -291,13 +358,17 @@ export default function MergeDock({
                   {reason}
                 </p>
               )}
+              {paidNode}
             </div>
           ) : (
-            reason && (
-              <p id={reasonId} className={hint ? "px-1 text-right text-xs leading-snug text-muted" : "sr-only"}>
-                {reason}
-              </p>
-            )
+            <>
+              {reason && (
+                <p id={reasonId} className={hint ? "px-1 text-right text-xs leading-snug text-muted" : "sr-only"}>
+                  {reason}
+                </p>
+              )}
+              {paidNode && <div className="flex px-1 text-xs leading-snug text-muted">{paidNode}</div>}
+            </>
           )}
           {saving && <span className="sr-only">{t("merge.dock.saving", { defaultValue: "Сохраняем…" })}</span>}
         </div>

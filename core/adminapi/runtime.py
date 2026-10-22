@@ -108,6 +108,10 @@ KEYS = (
     # значения — 20). Списывается только за готовый ролик. Пишет эндпоинт
     # merge manage/settings/, читает merge.config.price_credits.
     "merge_price_credits",
+    # Склейка: сколько музык по описанию делается разом на весь сайт (целое 1…8, нет
+    # значения — MERGE_MUSIC_CONCURRENCY из окружения, 2). Панели нет — пишется из shell
+    # (docs/UPDATE.md); читает merge.config.music_concurrency, он же зажимает в границы.
+    "merge_music_concurrency",
     # Цены по себестоимости (ai/pricing.py): режим legacy/markup, общая наценка и
     # нижний порог в процентах к себестоимости OpenRouter (0…1000), закреплённый
     # курс сом/$ (пусто — живой). Проверка — ai.pricing.validate_setting, после

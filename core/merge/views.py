@@ -227,12 +227,14 @@ class ProjectDetailView(MergeAPIView):
         return Response(status=http.HTTP_204_NO_CONTENT)
 
 
-def take_upload_slot(user_id) -> str | None:
+def take_upload_slot(user_id, prefix: str = "merge:upload", ttl: int = UPLOAD_SLOT_TTL) -> str | None:
     """Занять место загрузки человека: ключ, "" — кэш недоступен (грузим без
-    учёта, как и скачивания), None — его загрузка уже идёт."""
-    key = f"merge:upload:{user_id}"
+    учёта, как и скачивания), None — его загрузка уже идёт. prefix — своё место
+    у треков звука (merge:audio-upload): видео и трек грузятся независимо; ttl —
+    дольше самого долгого запроса, иначе место истекло бы посреди него."""
+    key = f"{prefix}:{user_id}"
     try:
-        return key if cache.add(key, 1, UPLOAD_SLOT_TTL) else None
+        return key if cache.add(key, 1, ttl) else None
     except Exception:
         logger.warning("склейка: место загрузки не проверилось", exc_info=True)
         return ""

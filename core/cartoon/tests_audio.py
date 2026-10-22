@@ -45,6 +45,101 @@ class AudioPriceTests(TestCase):
         self.assertEqual(audio.music_price(120), 60)
         self.assertEqual(audio.sfx_price(), 10)
 
+    def test_music_timeout_is_default_unless_asked(self):
+        # Склейка ждёт пятиминутную музыку дольше; мультстудия — прежние 180 с.
+        answer = type("R", (), {"status_code": 200, "content": b"mp3", "text": ""})()
+        with patch("cartoon.audio.requests.post", return_value=answer) as post:
+            audio.music("пианино", 30)
+            audio.music("пианино", 300, timeout=(10, 540))
+        self.assertEqual([c.kwargs["timeout"] for c in post.call_args_list], [audio.TIMEOUT, (10, 540)])
+        self.assertEqual(post.call_args.kwargs["json"]["music_length_ms"], 300000)
+
+
+class SaveAudioCommandTests(TestCase):
+    """Пересборка чужого файла ограничена потолком длины: заголовку файла не верим."""
+
+    def _convert(self, duration=6.0, **kw):
+        calls = []
+
+        def run(cmd, timeout=180):
+            calls.append(cmd)
+            Path(cmd[-1]).write_bytes(b"ID3OUT")
+            return True
+
+        with tempfile.TemporaryDirectory() as media, override_settings(MEDIA_ROOT=media), \
+                patch("cartoon.audio._run", side_effect=run), \
+                patch("cartoon.audio.probe", return_value={"duration": duration, "audio": True}):
+            try:
+                result = audio.save_audio(b"RIFF", ".wav", folder="t", **kw)
+            except audio.AudioTooLong:
+                result = None
+        return calls[0], result
+
+    def test_ceiling_caps_the_conversion_itself(self):
+        cmd, result = self._convert(max_seconds=301.0)
+        i = cmd.index("-i")
+        self.assertTrue(cmd[i + 1].startswith("file:") and cmd[i + 1].endswith("in.wav"))
+        # -t — после входа: ffmpeg перестаёт читать на 302-й секунде, что бы ни писал заголовок.
+        self.assertEqual(cmd[i + 2:i + 4], ["-t", "302"])
+        # Часы потолка — по счёту сэмплов: метки времени файла могут врать так же, как заголовок.
+        self.assertEqual(cmd[i + 4:i + 6], ["-af", "asetpts=N/SR/TB"])
+        self.assertEqual(cmd.count("-af") + cmd.count("-filter:a") + cmd.count("-filter_complex"), 1)
+        # Байтовый потолок: счётчик asetpts обнуляется, когда граф собирается заново
+        # (смена частоты посреди файла), а размер готового mp3 — нет.
+        self.assertEqual(cmd[i + 6:i + 8], ["-fs", str(audio.output_cap(301.0))])
+        # Теги и главы файла в mp3 не переносятся: иначе их байты съедали бы -fs, и
+        # честный трек у предела с большими тегами молча обрезался бы.
+        self.assertEqual(cmd[i + 8:i + 12], ["-map_metadata", "-1", "-map_chapters", "-1"])
+        # Это опции выхода: после входа и до имени готового файла.
+        self.assertTrue(cmd[-1].endswith("out.mp3") and cmd.index("-map_chapters") < len(cmd) - 1)
+        self.assertEqual(cmd[cmd.index("-protocol_whitelist") + 1], "file")
+        self.assertIn("-nostdin", cmd)
+        self.assertEqual(result[1], 6.0)
+
+    def test_lying_header_is_refused_at_bounded_cost(self):
+        # Файл «на 10 секунд» оказался часами: ffmpeg остановился на 302 с, и потолок отказал.
+        _cmd, result = self._convert(duration=302.0, max_seconds=301.0)
+        self.assertIsNone(result)
+
+    def test_input_options_go_before_the_input(self):
+        cmd, _ = self._convert(max_seconds=300, input_options=["-codec_whitelist", "pcm_s16le", "-f", "wav"])
+        i = cmd.index("-i")
+        self.assertEqual(cmd[i - 6:i], ["-protocol_whitelist", "file", "-codec_whitelist", "pcm_s16le", "-f", "wav"])
+        self.assertEqual(cmd[i + 2:i + 12], ["-t", "301", "-af", "asetpts=N/SR/TB",
+                                             "-fs", str(audio.output_cap(300)),
+                                             "-map_metadata", "-1", "-map_chapters", "-1"])
+
+    def test_byte_cap_leaves_room_for_an_honest_track(self):
+        # 160 кбит/с — 20 000 Б/с: честные max+1 секунд с заголовками влезают с запасом,
+        # а дальше — не больше пары секунд и тегов сверх потолка.
+        for top in (300, 301.0):
+            cap = audio.output_cap(top)
+            self.assertGreater(cap, (top + 1) * 20_000 + 64 * 1024)
+            self.assertLess(cap, (top + 20) * 20_000)
+        self.assertEqual(audio.output_cap(301.0), 303 * 20_000 + 256 * 1024)
+
+    def test_without_ceiling_nothing_is_cut(self):
+        # Голос и музыка провайдера (мультстудия) — как раньше: без -t и без чужих опций.
+        cmd, _ = self._convert()
+        self.assertNotIn("-t", cmd)
+        self.assertNotIn("-af", cmd)
+        self.assertNotIn("-fs", cmd)
+        self.assertNotIn("-map_metadata", cmd)
+        self.assertNotIn("-map_chapters", cmd)
+        self.assertFalse(any("asetpts" in arg for arg in cmd))
+        self.assertEqual(cmd[cmd.index("-i") - 2:cmd.index("-i")], ["-protocol_whitelist", "file"])
+
+    def test_nice_on_linux(self):
+        with patch("cartoon.audio.os.name", "posix"), patch("cartoon.audio.shutil.which", return_value="/usr/bin/nice"):
+            self.assertEqual(audio._nice(), ["/usr/bin/nice", "-n", "10"])
+        with patch("cartoon.audio.os.name", "posix"), patch("cartoon.audio.shutil.which", return_value=None):
+            self.assertEqual(audio._nice(), [])
+        with patch("cartoon.audio.os.name", "nt"):
+            self.assertEqual(audio._nice(), [])
+        with patch("cartoon.audio._nice", return_value=["/usr/bin/nice", "-n", "10"]):
+            cmd, _ = self._convert(max_seconds=301.0)
+        self.assertEqual(cmd[:4], ["/usr/bin/nice", "-n", "10", "ffmpeg"])
+
 
 @override_settings(CACHES=CACHES, ELEVENLABS_API_KEY="test-key")
 @skipUnless(HAS_FFMPEG, "нужен ffmpeg")

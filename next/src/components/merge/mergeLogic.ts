@@ -186,7 +186,9 @@ export type LocalBlock =
   | { code: "source_unreadable"; index: number }
   | { code: "too_long"; total_s: number; max_s: number }
   /** Идёт другая склейка — сервер ответил бы 409 busy. */
-  | { code: "busy" };
+  | { code: "busy" }
+  /** Голос или музыка ещё делаются (или свой трек загружается) — сервер ответил бы 409 audio_pending. */
+  | { code: "audio_pending" };
 
 /**
  * Почему «Склеить» сейчас нельзя — по тому, что на экране (сервер проверит то
@@ -277,6 +279,8 @@ export function progressShare(progress: MergeProgress | null | undefined): numbe
       return 0.05 + (0.85 * done) / total;
     case "joining":
       return 0.92;
+    case "mixing":
+      return 0.95;
     case "saving":
       return 0.97;
     default:
@@ -413,6 +417,44 @@ export function refusalText(code: string, data: Record<string, unknown> = {}, se
     : { key: "merge.err.server_error", ru: MERGE_ERROR_RU.server_error, params };
 }
 
+/**
+ * Склейку не удалили: текст для её строки в «Моих склейках» — идёт (render_in_progress),
+ * делается её голос или музыка (audio_busy), нет связи. null — её уже нет, удалять нечего.
+ */
+export function deleteRefusal(err: { code: string; data: Record<string, unknown>; message: string }): TextSpec | null {
+  if (err.code === "project_not_found") return null;
+  return refusalText(err.code, err.data, err.message);
+}
+
+/** Отказ удаления у строки склейки: её id, код сервера и текст. */
+export type DeleteRefusal = { id: string; code: string; text: TextSpec };
+
+/**
+ * Отказ удаления устарел: ответ сервера про эту склейку показал, что причины больше нет —
+ * её звук уже не делается (audio_busy) или она уже не идёт (render_in_progress). Отказ
+ * из-за связи или лимита держится до ✕ или следующей попытки. pending/status не пришли
+ * (undefined) — не знаем, отказ остаётся.
+ */
+export function deleteRefusalStale(
+  refusal: Pick<DeleteRefusal, "id" | "code"> | null,
+  id: string,
+  now: { status?: MergeStatus | null; pending?: boolean | null },
+): boolean {
+  if (!refusal || refusal.id !== id) return false;
+  if (refusal.code === "audio_busy") return now.pending === false;
+  if (refusal.code === "render_in_progress") return now.status != null && !isActive(now.status);
+  return false;
+}
+
+/**
+ * Открытую склейку закрыли на время её удаления, сервер отказал — вернуть её на экран,
+ * только если за это время человек ничего другого не открыл и не начал: эпоха открытой
+ * склейки та же, открытой нет, и в пустом редакторе ничего не добавлено.
+ */
+export function reopenAfterRefusal(s: { closedAt: number; epoch: number; openId: string | null; dirty: boolean }): boolean {
+  return s.closedAt >= 0 && s.epoch === s.closedAt && s.openId === null && !s.dirty;
+}
+
 /** Неудачная склейка → текст. fragment — номер фрагмента с единицы (error_fragment). */
 export function failureText(code: string | null | undefined, fragment: number | null | undefined, serverText = ""): TextSpec {
   const params: Record<string, string | number> = {};
@@ -446,6 +488,8 @@ export function blockText(block: LocalBlock): TextSpec {
       return refusalText("too_long", { total_s: block.total_s, max_s: block.max_s });
     case "busy":
       return refusalText("busy");
+    case "audio_pending":
+      return refusalText("audio_pending");
   }
 }
 

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import logging
 
+from django.conf import settings
 from django.db import transaction
 
 logger = logging.getLogger(__name__)
@@ -86,6 +87,65 @@ UPLOAD_DECODERS = ("h264", "hevc", "vp8", "vp9", "av1", "libdav1d", "libaom-av1"
                    "mjpeg", "png", "mov_text", "subrip", "ass", "ssa", "webvtt", "text")
 
 
+# Звук склейки (Build MA): голос за кадром, фоновая музыка, звук самих роликов.
+CLIP_KEEP, CLIP_QUIET, CLIP_OFF = "keep", "quiet", "off"
+CLIP_SOUNDS = (CLIP_KEEP, CLIP_QUIET, CLIP_OFF)
+# «Тише» — речь роликов ещё слышна, но не спорит с голосом и музыкой.
+CLIP_VOLUMES = {CLIP_KEEP: 1.0, CLIP_QUIET: 0.3, CLIP_OFF: 0.0}
+MUSIC_VOLUME_DEFAULT = 0.35
+MUSIC_VOLUME_MAX = 1.0
+VOICE_VOLUME_DEFAULT = 1.0
+# Как у дорожек мультстудии: тихую запись можно поднять вдвое.
+VOICE_VOLUME_MAX = 2.0
+# Музыка — на всю склейку, а склейка не длиннее пяти минут (это и потолок ElevenLabs).
+MUSIC_MAX_S = MAX_TOTAL_S
+MUSIC_PROMPT_MIN, MUSIC_PROMPT_MAX = 3, 400
+# Свой трек: бесплатный, поэтому с пределами; в хранилище ложится mp3 (до ~6 МБ за 5 минут).
+AUDIO_UPLOAD_MAX_BYTES = 20 * MB
+AUDIO_UPLOAD_MAX_S = MAX_TOTAL_S
+# «5:00» из редактора бывает 300,04 с — это ещё пять минут.
+AUDIO_UPLOAD_TOLERANCE_S = 1.0
+# Потолок длины считает секунды, а работа пересборки растёт с частотой × каналами:
+# FLAC тишины в 200 КБ на 8 каналов и 655 кГц пересобирается в 3–4 раза дольше
+# честного стерео той же длины, а частоту и каналы файл пишет какие угодно.
+# Выше студийных 192 кГц и 7.1 честной музыки не бывает.
+AUDIO_UPLOAD_MAX_RATE = 192_000
+AUDIO_UPLOAD_MAX_CHANNELS = 8
+AUDIO_RETENTION_DAYS = 30
+# Голос за кадром склейки — до 2000 знаков (у мультстудии на сцену — 1000): текст
+# идёт на всю склейку, до пяти минут. Цена — та же формула озвучки.
+VOICE_MAX_CHARS = 2000
+# Музыка склейки по описанию: сколько заказов делается разом на весь сайт. Очередь
+# media — три места на двух ядрах, общие с видео чата, сценами мультстудии и самими
+# склейками, а заказ музыки держит место до 540 с ожидания ElevenLabs: без предела
+# три заказа разом заняли бы её целиком. Runtime-ключ — правится без выкладки;
+# без него — settings.MERGE_MUSIC_CONCURRENCY (env), без того — 2.
+MUSIC_CONCURRENCY_KEY = "merge_music_concurrency"
+MUSIC_CONCURRENCY_DEFAULT = 2
+MUSIC_CONCURRENCY_MAX = 8
+# Звук, который ffmpeg сводит из своего трека (codec_name ffprobe): как у своих видео
+# плюс то, что пишут диктофоны и старые плееры (WMA, ADPCM, 8-битный PCM).
+AUDIO_TRACK_CODECS = UPLOAD_AUDIO_CODECS + ("wmav1", "wmav2", "pcm_s8", "adpcm_ima_qt",
+                                            "adpcm_ima_wav", "adpcm_ms")
+# Декодеры для строгого разбора трека: звук выше, а ещё картинка (обложка mp3/m4a, видео
+# в mp4/webm — звук из ролика тоже годится) — иначе ffprobe не откроет такой файл.
+AUDIO_DECODERS = UPLOAD_DECODERS + ("wmav1", "wmav2", "pcm_s8", "adpcm_ima_qt", "adpcm_ima_wav",
+                                    "adpcm_ms")
+
+
+def audio_volumes(clip_sound: str, music_volume, voice_volume) -> tuple[float, float, float]:
+    """Громкости сведения в допустимых пределах: (ролики, музыка, голос)."""
+    def clamp(value, default: float, top: float) -> float:
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return default
+        return min(top, max(0.0, number)) if number == number else default
+
+    return (CLIP_VOLUMES.get(clip_sound, 1.0), clamp(music_volume, MUSIC_VOLUME_DEFAULT, MUSIC_VOLUME_MAX),
+            clamp(voice_volume, VOICE_VOLUME_DEFAULT, VOICE_VOLUME_MAX))
+
+
 def price_credits() -> int:
     """Цена одной склейки в кредитах (0 — бесплатно). Никогда не бросает.
 
@@ -102,6 +162,24 @@ def price_credits() -> int:
         logger.warning("склейка: цена не прочиталась, беру %s", DEFAULT_PRICE, exc_info=True)
         value = DEFAULT_PRICE
     return min(MAX_PRICE, max(0, value))
+
+
+def music_concurrency() -> int:
+    """Сколько музык склейки делается разом (1…8). Никогда не бросает; чтение — в
+    savepoint, как у цены."""
+    value = getattr(settings, "MERGE_MUSIC_CONCURRENCY", MUSIC_CONCURRENCY_DEFAULT)
+    try:
+        value = int(value)
+    except (TypeError, ValueError):
+        value = MUSIC_CONCURRENCY_DEFAULT
+    try:
+        from adminapi.runtime import get_runtime
+
+        with transaction.atomic():
+            value = int(get_runtime(MUSIC_CONCURRENCY_KEY, value))
+    except Exception:
+        logger.warning("склейка: предел музыки не прочитался, беру %s", value, exc_info=True)
+    return min(MUSIC_CONCURRENCY_MAX, max(1, value))
 
 
 def limits() -> dict:
