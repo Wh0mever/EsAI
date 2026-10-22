@@ -20,6 +20,12 @@ TEXTS: dict[str, dict[str, str]] = {
             "🎁 На ваш баланс начислено <b>{balance} кредитов</b>.\n"
             "Просто напишите вопрос — или выберите, с чего начать:"
         ),
+        "welcome_empty": (
+            "🎉 <b>Добро пожаловать в EsAI!</b>\n\n"
+            "Здесь ChatGPT, Claude, Gemini, DeepSeek, картинки, видео и студия "
+            "мультфильмов — в одном чате и с одним балансом.\n\n"
+            "Просто напишите вопрос — или выберите, с чего начать:"
+        ),
         "welcome_back": (
             "С возвращением, {name} 👋\n"
             "Баланс: <b>{balance} кредитов</b> · модель: <b>{model}</b>\n"
@@ -135,6 +141,12 @@ TEXTS: dict[str, dict[str, str]] = {
             "🎁 <b>{balance} credits</b> have been added to your balance.\n"
             "Just type your question — or pick a starting point:"
         ),
+        "welcome_empty": (
+            "🎉 <b>Welcome to EsAI!</b>\n\n"
+            "ChatGPT, Claude, Gemini, DeepSeek, images, video and the cartoon "
+            "studio — in one chat with one balance.\n\n"
+            "Just type your question — or pick a starting point:"
+        ),
         "welcome_back": (
             "Welcome back, {name} 👋\n"
             "Balance: <b>{balance} credits</b> · model: <b>{model}</b>\n"
@@ -236,6 +248,12 @@ TEXTS: dict[str, dict[str, str]] = {
             "ChatGPT, Claude, Gemini, DeepSeek, сүрөттөр, видео жана мультфильм "
             "студиясы — бир чатта, бир баланс менен.\n\n"
             "🎁 Балансыңызга <b>{balance} кредит</b> кошулду.\n"
+            "Суроону жазыңыз — же эмнеден баштоону тандаңыз:"
+        ),
+        "welcome_empty": (
+            "🎉 <b>EsAI'ге кош келиңиз!</b>\n\n"
+            "ChatGPT, Claude, Gemini, DeepSeek, сүрөттөр, видео жана мультфильм "
+            "студиясы — бир чатта, бир баланс менен.\n\n"
             "Суроону жазыңыз — же эмнеден баштоону тандаңыз:"
         ),
         "welcome_back": (

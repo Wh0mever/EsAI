@@ -276,9 +276,10 @@ class SocialAccountAdapter(DefaultSocialAccountAdapter):
         # Антифрод v1: approve → начислить сразу, delay → отложить на 24ч.
         # Идемпотентно (по reason='welcome'), повторно не начислит.
         if user:
+            welcome = None
             try:
                 from .antifraud import maybe_grant_welcome_bonus
-                maybe_grant_welcome_bonus(user, request)
+                welcome = maybe_grant_welcome_bonus(user, request)
             except Exception:
                 pass
             try:
@@ -297,9 +298,13 @@ class SocialAccountAdapter(DefaultSocialAccountAdapter):
             # Пометка «новый пользователь» для приветственного окна на фронте.
             # save_user вызывается только при СОЗДАНИИ соц-аккаунта; auth_complete
             # прочитает флаг и допишет welcome=1 в редирект на /auth/callback.
-            try:
-                from django.core.cache import cache
-                cache.set(f"welcome_show:{user.pk}", "1", 600)
-            except Exception:
-                pass
+            # Повторному Telegram (/delete в боте → вход на сайте) бонус не дали,
+            # а окно говорит «бонусные кредиты уже начислены» — его не показываем.
+            repeat = isinstance(welcome, dict) and welcome.get("status") == "repeat_signup"
+            if not repeat:
+                try:
+                    from django.core.cache import cache
+                    cache.set(f"welcome_show:{user.pk}", "1", 600)
+                except Exception:
+                    pass
         return user

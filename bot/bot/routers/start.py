@@ -254,8 +254,12 @@ async def _open_shortcut(message: Message, token: str, lang: str, shortcut: str,
 
 
 async def _greet_new(message: Message, lang: str, user: dict) -> None:
+    balance = user.get("balance_tokens", 0)
+    # Ноль на балансе — подарка не было (повторный аккаунт после /delete, бонус
+    # отложен антифродом): «начислено 0 кредитов» говорить нельзя.
+    key = "welcome" if isinstance(balance, int) and balance > 0 else "welcome_empty"
     await message.answer(
-        t(lang, "welcome", balance=user.get("balance_tokens", 0)),
+        t(lang, key, balance=balance),
         parse_mode="HTML", reply_markup=main_menu(lang),
     )
     await message.answer("👇", reply_markup=quick_prompts(lang))

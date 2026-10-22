@@ -69,6 +69,8 @@ register_texts({
                          "10 минут — напишите в /paysupport."),
         "paid_refunded": "⚠️ Оплата не совпала со счётом — Stars возвращены на ваш счёт Telegram.",
         "refunded": "↩️ Возврат {stars} ⭐ выполнен. Кредиты за эту покупку сняты с баланса.",
+        "refunded_extra": ("↩️ Повторная оплата возвращена: {stars} ⭐. "
+                           "Кредиты за покупку остаются на балансе."),
         "stars_disabled": "Оплата Stars сейчас недоступна. Пополнить можно на сайте esai.kg.",
         "stars_region": "Оплата Stars недоступна в вашем регионе.",
         "precheck_fail": "Счёт устарел — откройте /topup и выберите пакет заново.",
@@ -117,6 +119,8 @@ register_texts({
                          "10 minutes, write to /paysupport."),
         "paid_refunded": "⚠️ The payment did not match the invoice — Stars were returned to you.",
         "refunded": "↩️ Refund of {stars} ⭐ completed. Credits from this purchase were removed.",
+        "refunded_extra": ("↩️ The duplicate payment was refunded: {stars} ⭐. "
+                           "Your purchased credits stay on your balance."),
         "stars_disabled": "Stars payments are unavailable right now. You can top up at esai.kg.",
         "stars_region": "Stars payments are not available in your region.",
         "precheck_fail": "The invoice is outdated — open /topup and pick a package again.",
@@ -165,6 +169,8 @@ register_texts({
                          "келбесе — /paysupport жазыңыз."),
         "paid_refunded": "⚠️ Төлөм эсеп менен дал келген жок — Stars сизге кайтарылды.",
         "refunded": "↩️ {stars} ⭐ кайтарылды. Бул сатып алуунун кредиттери баланстан алынды.",
+        "refunded_extra": ("↩️ Кайталанган төлөм кайтарылды: {stars} ⭐. "
+                           "Сатып алган кредиттериңиз балансыңызда калат."),
         "stars_disabled": "Stars төлөмү азыр жеткиликсиз. esai.kg сайтында толуктаңыз.",
         "stars_region": "Сиздин аймакта Stars төлөмү жеткиликсиз.",
         "precheck_fail": "Эсеп эскирди — /topup ачып, пакетти кайра тандаңыз.",
@@ -564,13 +570,18 @@ async def on_paid(message: Message, lang: str = "ru", **_) -> None:
 @router.message(F.refunded_payment)
 async def on_refunded(message: Message, lang: str = "ru", **_) -> None:
     refund = message.refunded_payment
+    key = "refunded"
     try:
-        await api.stars_refunded(message.from_user.id, refund.telegram_payment_charge_id,
-                                 refund.invoice_payload or "")
+        result = await api.stars_refunded(message.from_user.id, refund.telegram_payment_charge_id,
+                                          refund.invoice_payload or "")
+        # foreign_charge — это наш же автовозврат второй оплаты того же счёта:
+        # кредиты первой, законной покупки сервер не трогал.
+        if isinstance(result, dict) and result.get("status") == "foreign_charge":
+            key = "refunded_extra"
     except ApiError as exc:
         logger.warning("возврат не отмечен: %s", exc.code)
     await store.drop(message.chat.id, "models_cache")
-    await message.answer(t(lang, "refunded", stars=refund.total_amount))
+    await message.answer(t(lang, key, stars=refund.total_amount))
 
 
 async def retry_pending(bot: Bot) -> int:

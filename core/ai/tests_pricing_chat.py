@@ -4,9 +4,7 @@
 Клиент 4.1: наценка — для всех моделей. Картинку Nano Banana чат списывает
 токенами × тариф (ai/handlers.py), и наценка доходит до неё только кнопкой
 «Пересчитать тариф картинок в чате». FLUX Flex берёт деньги за каждое входное
-фото, а чат пока не передаёт их число (ai/handlers.py зовёт flux_charge_credits
-без refs) — тест на это помечен expectedFailure до правки владельца handlers.py
-(патч — vstudio2-notes/pricing/HANDLERS_PATCH_A.diff).
+фото — чат передаёт их число (flux_ref_count).
 
 Курс 87.4 сома за доллар, MASTER 4990 / 6500, наценка 40 %, порог 25 %: Nano
 Banana $0.039 → 7 кр, Nano Banana Pro $0.134 → 22 кр, FLUX Flex $0.06 + $0.06 за
@@ -15,7 +13,6 @@ Banana $0.039 → 7 кр, Nano Banana Pro $0.134 → 22 кр, FLUX Flex $0.06 + 
 from __future__ import annotations
 
 import json
-import unittest
 from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -221,9 +218,6 @@ class FluxChatTests(ChatImageChargeBase):
         self.assertEqual(pricing.image_credits(self.flex, 1), 20)
         self.assertGreaterEqual(20 * pricing.credit_usd(), Decimal("0.12") * Decimal("1.25"))
 
-    # Чат пока зовёт _flux_charge_credits(model_obj) без числа фото: любая правка стоит как
-    # с одним фото (20). Снять отметку вместе с правкой handlers.py (HANDLERS_PATCH_A.diff).
-    @unittest.expectedFailure
     def test_charge_follows_the_number_of_photos(self):
         for stream in (True, False):
             self.assertEqual(self.edit(0, stream=stream), 10)

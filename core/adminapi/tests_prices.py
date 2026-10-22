@@ -186,11 +186,9 @@ class PricingSettingsTests(PricesCase):
         without = {row["openrouter_id"]: row for row in body["models_without_cost"]}
         self.assertEqual(set(without), {"openai/sora-2-pro", "black-forest-labs/flux.2-pro"})
         warnings = {w["code"]: w["text"] for w in body["warnings"]}
-        self.assertEqual(list(warnings), ["no_cost", "flux_chat_refs", "chat_image_tokens"])
+        # FLUX в чате берёт по числу фото, как студии: предупреждать о нём не о чем.
+        self.assertEqual(list(warnings), ["no_cost", "chat_image_tokens"])
         self.assertIn("Моделей без себестоимости: 2", warnings["no_cost"])
-        # Чат не передаёт число фото: правка Flex в режиме «наценка» — как с одним фото.
-        self.assertIn("правка в чате идёт как с 1 фото (FLUX Flex — 20 кр). С 2 фото и больше",
-                      warnings["flux_chat_refs"])
         # Чат Nano Banana — 6 кр по тарифу, по наценке картинка 7 кр: кнопка выравнивает (в legacy — после
         # переключения).
         self.assertEqual(warnings["chat_image_tokens"],

@@ -17,10 +17,12 @@ from django.conf import settings
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
+from core.langutils import tr
 from payments.models import FunnelEvent, Payment, StarInvoice
 from plans.models import TokenPackage
 from plans.stars import stars_mode
 
+from .models import TelegramChat
 from .telegram import TelegramError, tg_api
 
 logger = logging.getLogger("botapi.stars")
@@ -76,13 +78,32 @@ _DESCRIPTIONS = {
           "видео жана мультфильм студиясы.",
 }
 _LABELS = {"ru": "{tokens} кредитов", "en": "{tokens} credits", "kg": "{tokens} кредит"}
+# Запасное слово, если у пакета нет названия совсем.
+_NAMELESS = {"ru": "пакет", "en": "package", "kg": "пакет"}
 
 
-def describe(invoice: StarInvoice, lang: str = "ru", *, resumed: bool = False) -> dict:
+def package_name_for(invoice: StarInvoice, lang: str = "ru",
+                     package: TokenPackage | None = None) -> str:
+    """Название пакета на языке человека.
+
+    Счёт хранит только русское имя (снимок на момент покупки), а витрина
+    показывает name_en/name_kg. Берём перевод у самого пакета по package_id:
+    тогда и повторно выставленный счёт (REUSE_WINDOW) говорит на актуальном
+    языке. Пакет могли удалить — тогда остаётся снимок.
+    """
+    lang = lang if lang in _TITLES else "ru"
+    if package is None or package.pk != invoice.package_id:
+        package = TokenPackage.objects.filter(pk=invoice.package_id).first()
+    name = (tr(package, "name", lang) if package else "") or invoice.package_name or ""
+    return name.strip() or _NAMELESS[lang]
+
+
+def describe(invoice: StarInvoice, lang: str = "ru", *, resumed: bool = False,
+             package: TokenPackage | None = None) -> dict:
     """Что нужно боту для sendInvoice: заголовок ≤ 32, описание ≤ 255."""
     lang = lang if lang in _TITLES else "ru"
     total = invoice.total_tokens
-    title = _TITLES[lang].format(name=invoice.package_name or "пакет")[:32]
+    title = _TITLES[lang].format(name=package_name_for(invoice, lang, package))[:32]
     description = _DESCRIPTIONS[lang].format(tokens=total)[:255]
     return {
         "order_id": invoice.payment.order_id,
@@ -125,7 +146,7 @@ def create_invoice(user, package: TokenPackage, telegram_id: int, lang: str = "r
                         expires_at__gt=now)
                 .select_related("payment").order_by("-created_at").first())
     if existing:
-        return describe(existing, lang, resumed=True)
+        return describe(existing, lang, resumed=True, package=package)
 
     tokens = int(package.tokens or 0)
     bonus = int(package.bonus_tokens or 0) + int(package.stars_bonus_tokens or 0)
@@ -168,7 +189,7 @@ def create_invoice(user, package: TokenPackage, telegram_id: int, lang: str = "r
             expires_at=now + INVOICE_TTL,
         )
     _funnel("bot_stars_invoice", user, telegram_id, package_id=package.id, stars=stars)
-    return describe(invoice, lang)
+    return describe(invoice, lang, package=package)
 
 
 def set_invoice_message(payload: str, message_id) -> None:
@@ -225,6 +246,8 @@ def confirm(telegram_id, payload: str, charge_id: str, *, provider_charge_id: st
     except StarsError as exc:
         if exc.code in ("amount_mismatch", "currency_mismatch", "user_mismatch"):
             _record_mismatch(exc, raw)
+        elif exc.code == "double_payment":
+            _record_double_charge(exc)
         raise
 
 
@@ -252,9 +275,9 @@ def _confirm(telegram_id, payload: str, charge_id: str, *, provider_charge_id: s
             if invoice.telegram_payment_charge_id == charge_id:
                 return _paid_payload(invoice, duplicate=True)
             # Второй платёж по тому же счёту — деньги вернуть, счёт не трогать.
-            invoice.flags = {**(invoice.flags or {}), "double_charge": charge_id}
-            invoice.save(update_fields=["flags", "updated_at"])
-            raise StarsError("double_payment", charge_id=charge_id)
+            # Пометку пишет confirm() уже ПОСЛЕ выхода из транзакции: исключение
+            # откатило бы её вместе со всем остальным.
+            raise StarsError("double_payment", charge_id=charge_id, _invoice_pk=invoice.pk)
         if invoice.status == StarInvoice.STATUS_REFUNDED:
             raise StarsError("invoice_refunded", charge_id=charge_id)
 
@@ -317,6 +340,50 @@ def _record_mismatch(exc: "StarsError", raw: dict | None) -> None:
     _log_payment_event(invoice.payment, f"stars_{exc.code}")
 
 
+def _record_double_charge(exc: "StarsError") -> None:
+    """След о втором платеже по оплаченному счёту — вне транзакции, чтобы остался.
+
+    Счёт при этом не меняется: законный первый платёж остаётся оплаченным, а
+    лишний мы возвращаем автовозвратом. Пометка нужна, чтобы по счёту было
+    видно, что был второй платёж и чем он кончился.
+    """
+    from payments.views import _log_payment_event
+
+    pk = exc.extra.pop("_invoice_pk", None)
+    charge_id = str(exc.extra.get("charge_id") or "")
+    if not pk or not charge_id:
+        return
+    try:
+        with transaction.atomic():
+            invoice = (StarInvoice.objects.select_for_update(of=("self",))
+                       .select_related("payment").filter(pk=pk).first())
+            if not invoice:
+                return
+            flags = dict(invoice.flags or {})
+            seen = list(flags.get("double_charges") or [])
+            if charge_id not in seen:
+                seen.append(charge_id)
+            flags.update({"double_charge": charge_id, "double_charges": seen})
+            invoice.flags = flags
+            invoice.save(update_fields=["flags", "updated_at"])
+            payment = invoice.payment
+            # error у успешного платежа не трогаем: он читается как «оплата не
+            # прошла». Подробности кладём в response.
+            payment.response = {**(payment.response or {}), "double_charge": charge_id}
+            payment.save(update_fields=["response"])
+        _log_payment_event(payment, "stars_double_charge")
+    except Exception:  # noqa: BLE001 — пометка не должна мешать автовозврату
+        logger.exception("stars: пометка двойного платежа %s не записалась", charge_id)
+
+
+def _invoice_lang(invoice: StarInvoice) -> str:
+    """Язык человека: настройка чата важнее языка, с которым выставляли счёт."""
+    lang = (TelegramChat.objects.filter(telegram_id=invoice.telegram_id)
+            .values_list("lang", flat=True).first())
+    lang = lang or (invoice.payment.request or {}).get("lang")
+    return lang if lang in _TITLES else "ru"
+
+
 def _paid_payload(invoice: StarInvoice, *, duplicate: bool) -> dict:
     from plans.tiers import user_tier
 
@@ -331,7 +398,7 @@ def _paid_payload(invoice: StarInvoice, *, duplicate: bool) -> dict:
         "balance_tokens": int(getattr(user, "token_balance", 0) or 0),
         "tier": user_tier(user),
         "is_paid": bool(getattr(user, "is_paid", False)),
-        "package_name": invoice.package_name,
+        "package_name": package_name_for(invoice, _invoice_lang(invoice)),
         "order_id": invoice.payment.order_id,
         "invoice_message_id": invoice.invoice_message_id,
     }
@@ -351,6 +418,12 @@ def mark_refunded(*, charge_id: str = "", payload: str = "", reason: str = "tele
             invoice = qs.filter(telegram_payment_charge_id=charge_id).first()
         if invoice is None and payload:
             invoice = qs.filter(payload=payload).first()
+            recorded = (invoice.telegram_payment_charge_id or "") if invoice else ""
+            if invoice is not None and charge_id and recorded and recorded != charge_id:
+                # Возврат относится к ДРУГОМУ платежу по этому же счёту: это
+                # второй платёж, который мы сами вернули автовозвратом. Законный
+                # первый платёж и его кредиты трогать нельзя.
+                return {"status": "foreign_charge", "order_id": invoice.payment.order_id}
         if invoice is None:
             raise StarsError("not_found", 404)
         if invoice.status == StarInvoice.STATUS_REFUNDED:
@@ -429,11 +502,13 @@ def reconcile(limit: int = 100, max_pages: int = 20) -> dict:
     except Exception:  # noqa: BLE001
         offset = 0
     credited = refunded = seen = 0
+    journal_ok = True
     for _ in range(max_pages):
         try:
             data = tg_api("getStarTransactions", offset=offset, limit=limit) or {}
         except TelegramError as exc:
             logger.warning("stars: getStarTransactions: %s", exc.description)
+            journal_ok = False
             break
         rows = data.get("transactions") or []
         for tx in rows:
@@ -443,7 +518,11 @@ def reconcile(limit: int = 100, max_pages: int = 20) -> dict:
             if source.get("type") == "user" and source.get("invoice_payload"):
                 payload = str(source.get("invoice_payload"))
                 invoice = StarInvoice.objects.filter(payload=payload).first()
-                if invoice and invoice.status == StarInvoice.STATUS_CREATED:
+                # Просроченный счёт тоже засчитываем: оплатить можно до самой
+                # границы срока, а бот принимает такое подтверждение, так что
+                # сверка не вправе быть строже основного пути.
+                if invoice and invoice.status in (StarInvoice.STATUS_CREATED,
+                                                  StarInvoice.STATUS_EXPIRED):
                     try:
                         confirm(invoice.telegram_id, payload, str(tx.get("id")),
                                 total_amount=tx.get("amount"), currency=CURRENCY,
@@ -469,6 +548,9 @@ def reconcile(limit: int = 100, max_pages: int = 20) -> dict:
         set_runtime("stars_tx_offset", offset)
     except Exception:  # noqa: BLE001
         logger.exception("stars: смещение не сохранилось")
-    expired = expire_stale()
-    return {"status": "ok", "seen": seen, "credited": credited, "refunded": refunded,
-            "expired": expired, "offset": offset}
+    # Журнал не прочитан — значит, мы не знаем, какие счета оплачены. Гасить их
+    # сейчас нельзя: оплаченный, но не зачисленный счёт вышел бы из сверки.
+    expired = expire_stale() if journal_ok else 0
+    return {"status": "ok" if journal_ok else "journal_unavailable", "seen": seen,
+            "credited": credited, "refunded": refunded, "expired": expired,
+            "offset": offset}

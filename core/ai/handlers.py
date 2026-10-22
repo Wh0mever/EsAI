@@ -35,6 +35,7 @@ from users.memory import get_memory_block, parse_explicit_commands
 from .model_billing import (
     is_flux_image_model as _is_flux_image_model,
     flux_charge_credits as _flux_charge_credits,
+    flux_ref_count as _flux_ref_count,
 )
 
 # No hard message count limit; we'll include full history.
@@ -181,6 +182,8 @@ def _is_image_gen_model(model_ref) -> bool:
     Определяем по id: хвост после вендора содержит 'image'
     (google/gemini-2.5-flash-image, google/gemini-3-pro-image и т.п.).
     Vision-модели (принимают картинки НА ВХОД) сюда не попадают.
+    FLUX сюда НЕ попадает (его id без 'image'): он идёт через images-API,
+    см. _is_any_image_model.
     """
     name = str(model_ref or "").lower().split(":")[0]
     parts = name.split("/")
@@ -190,6 +193,16 @@ def _is_image_gen_model(model_ref) -> bool:
 
 # _is_flux_image_model / _flux_charge_credits: см. импорт из .model_billing
 # в начале файла (единый источник истины, общий с plans/credit_value.py).
+
+
+def _is_any_image_model(model_ref) -> bool:
+    """Любая модель, которая РИСУЕТ: chat-modalities (Nano Banana) или images-API (FLUX).
+
+    Признаки запроса, относящиеся к картинке вообще (stateless, «без контекста»),
+    должны действовать на обе ветки: раньше проверялась только первая, и у FLUX
+    в общий гейт баланса попадала история чата.
+    """
+    return _is_image_gen_model(model_ref) or _is_flux_image_model(model_ref)
 
 
 def _flux_generate_image(
@@ -1855,9 +1868,42 @@ def _extract_sources_from_result(result: Any, endpoint: str) -> List[dict]:
         return []
 
 
+# json.dumps(ensure_ascii=False) экранирует \n, \r и остальные управляющие
+# символы, но оставляет как есть U+2028, U+2029 и U+0085. Для JSON это обычные
+# символы, а построчный читатель потока в боте (httpx aiter_lines режет строки
+# как str.splitlines) считает их концом строки: кадр рвётся посередине, и
+# клиент получает битый JSON. Такие символы приходят из ответов моделей и из
+# вставленного людьми текста, поэтому пишем их escape-последовательностью.
+_SSE_LINE_BREAKS = str.maketrans({
+    "\u2028": "\\u2028",
+    "\u2029": "\\u2029",
+    "\u0085": "\\u0085",
+})
+
+
 def _sse(payload: dict) -> str:
     """Сериализовать один SSE-фрейм: 'data: <json>\\n\\n'."""
-    return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+    body = json.dumps(payload, ensure_ascii=False).translate(_SSE_LINE_BREAKS)
+    return f"data: {body}\n\n"
+
+
+def _done_flags(*, free_truncated: bool = False, image: bool = False,
+                image_missing: bool = False) -> dict:
+    """Язык-независимые признаки итогового кадра done.
+
+    Подписи в content («Готово — изображение сгенерировано», приписка про
+    сокращённый ответ) русские и нужны сайту; клиентам вроде бота нельзя
+    разбирать их текстом. Ложные признаки не добавляем — кадр без них остаётся
+    таким же, каким был.
+    """
+    flags: dict = {}
+    if free_truncated:
+        flags["free_truncated"] = True
+    if image:
+        flags["image"] = True
+    if image_missing:
+        flags["image_missing"] = True
+    return flags
 
 
 def _pick_lang(request) -> tuple[str, str]:
@@ -2378,6 +2424,9 @@ def _stream_chat_completion(client: OpenAI, model_name: str, messages: List[dict
         "usage": usage,
         "sources": sources,
         "images": gen_images,
+        # Ответ бесплатного тарифа обрезан по лимиту символов: клиент по этому
+        # признаку показывает «полный ответ — пополнить», не разбирая приписку.
+        "truncated": limit_hit,
     })
 
 
@@ -2513,8 +2562,11 @@ def _guest_chat_stream(request):
                 return
             # Подстраховка по символам (если стрим не обрезал — напр. короткие дельты
             # сложились в длинный текст по-другому). Для гостя limited всегда True.
+            free_truncated = False
             if char_limit is not None:
+                _untrimmed = answer
                 answer = _truncate_for_free(answer)
+                free_truncated = bool((final or {}).get("truncated")) or answer != _untrimmed
 
             usage_meta = _usage_to_meta((final or {}).get("usage"), "chat", selected_model_name)
             usage_meta = _augment_usage_meta_with_cost(usage_meta, model_obj)
@@ -2535,6 +2587,7 @@ def _guest_chat_stream(request):
                     "attachments": None,
                     "meta": usage_meta,
                 },
+                **_done_flags(free_truncated=free_truncated),
             })
         except GeneratorExit:
             # Гость ушёл посреди ответа: закрываем поток к OpenRouter, чтобы он
@@ -2708,9 +2761,10 @@ def _authed_chat_stream(request):
         req_last_frame = (request.data.get("video_last_frame") or "").strip() or None
 
         # «Без контекста» (мастер картинок в боте): запрос рисует одну картинку и
-        # не должен тащить ни переписку, ни память человека. Действует только на
-        # image-моделях: для текстовых история — это и есть смысл диалога.
-        _stateless = _truthy(request.data.get("stateless")) and _is_image_gen_model(selected_model_name)
+        # не должен тащить ни переписку, ни память человека. Действует на всех
+        # image-моделях, включая FLUX (images-API), но не на текстовых: для них
+        # история — это и есть смысл диалога.
+        _stateless = _truthy(request.data.get("stateless")) and _is_any_image_model(selected_model_name)
 
         # Память пользователя: сначала обработать явные команды «запомни/забудь»
         # (мутируют память ДО инъекции), затем подмешать блок фактов в системный
@@ -2796,7 +2850,11 @@ def _authed_chat_stream(request):
         # ТЗ 1.3 (High 6-8): ТОЧНЫЙ гейт баланса по (вход+выход) ПОСЛЕ построения
         # messages и ДО OpenRouter. Ранний estimated_min_charge выше — лишь дешёвый
         # предварительный фильтр (минимальный ответ, без учёта промпта/надбавки).
-        gate_err = _precise_balance_gate(
+        # FLUX гейт пропускает: цена картинки плоская, а токенная формула считает
+        # историю чата, которую FLUX вообще не читает, — и отказывала «нужно
+        # около N» при цене картинки в разы ниже. Точная проверка FLUX
+        # (flux_need) стоит в самом потоке ниже.
+        gate_err = None if _is_flux_image_model(selected_model_name) else _precise_balance_gate(
             request.user, model_obj, messages,
             limited=limited, web_search=web_search, model_max_tokens=model_max_tokens,
         )
@@ -2860,9 +2918,9 @@ def _authed_chat_stream(request):
                 return
 
             # FLUX (Black Forest Labs): генерация ТОЛЬКО через images-API
-            # (POST /api/v1/images), НЕ через chat-modalities. Списание плоское —
-            # max(1, int(markup_coefficient)) кредитов за картинку, ТОЛЬКО при успехе.
-            # Текстовый путь ниже НЕ выполняется.
+            # (POST /api/v1/images), НЕ через chat-modalities. Цена за картинку —
+            # flux_charge_credits (по-старому плоская, в «наценке» — себестоимость
+            # с фото), списание ТОЛЬКО при успехе. Текстовый путь ниже НЕ выполняется.
             if _is_flux_image_model(selected_model_name):
                 # image_pending уже отправлен выше (тот же серый плейсхолдер).
                 # Пред-чек баланса ТОЧНОЙ ценой картинки (плоское списание): общий
@@ -2870,7 +2928,23 @@ def _authed_chat_stream(request):
                 # видит flat-стоимость FLUX — при высоком coeff мог пропустить
                 # пользователя без достаточного баланса (провайдеру платим полную
                 # цену, с клиента — сколько осталось). Как в video-ветке.
-                flux_need = _flux_charge_credits(model_obj)
+                # Референсы для РЕДАКТИРОВАНИЯ (Flex и др.): прикреплённые картинки →
+                # абсолютные /media-URL (прямые, без редиректов). Если фото есть —
+                # FLUX правит его (фон/объекты/текст), иначе обычная генерация из текста.
+                flux_refs = []
+                try:
+                    for _a in (attachments or []):
+                        if isinstance(_a, dict) and (_a.get("type") == "image") and _a.get("url"):
+                            _u = str(_a["url"])
+                            if _u.startswith("http"):
+                                flux_refs.append(_u)
+                            elif origin_base:
+                                flux_refs.append(origin_base.rstrip("/") + _u)
+                except Exception:
+                    flux_refs = []
+                # Flex берёт деньги за каждое входное фото: цена — по числу фото,
+                # которые реально уйдут в FLUX (тот же отбор, что в _flux_generate_image).
+                flux_need = _flux_charge_credits(model_obj, refs=_flux_ref_count(flux_refs))
                 try:
                     user.refresh_from_db(fields=["token_balance"])
                 except Exception:
@@ -2886,20 +2960,6 @@ def _authed_chat_stream(request):
                         "done": True,
                     })
                     return
-                # Референсы для РЕДАКТИРОВАНИЯ (Flex и др.): прикреплённые картинки →
-                # абсолютные /media-URL (прямые, без редиректов). Если фото есть —
-                # FLUX правит его (фон/объекты/текст), иначе обычная генерация из текста.
-                flux_refs = []
-                try:
-                    for _a in (attachments or []):
-                        if isinstance(_a, dict) and (_a.get("type") == "image") and _a.get("url"):
-                            _u = str(_a["url"])
-                            if _u.startswith("http"):
-                                flux_refs.append(_u)
-                            elif origin_base:
-                                flux_refs.append(origin_base.rstrip("/") + _u)
-                except Exception:
-                    flux_refs = []
                 from . import genlog as _genlog
 
                 _entry = _genlog.start(
@@ -2982,6 +3042,7 @@ def _authed_chat_stream(request):
                     "message": AiChatMessageSerializer(assistant_msg).data,
                     "tokens_charged": flux_charge,
                     "balance_tokens": new_balance,
+                    **_done_flags(image=True),
                 })
                 return
             streamed["text_path"] = True
@@ -3057,11 +3118,22 @@ def _authed_chat_stream(request):
                 answer = ((answer or "").strip() + "\n\n" + _note).strip()
 
             # Гарантия по символам для ограниченных (ТЗ 4.2): обрезаем + приписка.
+            free_truncated = False
             if char_limit is not None:
+                _untrimmed = answer
                 answer = _truncate_for_free(answer)
+                # Признак для клиента (кнопка «полный ответ — пополнить»): его не
+                # надо выводить из русской приписки в конце текста.
+                free_truncated = bool((final or {}).get("truncated")) or answer != _untrimmed
 
             usage_meta = _usage_to_meta((final or {}).get("usage"), "chat", selected_model_name)
             usage_meta = _augment_usage_meta_with_cost(usage_meta, model_obj)
+            # Язык-независимый признак «это картинка»: подпись «Готово — изображение
+            # сгенерировано» русская и остаётся для сайта, а бот и другие клиенты
+            # опираются на флаг, а не на текст.
+            if gen_atts:
+                usage_meta = dict(usage_meta)
+                usage_meta["image"] = True
             sources = (final or {}).get("sources") or []
             if sources:
                 usage_meta = dict(usage_meta)
@@ -3164,6 +3236,10 @@ def _authed_chat_stream(request):
                 "message": AiChatMessageSerializer(assistant_msg).data,
                 "tokens_charged": charged,
                 "balance_tokens": new_balance,
+                # Флаги без привязки к языку: русские подписи в content остаются
+                # для сайта, а бот выбирает свои тексты по этим признакам.
+                **_done_flags(free_truncated=free_truncated, image=bool(gen_atts),
+                              image_missing=_image_expected_missed),
             })
         except GeneratorExit:
             # Человек ушёл посреди ответа. Раньше это не ловилось вовсе: ответ
@@ -3447,7 +3523,9 @@ def OpenAIHandler(request):
 
         # ТЗ 1.3 (High 6-8): ТОЧНЫЙ гейт баланса по (вход+выход) ПОСЛЕ построения
         # messages и ДО OpenRouter. estimated_min_charge выше — дешёвый предфильтр.
-        gate_err = _precise_balance_gate(
+        # FLUX — плоская цена и своя проверка ниже (flux_need); токенный гейт по
+        # истории чата для него неверен (см. потоковый путь).
+        gate_err = None if _is_flux_image_model(selected_model_name) else _precise_balance_gate(
             request.user, model_obj, messages,
             limited=limited, web_search=web_search, model_max_tokens=model_max_tokens,
         )
@@ -3469,12 +3547,24 @@ def OpenAIHandler(request):
         allow_temperature = (not is_reason) and (req_temperature is not None)
 
         # FLUX (Black Forest Labs): генерация ТОЛЬКО через images-API
-        # (POST /api/v1/images), НЕ через chat-completions. Списание плоское —
-        # max(1, int(markup_coefficient)) кредитов за картинку, строго при успехе.
+        # (POST /api/v1/images), НЕ через chat-completions. Цена за картинку —
+        # flux_charge_credits (по-старому плоская, в «наценке» — себестоимость
+        # с фото), списание строго при успехе.
         if _is_flux_image_model(selected_model_name):
             # Пред-чек баланса ТОЧНОЙ ценой картинки (flat): общий _precise_balance_gate
             # считает по токен-формуле и не видит flat-стоимость FLUX. Как в video.
-            flux_need = _flux_charge_credits(model_obj)
+            # Референсы для редактирования (Flex): прикреплённые картинки → абс. URL.
+            _flux_refs = []
+            try:
+                _origin = request.build_absolute_uri("/").rstrip("/")
+                for _a in (request.data.get("attachments") or []):
+                    if isinstance(_a, dict) and _a.get("type") == "image" and _a.get("url"):
+                        _u = str(_a["url"])
+                        _flux_refs.append(_u if _u.startswith("http") else _origin + _u)
+            except Exception:
+                _flux_refs = []
+            # Цена — по числу фото, которые реально уйдут в FLUX (Flex берёт за каждое).
+            flux_need = _flux_charge_credits(model_obj, refs=_flux_ref_count(_flux_refs))
             try:
                 request.user.refresh_from_db(fields=["token_balance"])
             except Exception:
@@ -3489,16 +3579,6 @@ def OpenAIHandler(request):
                     "required_estimate": flux_need,
                     "http_status": 402,
                 }
-            # Референсы для редактирования (Flex): прикреплённые картинки → абс. URL.
-            _flux_refs = []
-            try:
-                _origin = request.build_absolute_uri("/").rstrip("/")
-                for _a in (request.data.get("attachments") or []):
-                    if isinstance(_a, dict) and _a.get("type") == "image" and _a.get("url"):
-                        _u = str(_a["url"])
-                        _flux_refs.append(_u if _u.startswith("http") else _origin + _u)
-            except Exception:
-                _flux_refs = []
             from . import genlog as _genlog
 
             _entry = _genlog.start(
@@ -3583,6 +3663,7 @@ def OpenAIHandler(request):
                 "warning": access.get("warning"),
                 "warning_code": access.get("warning_code"),
                 "grace_until": access.get("grace_until"),
+                **_done_flags(image=True),
             }
 
         # Try, and if context too long, progressively trim oldest messages while keeping system+latest user
@@ -3656,12 +3737,18 @@ def OpenAIHandler(request):
             answer = ((answer or "").strip() + "\n\n" + _note).strip()
 
         # Гарантия по символам для ограниченных тиров (ТЗ 4.2): обрезаем + приписка.
+        free_truncated = False
         if limited:
+            _untrimmed = answer
             answer = _truncate_for_free(answer)
+            free_truncated = answer != _untrimmed
 
         usage_meta = _extract_usage_meta(completion, endpoint, selected_model_name)
         # Capture usage + computed cost for future token billing (no balance change yet)
         usage_meta = _augment_usage_meta_with_cost(usage_meta, model_obj)
+        if gen_atts:
+            usage_meta = dict(usage_meta)
+            usage_meta["image"] = True
         sources = _extract_sources_from_result(completion, endpoint)
         if sources:
             usage_meta = dict(usage_meta)
@@ -3768,6 +3855,8 @@ def OpenAIHandler(request):
         }
         if sources:
             result["sources"] = sources
+        result.update(_done_flags(free_truncated=free_truncated, image=bool(gen_atts),
+                                  image_missing=_image_expected_missed))
         return result
 
     except Exception as e:

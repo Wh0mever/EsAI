@@ -18,6 +18,7 @@ import logging
 from datetime import timedelta
 
 from django.conf import settings
+from django.db import transaction
 from django.utils import timezone
 
 from audit.models import PendingBonus
@@ -175,14 +176,51 @@ def _welcome_already_handled(user) -> bool:
     return False
 
 
-def maybe_grant_welcome_bonus(user, request) -> dict:
+# Повторный аккаунт того же Telegram (/delete → /start) получает дневную норму
+# сразу не чаще раза в сутки: иначе цикл /delete → /start выдавал бы её без
+# счёта — при отключённом приветственном бонусе норма и есть подарок новичку.
+REPEAT_SIGNUP_COOLDOWN = timedelta(hours=24)
+
+
+def _telegram_deleted_at(user):
+    """Когда Telegram этого аккаунта прошлый раз уходил через /delete (или None).
+
+    Смотрим здесь, а не только в боте: вход через Telegram на сайте (allauth)
+    заводит такую же заглушку, и без этого /delete в боте и вход на сайте
+    давали бы приветственный бонус заново.
+    """
+    try:
+        from allauth.socialaccount.models import SocialAccount
+        from botapi.services import last_deleted_at
+
+        with transaction.atomic():
+            uid = (SocialAccount.objects.filter(user=user, provider="telegram")
+                   .values_list("uid", flat=True).first())
+        return last_deleted_at(uid) if uid else None
+    except Exception:
+        logger.exception("antifraud: прошлый /delete не проверен user=%s",
+                         getattr(user, "pk", None))
+        return None
+
+
+def maybe_grant_welcome_bonus(user, request, *, allow_welcome: bool = True) -> dict:
     """Главная точка входа антифрода (замена прямого grant_welcome_bonus).
 
     Возвращает dict со статусом: already / approved / pending. При любой ошибке
     делает фолбэк на обычное начисление (антифрод не должен ломать регистрацию).
+
+    allow_welcome=False — человек уже получал приветственный бонус на прежнем
+    аккаунте (погасил его и завёл новый): ведём себя как при отключённом бонусе,
+    но дневную норму сразу даём, только если прошлый /delete был больше суток
+    назад (REPEAT_SIGNUP_COOLDOWN), — иначе статус repeat_signup и норму
+    принесёт ночной прогон. Повторный Telegram узнаём и сами, по журналу отвязок.
     """
     if not user or not getattr(user, "pk", None):
         return {"status": "skipped"}
+
+    deleted_at = _telegram_deleted_at(user)
+    if deleted_at is not None:
+        allow_welcome = False
 
     amount = int(getattr(settings, "WELCOME_BONUS_TOKENS", 3000) or 0)
     try:
@@ -195,11 +233,14 @@ def maybe_grant_welcome_bonus(user, request) -> dict:
     # Приветственный бонус отключён (клиент убрал его в пользу ежедневных).
     # Тогда сразу выдаём дневную норму, иначе человек регистрируется и сидит с
     # нулём до ночного прогона начислений — то есть до суток без сервиса.
-    if amount <= 0:
+    if amount <= 0 or not allow_welcome:
         try:
             record_signup_device(user, request)
         except Exception:
             pass
+        if not allow_welcome and (deleted_at is None
+                                  or timezone.now() - deleted_at < REPEAT_SIGNUP_COOLDOWN):
+            return {"status": "repeat_signup"}
         try:
             from django.conf import settings as dj_settings
             from adminapi.runtime import get_runtime as _rt

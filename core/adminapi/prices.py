@@ -436,23 +436,15 @@ def is_chat_token_image(model) -> bool:
 def chat_image_notes(cfg: pricing.PricingConfig) -> dict:
     """Включённые модели картинок, которые чат списывает не так, как студии.
 
-    flux_refs — FLUX с доплатой за входное фото: чат не сообщает, сколько фото
-    приложено (ai/handlers.py зовёт flux_charge_credits без refs), и в режиме
-    «наценка» правка идёт как с UNKNOWN_REFS фото. tokens — Nano Banana и др.: в чате
-    токены × тариф модели в обоих режимах; target — цена картинки по наценке, к
-    которой тариф подгоняет кнопка «Пересчитать тариф картинок в чате».
+    tokens — Nano Banana и др.: в чате токены × тариф модели в обоих режимах;
+    target — цена картинки по наценке, к которой тариф подгоняет кнопка
+    «Пересчитать тариф картинок в чате». FLUX здесь нет: чат берёт с него ту же
+    цену, что студии, по числу приложенных фото (model_billing.flux_ref_count).
     """
-    from ai.model_billing import UNKNOWN_REFS
-
-    markup_cfg = cfg.with_changes(mode=pricing.MODE_MARKUP)
     basis = pricing.credit_basis(cfg)
-    out: dict = {"flux_refs": [], "tokens": [], "unknown_refs": UNKNOWN_REFS,
-                 "tokens_per_image": pricing.chat_image_tokens(), "markup": cfg.markup}
+    out: dict = {"tokens": [], "tokens_per_image": pricing.chat_image_tokens(), "markup": cfg.markup}
     for model in GPTModels.objects.filter(is_active=True, category="image").order_by("sort_order", "id"):
         if is_flux_image_model(model.openrouter_id):
-            if pricing.to_cost(model.ref_cost_usd):
-                chat = pricing.chat_image_price(model, cfg=markup_cfg)
-                out["flux_refs"].append({"id": model.pk, "name": model.name, "credits": chat.credits})
             continue
         chat = pricing.chat_image_price(model, cfg=cfg)
         target = chat_image_target(model, cfg, basis)
@@ -465,13 +457,6 @@ def chat_image_notes(cfg: pricing.PricingConfig) -> dict:
 
 def _chat_warnings(chat: dict) -> list:
     out = []
-    if chat["flux_refs"]:
-        refs = chat["unknown_refs"]
-        items = ", ".join(f"{row['name']} — {row['credits']} кр" for row in chat["flux_refs"])
-        out.append({"code": "flux_chat_refs", "text": (
-            f"Чат пока не сообщает, сколько фото приложено к правке FLUX: в режиме «наценка» правка в чате "
-            f"идёт как с {refs} фото ({items}). С {refs + 1} фото и больше это дешевле себестоимости; "
-            "видеостудия считает каждое фото.")})
     rows = chat["tokens"]
     stale = [row for row in rows if row["target"] is not None and row["target"] != row["credits"]]
     below = [row["name"] for row in rows if row["below_cost"]]
@@ -659,8 +644,8 @@ def _chat_note(chat: dict | None, sample_markup, markup_mode: bool) -> str | Non
     """Хвост колонки «Цена»: что спишет чат, если не то же, что студии.
 
     Nano Banana — по токенам в обоих режимах (и цена по наценке, если тариф её не
-    даёт). FLUX с доплатой за фото — в режиме «наценка» правка в чате идёт как с
-    UNKNOWN_REFS фото, дороже строки «1 картинка».
+    даёт). FLUX с доплатой за фото — для справки цена правки с UNKNOWN_REFS фото:
+    строка «1 картинка» считает без фото, а чат берёт за каждое приложенное.
     """
     if not chat:
         return None
