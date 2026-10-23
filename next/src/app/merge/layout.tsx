@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import VsThemeScope from "@/components/vstudio/ui/VsThemeScope";
-import { SITE_NAME, SITE_URL } from "@/lib/seo/site";
+import { SITE_NAME, SITE_URL, OG_IMAGE, OG_IMAGE_ALT, OG_IMAGE_META } from "@/lib/seo/site";
 
 // Рабочая страница со своими роликами человека: искать в ней нечего, в поиск не отдаём.
 export const metadata: Metadata = {
@@ -9,6 +9,7 @@ export const metadata: Metadata = {
 		"Соберите в одно видео готовые ролики из видеостудии, мультстудии и чата EsAI или свои файлы: выберите фрагменты, расставьте по порядку и скачайте.",
 	alternates: { canonical: `${SITE_URL}/merge` },
 	openGraph: {
+		images: [OG_IMAGE_META],
 		title: "Склейка видео — EsAI",
 		description: "Готовые ролики из студий и чата EsAI и свои файлы — в одно видео.",
 		url: `${SITE_URL}/merge`,

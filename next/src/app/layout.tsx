@@ -9,7 +9,8 @@ import "@/assets/style.scss";
 import DomainDefaults from "@/components/bootstrap/DomainDefaults";
 import { THEME_BOOTSTRAP } from "@/lib/theme";
 import { CSS_GUARD } from "@/lib/cssGuard";
-import { SITE_URL, SITE_NAME, OG_IMAGE } from "@/lib/seo/site";
+import { SITE_URL, SITE_NAME, SITE_DESCRIPTION, OG_IMAGE, OG_IMAGE_ALT, OG_IMAGE_META } from "@/lib/seo/site";
+import HomeSeoFallback from "@/components/home/HomeSeoFallback";
 import { homeJsonLd } from "@/lib/seo/jsonLd";
 import { localeFromAcceptLanguage } from "@/lib/localeDetect";
 
@@ -33,8 +34,7 @@ export const metadata: Metadata = {
 		title: "EsAI",
 	},
 	title: "EsAI — Все AI в одном месте",
-	description:
-		"EsAI — нейросети в одном месте. ChatGPT, DeepSeek, Claude, Gemini онлайн на русском, кыргызском и английском. Пишите тексты, код, переводите и анализируйте документы.",
+	description: SITE_DESCRIPTION,
 	keywords: [
 		"EsAI",
 		"нейросети онлайн",
@@ -67,18 +67,17 @@ export const metadata: Metadata = {
 	// говорил поисковику «это копия главной». Canonical главной — в (home)/page.tsx.
 	openGraph: {
 		title: "EsAI — Все нейросети в одном месте",
-		description:
-			"EsAI — Все нейросети в одном месте. Без лишних трат и подписок.",
+		description: SITE_DESCRIPTION,
 		url: SITE_URL,
 		siteName: SITE_NAME,
 		type: "website",
-		images: [{ url: OG_IMAGE }],
+		images: [OG_IMAGE_META],
 	},
 	twitter: {
 		card: "summary_large_image",
 		title: "EsAI — Все нейросети в одном месте",
-		description: "EsAI — Все нейросети в одном месте. Без лишних трат и подписок.",
-		images: [OG_IMAGE],
+		description: SITE_DESCRIPTION,
+		images: [{ url: OG_IMAGE, alt: OG_IMAGE_ALT }],
 	},
 };
 
@@ -153,7 +152,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
 						__html: `window.__FP_ENV__=${JSON.stringify({ pk: fpPk, token: fpToken, merchantId: fpMerchantId })};`,
 					}}
 				/>
-				<I18nProvider lang={lang}>
+				{/* Главная до загрузки переводов отдаёт в HTML скрытый H1 и описание — для
+				    анализаторов ссылок и краулеров без JS (путь передаёт middleware). */}
+				<I18nProvider lang={lang} fallback={hdrs.get("x-esai-path") === "/" ? <HomeSeoFallback lang={lang} /> : null}>
 					<BackToTopButton />
 					{children}
 					<PwaManager />

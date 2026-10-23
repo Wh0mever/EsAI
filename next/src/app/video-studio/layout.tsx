@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import VsThemeScope from "@/components/vstudio/ui/VsThemeScope";
-import { OG_IMAGE, SITE_NAME, SITE_URL } from "@/lib/seo/site";
+import { OG_IMAGE, OG_IMAGE_ALT, OG_IMAGE_META, SITE_NAME, SITE_URL } from "@/lib/seo/site";
 
 // Пока видеостудия открыта только сотрудникам (VSTUDIO_MODE=staff), страница
 // для остальных — «скоро откроется»: индексировать её рано. Флаг тот же, что
@@ -24,13 +24,13 @@ export const metadata: Metadata = {
 		url: `${SITE_URL}/video-studio`,
 		siteName: SITE_NAME,
 		type: "website",
-		images: [{ url: OG_IMAGE }],
+		images: [OG_IMAGE_META],
 	},
 	twitter: {
 		card: "summary_large_image",
 		title: SHARE_TITLE,
 		description: SHARE_DESCRIPTION,
-		images: [OG_IMAGE],
+		images: [{ url: OG_IMAGE, alt: OG_IMAGE_ALT }],
 	},
 	...(PUBLIC ? {} : { robots: { index: false, follow: false } }),
 };

@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import VsThemeScope from "@/components/vstudio/ui/VsThemeScope";
-import { SITE_NAME, SITE_URL } from "@/lib/seo/site";
+import { SITE_NAME, SITE_URL, OG_IMAGE, OG_IMAGE_ALT, OG_IMAGE_META } from "@/lib/seo/site";
 
 export const metadata: Metadata = {
 	title: "Создание мультфильмов — студия EsAI: сценарий, персонажи, видео",
@@ -8,6 +8,7 @@ export const metadata: Metadata = {
 		"Придумайте историю, нарисуйте героев и оживите их в видео — прямо в EsAI, без навыков. Пошаговая студия: ИИ пишет сценарий, рисует персонажей и создаёт видео.",
 	alternates: { canonical: `${SITE_URL}/studio` },
 	openGraph: {
+		images: [OG_IMAGE_META],
 		title: "Создание мультфильмов — студия EsAI",
 		description:
 			"От идеи до готового мультфильма: ИИ напишет сценарий, нарисует героев и оживит их в видео. Без навыков.",

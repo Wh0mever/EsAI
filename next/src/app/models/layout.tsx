@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Header from "@/components/main/Header";
 import Footer from "@/components/main/Footer";
-import { SITE_NAME, SITE_URL, OG_IMAGE } from "@/lib/seo/site";
+import { SITE_NAME, SITE_URL, OG_IMAGE, OG_IMAGE_ALT, OG_IMAGE_META } from "@/lib/seo/site";
 import { breadcrumbJsonLd } from "@/lib/seo/jsonLd";
 
 // Каталог AI-моделей (Этап 4, п.15 ТЗ) — отдельная публичная SEO-страница,
@@ -28,14 +28,14 @@ export const metadata: Metadata = {
     // тем же сайт-wide баннером (OG_IMAGE), что и на главной. Страница-каталог
     // не привязана к одной модели, поэтому статичный баннер уместнее, чем
     // паттерн генерации per-slug превью (см. model/[slug]/opengraph-image.tsx).
-    images: [{ url: OG_IMAGE }],
+    images: [OG_IMAGE_META],
   },
   twitter: {
     card: "summary_large_image",
     title: "Каталог AI-моделей EsAI",
     description:
       "Сравните все доступные нейросети EsAI — текст, код, изображения, видео — и выберите подходящую для своей задачи.",
-    images: [OG_IMAGE],
+    images: [{ url: OG_IMAGE, alt: OG_IMAGE_ALT }],
   },
 };
 

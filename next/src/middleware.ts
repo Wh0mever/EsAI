@@ -223,7 +223,11 @@ export async function middleware(request: NextRequest) {
     const target = safeReturnPath(request.nextUrl.searchParams.get('next'), request.url) || '/dashboard/text-chat';
     res = NextResponse.redirect(new URL(target, request.url));
   } else {
-    res = NextResponse.next();
+    // Путь — в заголовок запроса для корневого layout: главная отдаёт в HTML
+    // скрытый H1 до загрузки переводов (components/home/HomeSeoFallback).
+    const forwarded = new Headers(request.headers);
+    forwarded.set('x-esai-path', pathname);
+    res = NextResponse.next({ request: { headers: forwarded } });
   }
 
   if (refreshed) {

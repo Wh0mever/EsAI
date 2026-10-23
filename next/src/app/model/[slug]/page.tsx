@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import SeoShell from "@/components/seo/SeoShell";
-import { SITE_NAME, absoluteUrl } from "@/lib/seo/site";
+import { SITE_NAME, absoluteUrl, OG_IMAGE, OG_IMAGE_ALT, OG_IMAGE_META } from "@/lib/seo/site";
 import { faqJsonLd, breadcrumbJsonLd } from "@/lib/seo/jsonLd";
 import { SEO_MODELS, getModel, getRelatedModels } from "@/lib/seo/models";
 
@@ -38,6 +38,7 @@ export async function generateMetadata(
     description: model.metaDescription,
     alternates: { canonical: url },
     openGraph: {
+      images: [OG_IMAGE_META],
       title,
       description: model.metaDescription,
       url: absoluteUrl(url),
@@ -45,6 +46,7 @@ export async function generateMetadata(
       type: "website",
     },
     twitter: {
+      images: [{ url: OG_IMAGE, alt: OG_IMAGE_ALT }],
       card: "summary_large_image",
       title,
       description: model.metaDescription,

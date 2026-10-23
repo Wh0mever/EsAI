@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import Header from "@/components/main/Header";
 import Footer from "@/components/main/Footer";
 import CreatorsLanding from "@/components/creators/public/CreatorsLanding";
-import { OG_IMAGE, SITE_NAME, SITE_URL } from "@/lib/seo/site";
+import { OG_IMAGE, OG_IMAGE_ALT, OG_IMAGE_META, SITE_NAME, SITE_URL } from "@/lib/seo/site";
 
 /**
  * /creators — публичная страница программы EsAI Creators: условия, уровни,
@@ -31,13 +31,13 @@ export const metadata: Metadata = {
 		url: `${SITE_URL}/creators`,
 		siteName: SITE_NAME,
 		type: "website",
-		images: [{ url: OG_IMAGE }],
+		images: [OG_IMAGE_META],
 	},
 	twitter: {
 		card: "summary_large_image",
 		title: TITLE,
 		description: DESCRIPTION,
-		images: [OG_IMAGE],
+		images: [{ url: OG_IMAGE, alt: OG_IMAGE_ALT }],
 	},
 	// Пока программа не открыта всем (флаг сборки, как у пунктов меню и карты
 	// сайта), страницу в поиск не отдаём: в режиме «только сотрудники»

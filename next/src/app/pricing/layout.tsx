@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import Header from "@/components/main/Header";
 import Footer from "@/components/main/Footer";
-import { SITE_NAME, SITE_URL } from "@/lib/seo/site";
+import { SITE_NAME, SITE_URL, OG_IMAGE, OG_IMAGE_ALT, OG_IMAGE_META } from "@/lib/seo/site";
 import { tokenPackagesJsonLd } from "@/lib/seo/jsonLd";
 import { getPackages } from "@/lib/content";
 
@@ -28,6 +28,7 @@ export async function generateMetadata(): Promise<Metadata> {
 			"Доступ ко всем нейросетям (ChatGPT, Claude, Gemini, DeepSeek, Grok, Perplexity). Оплата в кыргызских сомах, без подписок.",
 		alternates: { canonical: `${SITE_URL}/pricing` },
 		openGraph: {
+			images: [OG_IMAGE_META],
 			title: "Тарифы EsAI — оплата в сомах, без подписок",
 			description: short + "Все нейросети в одном месте.",
 			url: `${SITE_URL}/pricing`,
