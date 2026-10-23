@@ -127,7 +127,7 @@ services:
     networks: [web]
 
   next:
-    image: node:20-alpine
+    image: node:22-alpine
     working_dir: /app
     env_file: .env
     environment:

@@ -1,16 +1,24 @@
+# Node 22 LTS во всех стадиях. Бюллетень Hostinger от 21.10.2026: исправлены
+# Node 22 >= 22.23.4 (24 >= 24.22.1). Тег плавающий, поэтому собирать с
+# `docker compose build --pull next` — иначе docker возьмёт старый закэшированный
+# node:22-alpine; проверка ниже тогда остановит сборку, а не выкатит старый Node.
+ARG NODE_IMAGE=node:22-alpine
+ARG NODE_MIN=22.23.4
+
 # --- deps ---
-FROM node:20-alpine AS deps
+FROM ${NODE_IMAGE} AS deps
+ARG NODE_MIN
 WORKDIR /app
 
-COPY package.json package-lock.json* ./
+RUN node -e "const want=process.env.NODE_MIN.split('.').map(Number),have=process.versions.node.split('.').map(Number);for(let i=0;i<3;i++){if(have[i]>want[i])break;if(have[i]<want[i]){console.error('Node '+process.versions.node+' is older than '+process.env.NODE_MIN+': rebuild with docker compose build --pull');process.exit(1)}}console.log('node',process.versions.node)"
 
-# Install deps from lock, then force exact Next.js version
-RUN npm ci \
- && npm install next@16.0.8 react@19.0.0 react-dom@19.0.0 --save-exact \
- && npm dedupe
+COPY package.json package-lock.json ./
+
+# Строго по package-lock.json: версии next/react/react-dom задаёт только lock-файл.
+RUN npm ci
 
 # --- builder ---
-FROM node:20-alpine AS builder
+FROM ${NODE_IMAGE} AS builder
 WORKDIR /app
 
 ENV NODE_ENV=production \
@@ -39,21 +47,22 @@ ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL \
     NEXT_PUBLIC_CREATORS_NAV=$NEXT_PUBLIC_CREATORS_NAV
 
 COPY --from=deps /app/node_modules ./node_modules
-COPY package.json package-lock.json* ./
+COPY package.json package-lock.json ./
 COPY tsconfig.json ./
 COPY next.config.ts ./
 COPY postcss.config.mjs ./
 COPY public ./public
 COPY src ./src
 
-# Safety check: fail build if wrong Next.js version
-RUN node -e "const v=require('next/package.json').version; if(v!=='16.0.8'){throw new Error('Next.js version mismatch: '+v)}"
+# Safety check: установленные next/react/react-dom обязаны совпадать с
+# package-lock.json (ловит любую установку мимо lock-файла).
+RUN node -e "const lock=require('./package-lock.json').packages;for(const p of ['next','react','react-dom']){const want=(lock['node_modules/'+p]||{}).version,have=require(p+'/package.json').version;if(!want||want!==have){throw new Error(p+' version mismatch: installed '+have+', package-lock '+want)}console.log(p,have)}"
 
 RUN npx next telemetry disable || true
 RUN npm run build
 
 # --- runner ---
-FROM node:20-alpine AS runner
+FROM ${NODE_IMAGE} AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production

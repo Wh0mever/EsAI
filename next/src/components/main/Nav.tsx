@@ -129,6 +129,11 @@ function MobileNav({ className, onNavigate }: any) {
           </li>
         )}
         <li>
+          <Link href="/merge" prefetch={false} onClick={onNavigate} className={linkCls("/merge")} aria-current={isActive("/merge") ? "page" : undefined}>
+            {t("nav.merge", { defaultValue: "Склейка" })}
+          </Link>
+        </li>
+        <li>
           <Link href="/blog" onClick={onNavigate} className={linkCls("/blog")} aria-current={isActive("/blog") ? "page" : undefined}>
             {t("nav.blog")}
           </Link>
@@ -195,8 +200,8 @@ function PCNav({ className, onNavigate, t, changeLanguage, currentLang }: any) {
     );
 
   return (
-    <nav className={clsx("bg-surface px-6 rounded-4xl flex items-center shadow-md", className)}>
-      <ul className="flex items-center gap-10 text-md">
+    <nav className={clsx("bg-surface px-5 xl:px-6 rounded-4xl flex items-center shadow-md", className)}>
+      <ul className="flex items-center gap-5 xl:gap-8 2xl:gap-10 text-md">
         <li className={linkCls("/", true)}>
           <Link href="/" onClick={onNavigate} className={linkInner(isActive("/", true))} aria-current={isActive("/", true) ? "page" : undefined}>
             {t("nav.home")}
@@ -224,6 +229,11 @@ function PCNav({ className, onNavigate, t, changeLanguage, currentLang }: any) {
             </Link>
           </li>
         )}
+        <li className={linkCls("/merge")}>
+          <Link href="/merge" prefetch={false} onClick={onNavigate} className={linkInner(isActive("/merge"))} aria-current={isActive("/merge") ? "page" : undefined}>
+            {t("nav.merge", { defaultValue: "Склейка" })}
+          </Link>
+        </li>
         <li className={linkCls("/blog")}>
           <Link href="/blog" onClick={onNavigate} className={linkInner(isActive("/blog"))} aria-current={isActive("/blog") ? "page" : undefined}>
             {t("nav.blog")}
