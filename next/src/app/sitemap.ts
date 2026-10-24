@@ -23,6 +23,10 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     // только сотрудникам (VSTUDIO_MODE=staff), страница — лишь «скоро откроется».
     // Проекты /video-studio/<uid> — личные, их в карте нет (и robots их закрывает).
     ...(process.env.NEXT_PUBLIC_VSTUDIO_NAV === "1" ? [{ path: "/video-studio", priority: 0.8 }] : []),
+    // Склейка видео — бесплатное направление рядом со студиями (главная, меню, превью ссылок).
+    { path: "/merge", priority: 0.8 },
+    // Цены мультстудии — отдельная открытая страница, в карте её не было.
+    { path: "/pricing/studio", priority: 0.6 },
     { path: "/models", priority: 0.8 },
     { path: "/pricing", priority: 0.7 },
     { path: "/blog", priority: 0.6 },

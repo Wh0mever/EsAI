@@ -2,7 +2,9 @@ import type { Metadata, Viewport } from "next";
 import VsThemeScope from "@/components/vstudio/ui/VsThemeScope";
 import { SITE_NAME, SITE_URL, OG_IMAGE, OG_IMAGE_ALT, OG_IMAGE_META } from "@/lib/seo/site";
 
-// Рабочая страница со своими роликами человека: искать в ней нечего, в поиск не отдаём.
+// Публичная страница: склейка — одно из трёх направлений EsAI и бесплатна, её ищут («склеить видео
+// онлайн»), поэтому она открыта для индексации и стоит в sitemap. Личные ролики человека подгружаются
+// только после входа — в HTML для поисковика их нет.
 export const metadata: Metadata = {
 	title: "Склейка видео — EsAI",
 	description:
@@ -16,7 +18,6 @@ export const metadata: Metadata = {
 		siteName: SITE_NAME,
 		type: "website",
 	},
-	robots: { index: false, follow: true },
 };
 
 // Рабочий экран, как у студий: Android Chrome сжимает страницу под клавиатуру
