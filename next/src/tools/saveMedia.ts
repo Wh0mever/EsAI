@@ -103,12 +103,58 @@ function downloadBlob(blob: Blob, filename: string): void {
   setTimeout(() => URL.revokeObjectURL(objUrl), 4000);
 }
 
-export async function saveMedia(url: string, filename: string): Promise<void> {
-  if (!url || _inFlight.has(url)) return;
+/**
+ * Чем закончилось сохранение. "retry" — iOS не открыл окно «Сохранить», потому что
+ * файл качался дольше, чем живёт жест (тяжёлый ролик видеостудии): файл уже скачан
+ * и лежит в кэше, кнопка просит нажать ещё раз — второе нажатие открывает окно сразу.
+ * Раньше в этом месте файл открывался в браузере, и человек видел тёмную страницу
+ * со значком загрузки вместо «Сохранить видео».
+ */
+export type SaveResult = "saved" | "cancelled" | "downloaded" | "retry" | "opened";
+
+// Скачанный файл ждёт второго нажатия не дольше двух минут — видео весит мегабайты.
+const RETRY_KEEP_MS = 120_000;
+const _retryTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+function keepForRetry(url: string): void {
+  const old = _retryTimers.get(url);
+  if (old) clearTimeout(old);
+  _retryTimers.set(
+    url,
+    setTimeout(() => {
+      _retryTimers.delete(url);
+      _blobCache.delete(url);
+    }, RETRY_KEEP_MS),
+  );
+}
+
+type TelegramWebApp = {
+  downloadFile?: (params: { url: string; file_name: string }, cb?: (accepted: boolean) => void) => void;
+  isVersionAtLeast?: (v: string) => boolean;
+};
+
+/** Мини-приложение Telegram (Bot API 8.0+): у него своё окно скачивания файла. */
+function telegramDownload(url: string, filename: string): boolean {
+  const tg = (window as unknown as { Telegram?: { WebApp?: TelegramWebApp } }).Telegram?.WebApp;
+  if (!tg?.downloadFile || (tg.isVersionAtLeast && !tg.isVersionAtLeast("8.0"))) return false;
+  try {
+    tg.downloadFile({ url: new URL(url, window.location.href).href, file_name: filename });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function saveMedia(url: string, filename: string): Promise<SaveResult> {
+  if (!url || _inFlight.has(url)) return "cancelled";
   _inFlight.add(url);
   const nav = navigator as ShareNavigator;
   const hints = deviceHints(nav);
+  let keep = false;
   try {
+    // Внутри Telegram: его окно скачивания — без шитшета и без пустой страницы.
+    if (isHandheld(hints) && telegramDownload(url, filename)) return "saved";
+
     // Берём заранее начатую загрузку (prefetch на pointerdown), иначе качаем сейчас.
     const blob = await (_blobCache.get(url) || _fetchBlob(url));
     const file = new File([blob], filename, {
@@ -126,27 +172,37 @@ export async function saveMedia(url: string, filename: string): Promise<void> {
     if (route === "share") {
       try {
         await nav.share({ files: [file], title: filename });
-        return;
+        return "saved";
       } catch (e) {
+        const name = (e as { name?: unknown } | null)?.name;
         // Закрыл шитшет — это не ошибка, ничего не качаем.
-        if ((e as { name?: unknown } | null)?.name === "AbortError") return;
+        if (name === "AbortError") return "cancelled";
+        // Жест «истёк», пока качался файл: файл оставляем, просим нажать ещё раз.
+        if (name === "NotAllowedError") {
+          keep = true;
+          keepForRetry(url);
+          return "retry";
+        }
         // Иначе — запасной путь ниже.
       }
     }
 
     if (route !== "open" && !isAppleHandheld(hints)) {
       downloadBlob(blob, filename);
-      return;
+      return "downloaded";
     }
 
     // iOS без файлового Share (редкий старый случай): <a download> всё равно
     // игнорируется, поэтому просто открываем файл — в его предпросмотре снизу
     // есть кнопка «Поделиться» → «Сохранить видео».
     window.open(url, "_blank");
+    return "opened";
   } catch {
     window.open(url, "_blank");
+    return "opened";
   } finally {
     _inFlight.delete(url);
-    _blobCache.delete(url); // освобождаем память (видео — несколько МБ)
+    // Освобождаем память (видео — несколько МБ), если файл не ждёт второго нажатия.
+    if (!keep) _blobCache.delete(url);
   }
 }

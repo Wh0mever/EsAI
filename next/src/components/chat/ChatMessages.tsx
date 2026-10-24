@@ -2,14 +2,15 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { FiDownload, FiLoader, FiPlusCircle, FiShare2, FiCheck, FiRefreshCw } from "react-icons/fi";
+import { FiLoader, FiPlusCircle, FiShare2, FiCheck, FiRefreshCw } from "react-icons/fi";
 import { useTranslation } from "react-i18next";
 import Markdown from "./Markdown";
 import MessageActions from "./MessageActions";
 import VideoPlayer from "@/components/video/VideoPlayer";
 import NextLink from "@/components/ui/nextLink/NextLink";
 import { BACKEND, fetchData } from "@/tools/fetchData";
-import { saveMedia, prefetchMedia } from "@/tools/saveMedia";
+// «Скачать» — общая кнопка: шитшет на телефоне, файл на компьютере, «Сохранить» для второго нажатия.
+import SaveMediaButton from "@/components/ui/SaveMediaButton";
 import type { Message, ChatSource } from "@/types/chat";
 import type { LiveMessage } from "./chatRetry";
 
@@ -82,58 +83,6 @@ function ThinkingDots() {
   );
 }
 
-/**
- * SaveMediaButton — кнопка «Скачать» с мгновенной реакцией и защитой от дабл-тапа.
- * Пока saveMedia качает файл (видео — секунды), кнопка ЗАБЛОКИРОВАНА и показывает
- * спиннер: иначе пользователь тыкал ещё раз-другой, думая что «не жмётся», и потом
- * шитшет «Куда сохранить» выскакивал несколько раз подряд (жалоба клиента).
- */
-function SaveMediaButton({
-  url,
-  filename,
-  className,
-  iconClassName,
-  label,
-  children,
-}: {
-  url: string;
-  filename: string;
-  className?: string;
-  iconClassName?: string;
-  label?: string;
-  children?: React.ReactNode;
-}) {
-  const [saving, setSaving] = useState(false);
-  return (
-    <button
-      type="button"
-      disabled={saving}
-      aria-busy={saving}
-      aria-label={label}
-      title={label}
-      // Предзагрузка на нажатие пальцем/мышью — к моменту click файл уже готов,
-      // и на iOS navigator.share() успевает в окно «user activation» (иначе на
-      // тяжёлом видео шитшет отклонялся и открывался битый предпросмотр).
-      onPointerDown={() => prefetchMedia(url)}
-      onClick={(e) => {
-        e.stopPropagation();
-        if (saving) return;
-        setSaving(true);
-        // finally в saveMedia + локальный флаг снимают состояние по завершении
-        // (в т.ч. когда пользователь закрыл нативный шитшет).
-        void saveMedia(url, filename).finally(() => setSaving(false));
-      }}
-      className={`${className || ""} disabled:opacity-70 disabled:cursor-wait`}
-    >
-      {saving ? (
-        <FiLoader className={`${iconClassName || ""} animate-spin`} />
-      ) : (
-        <FiDownload className={iconClassName} />
-      )}
-      {children}
-    </button>
-  );
-}
 
 /**
  * ImageLightbox — просмотр картинки ПОВЕРХ чата (портал в body, z выше сайдбара).

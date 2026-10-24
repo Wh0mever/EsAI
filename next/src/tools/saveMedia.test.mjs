@@ -83,3 +83,41 @@ test("признак mobile из userAgentData решает за неизвес�
   assert.equal(isHandheld(unknown), false);
   assert.equal(isHandheld({ ...unknown, uaMobile: true }), true);
 });
+
+// iPhone: тяжёлый ролик качался дольше, чем живёт жест, — iOS не открыл окно
+// (NotAllowedError). Раньше файл открывался в браузере (тёмная страница со значком
+// загрузки); теперь кнопка просит нажать ещё раз, и второе нажатие сохраняет из кэша.
+test("iPhone: отказ iOS из-за истёкшего жеста → «retry», второе нажатие сохраняет без повторной загрузки", async () => {
+  const { saveMedia } = await import("./saveMedia.ts");
+  let fetches = 0;
+  let shares = 0;
+  let opened = 0;
+  globalThis.fetch = async () => {
+    fetches += 1;
+    return { blob: async () => new Blob(["mp4"], { type: "video/mp4" }) };
+  };
+  globalThis.window = { open: () => { opened += 1; }, location: { href: "https://esai.kg/video-studio" } };
+  Object.defineProperty(globalThis, "navigator", {
+    configurable: true,
+    value: {
+      userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1",
+      platform: "iPhone",
+      maxTouchPoints: 5,
+      canShare: () => true,
+      share: async () => {
+        shares += 1;
+        if (shares === 1) {
+          const e = new Error("activation expired");
+          e.name = "NotAllowedError";
+          throw e;
+        }
+      },
+    },
+  });
+  const url = "https://esai.kg/media/vstudio/x.mp4";
+  assert.equal(await saveMedia(url, "esai-video.mp4"), "retry");
+  assert.equal(await saveMedia(url, "esai-video.mp4"), "saved");
+  assert.equal(fetches, 1, "второе нажатие берёт файл из кэша");
+  assert.equal(shares, 2);
+  assert.equal(opened, 0, "файл не открывается в браузере");
+});

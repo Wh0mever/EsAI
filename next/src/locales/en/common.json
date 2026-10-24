@@ -1,4 +1,7 @@
 {
+	"media": {
+		"save_again": "Save"
+	},
 	"common": {
 		"success": "Success",
 		"save": "Save",

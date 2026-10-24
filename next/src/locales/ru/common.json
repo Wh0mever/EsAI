@@ -1,4 +1,7 @@
 {
+	"media": {
+		"save_again": "Сохранить"
+	},
 	"common": {
 		"success": "Успешно",
 		"save": "Сохранить",
