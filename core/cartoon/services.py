@@ -542,13 +542,25 @@ def assemble_project(project) -> str:
     if not joined:
         raise RuntimeError("склейка не удалась")
 
-    # Заставка EsAI в конце. Скачанный mp4 расходится дальше уже без нашей
-    # страницы, и то, что впечатано в кадр, — единственное, что переживает
-    # перезалив в соцсети. Осечка заставки не должна стоить оплаченного ролика,
-    # поэтому append_outro при любой ошибке отдаёт исходник.
-    from .outro import append_outro
+    # Заставка EsAI в конце (2,5 с «EsAI · Cartoon Studio · esai.kg/studio») — ВЫКЛЮЧЕНА
+    # по просьбе клиента 25.10.2026: «убери, чтоб в готовых видео была надпись — сделано в EsAI».
+    # Вернуть можно без выкладки: runtime-ключ cartoon_outro = on. Осечка заставки не должна
+    # стоить оплаченного ролика, поэтому append_outro при любой ошибке отдаёт исходник.
+    if outro_enabled():
+        from .outro import append_outro
 
-    return _save_bytes(append_outro(joined), "cartoon/movies", "mp4")
+        joined = append_outro(joined)
+    return _save_bytes(joined, "cartoon/movies", "mp4")
+
+
+def outro_enabled() -> bool:
+    """Ставить ли заставку EsAI в конец готового мультфильма (runtime cartoon_outro, по умолчанию нет)."""
+    try:
+        from adminapi.runtime import get_runtime
+
+        return str(get_runtime("cartoon_outro", "off") or "off").strip().lower() in ("on", "1", "true", "yes")
+    except Exception:  # noqa: BLE001 — настройки не должны ронять сборку мультфильма
+        return False
 
 
 def charge(user, amount: int, reason: str, meta: dict | None = None, *,

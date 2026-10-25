@@ -19,6 +19,8 @@ CACHE_PREFIX = "appset:"
 
 # Ключи, управляемые из админки (/api/manage/settings/).
 KEYS = (
+    # Заставка EsAI в конце готового мультфильма: on — ставить (по умолчанию выключена, 25.10.2026).
+    "cartoon_outro",
     "OPENROUTER_API_KEY",
     # Ниже какого остатка ($) система сама переключается на запасной аккаунт.
     "openrouter_auto_switch_below",

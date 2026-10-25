@@ -210,15 +210,13 @@ export default function StartScreen({ onUsePrompt, composerSlot, belowComposerSl
           />
         )}
 
-        {belowComposerSlot ? <div className="w-full mt-5">{belowComposerSlot}</div> : null}
-
         {/* Флагман-баннер: «Создание мультфильмов» → студия /studio. Компактная
             карточка-ссылка (сжато по просьбе клиента — раньше была крупнее).
             Рядом «Склейка видео», а с флагом сборки — ещё «Видеостудия». На
             телефоне карточки идут друг под другом; три встают в ряд с 768 px
             (уже заголовки с «Новинкой» не помещались), две — с 640 px. Высоты
             ровные: ячейки сетки тянутся по самой высокой. */}
-        <div className={VSTUDIO_NAV ? "mt-4 grid w-full gap-2 md:grid-cols-3" : "mt-4 grid w-full gap-2 sm:grid-cols-2"}>
+        <div className={VSTUDIO_NAV ? "mt-5 grid w-full gap-2 md:grid-cols-3" : "mt-5 grid w-full gap-2 sm:grid-cols-2"}>
           <Link href="/studio" className={STUDIO_CARD}>
             <span className={STUDIO_CARD_ICON}>
               🎬
@@ -298,6 +296,10 @@ export default function StartScreen({ onUsePrompt, composerSlot, belowComposerSl
             <FiArrowRight className={STUDIO_CARD_ARROW} />
           </Link>
         </div>
+
+        {/* «Почему EsAI» — под карточками студий: просьба клиента 25.10 — новые инструменты
+            (мультфильмы, видеостудия, склейка) должны быть заметнее, сразу под полем ввода. */}
+        {belowComposerSlot ? <div className="w-full mt-5">{belowComposerSlot}</div> : null}
       </div>
     </div>
   );

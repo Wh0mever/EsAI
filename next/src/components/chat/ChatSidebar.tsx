@@ -26,6 +26,7 @@ import {
   FiFilm,
   FiVideo,
   FiAward,
+  FiScissors,
 } from "react-icons/fi";
 import Link from "next/link";
 import NextLink from "@/components/ui/nextLink/NextLink";
@@ -371,6 +372,25 @@ export default function ChatSidebar({
                   </Link>
                 </div>
               )}
+
+              {/* «Склейка видео» — третье направление рядом со студиями, в том же виде (просьба
+                  клиента 25.10). Бесплатная, поэтому без цены — только бейдж «Новинка». */}
+              <div className="px-3 pt-2 shrink-0">
+                <Link
+                  href="/merge"
+                  prefetch={false}
+                  onClick={onClose}
+                  className="w-full inline-flex items-center gap-2.5 rounded-xl border border-accent/40 bg-accent-soft px-3 py-2.5 text-sm font-semibold text-foreground hover:border-accent transition-colors cursor-pointer"
+                >
+                  <FiScissors className="text-accent shrink-0" />
+                  <span className="flex-1 min-w-0 truncate">
+                    🎞️ {t("chat.merge", { defaultValue: "Склейка видео" })}
+                  </span>
+                  <span className="shrink-0 rounded-full bg-accent px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-on-accent">
+                    {t("common.new_badge", { defaultValue: "NEW" })}
+                  </span>
+                </Link>
+              </div>
 
               {/* History */}
               <div className="px-3 pt-4">
