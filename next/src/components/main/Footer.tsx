@@ -84,6 +84,12 @@ export default function Footer() {
 
           <nav className="flex md:justify-end justify-center">
             <ul className="flex flex-wrap gap-x-5 gap-y-2 text-sm text-muted">
+              {/* Академия — первой: на главной нет шапки сайта, и отсюда это главный вход. */}
+              <li>
+                <a href="/academy" className="hover:text-foreground transition-colors">
+                  {t("nav.academy", { defaultValue: "EsAI Академия" })}
+                </a>
+              </li>
               <li>
                 <a href="/about" className="hover:text-foreground transition-colors">
                   {t("nav.about")}

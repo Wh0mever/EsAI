@@ -25,6 +25,9 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     ...(process.env.NEXT_PUBLIC_VSTUDIO_NAV === "1" ? [{ path: "/video-studio", priority: 0.8 }] : []),
     // Склейка видео — бесплатное направление рядом со студиями (главная, меню, превью ссылок).
     { path: "/merge", priority: 0.8 },
+    // EsAI Академия — каталог курсов авторов. Страницы ?page=N в карту не кладём:
+    // их находят по ссылкам каталога, у каждой свой canonical.
+    { path: "/academy", priority: 0.7 },
     // Цены мультстудии — отдельная открытая страница, в карте её не было.
     { path: "/pricing/studio", priority: 0.6 },
     { path: "/models", priority: 0.8 },

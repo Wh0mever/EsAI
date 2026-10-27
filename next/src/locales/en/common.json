@@ -1,6 +1,34 @@
 {
 	"media": {
-		"save_again": "Save"
+		"save_page": {
+			"bad_link": "This file link is invalid or has expired.",
+			"home": "Go to EsAI"
+		},
+		"sheet": {
+			"close": "Close",
+			"code": "Support code: {{code}}",
+			"copied": "Link copied — paste it into Safari",
+			"copy_link": "Copy link",
+			"copy_manual": "Copy the link manually:",
+			"failed": "Couldn’t load the file. Check your connection and try again.",
+			"file_btn": "Download file",
+			"file_hint_image": "The file will appear in Files → Downloads. Open it there → Share → “Save Image”.",
+			"file_hint_other": "The file will appear in Downloads.",
+			"file_hint_video": "The file will appear in Files → Downloads. Open it there → Share → “Save Video”.",
+			"hint_image": "In the window that opens, tap “Save Image”.",
+			"hint_video": "In the window that opens, tap “Save Video”.",
+			"inapp_copy": "Tap “Copy link”, open Safari and paste the link into the address bar — no need to sign in. Then tap “{{button}}” there.",
+			"inapp_or_menu": "Or tap “⋯” at the top → “Open in Safari”: this same page will open there, and you may need to sign in.",
+			"inapp_page": "Tap “⋯” at the top of the screen → “Open in Safari”. Then tap “{{button}}” there.",
+			"inapp_title_image": "This in-app browser can’t save images to Photos",
+			"inapp_title_video": "This in-app browser can’t save videos to Photos",
+			"open_file": "Open file",
+			"preparing": "Preparing the file…",
+			"progress": "Preparing the file… {{done}} of {{total}} MB",
+			"retry": "Try again",
+			"save_image": "Save photo",
+			"save_video": "Save video"
+		}
 	},
 	"common": {
 		"success": "Success",
@@ -1023,6 +1051,7 @@
 		},
 		"studio": "Cartoon creation",
 		"merge": "Video merge",
+		"academy": "EsAI Academy",
 		"vstudio": "Video studio",
 		"actions": {
 			"copy": "Copy",

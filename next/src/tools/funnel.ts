@@ -60,15 +60,19 @@ export type FunnelStep =
   | "vstudio_paywall"
   | "vstudio_auth_prompt"
   | "vstudio_condense"
-  | "vstudio_share";
+  | "vstudio_share"
+  // «Скачать» на телефоне (tools/saveMedia, шторка SaveSheet): все исходы, кроме
+  // сразу удачного сохранения. Анонимно, meta — только перечислимые поля saveDiagMeta.
+  | "media_save";
 
 /**
  * Шаги, после которых страница сразу уходит в фон: нажали кнопку банка или
  * открылось системное окно «сохранить». iOS замораживает вкладку в тот же
  * миг, и обычный запрос не успевает уйти — а именно эти два шага показывают,
- * пользуются ли люди кнопками банков.
+ * пользуются ли люди кнопками банков. media_save уходит этим же путём ещё и
+ * потому, что без токена: событие анонимное, только ключ устройства.
  */
-const LEAVING_STEPS: ReadonlySet<FunnelStep> = new Set<FunnelStep>(["kgs_qr_app_open", "kgs_qr_save"]);
+const LEAVING_STEPS: ReadonlySet<FunnelStep> = new Set<FunnelStep>(["kgs_qr_app_open", "kgs_qr_save", "media_save"]);
 
 const EVENT_URL = "/api/payments/funnel/event/";
 

@@ -134,6 +134,11 @@ function MobileNav({ className, onNavigate }: any) {
           </Link>
         </li>
         <li>
+          <Link href="/academy" onClick={onNavigate} className={linkCls("/academy")} aria-current={isActive("/academy") ? "page" : undefined}>
+            {t("nav.academy", { defaultValue: "EsAI Академия" })}
+          </Link>
+        </li>
+        <li>
           <Link href="/blog" onClick={onNavigate} className={linkCls("/blog")} aria-current={isActive("/blog") ? "page" : undefined}>
             {t("nav.blog")}
           </Link>
@@ -199,9 +204,15 @@ function PCNav({ className, onNavigate, t, changeLanguage, currentLang }: any) {
       active && "after:content-[''] after:block after:h-[2px] after:bg-rose-500 after:rounded-full after:mt-1"
     );
 
+  const categoriesActive = anyActive(CATEGORIES_ROUTES);
+  // Ниже 2xl «EsAI Академия» стоит в «Категориях» — на /academy подсвечиваем их, пока пункта нет в ряду.
+  const academyInCategories = !categoriesActive && isActive("/academy");
+
   return (
     <nav className={clsx("bg-surface px-5 xl:px-6 rounded-4xl flex items-center shadow-md", className)}>
-      <ul className="flex items-center gap-5 xl:gap-8 2xl:gap-10 text-md">
+      {/* С «EsAI Академией» ряд стал на пункт длиннее: на 2xl промежуток 32 px вместо 40 —
+          иначе на 1536 px у вошедшего (по-кыргызски) «AI Чат» уезжал за край экрана. */}
+      <ul className="flex items-center gap-5 xl:gap-8 text-md">
         <li className={linkCls("/", true)}>
           <Link href="/" onClick={onNavigate} className={linkInner(isActive("/", true))} aria-current={isActive("/", true) ? "page" : undefined}>
             {t("nav.home")}
@@ -234,6 +245,14 @@ function PCNav({ className, onNavigate, t, changeLanguage, currentLang }: any) {
             {t("nav.merge", { defaultValue: "Склейка" })}
           </Link>
         </li>
+        {/* «EsAI Академия» в ряду — только от 1536 px. Уже без неё ряд на 1024–1279 px
+            не помещается у вошедшего, а на 1280 px остаётся ~60 px при нужных ~140:
+            ниже 2xl пункт стоит первым в «Категориях». */}
+        <li className={clsx(linkCls("/academy"), "hidden whitespace-nowrap 2xl:block")}>
+          <Link href="/academy" onClick={onNavigate} className={linkInner(isActive("/academy"))} aria-current={isActive("/academy") ? "page" : undefined}>
+            {t("nav.academy", { defaultValue: "EsAI Академия" })}
+          </Link>
+        </li>
         <li className={linkCls("/blog")}>
           <Link href="/blog" onClick={onNavigate} className={linkInner(isActive("/blog"))} aria-current={isActive("/blog") ? "page" : undefined}>
             {t("nav.blog")}
@@ -243,21 +262,37 @@ function PCNav({ className, onNavigate, t, changeLanguage, currentLang }: any) {
         <li
           className={clsx(
             "py-3",
-            anyActive(CATEGORIES_ROUTES) ? "text-foreground" : "text-muted",
+            categoriesActive ? "text-foreground" : academyInCategories ? "text-foreground 2xl:text-muted" : "text-muted",
             "hover:text-foreground"
           )}
         >
           <DropDownHovered
             handleText={
               <span
-                className={linkInner(anyActive(CATEGORIES_ROUTES))}
-                aria-current={anyActive(CATEGORIES_ROUTES) ? "page" : undefined}
+                className={clsx(
+                  linkInner(categoriesActive || academyInCategories),
+                  academyInCategories && "2xl:after:hidden"
+                )}
+                aria-current={categoriesActive ? "page" : undefined}
               >
                 {t("nav.categories")}
               </span>
             }
           >
             <ul className="flex flex-col text-sm py-2">
+              <li className="border-b border-neutral-700 2xl:hidden">
+                <Link
+                  href="/academy"
+                  onClick={onNavigate}
+                  className={clsx(
+                    "py-4 px-8 hover:bg-surface-2 transition-all duration-300 flex w-full",
+                    isActive("/academy") && "bg-surface-2"
+                  )}
+                  aria-current={isActive("/academy") ? "page" : undefined}
+                >
+                  {t("nav.academy", { defaultValue: "EsAI Академия" })}
+                </Link>
+              </li>
               <li className="border-b border-neutral-700">
                 <Link
                   href="/about"

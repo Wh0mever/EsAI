@@ -150,6 +150,7 @@ INSTALLED_APPS = [
     "vstudio.apps.VstudioConfig",
     "merge.apps.MergeConfig",
     "creators.apps.CreatorsConfig",
+    "academy.apps.AcademyConfig",
 ]
 
 SITE_ID = 1

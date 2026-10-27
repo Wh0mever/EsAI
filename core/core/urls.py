@@ -17,6 +17,7 @@ urlpatterns = [
     path('api/vstudio/', include('vstudio.urls')),
     path('api/merge/', include('merge.urls')),
     path('api/creators/', include('creators.urls')),
+    path('api/academy/', include('academy.urls')),
 ]
 
 if settings.DEBUG:

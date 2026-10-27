@@ -10,6 +10,7 @@
 """
 from __future__ import annotations
 
+import re
 from datetime import timedelta
 
 from django.db.models import Count, Q
@@ -33,6 +34,65 @@ class _FunnelThrottle(AnonRateThrottle):
     rate = "120/min"
 
 
+# «Скачать» на телефоне (next/src/tools/saveEnv.ts, saveDiagMeta). Эндпоинт открыт
+# всем, поэтому у media_save пишем только эти поля и только безопасные значения:
+# что бы ни прислали, адрес файла, имя или user agent в таблицу не попадут.
+# Новое значение перечисления с фронта сохраняется как "other" — счёт не теряется.
+_MEDIA_ENUMS = {
+    "where": {"vstudio", "tg_studio", "cartoon", "merge", "shared", "save_page", "chat", "other"},
+    "kind": {"video", "image"},
+    "step": {"share", "sheet", "blob_dl", "sheet_share", "sheet_files", "sheet_copy"},
+    "result": {"saved", "cancelled", "downloaded", "sheet", "error", "copied"},
+    "stage": {"", "fetch", "share", "canShare", "download", "copy"},
+    "os": {"ios", "android", "other"},
+    "browser": {"safari", "chrome", "firefox", "edge", "yandex", "opera", "samsung", "duckduckgo", "other"},
+    "inapp": {"", "telegram", "tg_miniapp", "instagram", "facebook", "tiktok", "vk", "line", "snapchat",
+              "google_app", "wkwebview", "android_wv"},
+}
+# Свободные строки — только по образцу. err — имя ошибки, не сообщение (в
+# сообщении бывает адрес); не похоже на имя — "other", как и на фронте.
+_MEDIA_PATTERNS = {
+    "v": re.compile(r"s\d{1,2}"),
+    "err": re.compile(r"[A-Za-z_]{0,32}"),
+    "os_ver": re.compile(r"(\d{1,3}(\.\d{1,3})?)?"),
+    "diag": re.compile(r"[A-Z0-9]{4,8}"),
+}
+_MEDIA_BOOLS = frozenset({"standalone", "frozen", "has_share", "has_can_share", "can_share_file",
+                          "prefetch_hit", "type_ok", "vis"})
+_MEDIA_INTS = {"wait_ms": (0, 60_000), "size_kb": (0, 10_000_000), "http": (0, 599), "n": (1, 99)}
+MEDIA_SAVE_FIELDS = (frozenset(_MEDIA_ENUMS) | frozenset(_MEDIA_PATTERNS) | _MEDIA_BOOLS
+                     | frozenset(_MEDIA_INTS))
+
+
+def media_save_meta(meta) -> dict:
+    """meta события media_save по белому списку; лишние ключи и вложенные объекты отбрасываются."""
+    if not isinstance(meta, dict):
+        return {}
+    out = {}
+    for key, allowed in _MEDIA_ENUMS.items():
+        value = meta.get(key)
+        if isinstance(value, str):
+            out[key] = value if value in allowed else "other"
+    for key, pattern in _MEDIA_PATTERNS.items():
+        value = meta.get(key)
+        if isinstance(value, str) and pattern.fullmatch(value):
+            out[key] = value
+        elif key == "err" and isinstance(value, str):
+            out[key] = "other"
+    for key in _MEDIA_BOOLS:
+        value = meta.get(key)
+        if isinstance(value, bool) or (value is None and key in meta):
+            out[key] = value
+    for key, (low, high) in _MEDIA_INTS.items():
+        value = meta.get(key)
+        # bool в Python — тоже int: True в поле http был бы «кодом 1».
+        if isinstance(value, int) and not isinstance(value, bool):
+            out[key] = max(low, min(value, high))
+        elif value is None and key in meta:
+            out[key] = None
+    return out
+
+
 class FunnelEventView(APIView):
     """POST — записать шаг воронки. Открыт всем: до оплаты человек ещё гость.
 
@@ -53,6 +113,8 @@ class FunnelEventView(APIView):
             device_key = str((request.data or {}).get("device_key") or "").strip()[:64]
 
         meta = (request.data or {}).get("meta")
+        if name == "media_save":
+            meta = media_save_meta(meta)
         FunnelEvent.objects.create(
             name=name,
             user=request.user if request.user.is_authenticated else None,

@@ -94,7 +94,11 @@ class FunnelEvent(models.Model):
              "vstudio_auth_prompt", "vstudio_condense", "vstudio_share",
              # Первый экран видеостудии: что человек нажал до первого запроса
              # (meta {what: reel|template|model|tool|showcase|continue, id}).
-             "vstudio_home_pick")
+             "vstudio_home_pick",
+             # «Скачать» на телефоне: все исходы, кроме сразу удачного сохранения
+             # (шторка, отказ окна, файл не скачался, шаги в шторке). Анонимно;
+             # meta — только белый список полей (payments/funnel.py, MEDIA_SAVE_FIELDS).
+             "media_save")
 
     name = models.CharField(max_length=32, db_index=True, verbose_name="Шаг")
     user = models.ForeignKey(

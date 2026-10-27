@@ -1,0 +1,57 @@
+{
+	"hero": {
+		"title": "EsAI Academy — learn to create AI content",
+		"subtitle": "Courses from authors and experts. Learn to create AI videos, cartoons, series and images with neural networks."
+	},
+	"trust": {
+		"title": "EsAI Academy — learn to create AI content from authors who know their craft.",
+		"text": "We bring together AI courses from authors and practitioners, so it's easier for you to find the right training.",
+		"authors": {
+			"title": "Vetted authors",
+			"text": "We select instructors who specialize in creating AI content."
+		},
+		"practice": {
+			"title": "Hands-on learning",
+			"text": "Courses on making AI videos, cartoons, series and other content."
+		},
+		"direct": {
+			"title": "Straight to the author",
+			"text": "Details, prices and terms of study are on the instructor's website."
+		}
+	},
+	"catalog": {
+		"heading": "Courses"
+	},
+	"card": {
+		"teacher": "Instructor:",
+		"cta": "Go to course",
+		"new_tab": "(opens in a new tab)"
+	},
+	"pager": {
+		"label": "Course pages",
+		"prev": "Previous",
+		"next": "Next",
+		"page": "Page {{page}}"
+	},
+	"empty": {
+		"title": "Courses are coming soon",
+		"text": "We're selecting our first authors. Check back a little later."
+	},
+	"missing": {
+		"title": "There are no courses on this page.",
+		"link": "Go to the first page"
+	},
+	"error": {
+		"title": "Couldn't load the courses.",
+		"retry": "Refresh the page"
+	},
+	"suggest": {
+		"title": "Want to add your course to EsAI Academy?",
+		"text": "We're open to working with authors and instructors who teach AI content creation.",
+		"cta": "Suggest a course"
+	},
+	"breadcrumb": {
+		"home": "Home",
+		"academy": "EsAI Academy"
+	}
+}

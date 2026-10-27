@@ -194,7 +194,8 @@ export default function PwaManager() {
     }
   }, [deferred]);
 
-  if ((!showBanner && !showIosHint) || isStudioPath(pathname)) return null;
+  // /save открывают ради одной кнопки «Скачать файл» — подсказка снизу закрыла бы её.
+  if ((!showBanner && !showIosHint) || isStudioPath(pathname) || pathname === "/save") return null;
 
   // На страницах чата баннер внизу закрывал поле ввода (особенно iOS-подсказка,
   // которая всплывает сама через 3.5 с) — там показываем его сверху, под шапкой.

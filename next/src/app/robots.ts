@@ -15,6 +15,8 @@ export default function robots(): MetadataRoute.Robots {
         // /video-studio/ со слэшем — личные проекты видеостудии (у них ещё и
         // noindex); сама /video-studio без слэша остаётся открытой.
         // /creators/dashboard — кабинет креатора; публичная /creators открыта.
+        // /save (сохранение файла по ссылке) здесь намеренно НЕТ: у неё noindex,
+        // а закрытую в robots.txt страницу робот не скачивает и noindex не видит.
         disallow: ["/api/", "/admin/", "/admin-new", "/auth/", "/dashboard/", "/profile",
                    "/transfer", "/tg/", "/video-studio/", "/creators/dashboard"],
       },

@@ -211,8 +211,11 @@ export default function VStudioShell({
         </div>
         {/* relative: скрытые подписи для экранных читалок (sr-only — position:absolute) внутри
             ленты иначе привязывались к <main> мимо этой прокрутки, оболочка получала лишнюю
-            высоту, и переход фокуса сдвигал всю студию вверх без возможности вернуть. */}
-        <div ref={feedScrollRef} className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain" data-vs-feed="">
+            высоту, и переход фокуса сдвигал всю студию вверх без возможности вернуть.
+            overflow-x-hidden — страховка от того же по горизонтали: при одном overflow-y-auto
+            колонка прокручивается и вбок, и подпись правее экрана давала свайпом увести вбок
+            всю студию. Режет так же, как прежний вычисленный auto, — пропадает только сдвиг. */}
+        <div ref={feedScrollRef} className="relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain" data-vs-feed="">
           {/* Нижний отступ ленты — не меньше затухания над композером (vs-dock, 56 px):
               иначе кнопки последней карточки остались бы под ним. */}
           <div className={home ? "w-full pb-10" : "mx-auto w-full max-w-[920px] px-3 pb-14 pt-4 sm:px-4"}>{feed}</div>

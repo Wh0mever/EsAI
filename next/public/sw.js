@@ -8,7 +8,10 @@
 // v5: сброс кэшей после починки статики. У части пользователей в SHELL_CACHE
 // лежала страница от старой сборки, чей css уже удалён с сервера, — она
 // открывалась без стилей. Смена версии разом выбрасывает такие копии.
-const CACHE_VERSION = "esai-v5";
+// v6: файлы пользователей (/media/) больше не идут через SW. Переход на ролик
+// копировал его целиком (мегабайты) в shell-кэш, а картинки и превью студий
+// навсегда оставались в static-кэше. Смена версии выбрасывает эти копии.
+const CACHE_VERSION = "esai-v6";
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const OFFLINE_URL = "/offline.html";
@@ -77,6 +80,10 @@ self.addEventListener("fetch", (event) => {
   // Never intercept API / auth / SSE traffic.
   if (url.pathname.startsWith("/api/")) return;
 
+  // Файлы пользователей (видео, картинки студий) — мимо SW: плееру нужны
+  // Range-запросы, а кэшировать мегабайты роликов в shell/static незачем.
+  if (url.pathname.startsWith("/media/")) return;
+
   // Navigations: network-first, fall back to cache, then offline page.
   const isNavigation =
     req.mode === "navigate" ||
@@ -87,8 +94,10 @@ self.addEventListener("fetch", (event) => {
       (async () => {
         try {
           const fresh = await fetch(req);
-          // Cache a copy of successful navigations for offline reuse.
-          if (fresh && fresh.ok) {
+          // Cache a copy of successful navigations for offline reuse. Только
+          // HTML: в shell кладём страницу, а не файл, на который пришёл переход.
+          const html = ((fresh && fresh.headers.get("content-type")) || "").includes("text/html");
+          if (fresh && fresh.ok && html) {
             const cache = await caches.open(SHELL_CACHE);
             cache.put(req, fresh.clone()).catch(() => {});
           }

@@ -227,6 +227,7 @@ export async function middleware(request: NextRequest) {
     // скрытый H1 до загрузки переводов (components/home/HomeSeoFallback).
     const forwarded = new Headers(request.headers);
     forwarded.set('x-esai-path', pathname);
+    forwarded.set('x-esai-search', request.nextUrl.search);
     res = NextResponse.next({ request: { headers: forwarded } });
   }
 

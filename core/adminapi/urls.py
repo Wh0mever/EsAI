@@ -1,6 +1,7 @@
 from django.urls import path
 
-from . import blocks, creators, generations, openrouter, prices, studio_scenes, studio_works, views, vstudio
+from . import (academy, blocks, creators, generations, openrouter, prices, studio_scenes, studio_works,
+               views, vstudio)
 
 app_name = "adminapi"
 
@@ -79,6 +80,15 @@ urlpatterns = [
     path("studio/sections/", studio_scenes.StudioSectionsView.as_view(), name="studio-sections"),
     path("studio/sections/<int:pk>/", studio_scenes.StudioSectionView.as_view(),
          name="studio-section"),
+    # EsAI Академия: курсы со ссылками на сайты авторов и ссылка «Предложить курс».
+    # order/ объявлен раньше <int:pk>/ — так читается порядок разбора.
+    path("academy/courses/", academy.AcademyCoursesView.as_view(), name="academy-courses"),
+    path("academy/courses/order/", academy.AcademyCourseOrderView.as_view(),
+         name="academy-courses-order"),
+    path("academy/courses/<int:pk>/", academy.AcademyCourseView.as_view(), name="academy-course"),
+    path("academy/courses/<int:pk>/cover/", academy.AcademyCourseCoverView.as_view(),
+         name="academy-course-cover"),
+    path("academy/settings/", academy.AcademySettingsView.as_view(), name="academy-settings"),
     # Программа EsAI Creators. Все адреса с фиксированным хвостом объявлены
     # раньше creators/<int:pk>/.
     path("creators/applications/", creators.ApplicationsListView.as_view(),

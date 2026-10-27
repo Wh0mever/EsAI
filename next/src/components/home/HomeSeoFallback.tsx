@@ -22,18 +22,21 @@ const SECTIONS: Record<string, { href: string; label: string }[]> = {
 		{ href: "/studio", label: "Мультстудия" },
 		{ href: "/video-studio", label: "Видеостудия" },
 		{ href: "/merge", label: "Склейка видео" },
+		{ href: "/academy", label: "EsAI Академия" },
 		{ href: "/pricing", label: "Цены" },
 	],
 	en: [
 		{ href: "/studio", label: "Cartoon studio" },
 		{ href: "/video-studio", label: "Video studio" },
 		{ href: "/merge", label: "Video merge" },
+		{ href: "/academy", label: "EsAI Academy" },
 		{ href: "/pricing", label: "Pricing" },
 	],
 	kg: [
 		{ href: "/studio", label: "Мультстудия" },
 		{ href: "/video-studio", label: "Видеостудия" },
 		{ href: "/merge", label: "Видео бириктирүү" },
+		{ href: "/academy", label: "EsAI Академиясы" },
 		{ href: "/pricing", label: "Баалар" },
 	],
 };

@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import GoPayInvoice, GoPayWebhookEvent, Payment
+from .models import FunnelEvent, GoPayInvoice, GoPayWebhookEvent, Payment
 
 
 @admin.register(Payment)
@@ -47,4 +47,20 @@ class GoPayWebhookEventAdmin(_ReadOnlyAdmin):
     list_filter = ('event', 'processed')
     search_fields = ('order_id', 'provider_payment_id')
     ordering = ('-received_at', '-id')
+    list_per_page = 50
+
+
+@admin.register(FunnelEvent)
+class FunnelEventAdmin(_ReadOnlyAdmin):
+    """Шаги воронки, в том числе диагностика «Скачать» (media_save) — без SSH.
+
+    Клиент присылает скриншот шторки «Сохранить» с кодом для поддержки: поиск
+    по коду (meta.diag) сразу находит его попытку, по ключу устройства — все.
+    Только просмотр: события пишет сайт, правка руками исказила бы счёт.
+    """
+    list_display = ('created_at', 'name', 'device_key', 'user', 'meta')
+    list_filter = ('name',)
+    search_fields = ('device_key', 'meta__diag')
+    list_select_related = ('user',)
+    ordering = ('-created_at', '-id')
     list_per_page = 50

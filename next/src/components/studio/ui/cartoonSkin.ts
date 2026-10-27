@@ -17,8 +17,14 @@ export const CS_GAP = "mt-8 sm:mt-10";
 export const CS_ANCHOR = "scroll-mt-6 scroll-mb-14";
 /** Шапка секции: заголовок с пояснением слева, действие справа; на узком — под заголовком. */
 export const CS_HEAD = "flex flex-wrap items-end justify-between gap-x-6 gap-y-3";
-/** Горизонтальная лента во всю ширину колонки (как ContinueStrip). + EDGE_FADE[fade]. */
-export const CS_STRIP = "vs-noscroll -mx-4 overflow-x-auto px-4 py-1 sm:-mx-6 sm:px-6";
+/**
+ * Горизонтальная лента во всю ширину колонки (как ContinueStrip). + EDGE_FADE[fade].
+ * relative: скрытые подписи в карточках (sr-only — position:absolute) иначе привязываются к колонке
+ * студии мимо ленты — лента их не режет и не прокручивает, колонка становится шире экрана на каждую
+ * сцену после второй, и свайп по ленте уводит вбок всю студию. overscroll-x-contain: дойдя до края
+ * ленты, свайп не передаётся колонке.
+ */
+export const CS_STRIP = "vs-noscroll relative -mx-4 overflow-x-auto overscroll-x-contain px-4 py-1 sm:-mx-6 sm:px-6";
 /** Чип 40 px с зоной нажатия 44 px на телефоне (как TemplateChips). */
 export const CS_CHIP = vx(VS_PILL, "relative active:scale-[0.97] before:absolute before:inset-x-0 before:-inset-y-0.5 before:content-[''] md:before:hidden");
 /** Кнопка в карточке: тихая, во всю ширину, 44 px на телефоне. */
