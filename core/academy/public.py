@@ -1,4 +1,4 @@
-"""Что Академия показывает на сайте: курсы и ссылка «Предложить курс».
+"""Что Академия показывает на сайте: курсы и «Предложить курс» (ссылка, e-mail или текст).
 
 Курсов десятки, поэтому API отдаёт все опубликованные разом, а по 9 на
 страницу их режет Next: один адрес — один ключ кэша, и перебор ?page=1…10⁶
@@ -73,11 +73,12 @@ def public_json(course: Course) -> dict:
     }
 
 
-def suggest_url() -> str:
-    """Ссылка кнопки «Предложить курс»; пусто — кнопки нет. Не бросает никогда.
+def suggest() -> links.Suggest | None:
+    """«Предложить курс»: ссылка, e-mail или текст; None — на сайте ничего. Не бросает никогда.
 
     Чтение — в savepoint, как у витрины видеостудии: сбой запроса к настройкам
-    не должен ломать транзакцию запроса.
+    не должен ломать транзакцию запроса. Значение разбирается заново: строку
+    в базе могли поправить мимо панели.
     """
     try:
         from adminapi.runtime import get_runtime
@@ -85,13 +86,19 @@ def suggest_url() -> str:
         with transaction.atomic():
             raw = get_runtime(links.SUGGEST_KEY, "")
     except Exception:
-        logger.debug("academy: ссылка «Предложить курс» не прочиталась", exc_info=True)
-        return ""
-    return links.safe_suggest_url(raw)
+        logger.debug("academy: «Предложить курс» не прочиталось", exc_info=True)
+        return None
+    return links.safe_suggest(raw)
+
+
+def suggest_fields(item: links.Suggest | None) -> dict:
+    """suggest — сайту; suggest_url (href или "") — страницам, собранным до появления suggest."""
+    return {"suggest_url": (item.href or "") if item else "",
+            "suggest": item.as_json() if item else None}
 
 
 def public_payload() -> dict:
-    """Ответ публичного API. Список курсов — из кэша; ссылка кнопки — у настроек свой кэш."""
+    """Ответ публичного API. Список курсов — из кэша; «Предложить курс» — у настроек свой кэш."""
     try:
         results = cache.get(CACHE_KEY)
     except Exception:
@@ -103,7 +110,7 @@ def public_payload() -> dict:
         except Exception:
             pass
     return {"count": len(results), "page_size": PAGE_SIZE, "results": results,
-            "suggest_url": suggest_url()}
+            **suggest_fields(suggest())}
 
 
 def _forget() -> None:

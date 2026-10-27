@@ -3,13 +3,26 @@
 import Link from "next/link";
 import { useRef, type ComponentType, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { FiAlertCircle, FiBookOpen, FiExternalLink, FiPlayCircle, FiSend, FiUserCheck } from "react-icons/fi";
+import { FiAlertCircle, FiBookOpen, FiExternalLink, FiMail, FiPlayCircle, FiSend, FiUserCheck } from "react-icons/fi";
 import CourseCard, { type CourseCardLabels } from "./CourseCard";
 import AcademyPagination, { type PagerLabels } from "./AcademyPagination";
-import { ACADEMY_RU, EXTERNAL_REL, pageHref, type AcademyKey, type AcademyPageView } from "@/lib/academy/shared";
+import SuggestText from "./SuggestText";
+import {
+  ACADEMY_RU,
+  EXTERNAL_REL,
+  pageHref,
+  type AcademyKey,
+  type AcademyPageView,
+  type AcademySuggest,
+} from "@/lib/academy/shared";
 
-/** Что страница получила с сервера: каталог, нарезанный на текущую страницу, или сбой API. */
-export type AcademyState = { ok: true; view: AcademyPageView; suggestUrl: string | null } | { ok: false; page: number };
+/**
+ * Что страница получила с сервера: каталог, нарезанный на текущую страницу, или сбой API.
+ * suggestUrl — блок «Предложить курс» (имя осталось от времён одной ссылки, см. AcademyCatalog).
+ */
+export type AcademyState =
+  | { ok: true; view: AcademyPageView; suggestUrl: AcademySuggest | null }
+  | { ok: false; page: number };
 
 const CONTAINER = "mx-auto w-full max-w-[1200px] px-4 sm:px-6";
 const CARD = "rounded-3xl border border-border bg-surface";
@@ -47,7 +60,7 @@ export default function AcademyView({ state }: { state: AcademyState }) {
     next: tx("pager.next"),
     page: (n) => tx("pager.page", { page: n }),
   };
-  const suggestUrl = state.ok ? state.suggestUrl : null;
+  const suggest = state.ok ? state.suggestUrl : null;
 
   return (
     <main className="pb-16 sm:pb-24">
@@ -139,24 +152,41 @@ export default function AcademyView({ state }: { state: AcademyState }) {
             {tx("suggest.title")}
           </h2>
           <p className="mt-3 max-w-2xl text-balance text-muted">{tx("suggest.text")}</p>
-          {/* ТЗ: ссылку задают в панели; нет ссылки — нет кнопки, текст блока остаётся. */}
-          {suggestUrl && (
-            <a
-              href={suggestUrl}
-              target="_blank"
-              rel={EXTERNAL_REL}
-              className="mt-6 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-full bg-accent px-6 py-2.5 font-semibold text-on-accent transition-colors hover:bg-accent-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:w-auto"
-            >
+          {/* Что под приглашением, задают в панели: ссылка или почта — кнопка, иное — текст; пусто — ничего. */}
+          {suggest?.kind === "url" && (
+            <a href={suggest.href} target="_blank" rel={EXTERNAL_REL} className={SUGGEST_BUTTON}>
               <FiSend className="h-4 w-4 shrink-0" aria-hidden />
               {tx("suggest.cta")}
               <span className="sr-only">{tx("card.new_tab")}</span>
             </a>
+          )}
+          {suggest?.kind === "email" && (
+            <>
+              {/* Письмо открывается в почтовой программе, не во вкладке. */}
+              <a href={suggest.href} className={SUGGEST_BUTTON}>
+                <FiMail className="h-4 w-4 shrink-0" aria-hidden />
+                {tx("suggest.cta")}
+              </a>
+              {/* Почтовой программы может не быть — адрес виден и выделяется целиком для копирования. */}
+              <p className="mt-3 max-w-full select-all text-sm text-muted [overflow-wrap:anywhere]">{suggest.text}</p>
+            </>
+          )}
+          {suggest?.kind === "text" && (
+            <SuggestText
+              text={suggest.text}
+              newTab={tx("card.new_tab")}
+              className="mt-5 max-w-2xl whitespace-pre-line text-foreground [overflow-wrap:anywhere]"
+              linkClassName="rounded-sm text-accent underline underline-offset-2 transition-colors hover:text-accent-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            />
           )}
         </section>
       </div>
     </main>
   );
 }
+
+const SUGGEST_BUTTON =
+  "mt-6 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-full bg-accent px-6 py-2.5 font-semibold text-on-accent transition-colors hover:bg-accent-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:w-auto";
 
 const NOTICE_LINK =
   "inline-flex min-h-11 items-center justify-center rounded-full border border-border px-5 text-sm font-semibold text-foreground transition-colors hover:border-accent/60 hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";

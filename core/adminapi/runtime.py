@@ -137,10 +137,10 @@ KEYS = (
     "creators_mode",
     "creators_hold_days",
     "creators_payouts_enabled",
-    # Академия: ссылка кнопки «Предложить курс» (обычно https://t.me/…). Пусто —
-    # кнопки нет. Пишет только панель Академии (PATCH academy/settings/, там же
-    # проверка и приведение @имя → https://t.me/имя); в общем PATCH settings/
-    # ключа нет намеренно. Читает academy.public.suggest_url, он проверяет ещё раз.
+    # Академия: «Предложить курс» — ссылка, e-mail или текст (links.parse_suggest).
+    # Пусто — на сайте ничего. Пишет только панель Академии (PATCH academy/settings/,
+    # там же разбор: @имя → https://t.me/имя, mailto:…?subject → адрес); в общем
+    # PATCH settings/ ключа нет намеренно. Читает academy.public.suggest, он проверяет ещё раз.
     "academy_suggest_url",
 )
 

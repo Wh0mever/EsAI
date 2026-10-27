@@ -27,7 +27,11 @@ const LANGUAGES: Lang[] = [
   { code: "kg", icon: "/images/local/kg.webp", label: "Кыргызча" },
 ];
 
-const CATEGORIES_ROUTES = ["/about", "/contact-us", "/faq", "/terms-conditions", "/creators"];
+// В мобильном меню «Блог» — обычный пункт над «Категориями», и на /blog они не подсвечиваются.
+const MOBILE_CATEGORIES_ROUTES = ["/about", "/contact-us", "/faq", "/terms-conditions", "/creators"];
+// На десктопе «Блог» — первый пункт «Категорий» (в ряду его место заняла «Академия»),
+// поэтому /blog и /blog/<slug> подсвечивают «Категории».
+const CATEGORIES_ROUTES = ["/blog", ...MOBILE_CATEGORIES_ROUTES];
 
 // «Видеостудия» в меню — только когда студия открыта всем (VSTUDIO_MODE=on на
 // бэкенде). Пока она в режиме staff, обычный посетитель увидел бы там лишь
@@ -148,7 +152,7 @@ function MobileNav({ className, onNavigate }: any) {
           <div
             className={clsx(
               "px-4 pb-1 text-xs uppercase tracking-wide",
-              anyActive(CATEGORIES_ROUTES) ? "text-rose-400" : "text-muted-2"
+              anyActive(MOBILE_CATEGORIES_ROUTES) ? "text-rose-400" : "text-muted-2"
             )}
           >
             {t("nav.categories")}
@@ -205,14 +209,13 @@ function PCNav({ className, onNavigate, t, changeLanguage, currentLang }: any) {
     );
 
   const categoriesActive = anyActive(CATEGORIES_ROUTES);
-  // Ниже 2xl «EsAI Академия» стоит в «Категориях» — на /academy подсвечиваем их, пока пункта нет в ряду.
-  const academyInCategories = !categoriesActive && isActive("/academy");
 
   return (
-    <nav className={clsx("bg-surface px-5 xl:px-6 rounded-4xl flex items-center shadow-md", className)}>
-      {/* С «EsAI Академией» ряд стал на пункт длиннее: на 2xl промежуток 32 px вместо 40 —
-          иначе на 1536 px у вошедшего (по-кыргызски) «AI Чат» уезжал за край экрана. */}
-      <ul className="flex items-center gap-5 xl:gap-8 text-md">
+    <nav className={clsx("bg-surface px-3 xl:px-6 rounded-4xl flex items-center shadow-md", className)}>
+      {/* Ниже xl ряд плотнее (поля, промежутки, 14 px): иначе у вошедшего по-кыргызски шапка
+          уезжает за край (на 1024 px так было ещё до «Академии» в ряду). nowrap — чтобы в
+          тесноте пункт («Башкы бет») не ломался на две строки. */}
+      <ul className="flex items-center gap-2 min-[1100px]:gap-3 xl:gap-5 2xl:gap-8 text-sm xl:text-base whitespace-nowrap">
         <li className={linkCls("/", true)}>
           <Link href="/" onClick={onNavigate} className={linkInner(isActive("/", true))} aria-current={isActive("/", true) ? "page" : undefined}>
             {t("nav.home")}
@@ -245,52 +248,36 @@ function PCNav({ className, onNavigate, t, changeLanguage, currentLang }: any) {
             {t("nav.merge", { defaultValue: "Склейка" })}
           </Link>
         </li>
-        {/* «EsAI Академия» в ряду — только от 1536 px. Уже без неё ряд на 1024–1279 px
-            не помещается у вошедшего, а на 1280 px остаётся ~60 px при нужных ~140:
-            ниже 2xl пункт стоит первым в «Категориях». */}
-        <li className={clsx(linkCls("/academy"), "hidden whitespace-nowrap 2xl:block")}>
+        {/* «Академия» всегда в ряду (владелец: «должна быть видна»). Полная подпись
+            «EsAI Академия» помещается только от 1536 px, ниже — короткая; переключает CSS,
+            без JS, чтобы при гидрации ничего не прыгало. */}
+        <li className={linkCls("/academy")}>
           <Link href="/academy" onClick={onNavigate} className={linkInner(isActive("/academy"))} aria-current={isActive("/academy") ? "page" : undefined}>
-            {t("nav.academy", { defaultValue: "EsAI Академия" })}
-          </Link>
-        </li>
-        <li className={linkCls("/blog")}>
-          <Link href="/blog" onClick={onNavigate} className={linkInner(isActive("/blog"))} aria-current={isActive("/blog") ? "page" : undefined}>
-            {t("nav.blog")}
+            <span className="2xl:hidden">{t("nav.academy_short", { defaultValue: "Академия" })}</span>
+            <span className="hidden 2xl:inline">{t("nav.academy", { defaultValue: "EsAI Академия" })}</span>
           </Link>
         </li>
 
-        <li
-          className={clsx(
-            "py-3",
-            categoriesActive ? "text-foreground" : academyInCategories ? "text-foreground 2xl:text-muted" : "text-muted",
-            "hover:text-foreground"
-          )}
-        >
+        <li className={clsx("py-3", categoriesActive ? "text-foreground" : "text-muted", "hover:text-foreground")}>
           <DropDownHovered
             handleText={
-              <span
-                className={clsx(
-                  linkInner(categoriesActive || academyInCategories),
-                  academyInCategories && "2xl:after:hidden"
-                )}
-                aria-current={categoriesActive ? "page" : undefined}
-              >
+              <span className={linkInner(categoriesActive)} aria-current={categoriesActive ? "page" : undefined}>
                 {t("nav.categories")}
               </span>
             }
           >
             <ul className="flex flex-col text-sm py-2">
-              <li className="border-b border-neutral-700 2xl:hidden">
+              <li className="border-b border-neutral-700">
                 <Link
-                  href="/academy"
+                  href="/blog"
                   onClick={onNavigate}
                   className={clsx(
                     "py-4 px-8 hover:bg-surface-2 transition-all duration-300 flex w-full",
-                    isActive("/academy") && "bg-surface-2"
+                    isActive("/blog") && "bg-surface-2"
                   )}
-                  aria-current={isActive("/academy") ? "page" : undefined}
+                  aria-current={isActive("/blog") ? "page" : undefined}
                 >
-                  {t("nav.academy", { defaultValue: "EsAI Академия" })}
+                  {t("nav.blog")}
                 </Link>
               </li>
               <li className="border-b border-neutral-700">

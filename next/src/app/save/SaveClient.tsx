@@ -16,6 +16,9 @@ import type { SheetStart } from "@/tools/saveMedia";
 export default function SaveClient({ target }: { target: SaveTarget | null }) {
   const { t } = useTranslation("common");
   const [start] = useState<SheetStart>(() => ({ reason: "", failed: false, diag: newDiagCode() }));
+  // Файл удалён или недоступен: пустой чёрный плеер над «Файл больше недоступен» только сбивает.
+  // Ошибка могла случиться до гидрации — тогда onError не придёт, проверяем элемент при монтировании.
+  const [broken, setBroken] = useState(false);
   const video = target?.kind === "video";
 
   return (
@@ -38,20 +41,28 @@ export default function SaveClient({ target }: { target: SaveTarget | null }) {
                 ? t("media.sheet.save_video", { defaultValue: "Сохранить видео" })
                 : t("media.sheet.save_image", { defaultValue: "Сохранить фото" })}
             </h1>
-            {video ? (
+            {broken ? null : video ? (
               // #t=0.1 — iOS иначе показывает чёрный прямоугольник вместо первого кадра.
               <video
+                ref={(el) => {
+                  if (el?.error) setBroken(true);
+                }}
                 src={`${target.path}#t=0.1`}
                 controls
                 playsInline
                 preload="metadata"
+                onError={() => setBroken(true)}
                 className="max-h-[50dvh] w-full rounded-xl bg-black object-contain"
               />
             ) : (
               // eslint-disable-next-line @next/next/no-img-element
               <img
+                ref={(el) => {
+                  if (el?.complete && el.naturalWidth === 0) setBroken(true);
+                }}
                 src={target.path}
                 alt={target.filename}
+                onError={() => setBroken(true)}
                 className="max-h-[50dvh] w-full rounded-xl bg-surface-2 object-contain"
               />
             )}

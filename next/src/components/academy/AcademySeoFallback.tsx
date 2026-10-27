@@ -15,6 +15,7 @@ import {
   paginate,
   type AcademyKey,
 } from "@/lib/academy/shared";
+import SuggestText from "./SuggestText";
 
 // Что видит /academy в HTML с сервера, пока в браузере грузятся переводы.
 //
@@ -32,7 +33,7 @@ export default async function AcademySeoFallback({ lang, search }: { lang: strin
   const page = pageFromSearch(search);
   const result = await getAcademyCatalog();
   const view = result.ok ? paginate(result.catalog.courses, page, result.catalog.pageSize) : null;
-  const suggestUrl = result.ok ? result.catalog.suggestUrl : null;
+  const suggest = result.ok ? result.catalog.suggestUrl : null;
   // Разметка — по-русски, как метаданные и JSON-LD самой страницы (app/academy/page.tsx).
   const breadcrumb = breadcrumbJsonLd([
     { name: ACADEMY_RU["breadcrumb.home"], url: "/" },
@@ -102,11 +103,17 @@ export default async function AcademySeoFallback({ lang, search }: { lang: strin
 
       <h2>{tx("suggest.title")}</h2>
       <p>{tx("suggest.text")}</p>
-      {suggestUrl && (
-        <a href={suggestUrl} rel={EXTERNAL_REL}>
+      {suggest?.kind === "url" && (
+        <a href={suggest.href} rel={EXTERNAL_REL}>
           {tx("suggest.cta")}
         </a>
       )}
+      {suggest?.kind === "email" && (
+        <p>
+          <a href={suggest.href}>{tx("suggest.cta")}</a> {suggest.text}
+        </p>
+      )}
+      {suggest?.kind === "text" && <SuggestText text={suggest.text} newTab={tx("card.new_tab")} />}
 
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdScript(breadcrumb) }} />
       {view && view.courses.length > 0 && (

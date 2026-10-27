@@ -256,6 +256,7 @@ test("файл не отдался (404) или вместо файла стра
   let out = await saveMedia(nextUrl(), "esai-video.mp4", { report });
   assert.equal(out.result, "sheet");
   assert.deepEqual([out.sheet.reason, out.sheet.failed], ["HttpError", true]);
+  assert.equal(out.sheet.http, 404, "шторка сразу знает, что файла нет");
   assert.equal(s.shares.length, 0, "HTML ошибки не уходит в окно как .mp4");
   assert.deepEqual([s.reports[0].result, s.reports[0].err, s.reports[0].stage, s.reports[0].http], ["error", "HttpError", "fetch", 404]);
 

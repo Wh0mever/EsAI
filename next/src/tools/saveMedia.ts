@@ -359,8 +359,11 @@ export function mediaEventMeta(p: {
 
 /* ---------- первое нажатие ---------- */
 
-/** С чем открыть шторку: reason — почему не вышло сразу ("slow", имя ошибки share), failed — файл не скачался. */
-export type SheetStart = { reason: string; failed: boolean; diag: string };
+/**
+ * С чем открыть шторку: reason — почему не вышло сразу ("slow", имя ошибки share), failed — файл не скачался,
+ * http — код ответа файла (404/410: файла больше нет, шторка не предлагает повтор).
+ */
+export type SheetStart = { reason: string; failed: boolean; diag: string; http?: number | null };
 
 /**
  * Чем закончилось первое нажатие. "sheet" — сразу не вышло (файл качается дольше
@@ -497,7 +500,7 @@ export async function saveMedia(url: string, filename: string, opts: SaveOptions
     // Файл не скачался (сеть, 404/502, вместо файла страница): шторка с «Повторить».
     const name = errName(e) || "other";
     report("sheet", "error", name, blob ? "download" : "fetch");
-    return { result: "sheet", sheet: { reason: name, failed: true, diag } };
+    return { result: "sheet", sheet: { reason: name, failed: true, diag, http: entry ? entry.http : null } };
   } finally {
     _inFlight.delete(url);
     // Освобождаем память (видео — несколько МБ), если файл не нужен шторке.

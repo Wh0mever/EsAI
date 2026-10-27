@@ -1,14 +1,14 @@
-"""EsAI Академия в панели: курсы со ссылками на сайты авторов и ссылка «Предложить курс».
+"""EsAI Академия в панели: курсы со ссылками на сайты авторов и «Предложить курс».
 
-  GET    academy/courses/              все курсы в порядке сайта, ссылка кнопки, границы полей
+  GET    academy/courses/              все курсы в порядке сайта, «Предложить курс», границы полей
   POST   academy/courses/              новый черновик (JSON)
   POST   academy/courses/order/        новый порядок всех курсов {ids}
   GET    academy/courses/<id>/         один курс
   PATCH  academy/courses/<id>/         поправить, опубликовать, скрыть
   DELETE academy/courses/<id>/         удалить
   POST   academy/courses/<id>/cover/   обложка (multipart, file)
-  GET    academy/settings/             {suggest_url}
-  PATCH  academy/settings/             {suggest_url}: @имя, t.me/…, https://… или пусто
+  GET    academy/settings/             {suggest_url, suggest}
+  PATCH  academy/settings/             {suggest_url}: @имя, ссылка, e-mail, текст или пусто
 
 Любой сотрудник, как остальная панель (только главному администратору можно
 отдать позже — IsSuperuser). Проверка полей и ссылок, журнал действий и
@@ -21,7 +21,7 @@ from rest_framework import status
 from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 
-from academy import panel, public
+from academy import panel
 
 from .views import StaffAPIView
 
@@ -76,11 +76,11 @@ class AcademyCourseOrderView(StaffAPIView):
 
 
 class AcademySettingsView(StaffAPIView):
-    """GET / PATCH {suggest_url} — ссылка кнопки «Предложить курс»; пусто — кнопки нет."""
+    """GET / PATCH «Предложить курс»: {suggest_url — что сохранено, suggest — как на сайте}."""
 
     def get(self, request):
-        return Response({"suggest_url": public.suggest_url()})
+        return Response(panel.settings_payload())
 
     def patch(self, request):
-        value = panel.set_suggest_url(_body(request), actor=request.user, request=request)
-        return Response({"suggest_url": value})
+        item = panel.set_suggest_url(_body(request), actor=request.user, request=request)
+        return Response(panel.suggest_payload(item))

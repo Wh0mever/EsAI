@@ -56,15 +56,39 @@ class PublicCoursesTests(AcademyCase):
 
     def test_empty_catalogue(self):
         data = self.get().data
-        self.assertEqual(data, {"count": 0, "page_size": 9, "results": [], "suggest_url": ""})
+        self.assertEqual(data, {"count": 0, "page_size": 9, "results": [], "suggest_url": "",
+                                "suggest": None})
+
+    def suggest(self):
+        data = self.get().data
+        return data["suggest_url"], data["suggest"]
 
     def test_suggest_url_comes_from_runtime_setting_and_is_rechecked(self):
-        self.assertEqual(self.get().data["suggest_url"], "")
+        self.assertEqual(self.suggest(), ("", None))
         set_runtime("academy_suggest_url", "https://t.me/esai_academy")
-        self.assertEqual(self.get().data["suggest_url"], "https://t.me/esai_academy")
+        self.assertEqual(self.suggest(), ("https://t.me/esai_academy",
+                                          {"kind": "url", "text": "https://t.me/esai_academy",
+                                           "href": "https://t.me/esai_academy"}))
         # Значение поправили мимо панели — на сайт оно не попадёт.
-        set_runtime("academy_suggest_url", "javascript:alert(1)")
-        self.assertEqual(self.get().data["suggest_url"], "")
+        for bad in ("javascript:alert(1)", "https://u:p@example.com", "a\u202eb"):
+            set_runtime("academy_suggest_url", bad)
+            self.assertEqual(self.suggest(), ("", None), bad)
+        # Неприведённое значение мимо панели сайт показывает приведённым.
+        set_runtime("academy_suggest_url", "@esai_academy")
+        self.assertEqual(self.suggest()[0], "https://t.me/esai_academy")
+
+    def test_suggest_email_and_text(self):
+        set_runtime("academy_suggest_url", "academy@курсы.рф")
+        self.assertEqual(self.suggest(), (
+            "mailto:academy@xn--j1amdg6b.xn--p1ai",
+            {"kind": "email", "text": "academy@курсы.рф", "href": "mailto:academy@xn--j1amdg6b.xn--p1ai"}))
+        # У текста кнопки нет: прежнее поле пустое, чтобы старые страницы ничего не показали.
+        set_runtime("academy_suggest_url", "Пишите на academy@esai.kg\nили в Telegram @esai_academy")
+        self.assertEqual(self.suggest(), (
+            "", {"kind": "text", "text": "Пишите на academy@esai.kg\nили в Telegram @esai_academy",
+                 "href": None}))
+        set_runtime("academy_suggest_url", "http://localhost:3000/form")
+        self.assertEqual(self.suggest()[1]["href"], "http://localhost:3000/form")
 
     def test_list_is_cached_and_cacheable(self):
         ready_course(1)

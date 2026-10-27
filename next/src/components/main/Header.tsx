@@ -86,10 +86,15 @@ export default function Header() {
 				// pt учитывает вырез iOS (safe-area) в установленном PWA, иначе
 				// лого/меню налезали на системную строку (время/сеть/зарядку).
 				"pb-2 pt-[calc(0.5rem_+_env(safe-area-inset-top,0px))]",
-				"lg:px-20 px-10",
+				// На 1024–1535 px полей 80 px десктопному меню не хватает: у вошедшего
+				// шапка уезжала за край. Мобильные 40 px — как были.
+				"px-10 lg:px-4 xl:px-10 2xl:px-20",
 			].join(" ")}
 		>
-			<div className="flex items-center justify-between gap-5">
+			{/* gap при justify-between — лишь минимум, он заметен только в тесноте: на 1024 px
+			    у вошедшего по-кыргызски, да ещё с полосой прокрутки Windows (~16 px), больший
+			    зазор вытолкнул бы кнопки входа за поле шапки. */}
+			<div className="flex items-center justify-between gap-5 lg:gap-2">
 				<div className="flex items-center gap-4">
 					<button
 						className="lg:hidden cursor-pointer inline-flex h-12 w-12 items-center justify-center rounded-xl border border-border bg-surface-2/70 backdrop-blur active:scale-95"

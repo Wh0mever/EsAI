@@ -128,7 +128,7 @@ class CreateAndFieldsTests(PanelCase):
         self.assertEqual(self.create(title="X", is_published=False).status_code, 201)
 
     def test_text_cleaning_and_limits(self):
-        response = self.create(title="Курс‮\x00 о\tнейросетях​", teacher="Имя  Фамилия")
+        response = self.create(title="Курс\u202e\x00 о\tнейросетях\u200b", teacher="Имя  Фамилия")
         self.assertEqual(response.data["title"], "Курс о нейросетях")
         self.assertEqual(response.data["teacher"], "Имя Фамилия")
         self.assertEqual(self.create(title="я" * 120).status_code, 201)
@@ -272,7 +272,8 @@ class PublishTests(PanelCase):
         self.assertEqual([row["state"] for row in data["results"]], ["live", "draft"])
         self.assertEqual(data["counts"], {"live": 1, "draft": 1, "hidden": 0, "incomplete": 0,
                                           "total": 2})
-        self.assertEqual(data["suggest_url"], "")
+        self.assertEqual((data["suggest_url"], data["suggest"]), ("", None))
+        self.assertEqual(data["limits"]["suggest_url"], 300)
         self.assertEqual(data["limits"]["page_size"], 9)
         self.assertEqual(data["limits"]["cover_min"], [480, 270])
         self.assertEqual(data["limits"]["title"], 120)
@@ -429,48 +430,148 @@ class DeleteAndOrderTests(PanelCase):
 
 
 class SuggestSettingsTests(PanelCase):
+    """«Предложить курс» в панели: ссылка, e-mail или текст; ответы, журнал, сайт, кэш."""
+
     def setting(self, value):
         with self.captureOnCommitCallbacks(execute=True):
             return self.api.patch(self.url("academy-settings"), {"suggest_url": value},
                                   format="json")
 
+    def stored(self):
+        row = AppSetting.objects.filter(key="academy_suggest_url").first()
+        return row.value if row else None
+
+    def site(self):
+        data = APIClient().get(PUBLIC_URL).data
+        return data["suggest_url"], data["suggest"]
+
     def test_telegram_name_is_normalised_and_shown_on_the_site(self):
-        self.assertEqual(self.api.get(self.url("academy-settings")).data, {"suggest_url": ""})
+        self.assertEqual(self.api.get(self.url("academy-settings")).data,
+                         {"suggest_url": "", "suggest": None})
         response = self.setting("@my_channel")
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.data, {"suggest_url": "https://t.me/my_channel"})
-        self.assertEqual(APIClient().get(PUBLIC_URL).data["suggest_url"], "https://t.me/my_channel")
-        self.assertEqual(self.api.get(self.url("academy-courses")).data["suggest_url"],
-                         "https://t.me/my_channel")
+        expected = {"suggest_url": "https://t.me/my_channel",
+                    "suggest": {"kind": "url", "text": "https://t.me/my_channel",
+                                "href": "https://t.me/my_channel"}}
+        self.assertEqual(response.data, expected)
+        self.assertEqual(self.api.get(self.url("academy-settings")).data, expected)
+        self.assertEqual(self.site(), ("https://t.me/my_channel", expected["suggest"]))
+        listing = self.api.get(self.url("academy-courses")).data
+        self.assertEqual((listing["suggest_url"], listing["suggest"]),
+                         ("https://t.me/my_channel", expected["suggest"]))
         log = self.logs().get()
         self.assertEqual(log.before, {"academy_suggest_url": ""})
         self.assertEqual(log.after, {"academy_suggest_url": "https://t.me/my_channel"})
         # Повтор — без записи.
-        self.setting("t.me/my_channel")
+        self.assertEqual(self.setting("t.me/my_channel").data, expected)
         self.assertEqual(self.logs().count(), 1)
 
-    def test_empty_removes_the_button(self):
-        self.setting("@my_channel")
-        for value in ("", None):
+    def test_email_is_stored_as_address_and_opens_a_letter(self):
+        response = self.setting("mailto:academy@esai.kg?subject=Курс в EsAI")
+        self.assertEqual(response.status_code, 200, response.data)
+        email = {"kind": "email", "text": "academy@esai.kg", "href": "mailto:academy@esai.kg"}
+        self.assertEqual(response.data, {"suggest_url": "academy@esai.kg", "suggest": email})
+        self.assertEqual(self.stored(), "academy@esai.kg")
+        self.assertEqual(self.site(), ("mailto:academy@esai.kg", email))
+        self.assertEqual(self.logs().get().after, {"academy_suggest_url": "academy@esai.kg"})
+        # Тот же адрес другим видом — без записи.
+        self.setting(" academy@esai.kg ")
+        self.assertEqual(self.logs().count(), 1)
+        response = self.setting("academy@курсы.рф")
+        self.assertEqual(response.data["suggest"]["href"], "mailto:academy@xn--j1amdg6b.xn--p1ai")
+        self.assertEqual(self.stored(), "academy@курсы.рф")
+
+    def test_text_is_stored_and_shown_without_button(self):
+        response = self.setting("  Пишите   на academy@esai.kg\r\n\r\nили звоните: +996 555 123 456 ")
+        self.assertEqual(response.status_code, 200, response.data)
+        text = "Пишите на academy@esai.kg\nили звоните: +996 555 123 456"
+        self.assertEqual(response.data, {"suggest_url": text,
+                                         "suggest": {"kind": "text", "text": text, "href": None}})
+        self.assertEqual(self.stored(), text)
+        self.assertEqual(self.site(), ("", {"kind": "text", "text": text, "href": None}))
+        self.assertEqual(self.api.get(self.url("academy-courses")).data["suggest_url"], text)
+
+    def test_link_with_words_after_it_is_text(self):
+        # Текст, начатый со ссылки, и двоеточие без «//» — не отказ, а текст без кнопки.
+        for value, text in (("https://forms.gle/abc\r\nЗаполните анкету",
+                             "https://forms.gle/abc\nЗаполните анкету"),
+                            ("Contact:academy@esai.kg", "Contact:academy@esai.kg"),
+                            ("mailto:foo", "mailto:foo")):
             response = self.setting(value)
-            self.assertEqual(response.data, {"suggest_url": ""})
-            self.assertFalse(AppSetting.objects.filter(key="academy_suggest_url").exists())
-            self.assertEqual(APIClient().get(PUBLIC_URL).data["suggest_url"], "")
+            self.assertEqual(response.status_code, 200, value)
+            self.assertEqual(response.data, {"suggest_url": text,
+                                             "suggest": {"kind": "text", "text": text, "href": None}}, value)
+            self.assertEqual(self.site(), ("", {"kind": "text", "text": text, "href": None}), value)
+
+    def test_any_link_is_allowed(self):
+        for value in ("https://forms.example.com/academy", "http://forms.example.com",
+                      "https://localhost/x", "http://10.0.0.1:8080/form"):
+            response = self.setting(value)
+            self.assertEqual(response.status_code, 200, value)
+            self.assertEqual(response.data["suggest_url"], value)
+            self.assertEqual(response.data["suggest"]["kind"], "url")
+            self.assertEqual(self.site()[0], value)
+
+    def test_empty_removes_everything(self):
+        self.setting("@my_channel")
+        for value in ("", None, "  \n "):
+            response = self.setting(value)
+            self.assertEqual(response.data, {"suggest_url": "", "suggest": None})
+            self.assertIsNone(self.stored())
+            self.assertEqual(self.site(), ("", None))
         self.assertEqual(self.logs().count(), 2)
 
-    def test_bad_links_are_refused(self):
-        for value in ("http://forms.example.com", "javascript:alert(1)", "@ab", 5,
-                      "https://localhost/x"):
+    def test_refusals_keep_the_old_value(self):
+        self.setting("@my_channel")
+        cases = {
+            "javascript:alert(1)": "Ссылки «javascript:» на сайт не ставим — нужна ссылка https://…, "
+                                   "e-mail, @имя или обычный текст",
+            "https://u:p@example.com": "В ссылке не должно быть логина и пароля (user:pass@)",
+            "file:///etc/passwd": "Ссылки «file:» на сайт не ставим — нужна ссылка https://…, e-mail, "
+                                  "@имя или обычный текст",
+            "tg://resolve?domain=esai": "Ссылки «tg:» не подходят — нужна https:// или http://, e-mail "
+                                        "или @имя в Telegram",
+            "http://127.1/": "Не разобрать адрес сайта в ссылке — проверьте её, например "
+                             "https://example.com/forma",
+            "x" * 301: "Не длиннее 300 символов — сейчас 301",
+            "Курс\u202eтекст": "Уберите невидимые символы: управляющие, нулевой ширины (в том числе "
+                                    "внутри составных эмодзи) или смены направления текста",
+            5: "Предложить курс: нужна строка",
+        }
+        for value, detail in cases.items():
             response = self.setting(value)
             self.assertEqual(response.status_code, 400, value)
-            self.assertEqual(response.data["code"], "suggest_invalid")
-            self.assertEqual(response.data["field"], "suggest_url")
-            self.assertEqual(response.data["detail"],
-                             "Ссылка для кнопки — @имя, t.me/имя или адрес сайта с https://")
+            self.assertEqual(response.data, {"detail": detail, "code": "suggest_invalid",
+                                             "field": "suggest_url"}, value)
         response = self.api.patch(self.url("academy-settings"), {}, format="json")
         self.assertEqual((response.status_code, response.data["code"]), (400, "nothing_to_change"))
-        self.assertFalse(self.logs().exists())
+        self.assertEqual(self.stored(), "https://t.me/my_channel")
+        self.assertEqual(self.site()[0], "https://t.me/my_channel")
+        self.assertEqual(self.logs().count(), 1)
 
-    def test_any_https_link_is_allowed(self):
-        response = self.setting("https://forms.example.com/academy")
-        self.assertEqual(response.data["suggest_url"], "https://forms.example.com/academy")
+    def test_site_sees_the_change_at_once(self):
+        ready_course(1)
+        # Сайт уже прочитал настройку — она лежит в кэше настроек.
+        self.assertEqual(self.site(), ("", None))
+        self.setting("academy@esai.kg")
+        self.assertEqual(self.site()[1]["kind"], "email")
+        self.setting("Пишите нам")
+        self.assertEqual(self.site(), ("", {"kind": "text", "text": "Пишите нам", "href": None}))
+        self.setting("")
+        self.assertEqual(self.site(), ("", None))
+        # Список курсов на месте: сбрасывается только настройка.
+        self.assertEqual(len(APIClient().get(PUBLIC_URL).data["results"]), 1)
+
+    def test_stale_cache_from_a_neighbour_is_dropped_after_commit(self):
+        from django.core.cache import cache
+
+        from adminapi.runtime import CACHE_PREFIX
+
+        def neighbour_reads_old_value(*args, **kwargs):
+            # Пока правка не зафиксирована, соседний запрос кладёт в кэш прежнее значение.
+            cache.set(CACHE_PREFIX + "academy_suggest_url", "https://t.me/old_channel", 30)
+
+        with patch("academy.panel.log_admin_action", side_effect=neighbour_reads_old_value):
+            response = self.setting("academy@esai.kg")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.site()[0], "mailto:academy@esai.kg")

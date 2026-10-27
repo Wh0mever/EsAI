@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FiExternalLink, FiPlus, FiRefreshCw } from "react-icons/fi";
+import type { AcademySuggest } from "@/lib/academy/shared";
 import { fetchData } from "@/tools/fetchData";
 import { CARD, Notices, Skeleton, btn, chip, useNotices } from "../vstudio-showcase/parts";
 import ConfirmDelete from "./ConfirmDelete";
@@ -34,7 +35,7 @@ import {
 /**
  * EsAI Академия (ТЗ клиента 27.10.2026): курсы страницы /academy — карточки со
  * ссылками на сайты авторов. Здесь их заводят, правят, публикуют и скрывают,
- * переставляют и удаляют; здесь же ссылка кнопки «Предложить курс». Курс
+ * переставляют и удаляют; здесь же «Предложить курс» (ссылка, e-mail или текст). Курс
  * попадает на сайт, только когда у него есть обложка, название, преподаватель,
  * описание и годная ссылка — это проверяет сервер. Без правок кода.
  */
@@ -47,6 +48,13 @@ const FILTERS: { key: Filter; label: string }[] = [
 ];
 
 type DialogState = { id: number | null; seq: number };
+
+const SAVED_NOTE: Record<AcademySuggest["kind"] | "none", string> = {
+  url: "Сохранено — кнопка «Предложить курс» на сайте ведёт на ссылку.",
+  email: "Сохранено — кнопка «Предложить курс» на сайте открывает письмо, адрес виден под ней.",
+  text: "Сохранено — на сайте под приглашением текст, без кнопки.",
+  none: "Убрано — под приглашением на сайте ничего нет.",
+};
 
 export default function AdminAcademyPage() {
   const [tick, setTick] = useState(0);
@@ -195,10 +203,10 @@ export default function AdminAcademyPage() {
 
   const saveSuggest = async (raw: string): Promise<string | null> => {
     const res = await fetchData<unknown>(SETTINGS_PATH, "PATCH", { suggest_url: raw.trim() }, true);
-    const value = res.ok ? parseSettings(res.data) : null;
-    if (value === null) return errorText(res, "Не удалось сохранить ссылку");
-    setBoard((prev) => (prev ? { ...prev, suggestUrl: value } : prev));
-    notify("ok", value ? "Ссылка сохранена — кнопка «Предложить курс» на сайте ведёт на неё." : "Кнопка «Предложить курс» убрана с сайта.");
+    const saved = res.ok ? parseSettings(res.data) : null;
+    if (!saved) return errorText(res, "Не удалось сохранить");
+    setBoard((prev) => (prev ? { ...prev, ...saved } : prev));
+    notify("ok", SAVED_NOTE[saved.suggest?.kind ?? "none"]);
     return null;
   };
 
@@ -283,6 +291,7 @@ export default function AdminAcademyPage() {
           <SuggestLinkCard
             key={board.suggestUrl}
             value={board.suggestUrl}
+            saved={board.suggest}
             maxLength={board.limits.suggestUrlMax}
             onSave={saveSuggest}
           />

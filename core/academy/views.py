@@ -23,7 +23,7 @@ class AcademyReadThrottle(AnonRateThrottle):
 
 
 class CoursesView(APIView):
-    """GET courses/ — {count, page_size, results, suggest_url}: все курсы сайта разом.
+    """GET courses/ — {count, page_size, results, suggest_url, suggest}: все курсы сайта разом.
 
     Открыто всем. Параметров нет: страницы по page_size режет Next.
     """

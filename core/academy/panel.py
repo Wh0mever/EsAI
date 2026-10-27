@@ -1,4 +1,4 @@
-"""EsAI Академия в панели (admin-new «Академия»): курсы и ссылка «Предложить курс».
+"""EsAI Академия в панели (admin-new «Академия»): курсы и «Предложить курс».
 
 ТЗ клиента (27.10.2026): курсы ведут без правок кода — добавление, правка,
 удаление, обложки, публикация и скрытие, порядок, черновики. Для публикации
@@ -167,13 +167,23 @@ def limits() -> dict:
     }
 
 
+def suggest_payload(item: links.Suggest | None) -> dict:
+    """«Предложить курс» для панели: сохранённое значение — в поле, suggest — «как на сайте»."""
+    return {"suggest_url": item.value if item else "", "suggest": item.as_json() if item else None}
+
+
+def settings_payload() -> dict:
+    return suggest_payload(public.suggest())
+
+
 def list_payload() -> dict:
     courses = list(Course.objects.order_by("sort_order", "id"))
     rows = course_rows(courses)
     counts = {"live": 0, "draft": 0, "hidden": 0, "incomplete": 0}
     for row in rows:
         counts[row["state"]] += 1
-    return {"results": rows, "suggest_url": public.suggest_url(), "limits": limits(),
+    # Поле «Предложить курс» панель заполняет из этого списка: значение — сохранённое, не href.
+    return {"results": rows, **settings_payload(), "limits": limits(),
             "counts": {**counts, "total": len(rows)}}
 
 
@@ -464,10 +474,10 @@ def upload_cover(pk, files, *, actor, request=None) -> Course:
     return course
 
 
-# ---------------------------------------------------------------- ссылка «Предложить курс»
+# ---------------------------------------------------------------- «Предложить курс»
 
 def _forget_suggest() -> None:
-    """Забыть ссылку в кэше настроек: следующее чтение пойдёт в базу."""
+    """Забыть «Предложить курс» в кэше настроек: следующее чтение пойдёт в базу."""
     try:
         from django.core.cache import cache
 
@@ -475,26 +485,32 @@ def _forget_suggest() -> None:
 
         cache.delete(CACHE_PREFIX + links.SUGGEST_KEY)
     except Exception:
-        logger.warning("academy: кэш ссылки «Предложить курс» не сбросился, она обновится "
-                       "сама в течение полминуты", exc_info=True)
+        logger.warning("academy: кэш «Предложить курс» не сбросился, сайт обновится "
+                       "сам в течение полминуты", exc_info=True)
 
 
-def set_suggest_url(data, *, actor, request=None) -> str:
-    """Записать ссылку кнопки (пусто — кнопки нет). То же значение — без записи и журнала."""
+def set_suggest_url(data, *, actor, request=None) -> links.Suggest | None:
+    """Записать «Предложить курс»: ссылку, e-mail или текст (пусто — на сайте ничего).
+
+    Хранится значение после разбора (@имя → https://t.me/имя, mailto:…?subject → адрес).
+    То же значение — без записи и журнала.
+    """
     from adminapi.runtime import delete_runtime, get_runtime, set_runtime
 
     if not hasattr(data, "get") or "suggest_url" not in data:
         raise PanelError("Нечего менять", code="nothing_to_change")
     try:
-        value = links.clean_suggest_url(data["suggest_url"])
+        item = links.parse_suggest(data["suggest_url"])
     except links.LinkError as err:
+        # Код у всех отказов поля один и прежний: панель показывает detail как есть.
         raise PanelError(err.message, code="suggest_invalid", field="suggest_url") from None
+    value = item.value if item else ""
     # «Было» читаем мимо кэша настроек: по устаревшему значению настоящая
     # правка сошла бы за повтор и не записалась.
     _forget_suggest()
     before = get_runtime(links.SUGGEST_KEY, "")
     if before == value:
-        return value
+        return item
     with transaction.atomic():
         if value:
             set_runtime(links.SUGGEST_KEY, value)
@@ -504,5 +520,5 @@ def set_suggest_url(data, *, actor, request=None) -> str:
                          after={links.SUGGEST_KEY: value}, request=request)
     # Пока транзакция запроса открыта, сосед мог положить в кэш прежнее значение.
     transaction.on_commit(_forget_suggest)
-    return value
+    return item
 

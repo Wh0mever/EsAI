@@ -15,6 +15,7 @@
 			"file_hint_image": "The file will appear in Files → Downloads. Open it there → Share → “Save Image”.",
 			"file_hint_other": "The file will appear in Downloads.",
 			"file_hint_video": "The file will appear in Files → Downloads. Open it there → Share → “Save Video”.",
+			"gone": "This file is no longer available: it was deleted or its storage period has expired.",
 			"hint_image": "In the window that opens, tap “Save Image”.",
 			"hint_video": "In the window that opens, tap “Save Video”.",
 			"inapp_copy": "Tap “Copy link”, open Safari and paste the link into the address bar — no need to sign in. Then tap “{{button}}” there.",

@@ -32,6 +32,7 @@ import {
   type MediaProgress,
   type SheetStart,
 } from "@/tools/saveMedia";
+import { fileGone, httpStatusOf } from "./saveSheetLogic";
 
 /**
  * Шторка «Сохранить видео/фото» — следующий шаг, когда первое нажатие «Скачать»
@@ -110,6 +111,7 @@ export function SavePanel({
   const [file, setFile] = useState<File | null>(null);
   const [canShare, setCanShare] = useState<boolean | null>(null);
   const [lastErr, setLastErr] = useState(start.reason);
+  const [http, setHttp] = useState<number | null>(start.http ?? null);
   // После отказа окна в самой шторке второе нажатие не поможет — показываем запасной путь.
   const [forced, setForced] = useState<SheetMode | null>(null);
   const [busy, setBusy] = useState(false);
@@ -137,6 +139,7 @@ export function SavePanel({
         if (!alive) return;
         const name = errName(e) || "other";
         setLastErr(name);
+        setHttp(httpStatusOf(e));
         setPhase("error");
         sendEvent(
           mediaEventMeta({
@@ -297,7 +300,14 @@ export function SavePanel({
     });
 
   let body;
-  if (phase === "error" && !direct) {
+  if (phase === "error" && !direct && fileGone(http)) {
+    // Файла больше нет: «Повторить» упадёт так же, «Скачать файл» откроет страницу ошибки.
+    body = (
+      <p role="alert" className="text-sm leading-relaxed text-foreground">
+        {t("media.sheet.gone", { defaultValue: "Файл больше недоступен: его удалили или истёк срок хранения." })}
+      </p>
+    );
+  } else if (phase === "error" && !direct) {
     body = (
       <div className="flex flex-col gap-3">
         <p role="alert" className="text-sm leading-relaxed text-foreground">

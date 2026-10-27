@@ -11,7 +11,10 @@ import {
   PAGE_SIZE,
   academyText,
   courseListJsonLd,
+  emailFromMailto,
+  emailLink,
   fill,
+  nfkcAddsDots,
   pageCount,
   pageFromParam,
   pageFromSearch,
@@ -19,8 +22,13 @@ import {
   pagerItems,
   paginate,
   parseCatalog,
+  parseSuggest,
   safeExternalUrl,
+  safeLinkHref,
   safeMediaPath,
+  suggestFromUrl,
+  suggestParts,
+  suggestText,
 } from "./shared.ts";
 
 // Строка публичного API в том виде, как её отдаёт core/academy (CONTRACT_ACADEMY §1).
@@ -178,13 +186,246 @@ test("parseCatalog: «чужие руки» — мусорные строки о
   assert.equal(data.courses[2].coverThumb, null);
   assert.equal(data.courses[2].coverWidth, null);
   assert.equal(data.courses[2].teacher, "");
-  assert.equal(data.suggestUrl, "https://t.me/esai_academy");
+  assert.deepEqual(data.suggestUrl, { kind: "url", text: "https://t.me/esai_academy", href: "https://t.me/esai_academy" });
   assert.equal(data.pageSize, 9);
 });
 
-test("parseCatalog: ссылка кнопки — только http(s); page_size вне разумного — 9", () => {
+test("parseCatalog: старый ответ (только suggest_url) — ссылка или mailto:, прочее — ничего", () => {
   assert.equal(parseCatalog({ results: [], suggest_url: "" }).suggestUrl, null);
-  assert.equal(parseCatalog({ results: [], suggest_url: "javascript:alert(1)" }).suggestUrl, null);
+  assert.equal(parseCatalog({ results: [] }).suggestUrl, null);
+  for (const bad of ["javascript:alert(1)", "data:text/html,x", "tg://resolve?domain=x", "Пишите нам", "https://esai.kg@evil.com", 5]) {
+    assert.equal(parseCatalog({ results: [], suggest_url: bad }).suggestUrl, null, String(bad));
+  }
+  assert.deepEqual(parseCatalog({ results: [], suggest_url: "http://forms.example.com/a" }).suggestUrl, {
+    kind: "url",
+    text: "http://forms.example.com/a",
+    href: "http://forms.example.com/a",
+  });
+  // Новый сервер у письма кладёт в suggest_url его href — страница без suggest всё равно поймёт.
+  assert.deepEqual(parseCatalog({ results: [], suggest_url: "mailto:academy@esai.kg" }).suggestUrl, {
+    kind: "email",
+    text: "academy@esai.kg",
+    href: "mailto:academy@esai.kg",
+  });
+});
+
+test("parseCatalog: новый ответ — решает suggest, suggest_url только при его отсутствии", () => {
+  const url = { kind: "url", text: "https://t.me/esai_academy", href: "https://t.me/esai_academy" };
+  assert.deepEqual(parseCatalog({ results: [], suggest_url: url.href, suggest: url }).suggestUrl, url);
+  const email = { kind: "email", text: "academy@esai.kg", href: "mailto:academy@esai.kg" };
+  assert.deepEqual(parseCatalog({ results: [], suggest_url: email.href, suggest: email }).suggestUrl, email);
+  const text = { kind: "text", text: "Пишите на academy@esai.kg\nили в Telegram", href: null };
+  assert.deepEqual(parseCatalog({ results: [], suggest_url: "", suggest: text }).suggestUrl, text);
+  assert.equal(parseCatalog({ results: [], suggest_url: "", suggest: null }).suggestUrl, null);
+  // Сервер сказал «ничего» — старое поле не воскрешает кнопку (CONTRACT_ACADEMY §1).
+  assert.equal(parseCatalog({ results: [], suggest_url: url.href, suggest: null }).suggestUrl, null);
+  // Неизвестный вид или опасная ссылка — не рисуем ничего.
+  assert.equal(parseCatalog({ results: [], suggest_url: "", suggest: { kind: "phone", text: "+996", href: null } }).suggestUrl, null);
+  assert.equal(
+    parseCatalog({ results: [], suggest_url: url.href, suggest: { kind: "url", text: "x", href: "javascript:alert(1)" } }).suggestUrl,
+    null,
+  );
+});
+
+test("parseSuggest: href бывает только http(s) или mailto:, письмо собираем сами из адреса", () => {
+  assert.equal(parseSuggest(null), null);
+  assert.equal(parseSuggest("https://x.kg"), null);
+  for (const href of ["javascript:alert(1)", "data:text/html,x", "//evil.com", "https://u@evil.com/", "https://127.1/", ""]) {
+    assert.equal(parseSuggest({ kind: "url", text: "x", href }), null, href);
+  }
+  // Любая ссылка: localhost и IP владелец разрешил.
+  assert.equal(parseSuggest({ kind: "url", text: "http://localhost:8000/x", href: "http://localhost:8000/x" }).href, "http://localhost:8000/x");
+  assert.equal(parseSuggest({ kind: "url", text: "", href: "https://192.168.0.1/f" }).text, "https://192.168.0.1/f");
+  // Сервер прислал javascript: в href письма — берём только адрес.
+  assert.deepEqual(parseSuggest({ kind: "email", text: "a.b+c@esai.kg", href: "javascript:alert(1)" }), {
+    kind: "email",
+    text: "a.b+c@esai.kg",
+    href: "mailto:a.b+c@esai.kg",
+  });
+  assert.deepEqual(parseSuggest({ kind: "email", text: "", href: "mailto:info@xn--e1afmkfd.xn--p1ai?subject=x" }), {
+    kind: "email",
+    text: "info@xn--e1afmkfd.xn--p1ai",
+    href: "mailto:info@xn--e1afmkfd.xn--p1ai",
+  });
+  assert.equal(parseSuggest({ kind: "email", text: "не адрес", href: "mailto:" }), null);
+  assert.equal(parseSuggest({ kind: "text", text: " \n ", href: null }), null);
+  assert.equal(parseSuggest({ kind: "text", text: 5, href: null }), null);
+  // Правка мимо панели: невидимые знаки и лишние строки — прочь.
+  assert.equal(parseSuggest({ kind: "text", text: "a\u202eb\n\n\nc", href: "https://x.kg" }).text, "ab\nc");
+  assert.equal(parseSuggest({ kind: "text", text: "a", href: "https://x.kg" }).href, null);
+  assert.equal(suggestFromUrl("mailto:bad"), null);
+});
+
+test("emailLink: адрес как на сервере; кириллический домен — в punycode, имя — %-кодом", () => {
+  assert.deepEqual(emailLink(" academy@esai.kg "), { address: "academy@esai.kg", href: "mailto:academy@esai.kg" });
+  assert.deepEqual(emailLink("info@пример.рф"), { address: "info@пример.рф", href: "mailto:info@xn--e1afmkfd.xn--p1ai" });
+  assert.deepEqual(emailLink("почта@esai.kg"), {
+    address: "почта@esai.kg",
+    href: "mailto:%D0%BF%D0%BE%D1%87%D1%82%D0%B0@esai.kg",
+  });
+  assert.equal(emailLink("a_b-c.d+e@sub.esai.kg").href, "mailto:a_b-c.d+e@sub.esai.kg");
+  for (const bad of [
+    "academy@esai",
+    "a@b@esai.kg",
+    "@esai.kg",
+    "a..b@esai.kg",
+    ".a@esai.kg",
+    "a b@esai.kg",
+    "a@esai.kg.",
+    "a@-esai.kg",
+    "a@esai.k",
+    "a@esai.123",
+    "a@1.2.3.4",
+    "a?subject=x@esai.kg",
+    "o'brien@esai.kg",
+    "a@straße.de",
+    "a\u200b@esai.kg",
+    `${"a".repeat(65)}@esai.kg`,
+    "",
+    null,
+  ]) {
+    assert.equal(emailLink(bad), null, String(bad));
+  }
+  assert.equal(emailFromMailto("MAILTO:academy@esai.kg?subject=Курс&cc=x@y.kg").href, "mailto:academy@esai.kg");
+  assert.equal(emailFromMailto("mailto:a%40b@esai.kg"), null);
+  assert.equal(emailFromMailto("mailto:%E0%A4%A"), null);
+  assert.equal(emailFromMailto("academy@esai.kg"), null);
+  // Пробел по краям после %-раскодирования сервер адресом не считает (links._email) — и здесь не адрес.
+  assert.equal(emailFromMailto("mailto:%20a@b.kg"), null);
+  assert.equal(emailFromMailto("mailto:a@b.kg%20"), null);
+  // Точка из NFKC в домене (U+FE12, U+FE19, U+1F100, U+2488): сервер такой адрес не принимает.
+  for (const bad of ["a@b\ufe12c.kg", "a@b\ufe19c.kg", "a@b\u{1f100}c.kg", "a@b\u2488c.kg", "a@esai\u2024kg"]) {
+    assert.equal(emailLink(bad), null, bad);
+  }
+});
+
+test("nfkcAddsDots: точка из «не точки» после NFKC — как links._nfkc_dots", () => {
+  for (const odd of ["exa\u2024mple.com", "exa\ufe12mple.com", "exa\ufe19mple.com", "exa\u{1f100}mple.com", "\u2488example.com", "example\ufe52com"]) {
+    assert.equal(nfkcAddsDots(odd), true, odd);
+  }
+  // Настоящие точки (и «\u3002», «\uff0e», «\uff61» — их браузер и сервер читают как точку) — нет.
+  for (const fine of ["example.com", "курсы.рф", "example\u3002com", "example\uff0ecom", "example\uff61com", "ｅｘａｍｐｌｅ.com", ""]) {
+    assert.equal(nfkcAddsDots(fine), false, fine);
+  }
+});
+
+test("safeLinkHref: http(s) с тем хостом, что написан", () => {
+  assert.equal(safeLinkHref("https://forms.example.com/a?b=1"), "https://forms.example.com/a?b=1");
+  assert.equal(safeLinkHref("HTTP://Example.com"), "http://example.com/");
+  assert.equal(safeLinkHref("http://localhost:3000/x"), "http://localhost:3000/x");
+  assert.equal(safeLinkHref("https://8.8.8.8/"), "https://8.8.8.8/");
+  assert.equal(safeLinkHref("http://[::1]:8080/"), "http://[::1]:8080/");
+  assert.equal(safeLinkHref("https://курсы.рф/x"), "https://xn--j1amdg6b.xn--p1ai/x");
+  assert.equal(safeLinkHref("https://my_site-.example.com/a@b"), "https://my_site-.example.com/a@b");
+  for (const bad of [
+    "https://a!b.com/",
+    "https://a..b.com/",
+    "https://x.kg:0/",
+    "https://[1.2.3.4]/",
+    "https://example.123/",
+    "https://esai.kg@evil.com",
+    "https://u:p@evil.com/",
+    "https://@evil.com/",
+    "https://127.1/",
+    "https://0x7f.1/",
+    "https://2130706433/",
+    "https://010.0.0.1/",
+    "https://ex%61mple.com/",
+    "https://straße.de/",
+    "https://exa mple.com",
+    "https://evil.com\\@esai.kg",
+    "https://esai.kg/\u202etxt.exe",
+    "javascript:alert(1)",
+    "//evil.com",
+    "https:/evil.com",
+    "ftp://x.kg",
+    // Как сервер (links._open_link): пустой хост и «\u3002» в конце хоста — отказ.
+    "https:///evil.com",
+    "https:////evil.com/x",
+    "https://example.com\u3002",
+    "https://example.com\u3002/x",
+    "https://example.com\uff0e:8080/",
+    "http://exa\u2024mple.com/",
+  ]) {
+    assert.equal(safeLinkHref(bad), null, bad);
+  }
+  // Точка из NFKC (U+FE12, U+FE19, U+1F100, U+2488) — сервер не пускает, браузер не открывает.
+  for (const bad of ["https://exa\ufe12mple.com/", "https://exa\ufe19mple.com/", "https://exa\u{1f100}mple.com/", "https://\u2488example.com/", "https://x.kg:\u2488/"]) {
+    assert.equal(safeLinkHref(bad), null, bad);
+  }
+  // «\u3002» внутри хоста — обычная точка и у браузера, и у сервера.
+  assert.equal(safeLinkHref("https://example\u3002com/"), "https://example.com/");
+  assert.equal(safeLinkHref("https://example.com./"), "https://example.com./");
+});
+
+test("suggestText: строки как на сервере — без пустых, пробелы схлопнуты, не больше пяти", () => {
+  assert.equal(suggestText("  Пишите\t нам  \r\n\r\n на почту  "), "Пишите нам\nна почту");
+  assert.equal(suggestText("1\n2\n3\n4\n5\n6\n7"), "1\n2\n3\n4\n5 6 7");
+  assert.equal(suggestText("a\u200bb\u2028c"), "abc");
+  assert.equal(suggestText(null), "");
+});
+
+// Куски текста в виде строки: [ссылка](href), {почта}(href), остальное как есть.
+const parts = (raw) =>
+  suggestParts(raw)
+    .map((p) => (p.kind === "text" ? p.text : p.kind === "url" ? `[${p.text}](${p.href})` : `{${p.text}}(${p.href})`))
+    .join("");
+
+test("suggestParts: e-mail и http(s) в тексте — ссылки, знаки после них — текст", () => {
+  assert.equal(parts("Пишите на academy@esai.kg."), "Пишите на {academy@esai.kg}(mailto:academy@esai.kg).");
+  assert.equal(
+    parts("Анкета: https://forms.example.com/a?x=1, или (https://t.me/esai)!"),
+    "Анкета: [https://forms.example.com/a?x=1](https://forms.example.com/a?x=1), или ([https://t.me/esai](https://t.me/esai))!",
+  );
+  assert.equal(parts("https://ru.wikipedia.org/wiki/A_(b)"), "[https://ru.wikipedia.org/wiki/A_(b)](https://ru.wikipedia.org/wiki/A_(b))");
+  assert.equal(parts("почта: info@пример.рф\nтел. +996 555"), "почта: {info@пример.рф}(mailto:info@xn--e1afmkfd.xn--p1ai)\nтел. +996 555");
+  assert.equal(parts("«https://x.kg/a»"), "«[https://x.kg/a](https://x.kg/a)»");
+  // Не прошла проверку — остаётся текстом целиком, почта внутри неё ссылкой не становится.
+  assert.equal(parts("см. https://esai.kg@evil.com/x"), "см. https://esai.kg@evil.com/x");
+  assert.equal(parts("http://127.1 и a@b"), "http://127.1 и a@b");
+  assert.equal(parts("javascript:alert(1) data:text/html,x www.esai.kg"), "javascript:alert(1) data:text/html,x www.esai.kg");
+  assert.equal(parts("<b>жирный</b> & \"кавычки\""), "<b>жирный</b> & \"кавычки\"");
+  assert.equal(parts(""), "");
+  // href — только http(s) и mailto:.
+  for (const p of suggestParts("a@b.kg https://x.kg mailto:c@d.kg tel:+996 javascript:x")) {
+    if (p.kind !== "text") assert.match(p.href, /^(https?:\/\/|mailto:)/);
+  }
+  // Пустой хост и «\u3002» в конце — как у сервера: не ссылка, текст.
+  assert.equal(parts("см. https:///evil.com"), "см. https:///evil.com");
+});
+
+test("suggestParts: текст, начатый со ссылки, и двоеточие без «//» (сервер хранит их текстом)", () => {
+  assert.equal(
+    parts("https://forms.gle/abc\nЗаполните анкету"),
+    "[https://forms.gle/abc](https://forms.gle/abc)\nЗаполните анкету",
+  );
+  assert.equal(parts("https://t.me/x — пишите сюда"), "[https://t.me/x](https://t.me/x) — пишите сюда");
+  assert.equal(parts("Contact:a@b.kg"), "Contact:{a@b.kg}(mailto:a@b.kg)");
+  assert.equal(parts("mailto:a@b.kg пишите"), "mailto:{a@b.kg}(mailto:a@b.kg) пишите");
+  assert.equal(parts("tel:+996555123456 и https:example.com"), "tel:+996555123456 и https:example.com");
+  // Ссылка в тексте проходит те же правила, что кнопка: с логином или точкой из NFKC — остаётся текстом.
+  assert.equal(parts("https://u:p@example.com и текст"), "https://u:p@example.com и текст");
+  assert.equal(parts("https://exa\ufe12mple.com/form — анкета"), "https://exa\ufe12mple.com/form — анкета");
+  const text = "https://forms.gle/abc\nЗаполните анкету";
+  assert.deepEqual(parseCatalog({ results: [], suggest_url: "", suggest: { kind: "text", text, href: null } }).suggestUrl, {
+    kind: "text",
+    text,
+    href: null,
+  });
+});
+
+test("suggestParts: длинное (сервер столько не хранит) — текст без разбора, быстро", () => {
+  const atLimit = `a@b.kg ${"x".repeat(993)}`;
+  assert.equal(atLimit.length, 1000);
+  assert.equal(suggestParts(atLimit)[0].kind, "email");
+  for (const raw of [`a@b.kg ${"a".repeat(100_000)}`, `https://x.kg/${")".repeat(100_000)}`]) {
+    const started = Date.now();
+    assert.deepEqual(suggestParts(raw), [{ kind: "text", text: raw }]);
+    assert.ok(Date.now() - started < 1000, "разбор не должен зависеть от длины квадратично");
+  }
+});
+
+test("parseCatalog: page_size вне разумного — 9", () => {
   assert.equal(parseCatalog({ results: [] }).pageSize, 9);
   assert.equal(parseCatalog({ results: [], page_size: 0 }).pageSize, 9);
   assert.equal(parseCatalog({ results: [], page_size: 1000 }).pageSize, 9);
