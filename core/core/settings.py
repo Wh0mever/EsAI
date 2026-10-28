@@ -177,6 +177,9 @@ MIDDLEWARE = [
     "allauth.account.middleware.AccountMiddleware",
     # Аудит: ловит необработанные исключения вью → EventLog(error_server)
     "audit.middleware.AuditExceptionMiddleware",
+    # «Возвраты»: авторизованный запрос = человек был на сайте сегодня.
+    # Пользователя читает уже после ответа вью, поэтому место в списке не важно.
+    "audit.middleware.ActivityDayMiddleware",
 ]
 
 # --- URL / WSGI ---

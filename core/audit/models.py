@@ -247,3 +247,58 @@ class AdminActionLog(models.Model):
 
     def delete(self, *args, **kwargs):
         raise RuntimeError("AdminActionLog is append-only")
+
+
+class ActivitySource(models.TextChoices):
+    LIVE = "live", "Живой учёт"
+    HISTORY = "history", "Восстановлено из истории"
+
+
+class UserActivityDay(models.Model):
+    """Человек был на сайте в этот день (местная дата Бишкека) — отчёт «Возвраты».
+
+    Одна строка на пару (пользователь, день); строки только добавляются через
+    bulk_create(ignore_conflicts=True). Первая записанная строка остаётся:
+    «live» поверх «history» не переписываем — для подсчёта откуда пришла
+    строка не важно, а лишняя запись на каждый заход стоила бы дороже.
+    Пишется для всех, включая сотрудников: кого не считать, решает отчёт.
+    """
+
+    # Без ограничения FK в базе: проверка FK при вставке берёт блокировку
+    # строки пользователя (FOR KEY SHARE), а кошелёк держит её FOR UPDATE до
+    # конца своей вью — запись дня ждала бы чужое списание, задерживая ответ.
+    # Удаление пользователя всё равно уносит его строки (CASCADE делает Django),
+    # а отчёт строки неизвестных пользователей пропускает.
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        db_constraint=False,
+        # Отдельный индекс не нужен: уникальность (user, day) начинается с user.
+        db_index=False,
+        related_name="activity_days",
+        verbose_name="Пользователь",
+    )
+    day = models.DateField(verbose_name="День (Бишкек)")
+    source = models.CharField(
+        max_length=16,
+        choices=ActivitySource.choices,
+        default=ActivitySource.LIVE,
+        verbose_name="Откуда",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, verbose_name="Записано")
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["user", "day"], name="uniq_activityday_user_day"),
+        ]
+        indexes = [
+            # Досинхронизация перед отчётом считает строки последних дней
+            # (day >= since), отчёт берёт самый ранний день — без индекса оба
+            # читали бы таблицу целиком.
+            models.Index(fields=["day"], name="audit_uad_day"),
+        ]
+        verbose_name = "День активности"
+        verbose_name_plural = "Дни активности"
+
+    def __str__(self) -> str:
+        return f"{self.user_id} @ {self.day:%Y-%m-%d} ({self.source})"

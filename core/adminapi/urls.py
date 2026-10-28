@@ -1,7 +1,8 @@
+from django.db import transaction
 from django.urls import path
 
-from . import (academy, blocks, creators, generations, openrouter, prices, studio_scenes, studio_works,
-               views, vstudio)
+from . import (academy, blocks, creators, generations, openrouter, prices, retention, studio_scenes,
+               studio_works, views, vstudio)
 
 app_name = "adminapi"
 
@@ -53,6 +54,11 @@ urlpatterns = [
     path("openrouter/<int:pk>/refresh/", openrouter.AccountRefreshView.as_view(), name="openrouter-refresh"),
     # Воронка оплаты: на каком шаге отваливаются.
     path("funnel/", views.FunnelView.as_view(), name="funnel"),
+    # «Возвраты»: возвращаются ли люди после регистрации (DAU/WAU/MAU, когорты).
+    # Без ATOMIC_REQUESTS: досинхронизация перед отчётом пишет дни активности, и в
+    # общей транзакции они держали бы ключи (user, day), на которых ждёт живой учёт.
+    path("retention/", transaction.non_atomic_requests(retention.RetentionView.as_view()),
+         name="retention"),
     # Журнал платных генераций: кто, чем, за сколько и чем кончилось.
     path("generations/", generations.GenerationsView.as_view(), name="generations"),
     path("generations/<int:pk>/reviewed/", generations.GenerationReviewedView.as_view(),

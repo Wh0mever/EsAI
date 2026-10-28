@@ -11,6 +11,7 @@
     "test:creators": "node --experimental-strip-types --test \"src/lib/creators/*.test.mjs\" \"src/components/creators/**/*.test.mjs\"",
     "test:academy": "node --experimental-strip-types --test \"src/lib/academy/*.test.mjs\" \"src/app/admin-new/academy/*.test.mjs\"",
     "test:qrpay": "node --experimental-strip-types --test \"src/lib/qrpay.test.mjs\" \"src/lib/qrBannerWatch.test.mjs\" \"src/app/admin-new/payments/filters.test.mjs\"",
+    "test:retention": "node --experimental-strip-types --test \"src/app/admin-new/retention/*.test.mjs\"",
     "check:i18n": "node scripts/i18n-parity.mjs vstudio home creators qrpay academy"
   },
   "dependencies": {

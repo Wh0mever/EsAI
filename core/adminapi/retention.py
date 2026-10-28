@@ -1,0 +1,257 @@
+"""GET /api/manage/retention/?days=30|90 — «Возвраты»: возвращаются ли люди (F29).
+
+Всё считается по audit.UserActivityDay (одна строка = человек был на сайте в
+этот местный день Бишкека) одним проходом в Python: людей ~2.5 тыс., строк —
+десятки тысяч, а окна, «вернулись за N дней» и когорты в SQL вылились бы в
+десяток тяжёлых запросов с той же логикой, только хуже читаемой.
+
+Кого не считаем: сотрудников и тестовый аккаунт платёжки — их заходы есть в
+таблице, но к возвратам живых людей отношения не имеют.
+"""
+from __future__ import annotations
+
+from bisect import bisect_left
+from collections import Counter, defaultdict
+from datetime import date, timedelta
+from decimal import ROUND_HALF_UP, Decimal
+from fractions import Fraction
+
+from django.conf import settings
+from django.contrib.auth import get_user_model
+from django.core.cache import cache
+from django.db.models import Count, Min, Q
+from django.utils import timezone
+from rest_framework.response import Response
+
+from audit.activity import local_day, local_tz, sync_recent
+from audit.models import ActivitySource, UserActivityDay
+from payments.models import Payment
+
+from .views import StaffAPIView
+
+User = get_user_model()
+
+ALLOWED_DAYS = (30, 90)
+DEFAULT_DAYS = 30
+CACHE_TTL = 300
+CACHE_KEY = "adminapi:retention:{days}"
+RETURNED_WITHIN = (1, 7, 30)
+COHORT_WEEKS = 12
+COHORT_K = 8
+STICKINESS_DAYS = 30
+
+
+def _now():
+    """Текущий момент. Отдельной функцией, чтобы тесты могли зафиксировать «сегодня»."""
+    return timezone.now()
+
+
+def _share(part, whole):
+    """Доля в процентах с одним знаком; None, когда считать не из чего.
+
+    Округляем «как в таблице» (81,25 → 81,3): round() у float округляет к чётному,
+    и плитка расходилась бы с пересчётом руками.
+    """
+    if not whole:
+        return None
+    pct = Fraction(part) * 100 / Fraction(whole)
+    exact = Decimal(pct.numerator) / Decimal(pct.denominator)
+    return float(exact.quantize(Decimal("0.1"), rounding=ROUND_HALF_UP))
+
+
+def _has_day(days: list[date], start: date, end: date) -> bool:
+    """Есть ли в отсортированном списке дней хоть один в [start, end]."""
+    i = bisect_left(days, start)
+    return i < len(days) and days[i] <= end
+
+
+def _counted_users() -> dict[int, date]:
+    """{id: местный день регистрации} — без сотрудников, тестового аккаунта и отключённых.
+
+    is_active=False — заблокированные фермы одноразовых почт и заглушки Telegram,
+    слитые с аккаунтом сайта (человек тогда считался бы дважды). Удалить аккаунт
+    сам человек не может, так что живых людей этот фильтр не теряет.
+    """
+    qs = User.objects.filter(is_staff=False, is_superuser=False, is_active=True)
+    test_email = (getattr(settings, "TEST_LOGIN_EMAIL", "") or "").strip()
+    if test_email:
+        qs = qs.exclude(email__iexact=test_email)
+    tz = local_tz()
+    return {uid: timezone.localtime(joined, tz).date()
+            for uid, joined in qs.order_by().values_list("id", "date_joined")}
+
+
+def _activity_by_user(joined: dict[int, date]) -> dict[int, list[date]]:
+    """{id: отсортированные дни активности} только для учитываемых людей.
+
+    Дни раньше регистрации отбрасываем: такая строка может взяться лишь из
+    кривых данных, а с ней человек оказался бы «активным, но не новым и не
+    вернувшимся» и разошлись бы плитки и график.
+    """
+    by_user: dict[int, list[date]] = defaultdict(list)
+    rows = UserActivityDay.objects.order_by().values_list("user_id", "day")
+    for uid, day in rows.iterator(chunk_size=5000):
+        joined_day = joined.get(uid)
+        if joined_day is None or day < joined_day:
+            continue
+        by_user[uid].append(day)
+    for days in by_user.values():
+        days.sort()
+    return by_user
+
+
+def _cohorts(joined, by_user, today):
+    """Недельные когорты регистрации: доля вернувшихся в k-ю неделю после регистрации.
+
+    Неделя k считается от дня регистрации каждого человека, а не по календарю:
+    иначе пришедший в воскресенье «отработал бы» первую неделю за один день.
+    """
+    current_week = today - timedelta(days=today.weekday())
+    oldest_week = current_week - timedelta(weeks=COHORT_WEEKS - 1)
+    members: dict[date, list[int]] = defaultdict(list)
+    for uid, joined_day in joined.items():
+        week = joined_day - timedelta(days=joined_day.weekday())
+        if oldest_week <= week <= current_week:
+            members[week].append(uid)
+
+    cohorts = []
+    for i in range(COHORT_WEEKS):
+        week = current_week - timedelta(weeks=i)
+        ids = members.get(week, [])
+        weeks = []
+        for k in range(1, COHORT_K + 1):
+            eligible = returned = 0
+            for uid in ids:
+                end = joined[uid] + timedelta(days=7 * k)
+                # Ячейку считаем только по тем, у кого k-я неделя уже целиком
+                # прошла: недоигранная неделя занизила бы долю.
+                if end > today:
+                    continue
+                eligible += 1
+                if _has_day(by_user.get(uid, []), end - timedelta(days=6), end):
+                    returned += 1
+            weeks.append({"k": k, "share": _share(returned, eligible),
+                          "eligible": eligible, "returned": returned})
+        cohorts.append({"week_start": week.isoformat(), "size": len(ids), "weeks": weeks})
+    return cohorts
+
+
+def _payers(joined) -> dict:
+    """Платившие хоть раз и платившие 2+ раза (без тестовых оплат)."""
+    # order_by() обязателен: сортировка модели попала бы в GROUP BY и разбила
+    # бы одного плательщика на несколько строк.
+    rows = (Payment.objects.filter(success=True, is_test=False, user__isnull=False)
+            .order_by().values_list("user_id").annotate(n=Count("id")))
+    paying = repeat = 0
+    for uid, n in rows:
+        if uid not in joined:
+            continue
+        paying += 1
+        if n >= 2:
+            repeat += 1
+    return {"paying": paying, "repeat": repeat, "repeat_share": _share(repeat, paying)}
+
+
+def retention_report(days: int = DEFAULT_DAYS, now=None) -> dict:
+    """Отчёт «Возвраты» за окно days (30 или 90) по состоянию на now."""
+    now = now or _now()
+    today = local_day(now)
+    joined = _counted_users()
+    by_user = _activity_by_user(joined)
+
+    def active_between(start: date, end: date) -> int:
+        return sum(1 for ds in by_user.values() if _has_day(ds, start, end))
+
+    window_start = today - timedelta(days=days - 1)
+
+    # По дням: и для графика (окно days), и для среднего DAU стикинесса (30 дней).
+    per_day_from = min(window_start, today - timedelta(days=STICKINESS_DAYS - 1))
+    per_day_active: Counter = Counter()
+    per_day_new: Counter = Counter()
+    returning = returned_ever = 0
+    for uid, ds in by_user.items():
+        joined_day = joined[uid]
+        if ds[-1] > joined_day:
+            returned_ever += 1
+        # Вернувшийся за период: был в окне в день ПОЗЖЕ дня своей регистрации.
+        if _has_day(ds, max(window_start, joined_day + timedelta(days=1)), today):
+            returning += 1
+        for d in ds[bisect_left(ds, per_day_from):]:
+            if d > today:
+                break
+            per_day_active[d] += 1
+            if d == joined_day:
+                per_day_new[d] += 1
+
+    daily = []
+    for i in range(days - 1, -1, -1):
+        d = today - timedelta(days=i)
+        active_d, new_d = per_day_active[d], per_day_new[d]
+        daily.append({"date": d.isoformat(), "active": active_d, "new": new_d,
+                      "returning": active_d - new_d})
+
+    mau = active_between(today - timedelta(days=29), today)
+    avg_dau = Fraction(sum(per_day_active[today - timedelta(days=i)] for i in range(STICKINESS_DAYS)),
+                       STICKINESS_DAYS)
+    active = active_between(window_start, today)
+
+    returned_within = []
+    for n in RETURNED_WITHIN:
+        # База — только те, у кого все N дней после регистрации уже прошли.
+        base = [uid for uid, j in joined.items() if j <= today - timedelta(days=n)]
+        returned = sum(1 for uid in base
+                       if _has_day(by_user.get(uid, []), joined[uid] + timedelta(days=1),
+                                   joined[uid] + timedelta(days=n)))
+        returned_within.append({"days": n, "base": len(base), "returned": returned,
+                                "share": _share(returned, len(base))})
+
+    bounds = UserActivityDay.objects.aggregate(
+        first=Min("day"), first_live=Min("day", filter=Q(source=ActivitySource.LIVE)))
+    users_total = len(joined)
+
+    return {
+        "generated_at": timezone.localtime(now, local_tz()).isoformat(timespec="seconds"),
+        "today": today.isoformat(),
+        "days": days,
+        "exact_since": bounds["first_live"].isoformat() if bounds["first_live"] else None,
+        "history_since": bounds["first"].isoformat() if bounds["first"] else None,
+        "users_total": users_total,
+        "kpi": {
+            "dau": active_between(today, today),
+            "wau": active_between(today - timedelta(days=6), today),
+            "mau": mau,
+            "stickiness": _share(avg_dau, mau),
+            "new": sum(1 for j in joined.values() if window_start <= j <= today),
+            "active": active,
+            "returning": returning,
+            "returning_share": _share(returning, active),
+            "returned_ever_share": _share(returned_ever, users_total),
+            "returned_ever": returned_ever,
+        },
+        "returned_within": returned_within,
+        "daily": daily,
+        "cohorts": _cohorts(joined, by_user, today),
+        "payers": _payers(joined),
+    }
+
+
+class RetentionView(StaffAPIView):
+    """GET /api/manage/retention/?days=30|90 — метрики возвращающихся пользователей."""
+
+    def get(self, request):
+        try:
+            days = int(request.query_params.get("days") or DEFAULT_DAYS)
+        except (TypeError, ValueError):
+            days = DEFAULT_DAYS
+        if days not in ALLOWED_DAYS:
+            days = DEFAULT_DAYS
+
+        key = CACHE_KEY.format(days=days)
+        data = cache.get(key)
+        if data is None:
+            # Дотягиваем последние дни из истории: так в отчёт попадает и то,
+            # что человек делал мимо сайта (Telegram-бот), — middleware этого не видит.
+            sync_recent()
+            data = retention_report(days)
+            cache.set(key, data, CACHE_TTL)
+        return Response(data)
