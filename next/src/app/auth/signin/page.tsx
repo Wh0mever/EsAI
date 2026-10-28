@@ -174,10 +174,13 @@ export default function SignIn() {
 			if (response?.data?.status === "authenticated") {
 				signin(response, setResponseData, t);
 			} else {
+				// 429 — замок от перебора (подождать / завтра): «код неверен» тут неправда,
+				// и верный код человек вводил бы снова и снова. Причину сервер пишет в error.
+				const locked = "status" in response && response.status === 429 ? response.data?.error : "";
 				setResponseData({
 					status: "error",
 					title: t("status.error"),
-					message: response?.data?.message || t("status_extended.invalid_code"),
+					message: response?.data?.message || locked || t("status_extended.invalid_code"),
 				});
 			}
 		}
