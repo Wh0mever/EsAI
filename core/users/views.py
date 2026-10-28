@@ -63,6 +63,29 @@ OTP_DAY_LIMIT_MESSAGE = ("Слишком много неверных кодов 
 OTP_EMAIL_FAILS_PER_PAUSE = 15
 OTP_EMAIL_PAUSES = (15 * 60, 60 * 60)
 OTP_PAUSE_MESSAGE = "Слишком много неверных кодов для этой почты. Попробуйте через {minutes} мин."
+OTP_TOO_MANY_MESSAGE = "Слишком много попыток, запросите новый код."
+# Постоянный код тестового входа платёжки перебирают сколько угодно долго:
+# замки держат его только по IP, поэтому вариантов должно быть миллиарды.
+TEST_LOGIN_MIN_CODE_LEN = 10
+
+
+def _test_login_code(email: str) -> str:
+    """Постоянный код тестового входа платёжки для этой почты или "" — вход выключен.
+
+    Включается парой TEST_LOGIN_EMAIL / TEST_LOGIN_CODE в .env. Код короче
+    TEST_LOGIN_MIN_CODE_LEN знаков выключает его целиком: шестизначный код при
+    замках по IP угадывали бы за месяцы перебора с разных адресов.
+    """
+    test_email = (getattr(settings, "TEST_LOGIN_EMAIL", "") or "").strip().lower()
+    if not test_email or email != test_email:
+        return ""
+    code = str(getattr(settings, "TEST_LOGIN_CODE", "") or "").strip()
+    if len(code) < TEST_LOGIN_MIN_CODE_LEN:
+        if code:
+            logger.warning("test login: TEST_LOGIN_CODE короче %s знаков — тестовый вход выключен",
+                           TEST_LOGIN_MIN_CODE_LEN)
+        return ""
+    return code
 
 
 def _otp_ip(request) -> str:
@@ -89,10 +112,15 @@ def _otp_pause_key(email: str) -> str:
 def _cache_incr(key: str, timeout: int) -> int:
     cache.add(key, 0, timeout=timeout)
     try:
-        return int(cache.incr(key))
+        value = int(cache.incr(key))
     except ValueError:
         cache.set(key, 1, timeout=timeout)
         return 1
+    if value == 1:
+        # Redis-клиент Django делает EXISTS, потом INCR: если ключ истёк между
+        # ними, INCR заводит его заново без срока — и замок остался бы навсегда.
+        cache.touch(key, timeout)
+    return value
 
 
 def _otp_register_miss(email: str, ip: str) -> None:
@@ -218,10 +246,10 @@ class SigninApiView(APIView):
         # У тестировщиков платёжки нет почтового ящика для этого адреса,
         # поэтому письмо не отправляем (SMTP-ошибка сломала бы флоу), а сразу
         # возвращаем обычный success-ответ. Код входа у них фиксированный и
-        # проверяется в VerifyCodeApiView. Отключается через settings:
-        # TEST_LOGIN_EMAIL = "".
-        _test_email = (getattr(settings, "TEST_LOGIN_EMAIL", "") or "").strip().lower()
-        if _test_email and email == _test_email:
+        # проверяется в VerifyCodeApiView. Счётчик попыток здесь не сбрасываем:
+        # иначе каждый «новый код» давал бы перебору свежие пять попыток.
+        # Отключается через settings: TEST_LOGIN_EMAIL = "".
+        if _test_login_code(email):
             return Response(
                 {"status": "success", "message": "Код отправлен на email"},
                 status=status.HTTP_200_OK,
@@ -288,15 +316,15 @@ class VerifyCodeApiView(APIView):
         # === Спец-случай: тестовый аккаунт платёжной системы ===
         # У тестировщиков платёжки нет почтового ящика, код с почты они получить
         # не могут, поэтому для этого email действует фиксированный код входа.
-        # Срабатывает ТОЛЬКО при точном совпадении ОБОИХ значений (email + код);
-        # для всех остальных email поведение полностью прежнее. Отключается через
-        # settings: TEST_LOGIN_EMAIL = "".
-        _test_email = (getattr(settings, "TEST_LOGIN_EMAIL", "") or "").strip().lower()
-        _test_code = str(getattr(settings, "TEST_LOGIN_CODE", "") or "")
-        is_test_login = bool(_test_email) and bool(_test_code) and email == _test_email and code == _test_code
-
+        # Раньше верный код шёл мимо счётчиков, и его перебирали без конца.
+        # Теперь он проходит те же замки, но только по своему IP: общий счётчик
+        # и паузы по email позволили бы любому запереть тестировщиков. Перебор
+        # с многих адресов держит длина кода (_test_login_code).
+        test_code = _test_login_code(email)
         ip = _otp_ip(request)
-        if not is_test_login:
+        if test_code:
+            attempts_key = f"otp_attempts:{email}:{ip}"
+        else:
             # Потолки неверных кодов сверх пяти на один код. Раньше счётчик жил
             # вместе с кодом и обнулялся при каждом новом письме: 5 попыток в
             # минуту без конца — за месяц перебора код к чужому (и админскому)
@@ -308,39 +336,30 @@ class VerifyCodeApiView(APIView):
                     {"error": OTP_PAUSE_MESSAGE.format(minutes=max(1, (pause_left + 59) // 60))},
                     status=429,
                 )
-            if int(cache.get(_otp_day_key(email, ip)) or 0) >= OTP_MAX_FAILS_PER_DAY:
-                return Response({"error": OTP_DAY_LIMIT_MESSAGE}, status=429)
-            # Попытку считаем ДО сравнения: параллельные запросы иначе успевали
-            # проверить больше пяти вариантов одного кода.
-            cache.add(attempts_key, 0, timeout=600)
-            try:
-                attempts = cache.incr(attempts_key)
-            except ValueError:
-                cache.set(attempts_key, 1, timeout=600)
-                attempts = 1
-            if attempts > MAX_OTP_ATTEMPTS:
+        if int(cache.get(_otp_day_key(email, ip)) or 0) >= OTP_MAX_FAILS_PER_DAY:
+            return Response({"error": OTP_DAY_LIMIT_MESSAGE}, status=429)
+        # Попытку считаем ДО сравнения: параллельные запросы иначе успевали
+        # проверить больше пяти вариантов одного кода.
+        attempts = _cache_incr(attempts_key, 600)
+        if attempts > MAX_OTP_ATTEMPTS:
+            cache.delete(f"email_code:{email}")
+            return Response({"error": OTP_TOO_MANY_MESSAGE}, status=429)
+        cached_code = test_code or cache.get(f"email_code:{email}")
+        if isinstance(cached_code, (bytes, bytearray)):
+            cached_code = cached_code.decode()
+        if not cached_code or not secrets.compare_digest(str(cached_code).encode(), code.encode()):
+            # Промах считаем, только когда код есть: догадки по просроченному
+            # или не запрошенному коду ничего не угадывают и не должны
+            # приближать хозяина почты к паузе.
+            if test_code:
+                _cache_incr(_otp_day_key(email, ip), OTP_DAY_WINDOW)
+            elif cached_code:
+                _otp_register_miss(email, ip)
+            if attempts >= MAX_OTP_ATTEMPTS:
+                # Последняя попытка на этот код ушла: код больше не годится.
                 cache.delete(f"email_code:{email}")
-                return Response(
-                    {"error": "Слишком много попыток, запросите новый код."},
-                    status=429,
-                )
-            cached_code = cache.get(f"email_code:{email}")
-            if isinstance(cached_code, (bytes, bytearray)):
-                cached_code = cached_code.decode()
-            if not cached_code or not secrets.compare_digest(str(cached_code).encode(), code.encode()):
-                # Промах считаем, только когда код есть: догадки по просроченному
-                # или не запрошенному коду ничего не угадывают и не должны
-                # приближать хозяина почты к паузе.
-                if cached_code:
-                    _otp_register_miss(email, ip)
-                if attempts >= MAX_OTP_ATTEMPTS:
-                    # Последняя попытка на этот код ушла: код больше не годится.
-                    cache.delete(f"email_code:{email}")
-                    return Response(
-                        {"error": "Слишком много попыток, запросите новый код."},
-                        status=429,
-                    )
-                return Response({"error": "Неверный или просроченный код."}, status=400)
+                return Response({"error": OTP_TOO_MANY_MESSAGE}, status=429)
+            return Response({"error": "Неверный или просроченный код."}, status=400)
 
         # Успех: удаляем код и счётчики попыток.
         cache.delete(f"email_code:{email}")
