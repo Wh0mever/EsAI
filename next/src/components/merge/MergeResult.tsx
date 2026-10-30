@@ -3,10 +3,10 @@
 import { useSyncExternalStore, type CSSProperties } from "react";
 import { useTranslation } from "react-i18next";
 import { FiAlertCircle, FiClock, FiDownload, FiEdit3, FiLoader, FiMusic, FiPlus } from "react-icons/fi";
-import SaveMediaButton from "@/components/ui/SaveMediaButton";
+import SaveMediaButton, { SAVE_CTA } from "@/components/ui/SaveMediaButton";
 import VideoPlayer from "@/components/video/VideoPlayer";
 import FilmBlock from "@/components/studio/timeline/FilmBlock";
-import { VS_BTN_GHOST, VS_BTN_GOLD, VS_CARD, VS_SUB, vx } from "@/components/vstudio/ui/skin";
+import { VS_BTN_GHOST, VS_CARD, VS_SUB, vx } from "@/components/vstudio/ui/skin";
 import { CS_NOTE_FAIL, CS_NOTE_GOLD } from "@/components/studio/ui/cartoonSkin";
 import { hasSound, soundInfo } from "./audioLogic";
 import {
@@ -154,15 +154,14 @@ export default function MergeResult({ project, onNew, onCopy }: MergeResultProps
               url={project.result_url}
               filename={filename}
               label={downloadLabel}
-              className={VS_BTN_GOLD}
-              iconClassName="motion-reduce:animate-none"
+              className={SAVE_CTA}
             >
               {downloadLabel}
             </SaveMediaButton>
           ) : (
             // Сам файл из /media/ — его отдаёт nginx: ролик в сотню мегабайт не держит
             // поток API (их на весь сайт 24) и не ложится целиком в память вкладки.
-            <a href={project.result_url} download={filename} className={VS_BTN_GOLD}>
+            <a href={project.result_url} download={filename} className={SAVE_CTA}>
               <FiDownload aria-hidden="true" />
               {downloadLabel}
             </a>

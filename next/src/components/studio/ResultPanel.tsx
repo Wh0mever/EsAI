@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import { FiFilm, FiLoader, FiPlus, FiScissors } from "react-icons/fi";
-import SaveMediaButton from "@/components/ui/SaveMediaButton";
+import SaveMediaButton, { SAVE_CTA } from "@/components/ui/SaveMediaButton";
 import ShareButtons from "@/components/ui/ShareButtons";
 import VideoPlayer from "@/components/video/VideoPlayer";
 import { VS_BTN_GHOST, VS_CARD, VS_H2, VS_LABEL, VS_SECTION, vx } from "@/components/vstudio/ui/skin";
@@ -180,7 +180,7 @@ export default function ResultPanel({ project, shareUrl, readyCount, assembling,
                 url={video}
                 filename="esai-cartoon.mp4"
                 label={t("studio_ui.download_label")}
-                className={VS_BTN_GHOST}
+                className={SAVE_CTA}
               >
                 {t("studio_ui.download")}
               </SaveMediaButton>

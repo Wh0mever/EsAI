@@ -6,6 +6,7 @@ import { fetchData } from "@/tools/fetchData";
 import { CARD, Skeleton, btn } from "../vstudio-showcase/parts";
 import {
   COHORT_WEEKS,
+  DIRECTIONS_NOTE,
   PEOPLE,
   PERIODS,
   barAt,
@@ -21,6 +22,7 @@ import {
   fmtDayWeekday,
   fmtNum,
   fmtPct,
+  fmtPerUser,
   fmtTime,
   methodNote,
   parseRetention,
@@ -28,10 +30,14 @@ import {
   retentionPath,
   shadeBackground,
   tickIndexes,
+  windowNote,
+  windowOf,
   type Cohort,
   type DailyRow,
+  type Direction,
   type Period,
   type Retention,
+  type ReturnedWithin,
 } from "./retention";
 
 /**
@@ -143,6 +149,7 @@ export default function AdminRetentionPage() {
             </p>
           )}
           <ReturnedAfterJoin report={report} />
+          {report.directions && <Directions rows={report.directions} days={report.days} />}
           <DailyChart key={`${report.days}:${report.daily.length}`} rows={report.daily} />
           <CohortTable cohorts={report.cohorts} />
           <RepeatPurchases report={report} />
@@ -230,6 +237,102 @@ function ReturnedAfterJoin({ report }: { report: Retention }) {
         <span className="font-semibold text-foreground">{fmtPct(k.returnedEverShare)}</span> (
         {fmtNum(k.returnedEver)} {plural(k.returnedEver, PEOPLE)})
       </p>
+    </section>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* По направлениям                                                     */
+/* ------------------------------------------------------------------ */
+
+const DIRECTION_COLUMNS = [
+  "Людей",
+  "Генераций",
+  "На человека",
+  "Повторили (2+ дня)",
+  "Вернулись к направлению, 7 дн",
+  "Вернулись к направлению, 30 дн",
+  "Вернулись на сайт, 30 дн",
+  "Платили",
+];
+
+function DirectionCell({ main, note }: { main: string; note?: string }) {
+  return (
+    <td className="py-2 pl-4 text-right align-top tabular-nums">
+      <div>{main}</div>
+      {note && <div className="text-xs whitespace-nowrap text-muted-2">{note}</div>}
+    </td>
+  );
+}
+
+function DirectionRow({ row, groupLabel, period }: { row: Direction; groupLabel?: string; period: string }) {
+  const back = (w: ReturnedWithin) => <DirectionCell main={fmtPct(w.share)} note={windowNote(w)} />;
+  return (
+    <tr className="border-t border-border">
+      <th
+        scope="row"
+        className={`sticky left-0 z-[1] bg-surface py-2 pr-3 text-left align-top whitespace-nowrap ${
+          groupLabel ? "pl-4 font-normal text-muted" : "font-semibold text-foreground"
+        }`}
+      >
+        {groupLabel && <span className="sr-only">{groupLabel}: </span>}
+        {row.label}
+      </th>
+      <DirectionCell main={fmtNum(row.users)} note={`${period}: ${fmtNum(row.activePeriod)}`} />
+      <DirectionCell main={fmtNum(row.generations)} note={`${period}: ${fmtNum(row.generationsPeriod)}`} />
+      <DirectionCell main={fmtPerUser(row.perUser)} />
+      <DirectionCell main={fmtPct(row.repeatShare)} note={`${fmtNum(row.repeat)} чел.`} />
+      {back(windowOf(row.returnedDirection, 7))}
+      {back(windowOf(row.returnedDirection, 30))}
+      {back(windowOf(row.returnedSite, 30))}
+      <DirectionCell main={fmtPct(row.paidShare)} note={`${fmtNum(row.paid)} чел.`} />
+    </tr>
+  );
+}
+
+/**
+ * Какие сценарии удерживают людей: группы «Видео», «Изображения», «Текст» и под
+ * ними мультстудия, видеостудия, чат. Дополнительная строка в ячейке «Людей» и
+ * «Генераций» — за выбранный период: остальные столбцы считаются за всё время.
+ */
+function Directions({ rows, days }: { rows: Direction[]; days: number }) {
+  return (
+    <section className={`${CARD} p-5`}>
+      <h2 className="text-base font-semibold">По направлениям</h2>
+      <p className="mt-1 max-w-3xl text-xs text-muted-2">{DIRECTIONS_NOTE}</p>
+
+      {rows.every((r) => r.users === 0) ? (
+        <p className="mt-4 text-sm text-muted">Генераций пока не было.</p>
+      ) : (
+        // Прокрутка вбок — внутри карточки, как у таблицы когорт; relative — по той же причине.
+        <div className="relative -mx-5 mt-4 overflow-x-auto px-5">
+          <table className="w-full min-w-[52rem] text-sm">
+            <caption className="sr-only">Возвраты и повторные генерации по направлениям</caption>
+            <thead>
+              <tr className="text-xs text-muted-2">
+                <th scope="col" className="sticky left-0 z-[1] bg-surface pb-2 pr-3 text-left align-bottom font-medium">
+                  Направление
+                </th>
+                {DIRECTION_COLUMNS.map((title) => (
+                  <th key={title} scope="col" className="pb-2 pl-4 text-right align-bottom font-medium">
+                    {title}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <DirectionRow
+                  key={row.key}
+                  row={row}
+                  groupLabel={row.parent ? rows.find((r) => r.key === row.parent)?.label : undefined}
+                  period={`за ${days} дн`}
+                />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </section>
   );
 }

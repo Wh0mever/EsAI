@@ -594,14 +594,14 @@ test("Тексты дока лежат в локалях: ru байт в бай�
   }
 });
 
-test("Реплика: предел по длительности сцены, но не больше 300 знаков сервера", () => {
-  assert.equal(dl.dialogueMaxLength(5), 70);
+test("Реплика: 13 знаков в секунду снимка, но не меньше 40 и не больше 300 знаков сервера", () => {
+  assert.equal(dl.dialogueMaxLength(5), 65);
   assert.equal(dl.dialogueMaxLength(2), 40);
-  assert.equal(dl.dialogueMaxLength(21), 294);
-  assert.equal(dl.dialogueMaxLength(22), 300);
+  assert.equal(dl.dialogueMaxLength(23), 299);
+  assert.equal(dl.dialogueMaxLength(24), 300);
   assert.equal(dl.dialogueMaxLength(30), 300);
-  assert.equal(dl.dialogueMaxLength(undefined), 70);
-  assert.equal(dl.dialogueMaxLength(Number.NaN), 70);
+  assert.equal(dl.dialogueMaxLength(undefined), 65);
+  assert.equal(dl.dialogueMaxLength(Number.NaN), 65);
 });
 
 test("Длина ролика для звука: снятая — по съёмке, не снятая — как снимется", () => {

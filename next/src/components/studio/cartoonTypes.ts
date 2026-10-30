@@ -5,6 +5,7 @@
 import type { StudioCharacter } from "./CharacterPicker";
 import type { SceneDurationChoice, StudioScene } from "./SceneTimeline";
 import type { AdjustedNote, DockEffective } from "./dockLogic";
+import type { HeroVoices } from "./lineVoice";
 
 export type Preset = {
   id: number;
@@ -47,6 +48,8 @@ export type Project = {
   effective?: DockEffective | null;
   /** Что сервер подогнал к модели сам (только в ответе на правку). */
   adjusted?: AdjustedNote[];
+  /** Голоса героев на весь мультфильм; {} — пока ничего не закреплено. */
+  hero_voices?: HeroVoices;
   /** Идёт озвучка всего мультфильма: сколько реплик готово из скольких. */
   voicing?: {
     done: number;
@@ -110,6 +113,10 @@ export type SceneHandlers = {
   onTryOn: (scene: StudioScene) => void;
   onRedraw?: (scene: StudioScene) => void;
   onDialogue: (scene: StudioScene, text: string) => void;
+  /** Голос героя на карточке; у гостя их нет. */
+  onLineVoice?: (scene: StudioScene) => void;
+  onChangeVoice?: (scene: StudioScene) => void;
+  onRestoreVoice?: (scene: StudioScene) => void;
   onAudio?: (scene: StudioScene) => void;
   durationFor: (scene: StudioScene) => SceneDurationChoice | null;
   onDuration: (scene: StudioScene, value: number | null) => void;

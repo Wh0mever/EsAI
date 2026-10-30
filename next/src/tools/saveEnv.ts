@@ -295,7 +295,7 @@ export function surfaceOf(pathname: string): string {
 }
 
 /** Версия кода сохранения в событии: событий нет совсем — значит, у человека старая вкладка. */
-export const SAVE_CODE_VERSION = "s3";
+export const SAVE_CODE_VERSION = "s4";
 
 export type SaveStep =
   | "share"

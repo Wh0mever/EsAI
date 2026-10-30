@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
   COHORT_WEEKS,
+  DIRECTIONS_NOTE,
   barAt,
   barTotal,
   chartScale,
@@ -19,16 +20,20 @@ import {
   fmtDayWeekday,
   fmtNum,
   fmtPct,
+  fmtPerUser,
   fmtTime,
   isoDay,
   methodNote,
   parseRetention,
+  perUser,
   plural,
   retentionPath,
   shadeBackground,
   share,
   tickIndexes,
   toPeriod,
+  windowNote,
+  windowOf,
   PEOPLE,
 } from "./retention.ts";
 
@@ -441,4 +446,159 @@ test("cohortCellTitle: неделя без регистраций — не «е�
     cohortCellTitle({ k: 1, share: null, eligible: 0, returned: 0 }, 0),
     "в эту неделю никто не регистрировался"
   );
+});
+
+// Строка в том виде, как её отдаёт core/adminapi/retention.py (F30, раздел R).
+const directionRow = (over = {}) => ({
+  key: "video",
+  group: "video",
+  label: "Видео",
+  parent: null,
+  users: 120,
+  generations: 660,
+  per_user: 5.5,
+  repeat: 30,
+  repeat_share: 25,
+  returned_direction: [
+    { days: 1, base: 100, returned: 10, share: 10 },
+    { days: 7, base: 90, returned: 18, share: 20 },
+    { days: 30, base: 40, returned: 12, share: 30 },
+  ],
+  returned_site: [
+    { days: 1, base: 100, returned: 20, share: 20 },
+    { days: 7, base: 90, returned: 27, share: 30 },
+    { days: 30, base: 40, returned: 16, share: 40 },
+  ],
+  paid: 24,
+  paid_share: 20,
+  active_period: 50,
+  generations_period: 200,
+  ...over,
+});
+
+test("parseRetention: «По направлениям» разбираются без потерь, порядок сервера сохраняется", () => {
+  const r = parseRetention({
+    directions: [
+      directionRow(),
+      directionRow({ key: "cartoon_scene", label: "Мультстудия", parent: "video" }),
+      directionRow({ key: "text", group: "text", label: "Текст" }),
+    ],
+  });
+  assert.deepEqual(
+    r.directions.map((d) => [d.key, d.group, d.label, d.parent]),
+    [
+      ["video", "video", "Видео", null],
+      ["cartoon_scene", "video", "Мультстудия", "video"],
+      ["text", "text", "Текст", null],
+    ]
+  );
+  assert.deepEqual(r.directions[0], {
+    key: "video",
+    group: "video",
+    label: "Видео",
+    parent: null,
+    users: 120,
+    generations: 660,
+    perUser: 5.5,
+    repeat: 30,
+    repeatShare: 25,
+    returnedDirection: [
+      { days: 1, base: 100, returned: 10, share: 10 },
+      { days: 7, base: 90, returned: 18, share: 20 },
+      { days: 30, base: 40, returned: 12, share: 30 },
+    ],
+    returnedSite: [
+      { days: 1, base: 100, returned: 20, share: 20 },
+      { days: 7, base: 90, returned: 27, share: 30 },
+      { days: 30, base: 40, returned: 16, share: 40 },
+    ],
+    paid: 24,
+    paidShare: 20,
+    activePeriod: 50,
+    generationsPeriod: 200,
+  });
+});
+
+test("parseRetention: старый сервер без ключа directions — блока нет, остальной отчёт цел", () => {
+  const r = parseRetention(fullReport());
+  assert.equal(r.directions, null);
+  assert.equal(r.kpi.dau, 41);
+  assert.equal(parseRetention({}).directions, null);
+  assert.equal(parseRetention({ directions: "нет" }).directions, null);
+  assert.equal(parseRetention({ directions: { key: "video" } }).directions, null);
+  assert.equal(parseRetention({ directions: [] }).directions, null);
+});
+
+test("parseRetention: мусор в строках направлений не роняет разбор", () => {
+  const r = parseRetention({
+    directions: [
+      null,
+      7,
+      { label: "без ключа" },
+      { key: "no-label" },
+      { key: "video", label: "Видео", users: "12", per_user: "abc", repeat_share: 140, parent: "" },
+      { key: "video", label: "Дубль", users: 99 },
+    ],
+  });
+  assert.equal(r.directions.length, 1);
+  const [row] = r.directions;
+  assert.equal(row.users, 12);
+  assert.equal(row.generations, 0);
+  assert.equal(row.perUser, null);
+  assert.equal(row.repeatShare, 100);
+  assert.equal(row.parent, null);
+  assert.equal(row.group, "video");
+  assert.deepEqual(
+    row.returnedSite.map((w) => [w.days, w.share]),
+    [
+      [1, null],
+      [7, null],
+      [30, null],
+    ]
+  );
+});
+
+test("perUser / fmtPerUser: больше 100 — не доля, один знак всегда, «—» вместо пустого", () => {
+  assert.equal(perUser(5.54), 5.5);
+  assert.equal(perUser("2.5"), 2.5);
+  assert.equal(perUser(137.25), 137.3);
+  assert.equal(perUser(-1), null);
+  assert.equal(perUser(null), null);
+  assert.equal(perUser(undefined), null);
+  assert.equal(perUser(""), null);
+  assert.equal(fmtPerUser(2.5), "2,5");
+  assert.equal(fmtPerUser(3), "3,0");
+  assert.equal(fmtPerUser(null), "—");
+});
+
+test("windowOf / windowNote: окно по дням; пустая база — «некого считать», а не «0 из 0»", () => {
+  const list = [
+    { days: 7, base: 90, returned: 18, share: 20 },
+    { days: 30, base: 0, returned: 0, share: null },
+  ];
+  assert.equal(windowOf(list, 7).returned, 18);
+  assert.deepEqual(windowOf(list, 1), { days: 1, base: 0, returned: 0, share: null });
+  assert.equal(windowNote(list[0]), "18 из 90");
+  assert.equal(windowNote(list[1]), "некого считать");
+});
+
+test("DIRECTIONS_NOTE: простыми словами — что считаем, с какой даты, что такое повтор", () => {
+  assert.match(DIRECTIONS_NOTE, /только успешные генерации/);
+  assert.match(DIRECTIONS_NOTE, /данные с 28 июня/);
+  assert.match(DIRECTIONS_NOTE, /в 2 и более разных дня/);
+});
+
+test("страница: блок «По направлениям» — сразу после «Вернулись после регистрации», только если он есть", () => {
+  const page = readFileSync(new URL("./page.tsx", import.meta.url), "utf8");
+  const after = page.indexOf("<ReturnedAfterJoin report={report} />");
+  const block = page.indexOf("{report.directions && <Directions rows={report.directions}");
+  const chart = page.indexOf("<DailyChart key=");
+  assert.ok(after > 0 && block > after && chart > block, "порядок блоков");
+  assert.match(page, /По направлениям/);
+  for (const title of ["Людей", "Генераций", "На человека", "Повторили (2+ дня)", "Вернулись на сайт, 30 дн", "Платили"]) {
+    assert.ok(page.includes(`"${title}"`), title);
+  }
+  // Таблица шире телефона: прокрутка только внутри карточки, у двух таблиц одинаково.
+  const scroll = page.match(/className="relative -mx-5 mt-4 overflow-x-auto px-5"/g);
+  assert.equal(scroll.length, 2);
 });

@@ -1,7 +1,7 @@
 "use client";
 
 import { useTranslation } from "react-i18next";
-import SaveMediaButton from "@/components/ui/SaveMediaButton";
+import SaveMediaButton, { SAVE_CTA } from "@/components/ui/SaveMediaButton";
 import {
   FiArrowLeft,
   FiArrowRight,
@@ -23,19 +23,21 @@ import {
   VS_FOCUS,
   VS_ICON_BTN,
   VS_INPUT,
-  VS_LABEL,
   VS_PILL_ON,
   vx,
 } from "@/components/vstudio/ui/skin";
-import { CS_ANCHOR, CS_CARD_BTN, CS_EMPTY, CS_STRIP } from "./ui/cartoonSkin";
+import { CS_ANCHOR, CS_CARD_BTN, CS_CARD_GOLD, CS_EMPTY, CS_STRIP } from "./ui/cartoonSkin";
+import SceneLine from "./timeline/SceneLine";
 import SceneMedia from "./timeline/SceneMedia";
 import {
   DOCK_RU,
+  clipSeconds,
   configLabel,
-  dialogueMaxLength,
   type SceneConfig,
   type SceneShot,
 } from "./dockLogic";
+import { useVoicePreview } from "./VoicePicker";
+import type { HeroVoices, LineVoice } from "./lineVoice";
 
 /** Сообщение у строки ленты: отказ или подсказка после действия с этой сценой.
  *  price — у «Цена изменилась: теперь N кр»: N (null — числа нет); по нему сообщение
@@ -60,6 +62,14 @@ export type StudioScene = {
   custom_text?: string;
   /** Что герой говорит в этой сцене: играется в кадре и звучит голосом. */
   dialogue?: string;
+  /** Решение режиссёра: false — это описание, вслух не читаем. У гостя поля нет. */
+  dialogue_is_speech?: boolean;
+  /** Чей голос звучит в сцене; null — голос модели. */
+  line_voice?: LineVoice | null;
+  /** Сколько стоит озвучить реплику сейчас; null — нельзя (нет реплики, описание, режим выключен). */
+  line_voice_price?: number | null;
+  /** Сколько из цены «Снять» — голос героя; 0 — голоса в цене нет. */
+  render_voice_credits?: number;
   /** Кем снимается эта сцена: свой герой или герой всего мультфильма. */
   character?: { id: number; name: string; image: string } | null;
   keyframe: string;
@@ -69,7 +79,7 @@ export type StudioScene = {
   status: "draft" | "new" | "keyframe" | "video" | "ready" | "failed";
   error: string;
   credits_spent: number;
-  /** Сколько спишет съёмка прямо сейчас (с готовым кадром — только видео). null — цены нет. */
+  /** Сколько спишет съёмка прямо сейчас (с готовым кадром — только видео; голос героя уже внутри). null — цены нет. */
   render_credits?: number | null;
   /** Сколько звуковых дорожек у сцены (голоса, музыка, эффекты). */
   audio_count?: number;
@@ -118,10 +128,6 @@ const SELECT = vx(
 );
 /** Значок в нижнем ряду карточки: 44 px на телефоне, 36 px с 768 px. */
 const ROW_ICON = vx(VS_ICON_BTN, "md:!size-9 aria-disabled:cursor-not-allowed aria-disabled:opacity-50");
-/** «Снять сцену» — золотой контур, а не заливка: золотая кнопка на экране одна, в доке. */
-const RENDER_BTN = vx(VS_BTN_GHOST, VS_PILL_ON, "w-full !font-semibold hover:!bg-accent/[0.16]");
-/** «Переснять с репликой» — тихая кнопка с золотой подписью: её стоит заметить. */
-const RESHOOT_LINE_BTN = vx(CS_CARD_BTN, "!border-vs-accent/45 !text-vs-accent hover:!bg-accent/[0.1]");
 const SPIN = "animate-spin motion-reduce:animate-none";
 
 export default function SceneTimeline({
@@ -142,6 +148,10 @@ export default function SceneTimeline({
   onAudio,
   onRedraw,
   onDialogue,
+  heroVoices,
+  onLineVoice,
+  onChangeVoice,
+  onRestoreVoice,
   aspect = "16:9",
   durationFor,
   onDuration,
@@ -163,6 +173,14 @@ export default function SceneTimeline({
   aspect?: string;
   /** Сохранить реплику героя. Нет — поле не показываем (гость без проекта). */
   onDialogue?: (scene: StudioScene, text: string) => void;
+  /** Голоса героев мультфильма. */
+  heroVoices?: HeroVoices;
+  /** Озвучить реплику голосом героя. Нет — голоса на карточке нет (гость). */
+  onLineVoice?: (scene: StudioScene) => void;
+  /** «Сменить» голос героя. */
+  onChangeVoice?: (scene: StudioScene) => void;
+  /** «Вернуть голос модели». */
+  onRestoreVoice?: (scene: StudioScene) => void;
   /** Перерисовать кадр сцены: прежний не понравился или вышел не тот герой. */
   onRedraw?: (scene: StudioScene) => void;
   /** Открыть звук сцены. Нет — озвучка выключена, кнопку не показываем. */
@@ -191,6 +209,8 @@ export default function SceneTimeline({
 }) {
   const { t } = useTranslation("common");
   const { attach, fade } = useEdgeFade<HTMLDivElement>();
+  // Один на ленту: ▶ на другой карточке останавливает первый.
+  const voicePreview = useVoicePreview();
   const seconds = (n: number) => t("studio_ui.dock_seconds", { defaultValue: DOCK_RU["studio_ui.dock_seconds"], n });
   const cfgText = (c: SceneConfig) => [configLabel(c), seconds(c.duration)].filter(Boolean).join(" · ");
   const creditsShort = t("studio_ui.credits_short");
@@ -249,8 +269,10 @@ export default function SceneTimeline({
                 : ""].filter(Boolean).join(" · ")
             : "";
           const note = notes?.[s.id];
-          // Реплика длиннее сцены не уместится, а больше 300 знаков сервер не сохранит.
-          const dialogueMax = dialogueMaxLength(s.preset.duration);
+          // Голос уже внутри цены «Снять»: говорим об этом там же, где стоит цена.
+          const voicePart = s.render_voice_credits
+            ? t("studio_ui.line_price_part", { credits: s.render_voice_credits })
+            : "";
           const heroLabel = t("studio_ui.scene_hero_change");
           const durationLabel = t("studio_ui.scene_duration", { defaultValue: DOCK_RU["studio_ui.scene_duration"] });
           return (
@@ -304,7 +326,7 @@ export default function SceneTimeline({
 
               <SceneMedia scene={s} working={working} aspect={aspect} />
 
-              <div className="flex min-h-5 min-w-0 items-center gap-1.5 text-[12px]">
+              <div className="flex min-h-5 min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1 text-[12px]">
                 {s.status === "ready" ? (
                   <span className="inline-flex items-center gap-1 font-medium text-status-ok">
                     <FiCheck aria-hidden /> {t("studio_ui.st_ready")}
@@ -317,9 +339,27 @@ export default function SceneTimeline({
                 ) : (
                   <span className="truncate text-status-progress">{t(`studio_ui.${STATUS_KEY[s.status]}`)}…</span>
                 )}
-                {s.credits_spent > 0 && (
-                  <span className="ml-auto shrink-0 tabular-nums text-muted-2">
-                    {s.credits_spent} {creditsShort}
+                {(s.credits_spent > 0 || s.video) && (
+                  <span className="ml-auto flex shrink-0 items-center gap-1.5">
+                    {s.credits_spent > 0 && (
+                      <span className="tabular-nums text-muted-2">
+                        {s.credits_spent} {creditsShort}
+                      </span>
+                    )}
+                    {/* Скачать отдельную сцену: клиент просил забирать не только готовый
+                        мультфильм, но и каждый ролик по отдельности — сцену часто выкладывают
+                        саму по себе. Здесь, а не среди значков внизу: там на телефоне для
+                        подписанной кнопки нет места. */}
+                    {s.video && (
+                      <SaveMediaButton
+                        url={s.video}
+                        filename={`esai-scene-${s.order + 1}.mp4`}
+                        label={t("studio_ui.download_scene")}
+                        className={SAVE_CTA}
+                      >
+                        {t("studio_ui.download")}
+                      </SaveMediaButton>
+                    )}
                   </span>
                 )}
               </div>
@@ -391,6 +431,9 @@ export default function SceneTimeline({
                     </span>
                   )}
                 </div>
+              )}
+              {voicePart && s.status !== "ready" && (
+                <p className="-mt-1.5 text-right text-[11px] leading-snug text-muted-2">{voicePart}</p>
               )}
 
               {/* Причина — текстом, а не подсказкой при наведении: на телефоне
@@ -469,46 +512,30 @@ export default function SceneTimeline({
                     : t("studio_ui.frame_btn_plain", { defaultValue: "Кадр" })}
                 </button>
               )}
-              {/* Реплика героя. Клиент: мультфильм должен смотреться как
-                  мультфильм — значит герой должен говорить, и говорить то, что
-                  задумал человек. Эта же строчка уходит в съёмку и в озвучку. */}
+              {/* Слова героя и чьим голосом они звучат. Эта же строчка уходит в съёмку и в озвучку. */}
               {(s.status === "draft" || s.status === "ready" || s.status === "failed") && onDialogue && (
-                <label className="flex flex-col gap-1.5">
-                  <span className="flex items-baseline justify-between gap-2">
-                    <span className={VS_LABEL}>{t("studio_ui.dialogue_label")}</span>
-                    <span className="shrink-0 text-[11px] text-muted-2">
-                      {t("studio_ui.dialogue_fit", { seconds: s.preset.duration || 5 })}
-                    </span>
-                  </span>
-                  <textarea
-                    defaultValue={s.dialogue || ""}
-                    onBlur={(e) => {
-                      const next = e.target.value.trim().slice(0, 300);
-                      if (next !== (s.dialogue || "")) onDialogue(s, next);
-                    }}
-                    rows={2}
-                    // Речь — это 2-3 слова в секунду: реплика длиннее сцены не
-                    // поместится, и модель оборвёт её на полуслове. И не больше 300
-                    // знаков: длиннее сервер не сохранит, а обрезать молча нельзя.
-                    maxLength={dialogueMax}
-                    placeholder={t("studio_ui.dialogue_ph")}
-                    className={vx(VS_INPUT, "!min-h-16 resize-none py-2 leading-snug !text-[13px] max-sm:!text-base")}
-                  />
-                  {/* Клиент: «а нельзя, чтоб рот открывался?» Можно — но только
-                      если реплику произносит сама модель при съёмке. */}
-                  <span className="text-[11px] leading-snug text-muted-2">
-                    {t(s.status === "ready" ? "studio_ui.dialogue_hint_ready" : "studio_ui.dialogue_hint")}
-                  </span>
-                </label>
+                <SceneLine
+                  scene={s}
+                  // Длина снимка: у готовой сцены — настоящего ролика, а не нынешнего дока.
+                  seconds={clipSeconds(s)}
+                  heroVoices={heroVoices}
+                  busy={busy}
+                  preview={voicePreview}
+                  onDialogue={onDialogue}
+                  onDub={onLineVoice}
+                  onChangeVoice={onChangeVoice}
+                  onRestore={onRestoreVoice}
+                />
               )}
-              {/* Готовая сцена с репликой: переснять, чтобы герой её произнёс. */}
+              {/* Готовая сцена с репликой: переснять, чтобы рот двигался под новые слова. Кнопка
+                  вторичная: голос меняется и без пересъёмки, а съёмка намного дороже. */}
               {s.status === "ready" && Boolean(s.dialogue) && (
                 <button
                   type="button"
                   onClick={() => onRetry(s)}
                   disabled={payLocked}
                   aria-busy={busy || undefined}
-                  className={RESHOOT_LINE_BTN}
+                  className={CS_CARD_BTN}
                 >
                   {busy ? <FiLoader className={SPIN} aria-hidden /> : <FiRefreshCw aria-hidden />}
                   {reshootCredits != null
@@ -560,7 +587,7 @@ export default function SceneTimeline({
                   onClick={() => onRender(s)}
                   disabled={payLocked}
                   aria-busy={busy || undefined}
-                  className={RENDER_BTN}
+                  className={CS_CARD_GOLD}
                 >
                   {busy ? <FiLoader className={SPIN} aria-hidden /> : <FiPlay aria-hidden />}
                   {t("studio_ui.render_scene")}
@@ -634,18 +661,6 @@ export default function SceneTimeline({
                       <span className="sr-only">{` · ${s.render_credits} ${creditsShort}`}</span>
                     ) : null}
                   </button>
-                )}
-                {/* Скачать отдельную сцену: клиент просил забирать не только
-                    готовый мультфильм, но и каждый ролик по отдельности —
-                    сцену часто выкладывают саму по себе. */}
-                {s.video && (
-                  <SaveMediaButton
-                    url={s.video}
-                    filename={`esai-scene-${s.order + 1}.mp4`}
-                    label={t("studio_ui.download_scene")}
-                    iconClassName=""
-                    className={vx(ROW_ICON, "hover:!text-vs-accent")}
-                  />
                 )}
                 {/* Снимающуюся сцену не удалить: ролик доснимется, а класть его
                     будет некуда (сервер тоже откажет). */}

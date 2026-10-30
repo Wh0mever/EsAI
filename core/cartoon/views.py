@@ -35,7 +35,7 @@ from rest_framework_simplejwt.authentication import JWTAuthentication
 from adminapi.permissions import IsStaff
 from core.langutils import request_lang as _lang, tr as _tr
 
-from .models import (CartoonCategory, CartoonCharacter, CartoonPreset, CartoonProject,
+from .models import (CartoonAudioTrack, CartoonCategory, CartoonCharacter, CartoonPreset, CartoonProject,
                      CartoonScene)
 from .tasks import assemble_movie, render_scene
 
@@ -286,9 +286,42 @@ def shot_token(s: CartoonScene) -> str:
     return hashlib.blake2s(name.encode("utf-8"), digest_size=4).hexdigest() if name else ""
 
 
+def _line_on(s: CartoonScene, memo: dict | None = None) -> bool:
+    """Озвучка реплики работает для хозяина сцены. Режим staff смотрит на человека —
+    в ленте это один запрос на мультфильм, а не на каждую сцену."""
+    from . import audio
+
+    key = ("line_on", s.project.user_id)
+    if memo is not None and key in memo:
+        return memo[key]
+    value = audio.line_ready(s.project.user)
+    if memo is not None:
+        memo[key] = value
+    return value
+
+
+def _scene_line(s: CartoonScene, memo: dict | None = None):
+    """Дорожка реплики сцены. project_json загружает их все разом (memo)."""
+    from .voiceover import line_track
+
+    lines = memo.get(("lines", s.project_id)) if memo is not None else None
+    return lines.get(s.pk) if lines is not None else line_track(s)
+
+
+def _line_voice_json(s: CartoonScene, line) -> dict | None:
+    """Чьим голосом говорит сцена. stale — реплику поправили после озвучки: звучит
+    прежний текст, и карточка должна предложить озвучить заново."""
+    if line is None:
+        return None
+    return {"voice_id": line.voice_id, "voice_name": line.voice_name, "track_id": line.pk,
+            "credits": line.credits_spent, "start_sec": line.start_sec, "text": line.text,
+            "stale": line.text != (s.dialogue or "").strip()}
+
+
 def scene_json(s: CartoonScene, lang: str = "ru", pair_videos: dict | None = None,
                memo: dict | None = None) -> dict:
-    from .pricing import price_or_none
+    from . import audio
+    from .pricing import line_voice_credits, price_or_none
 
     hero_id = s.character_id or s.project.character_id
     if pair_videos is None:
@@ -312,12 +345,31 @@ def scene_json(s: CartoonScene, lang: str = "ru", pair_videos: dict | None = Non
     else:
         video_price = price.video if price is not None else None
         frame_price = price.frame if price is not None else 0
+    # Голос героя входит в цену «Снять»: человек видит на кнопке всё, что спишется.
+    # Цена снимка (planned) его уже содержит.
+    dialogue = (s.dialogue or "").strip()
+    line_on = bool(dialogue) and _line_on(s, memo)
+    line = _scene_line(s, memo)
+    voice_price = int(s.shot_voice_credits or 0) if planned is not None else 0
+    if (planned is None and line_on and video_price is not None and s.preset_id
+            and s.status not in WORKING_STATUSES):
+        voice_price = line_voice_credits(s, line=line, ready=True)
+        video_price += voice_price
     row = {
         "id": s.id,
         "order": s.order,
         # Своя сцена: название — из описания человека, превью у неё нет.
         "custom_text": s.custom_text,
         "dialogue": s.dialogue,
+        # Режиссёр решил, что это слова героя. False — описание: вслух не читаем.
+        "dialogue_is_speech": s.dialogue_is_speech,
+        # Голос героя в этой сцене: null — звучит голос модели.
+        "line_voice": _line_voice_json(s, line),
+        # Сколько стоит озвучить реплику сейчас; null — озвучивать нечего или выключено.
+        "line_voice_price": (audio.voice_price(dialogue)
+                             if line_on and s.dialogue_is_speech else None),
+        # Окно речи модели в ролике, секунды: [начало, конец] или null.
+        "speech_window": audio.window_json(s),
         "preset": {"id": s.preset_id,
                    "title": ((s.custom_title or s.custom_text[:60]) if custom
                              else (_tr(s.preset, "title", lang) if s.preset_id else "")),
@@ -359,6 +411,8 @@ def scene_json(s: CartoonScene, lang: str = "ru", pair_videos: dict | None = Non
         "render_credits": (None if video_price is None
                            else video_price if s.keyframe or planned is not None
                            else frame_price + video_price),
+        # Сколько из этой цены — голос героя (для показа состава цены).
+        "render_voice_credits": voice_price,
         # Своя длительность сцены (null — как у мультфильма или пресета).
         "duration": s.duration,
         # Чем сцена снимется при «Снять» сейчас (идёт съёмка — чем снимается).
@@ -398,6 +452,10 @@ def project_json(p: CartoonProject, lang: str = "ru", memo: dict | None = None) 
         audio_credits=Sum("audio_tracks__credits_spent")).order_by("order", "id"))
     pairs = _pair_videos_for(scenes)
     memo = {} if memo is None else memo
+    # Реплики всех сцен одним запросом: лента не должна ходить за ними по сцене.
+    memo[("lines", p.pk)] = {t.scene_id: t for t in CartoonAudioTrack.objects.filter(
+        scene__project=p, kind=CartoonAudioTrack.KIND_LINE, status=CartoonAudioTrack.STATUS_READY
+    ).exclude(file="")}
     return {
         "id": p.id,
         "title": p.title,
@@ -410,6 +468,8 @@ def project_json(p: CartoonProject, lang: str = "ru", memo: dict | None = None) 
         "duration": p.duration,
         "effective": _effective_json(p, memo),
         "character": character_json(p.character, lang) if p.character else None,
+        # Голос каждого героя на весь мультфильм: {"<id героя>": {voice_id, voice_name}}.
+        "hero_voices": p.hero_voices or {},
         "result_video": _media(p.result_video),
         "error": p.error,
         "scenes": [scene_json(s, lang, pairs, memo) for s in scenes],
@@ -1628,7 +1688,7 @@ def _queue_render(request, scene, *, new_keyframe: bool = False, quoted: int | N
     from vstudio.reserve import merge_reserved, vstudio_reserved
 
     from .models import CartoonKeyframe
-    from .pricing import reserved_credits, snapshot_fields
+    from .pricing import line_voice_credits, reserved_credits, snapshot_fields
 
     lang = _lang(request)
     character = scene.character or scene.project.character
@@ -1639,7 +1699,9 @@ def _queue_render(request, scene, *, new_keyframe: bool = False, quoted: int | N
     keyframe_ready = bool(scene.keyframe) and not new_keyframe
     try:
         config, price = quote = _scene_quote(scene, keyframe_ready=keyframe_ready)
-        need = _scene_price(scene, keyframe_ready=keyframe_ready, quote=quote)
+        # Голос героя — часть цены «Снять»: резерв должен хватить и на него.
+        voice = line_voice_credits(scene)
+        need = _scene_price(scene, keyframe_ready=keyframe_ready, quote=quote) + voice
     except PriceUnavailable as exc:
         return _price_unavailable(exc)
     if quoted is not None and need > quoted:
@@ -1657,7 +1719,7 @@ def _queue_render(request, scene, *, new_keyframe: bool = False, quoted: int | N
         # Снимок настроек и цены: съёмка, резерв и списание идут по нему, смена
         # дока после «Снять» эту сцену уже не меняет (pricing.shot_config).
         fields = {"status": CartoonScene.STATUS_NEW, "error": "", "updated_at": timezone.now(),
-                  **snapshot_fields(config, price, keyframe_ready=keyframe_ready),
+                  **snapshot_fields(config, price, keyframe_ready=keyframe_ready, voice=voice),
                   # Резерв держит ровно то, что проверили выше.
                   "credits_planned": need}
         if scene.video_prompt and config.duration != _prompt_seconds(scene):
@@ -1844,6 +1906,8 @@ class SceneDetailView(StudioAPIView):
             scene.keyframe = ""
             scene.video_prompt = ""
             scene.save(update_fields=["character", "keyframe", "video_prompt", "updated_at"])
+            # Голос прежнего героя новому не подходит: у разных героев разные голоса.
+            scene.audio_tracks.filter(kind=CartoonAudioTrack.KIND_LINE).delete()
             _attach_ready_keyframe(scene)
 
         # «Кадр заново» без съёмки: кадр мог получиться неудачным (герой не
@@ -1868,16 +1932,25 @@ class SceneDetailView(StudioAPIView):
 
         if "dialogue" in request.data:
             # У готовой сцены реплику тоже можно вписать: рот двигается только
-            # когда её произносит сама модель, и такую сцену потом переснимают.
+            # когда её сыграла сама модель, поэтому такую сцену можно и переснять,
+            # и озвучить голосом героя поверх уже снятого (audio/line/).
             if scene.status not in (CartoonScene.STATUS_DRAFT, CartoonScene.STATUS_FAILED,
                                     CartoonScene.STATUS_READY):
                 return Response({"detail": "Сцена уже снимается — реплику не поменять"},
                                 status=status.HTTP_400_BAD_REQUEST)
-            scene.dialogue = _dialogue(request.data.get("dialogue"))
-            # Промпт съёмки собран под прежнюю реплику — соберём заново.
-            scene.video_prompt = ""
-            scene.video_negative = ""
-            scene.save(update_fields=["dialogue", "video_prompt", "video_negative", "updated_at"])
+            dialogue = _dialogue(request.data.get("dialogue"))
+            # Те же слова (поле шлёт и лишний пробел): решение режиссёра остаётся в силе.
+            if dialogue != scene.dialogue:
+                scene.dialogue = dialogue
+                # Промпт съёмки собран под прежнюю реплику — соберём заново. Решение
+                # «это описание» относилось к прежнему тексту и тоже уходит с ним.
+                scene.video_prompt = ""
+                scene.video_negative = ""
+                scene.dialogue_is_speech = True
+                # Без языка сцена снова считается непрочитанной (director.unjudged).
+                scene.voice_hint = {k: v for k, v in (scene.voice_hint or {}).items() if k != "lang"}
+                scene.save(update_fields=["dialogue", "dialogue_is_speech", "voice_hint", "video_prompt",
+                                          "video_negative", "updated_at"])
 
         if request.data.get("retry"):
             # Сцена уже в работе — второй задачи не ставим: обе сняли бы видео и

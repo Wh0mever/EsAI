@@ -13,7 +13,7 @@ import {
   FiShuffle,
   FiX,
 } from "react-icons/fi";
-import SaveMediaButton from "@/components/ui/SaveMediaButton";
+import SaveMediaButton, { SAVE_CTA } from "@/components/ui/SaveMediaButton";
 import ShareButtons from "@/components/ui/ShareButtons";
 import { assetFromTake, newClientRequestId, quote, retryShot, shareVideo, trackVs } from "@/lib/vstudio/api";
 import { errorText, issueText, reactionFor } from "@/lib/vstudio/errors";
@@ -107,13 +107,14 @@ function trayItem(asset: AssetJSON, slot: InputSlot): TrayItem {
 
 /** Кнопки строки действий мельче обычных кнопок студии, но на телефоне те же 44 px. */
 const ACT_SIZE = "!gap-1.5 !text-[13px] md:!min-h-9";
-/** Тихая кнопка: значок и подпись без рамки. Этот же вид отдаётся кнопке «Скачать». */
+/** Тихая кнопка: значок и подпись без рамки. */
 const ACT_QUIET = `inline-flex min-h-11 min-w-11 cursor-pointer items-center justify-center gap-1.5 rounded-full px-3 text-[13px] font-medium text-muted transition-colors hover:bg-vs-ink/[0.08] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-muted md:min-h-9 md:min-w-0 ${VS_FOCUS}`;
 
 /**
  * Три вида кнопок. В ленте десятки карточек, и одинаково громкие кнопки под
  * каждой спорили бы с роликами: с рамкой — только «Повторить», золото — только
- * там, где человек подтверждает трату, остальное — тихое.
+ * там, где человек подтверждает трату, и «Скачать» (SAVE_CTA: клиент просил её
+ * заметной), остальное — тихое.
  */
 const ACT: Record<"ghost" | "gold" | "quiet", string> = {
   ghost: vx(VS_BTN_GHOST, ACT_SIZE, "!px-3.5"),
@@ -363,6 +364,10 @@ function ShotActions({ shot, take, takes, model, dispatch, onComposerFilled }: S
     if (retry.phase === "confirm" && missing > 0) void startRetry();
   });
 
+  // С подписанной «Скачать» на 390 px строка не помещается: подписи «Повторить» и «Изменить»
+  // на телефоне уходят в значки, иначе «Скачать» уезжала бы на вторую строку.
+  const hasFile = Boolean(result?.url);
+
   return (
     <div className="flex flex-col gap-2">
       {/* Слева — что делать с кадром дальше, справа — забрать результат. */}
@@ -375,9 +380,15 @@ function ShotActions({ shot, take, takes, model, dispatch, onComposerFilled }: S
             disabled={block === "model"}
             icon={<FiRefreshCw />}
             label={retryLabel}
+            compact={hasFile}
           />
         )}
-        <Btn onClick={edit} icon={<FiEdit2 />} label={t("run.actions.edit", { defaultValue: "Изменить" })} />
+        <Btn
+          onClick={edit}
+          icon={<FiEdit2 />}
+          label={t("run.actions.edit", { defaultValue: "Изменить" })}
+          compact={hasFile}
+        />
         <Btn
           onClick={otherModel}
           icon={<FiShuffle />}
@@ -403,15 +414,6 @@ function ShotActions({ shot, take, takes, model, dispatch, onComposerFilled }: S
         )}
         {result?.url && (
           <div className="ml-auto flex items-center gap-1">
-            <SaveMediaButton
-              url={result.url}
-              filename={mediaFilename(result)}
-              label={t("run.actions.download", { defaultValue: "Скачать" })}
-              className={ACT_QUIET}
-              iconClassName="text-sm"
-            >
-              <span className="hidden sm:inline">{t("run.actions.download", { defaultValue: "Скачать" })}</span>
-            </SaveMediaButton>
             {isVideo && (
               <Btn
                 onClick={() => void startShare()}
@@ -421,6 +423,14 @@ function ShotActions({ shot, take, takes, model, dispatch, onComposerFilled }: S
                 compact
               />
             )}
+            <SaveMediaButton
+              url={result.url}
+              filename={mediaFilename(result)}
+              label={t("run.actions.download", { defaultValue: "Скачать" })}
+              className={SAVE_CTA}
+            >
+              {t("run.actions.download", { defaultValue: "Скачать" })}
+            </SaveMediaButton>
           </div>
         )}
       </div>

@@ -253,6 +253,151 @@ class VoiceAllTests(TestCase):
         self.assertEqual(self._balance(), 0)
         self.assertEqual(CartoonAudioTrack.objects.count(), 1)
 
+    # --- реплики человека (дорожка line) -------------------------------------
+
+    def _spoken(self, text="Ура, получилось!", **fields):
+        fields = {"status": CartoonScene.STATUS_READY, "video": "cartoon/scenes/v.mp4",
+                  "voice_hint": {"lang": "other"}, **fields}
+        CartoonScene.objects.filter(pk=self.s1.pk).update(dialogue=text, **fields)
+        self.s1.refresh_from_db()
+
+    def _plan(self, written=None):
+        with patch("cartoon.voiceover.write_lines", return_value=written or {1: "Торт готов"}) as writer, \
+             patch("cartoon.audio.list_voices", return_value=VOICES):
+            return voiceover.build_plan(self.project), writer
+
+    def test_written_line_is_a_frozen_item_of_the_plan(self):
+        self._spoken()
+        plan, writer = self._plan()
+        first, second = plan["lines"]
+        self.assertEqual((first["scene_id"], first["text"], first["line"], first["credits"]),
+                         (self.s1.pk, "Ура, получилось!", True, 5))
+        self.assertEqual((second["text"], second["line"]), ("Торт готов", False))
+        self.assertEqual(plan["total_credits"], 10)
+        self.assertEqual(plan["spoken_in_video"], 0)
+        # Сценарист пишет только за сцены без своей реплики, и нумерация — по ним.
+        self.assertEqual([s.pk for s in writer.call_args[0][0]], [self.s2.pk])
+
+    def test_description_stays_out_of_the_plan(self):
+        self._spoken("Он герой играет потом ищет маму", dialogue_is_speech=False)
+        plan, _ = self._plan()
+        self.assertEqual([l["scene_id"] for l in plan["lines"]], [self.s2.pk])
+        self.assertEqual(plan["descriptions"], 1)
+
+    def test_already_voiced_line_stays_out_of_the_plan(self):
+        self._spoken()
+        CartoonAudioTrack.objects.create(scene=self.s1, kind="line", text="Ура, получилось!",
+                                         voice_id="f1", file="cartoon/audio/l.mp3", duration=1)
+        plan, _ = self._plan()
+        self.assertEqual([l["scene_id"] for l in plan["lines"]], [self.s2.pk])
+        self.assertEqual(plan["line_voiced"], 1)
+
+    def test_line_voiced_with_the_old_text_is_planned_again(self):
+        self._spoken()
+        CartoonAudioTrack.objects.create(scene=self.s1, kind="line", text="старые слова",
+                                         voice_id="f1", file="cartoon/audio/l.mp3", duration=1)
+        plan, _ = self._plan()
+        self.assertTrue(plan["lines"][0]["line"])
+
+    def test_scene_in_the_shoot_will_voice_itself(self):
+        self._spoken(status=CartoonScene.STATUS_VIDEO)
+        plan, _ = self._plan()
+        self.assertEqual([l["scene_id"] for l in plan["lines"]], [self.s2.pk])
+
+    def test_unshot_scene_waits_for_the_director(self):
+        """До съёмки неизвестно, слова ли это: описание здесь прочли бы вслух и взяли деньги."""
+        self._spoken(status=CartoonScene.STATUS_DRAFT, video="")
+        plan, _ = self._plan()
+        self.assertEqual([l["scene_id"] for l in plan["lines"]], [self.s2.pk])
+
+    def test_hero_voice_is_used_in_the_plan(self):
+        self._spoken()
+        self.project.hero_voices = {str(self.cat.pk): {"voice_id": "m2", "voice_name": "Каллум"}}
+        self.project.save(update_fields=["hero_voices"])
+        plan, _ = self._plan()
+        self.assertEqual(plan["lines"][0]["voice_id"], "m2")
+
+    def test_voice_all_takes_the_text_from_the_scene_not_from_the_client(self):
+        self._spoken()
+        body = {"lines": [{"scene_id": self.s1.pk, "text": "подделанный текст", "voice_id": "m1"}]}
+        with patch("cartoon.views_audio.voice_movie.delay") as delay:
+            response = self._post(ProjectVoiceAllView, body)
+        self.assertEqual(response.status_code, 202, response.data)
+        item = delay.call_args[0][1][0]
+        self.assertEqual((item["text"], item["line"]), ("Ура, получилось!", True))
+
+    def test_voice_all_never_reads_a_description_aloud(self):
+        self._spoken("Он герой играет потом ищет маму", dialogue_is_speech=False)
+        body = {"lines": [{"scene_id": self.s1.pk, "text": "что угодно", "voice_id": "m1"}]}
+        with patch("cartoon.views_audio.voice_movie.delay") as delay:
+            response = self._post(ProjectVoiceAllView, body)
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(delay.call_count, 0)
+
+    def _voice_project(self, item, **kw):
+        plan = [{"scene_id": self.s1.pk, "text": "Ура, получилось!", "voice_id": "m1",
+                 "voice_name": "Георгий", "line": True, **item}]
+        with patch("cartoon.audio.tts", return_value=b"mp3") as tts, \
+             patch("cartoon.audio.save_audio", return_value=("cartoon/audio/l.mp3", 2.0)), \
+             patch("cartoon.audio.scene_window", return_value=(1.0, 3.0)), \
+             patch("cartoon.audio.mix_scene", return_value="cartoon/scenes/mixed/m.mp4") as mix, \
+             patch("cartoon.audio.remix_scene") as remix:
+            result = voiceover.voice_project(self.project, plan, **kw)
+        return result, tts, mix, remix
+
+    def test_voice_project_line_replaces_only_the_line(self):
+        self._spoken(video="cartoon/scenes/v.mp4", status=CartoonScene.STATUS_READY)
+        keep = CartoonAudioTrack.objects.create(scene=self.s1, kind="voice", file="cartoon/audio/own.mp3",
+                                                text="своя реплика", duration=1)
+        CartoonAudioTrack.objects.create(scene=self.s1, kind="line", file="cartoon/audio/old.mp3",
+                                         text="старые слова", voice_id="m1", duration=1)
+        result, _tts, mix, remix = self._voice_project({})
+        self.assertEqual((result["done"], result["spent"]), (1, 5))
+        self.assertEqual(self._balance(), 95)
+        self.assertTrue(CartoonAudioTrack.objects.filter(pk=keep.pk).exists())
+        line = CartoonAudioTrack.objects.get(scene=self.s1, kind="line")
+        self.assertEqual(line.text, "Ура, получилось!")
+        self.s1.refresh_from_db()
+        self.assertEqual((self.s1.mixed_video, self.s1.speech_start), ("cartoon/scenes/mixed/m.mp4", 1.0))
+        # Свели до списания — второй ffmpeg не нужен.
+        self.assertEqual((mix.call_count, remix.call_count), (1, 0))
+        tx = TokenTransaction.objects.get(reason="cartoon_voice")
+        self.assertEqual(tx.meta["kind"], "line")
+        self.project.refresh_from_db()
+        self.assertEqual(self.project.hero_voices[str(self.cat.pk)]["voice_id"], "m1")
+
+    def test_voice_project_line_mix_failure_costs_nothing(self):
+        self._spoken(video="cartoon/scenes/v.mp4", status=CartoonScene.STATUS_READY)
+        plan = [{"scene_id": self.s1.pk, "text": "Ура, получилось!", "voice_id": "m1", "line": True}]
+        with patch("cartoon.audio.tts", return_value=b"mp3"), \
+             patch("cartoon.audio.save_audio", return_value=("cartoon/audio/l.mp3", 2.0)), \
+             patch("cartoon.audio.scene_window", return_value=(1.0, 3.0)), \
+             patch("cartoon.audio.mix_scene", side_effect=RuntimeError("ffmpeg")):
+            result = voiceover.voice_project(self.project, plan)
+        self.assertEqual((result["done"], result["error"]), (0, "line_failed"))
+        self.assertEqual(self._balance(), 100)
+        self.assertFalse(CartoonAudioTrack.objects.filter(kind="line").exists())
+
+    def test_same_line_is_not_paid_twice(self):
+        self._spoken()
+        CartoonAudioTrack.objects.create(scene=self.s1, kind="line", file="cartoon/audio/old.mp3",
+                                         text="Ура, получилось!", voice_id="m1", duration=1)
+        result, tts, _mix, _remix = self._voice_project({})
+        self.assertEqual((result["done"], result["spent"], tts.call_count), (0, 0, 0))
+        self.assertEqual(self._balance(), 100)
+
+    def test_unshot_scene_is_left_to_the_shoot(self):
+        """Режиссёр её ещё не читал: описание здесь прочли бы вслух и взяли за него деньги."""
+        self._spoken(status=CartoonScene.STATUS_DRAFT, video="")
+        result, tts, _mix, _remix = self._voice_project({})
+        self.assertEqual((result["done"], tts.call_count), (0, 0))
+        self.assertEqual(self._balance(), 100)
+
+    def test_scene_that_went_into_the_shoot_is_skipped(self):
+        self._spoken(status=CartoonScene.STATUS_VIDEO)
+        result, tts, _mix, _remix = self._voice_project({})
+        self.assertEqual((result["done"], tts.call_count), (0, 0))
+
     def test_voice_of_a_character_survives_next_run(self):
         """Второй запуск не должен менять герою голос: мультфильм звучал бы рвано."""
         CartoonAudioTrack.objects.create(

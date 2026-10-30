@@ -1,13 +1,15 @@
 "use client";
 
 import { useTranslation } from "react-i18next";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { FiLoader, FiMic } from "react-icons/fi";
 import { Modal } from "@/components/dialog/Dialog";
 import { VS_BTN_GOLD, VS_INPUT, vx } from "@/components/vstudio/ui/skin";
 import { fetchData } from "@/tools/fetchData";
 import type { AudioConfig } from "./SceneAudioDialog";
 import type { ApiRefusal } from "./cartoonTypes";
+import { linePrice } from "./lineVoice";
+import { useVoices } from "./VoicePicker";
 
 /**
  * «Озвучить весь мультфильм».
@@ -29,6 +31,8 @@ export type PlanLine = {
   text: string;
   credits: number;
   has_voice: boolean;
+  /** Реплика, которую написал человек: текст заморожен, озвучивается как есть. */
+  line?: boolean;
 };
 
 export type VoicePlan = {
@@ -37,9 +41,13 @@ export type VoicePlan = {
   balance?: number;
   /** Сколько сцен уже говорят голосом модели — их озвучивать не надо. */
   spoken_in_video?: number;
+  /** Сколько реплик уже озвучено голосом героя: в план они не входят. */
+  line_voiced?: number;
+  /** Сколько описаний вместо слов героя пропущено: вслух их не читаем. */
+  descriptions?: number;
+  /** Сколько реплик в неснятых сценах: голос придёт вместе со съёмкой. */
+  unshot?: number;
 };
-
-type Voice = { id: string; name: string; gender: string; age: string; description: string };
 
 export default function VoiceAllDialog({
   open,
@@ -65,7 +73,7 @@ export default function VoiceAllDialog({
   // заменять их новыми нельзя — но человек может включить их обратно.
   const voicedOff = (p: VoicePlan | null) => new Set((p?.lines ?? []).filter((l) => l.has_voice).map((l) => l.scene_id));
   const [off, setOff] = useState<Set<number>>(() => voicedOff(plan));
-  const [voices, setVoices] = useState<Voice[]>([]);
+  const voices = useVoices(open);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -81,28 +89,15 @@ export default function VoiceAllDialog({
     }
   }
 
-  useEffect(() => {
-    if (!open || voices.length) return;
-    void (async () => {
-      const res = await fetchData<Voice[]>("cartoon/audio/voices/", "GET", undefined, false);
-      if (res.ok && Array.isArray(res.data)) setVoices(res.data);
-    })();
-  }, [open, voices.length]);
-
   const prices = config?.prices;
   // Пустая строка не стоит ничего: сцена без реплики остаётся в списке, чтобы
   // её было видно, но платить за неё не за что.
-  const priceOf = useCallback(
-    (text: string) =>
-      prices && text.trim()
-        ? Math.max(prices.voice_min, Math.ceil((text.trim().length * prices.voice_per_1k) / 1000))
-        : 0,
-    [prices]
-  );
+  const priceOf = useCallback((text: string) => linePrice(text, prices), [prices]);
 
   const active = useMemo(() => lines.filter((l) => !off.has(l.scene_id) && l.text.trim()), [lines, off]);
   const total = useMemo(() => active.reduce((sum, l) => sum + priceOf(l.text), 0), [active, priceOf]);
   const alreadyVoiced = lines.some((l) => l.has_voice);
+  const ownLines = lines.some((l) => l.line);
 
   const setLine = (sceneId: number, patch: Partial<PlanLine>) =>
     setLines((prev) => prev.map((l) => (l.scene_id === sceneId ? { ...l, ...patch } : l)));
@@ -174,6 +169,22 @@ export default function VoiceAllDialog({
             {t("studio_ui.voiceall_spoken", { count: plan?.spoken_in_video ?? 0 })}
           </p>
         )}
+        {ownLines && <p className="text-xs leading-snug text-muted-2">{t("studio_ui.voiceall_own_lines")}</p>}
+        {Boolean(plan?.line_voiced) && (
+          <p className="text-xs leading-snug text-muted-2">
+            {t("studio_ui.voiceall_line_voiced", { n: plan?.line_voiced ?? 0 })}
+          </p>
+        )}
+        {Boolean(plan?.descriptions) && (
+          <p className="text-xs leading-snug text-muted-2">
+            {t("studio_ui.voiceall_descriptions", { n: plan?.descriptions ?? 0 })}
+          </p>
+        )}
+        {Boolean(plan?.unshot) && (
+          <p className="text-xs leading-snug text-muted-2">
+            {t("studio_ui.voiceall_unshot", { n: plan?.unshot ?? 0 })}
+          </p>
+        )}
 
         <div className="flex flex-col gap-2">
           {lines.map((l) => {
@@ -231,8 +242,14 @@ export default function VoiceAllDialog({
                   onChange={(e) => setLine(l.scene_id, { text: e.target.value.slice(0, 200) })}
                   rows={2}
                   disabled={disabled}
+                  // Слова человека правятся на карточке сцены: сервер всё равно возьмёт их оттуда.
+                  readOnly={l.line}
                   placeholder={t("studio_ui.voiceall_line_ph")}
-                  className={vx(VS_INPUT, "resize-none py-2 leading-snug max-sm:!text-base disabled:cursor-not-allowed disabled:opacity-60")}
+                  className={vx(
+                    VS_INPUT,
+                    "resize-none py-2 leading-snug max-sm:!text-base disabled:cursor-not-allowed disabled:opacity-60",
+                    l.line && "cursor-default text-muted",
+                  )}
                 />
               </div>
             );

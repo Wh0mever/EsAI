@@ -25,6 +25,7 @@ import type { StudioCharacter } from "./CharacterPicker";
 import type { SceneDurationChoice, SceneNote, StudioScene } from "./SceneTimeline";
 import type { AudioConfig } from "./SceneAudioDialog";
 import type { VoicePlan } from "./VoiceAllDialog";
+import { emptyPlanKey, guestLineCredits, lineRefusal } from "./lineVoice";
 import {
   DEFAULT_ASPECT,
   DOCK_RU,
@@ -209,6 +210,8 @@ export type CartoonStudioModel = {
     audioConfig: AudioConfig | null;
     voicePlan: VoicePlan | null;
     audioCharacters: { id: number; name: string }[];
+    /** Окно голоса героя: какая сцена его открыла. */
+    voiceScene: StudioScene | null;
   };
   refs: {
     heroes: RefObject<HTMLDivElement | null>;
@@ -245,6 +248,9 @@ export type CartoonStudioModel = {
     closePaywall: () => void;
     closeAudio: () => void;
     audioChanged: () => void;
+    closeVoiceScene: () => void;
+    dubLine: (scene: StudioScene, voiceId?: string) => Promise<string | null>;
+    pinHeroVoice: (scene: StudioScene, voiceId: string) => Promise<string | null>;
     closeVoicePlan: () => void;
     voiceStarted: () => void;
     scrollToHeroes: () => void;
@@ -294,6 +300,12 @@ export function useCartoonStudio(): CartoonStudioModel {
   // «Озвучить весь мультфильм»: сперва план с ценой, потом очередь.
   const [voicePlan, setVoicePlan] = useState<VoicePlan | null>(null);
   const [planning, setPlanning] = useState(false);
+  // Голос героя: у какой сцены открыто окно выбора. Храним id, а не сцену: цену голоса
+  // окно берёт из свежей строки ленты.
+  const [voiceSceneId, setVoiceSceneId] = useState<number | null>(null);
+  // Сохранение реплики, которое ещё едет: озвучка должна дождаться его, иначе человек
+  // заплатит за прежние слова (поле сохраняется при уходе фокуса — нажатием на ту же кнопку).
+  const dialogueSaves = useRef<Record<number, Promise<{ ok: boolean }>>>({});
   const [authFor, setAuthFor] = useState<AuthReason | null>(null);
   const [authed, setAuthed] = useState(true);
   // Лента гостя. Клиент: без регистрации человек выбирает героя, набирает
@@ -1130,13 +1142,85 @@ export function useCartoonStudio(): CartoonStudioModel {
     if (!project) return;
     noteScene(scene.id, null);
     markBusy(scene.id, true);
-    const res = await fetchData(`cartoon/scenes/${scene.id}/`, "PATCH", { dialogue: text }, true);
+    const save = fetchData(`cartoon/scenes/${scene.id}/`, "PATCH", { dialogue: text }, true);
+    dialogueSaves.current[scene.id] = save;
+    const res = await save;
+    if (dialogueSaves.current[scene.id] === save) delete dialogueSaves.current[scene.id];
     markBusy(scene.id, false);
     if (!res.ok) {
       noteScene(scene.id, refusalMessage(res.data, "studio_ui.scene_save_failed"));
       return;
     }
     await refresh(project.id);
+  };
+
+  /** Отказ озвучки на языке человека: у сервера тексты только русские. */
+  const lineRefusalMessage = (status: number, body: unknown) => {
+    const r = lineRefusal(i18n.language, status, body);
+    return r.detail ?? t(r.key);
+  };
+
+  /**
+   * Озвучить реплику готовой сцены голосом героя (без пересъёмки). Вызов синхронный,
+   * секунды: списание — за готовый и уже сведённый голос, поэтому ролик и баланс
+   * перечитываем после ответа. Вернёт текст отказа; null — готово (или окно покупки).
+   */
+  const dubLine = async (scene: StudioScene, voiceId?: string): Promise<string | null> => {
+    if (!project) return null;
+    // Слова не сохранились — у строки уже отказ; озвучивать прежние за деньги незачем.
+    const saving = dialogueSaves.current[scene.id];
+    if (saving && !(await saving).ok) return null;
+    markBusy(scene.id, true);
+    const res = await fetchData(
+      `cartoon/scenes/${scene.id}/audio/line/`, "POST", voiceId ? { voice_id: voiceId } : {}, true
+    );
+    if (res.ok) {
+      await refresh(project.id);
+      markBusy(scene.id, false);
+      void loadBalance();
+      return null;
+    }
+    markBusy(scene.id, false);
+    const d = res.data as ApiRefusal;
+    if (d?.required) {
+      openPaywall({ required: Number(d.required), balance: Number(d.balance ?? 0), kind: "audio" });
+      return null;
+    }
+    // Сцену запустили в пересъёмку или режиссёр признал слова описанием: строка на экране устарела.
+    if (res.status === 409 || (res.data as { error_code?: string })?.error_code === "not_speech") {
+      await refresh(project.id);
+    }
+    return lineRefusalMessage(res.status, d);
+  };
+
+  /** Кнопка «Озвучить голосом героя»: отказ — у этой строки ленты. */
+  const dubFromCard = async (scene: StudioScene) => {
+    noteScene(scene.id, null);
+    const refused = await dubLine(scene);
+    if (refused) noteScene(scene.id, refused);
+  };
+
+  /** «Вернуть голос модели»: озвучка оплачена, поэтому сперва спрашиваем. Денег не возвращает. */
+  const restoreModelVoice = async (scene: StudioScene) => {
+    if (!project || !window.confirm(t("studio_ui.line_restore_confirm"))) return;
+    noteScene(scene.id, null);
+    markBusy(scene.id, true);
+    const res = await fetchData(`cartoon/scenes/${scene.id}/audio/line/`, "DELETE", undefined, true);
+    if (!res.ok) noteScene(scene.id, lineRefusalMessage(res.status, res.data));
+    await refresh(project.id);
+    markBusy(scene.id, false);
+  };
+
+  /** Голос героя на весь мультфильм до съёмки: бесплатно, цена «Снять» пересчитается. */
+  const pinHeroVoice = async (scene: StudioScene, voiceId: string): Promise<string | null> => {
+    if (!project) return null;
+    const res = await fetchData(
+      `cartoon/projects/${project.id}/hero-voice/`, "PATCH",
+      { character_id: scene.character?.id, voice_id: voiceId }, true
+    );
+    if (!res.ok) return lineRefusalMessage(res.status, res.data);
+    await refresh(project.id);
+    return null;
   };
 
   /** Гость реплику тоже пишет — она переедет вместе с лентой после входа. */
@@ -1215,7 +1299,11 @@ export function useCartoonStudio(): CartoonStudioModel {
         : t("studio_ui.reshoot_confirm_no_price", {
             defaultValue: "Переснять сцену заново? Нынешний ролик заменится новым.",
           });
-      if (!window.confirm(question)) return;
+      // Голос уже внутри цены: называем его, чтобы сумма не выглядела выше кнопки «Снять» сцены без реплики.
+      const voicePart = scene.render_voice_credits
+        ? ` ${t("studio_ui.line_price_part", { credits: scene.render_voice_credits })}.`
+        : "";
+      if (!window.confirm(`${question}${voicePart}`)) return;
     }
     noteScene(scene.id, null);
     markBusy(scene.id, true);
@@ -1431,6 +1519,10 @@ export function useCartoonStudio(): CartoonStudioModel {
     }
     const d = res.data as ApiRefusal;
     if (d?.required) openPaywall({ required: Number(d.required), balance: Number(d.balance ?? 0), kind: "audio" });
+    // Почему озвучивать нечего, сервер говорит только по-русски, поэтому остальным — по коду.
+    else if (res.status === 400 && !i18n.language.startsWith("ru")) {
+      setError(t(emptyPlanKey((res.data as { error_code?: string })?.error_code)));
+    }
     else setError(d?.detail || t("studio_ui.voiceall_err"));
   };
 
@@ -1509,6 +1601,8 @@ export function useCartoonStudio(): CartoonStudioModel {
   // Готовый ролик появляется после склейки — ссылку готовим сразу, чтобы
   // кнопки соцсетей не заставляли ждать ещё один запрос.
   useEffect(() => {
+    // Запрос к серверу: setSharing внутри только отмечает, что он пошёл.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (resultVideo) void makeShareLink();
   }, [resultVideo, makeShareLink]);
 
@@ -1559,15 +1653,18 @@ export function useCartoonStudio(): CartoonStudioModel {
           // Цены нет по ответу сервера — «Снять» выключено. Цена просто ещё не
           // известна (модели не загрузились) — гостя ко входу всё равно пускаем.
           const unavailable = Boolean(dockModel?.price_unavailable) || (!custom && card?.credits === null);
+          // Голос героя: у вошедшего он внутри цены сервера, здесь цену считаем сами.
+          const voice = guestLineCredits(s.dialogue, audioConfig);
           return {
             id: -(i + 1),
             order: i,
             custom_text: s.custom_text || "",
             dialogue: s.dialogue || "",
+            render_voice_credits: voice,
             preset: {
               id: s.preset_id,
               title: custom ? (s.custom_text || "").slice(0, 60) : p?.title || "…",
-              credits: price.full ?? (unavailable ? null : undefined),
+              credits: price.full != null ? price.full + voice : unavailable ? null : undefined,
               duration: duration ?? undefined,
               poster: custom ? "" : p?.preview_poster,
               clip: custom ? "" : p?.preview_video,
@@ -1579,7 +1676,7 @@ export function useCartoonStudio(): CartoonStudioModel {
             status: "draft",
             error: "",
             credits_spent: 0,
-            render_credits: price.render ?? (unavailable ? null : undefined),
+            render_credits: price.render != null ? price.render + voice : unavailable ? null : undefined,
             duration: own,
             config: dockShown
               ? {
@@ -1728,6 +1825,9 @@ export function useCartoonStudio(): CartoonStudioModel {
         onTryOn: tryOnTimelineScene,
         onRedraw: authed ? redrawFrame : undefined,
         onDialogue: authed ? setSceneDialogue : guestDialogue,
+        onLineVoice: authed ? (s) => void dubFromCard(s) : undefined,
+        onChangeVoice: authed ? (s) => setVoiceSceneId(s.id) : undefined,
+        onRestoreVoice: authed ? (s) => void restoreModelVoice(s) : undefined,
         onAudio: audioConfig?.enabled
           ? authed
             ? (s) => setAudioScene(s)
@@ -1765,6 +1865,7 @@ export function useCartoonStudio(): CartoonStudioModel {
       audioConfig,
       voicePlan,
       audioCharacters: timelineCharacters.map((c) => ({ id: c.id, name: c.name })),
+      voiceScene: scenes.find((x) => x.id === voiceSceneId) ?? null,
     },
     refs: { heroes: heroRef, timeline: timelineRef },
     actions: {
@@ -1807,6 +1908,9 @@ export function useCartoonStudio(): CartoonStudioModel {
         void loadBalance();
         if (project) void refresh(project.id);
       },
+      closeVoiceScene: () => setVoiceSceneId(null),
+      dubLine,
+      pinHeroVoice,
       closeVoicePlan: () => setVoicePlan(null),
       voiceStarted: () => {
         if (project) void refresh(project.id);

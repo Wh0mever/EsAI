@@ -13,6 +13,7 @@
  *
  * Тонкость iOS: navigator.share({files}) требует «user activation» (жеста), и
  * WebKit держит её 5 с от касания (r293635); через fetch жест не переносится.
+ * wantMedia() заранее качает файл кнопки на экране (ограничения — components/ui/saveWarm),
  * prefetchMedia() стартует загрузку на нажатие пальцем, а saveMedia ждёт файл
  * не дольше SHARE_BUDGET_MS. Не успел — открываем шторку (components/ui/SaveSheet):
  * она догружает файл с прогрессом, и второе, свежее нажатие открывает окно сразу.
@@ -20,6 +21,7 @@
  * На сам файл (window.open) не уходим НИКОГДА: на iPhone это тёмная страница со
  * значком, на которую жаловался клиент. В шторке у каждой неудачи есть следующий шаг.
  */
+import { planWarm, warmAllowed, warmTooBig } from "@/components/ui/saveWarm";
 import {
   afterShareError,
   detectEnv,
@@ -43,6 +45,7 @@ type ShareNavigator = Navigator & {
   canShare?: (data?: ShareData) => boolean;
   userAgentData?: { mobile?: boolean };
   standalone?: boolean;
+  connection?: { saveData?: boolean };
 };
 
 type TelegramWebApp = {
@@ -97,16 +100,28 @@ type Entry = {
   done: number;
   total: number;
   http: number | null;
+  /** Вес файла: по заголовку, а когда файл готов — по факту. 0 — пока неизвестен. */
+  size: number;
   listeners: Set<() => void>;
   timer: ReturnType<typeof setTimeout> | null;
+  /** Качает прогрев, а не нажатие: такую загрузку можно оборвать. Нажатие снимает отметку. */
+  warm: boolean;
+  abort: AbortController | null;
 };
 
 // Начатые загрузки: url → файл в памяти. Видео весит мегабайты, поэтому запись
-// живёт, пока файл ждёт нажатия (шторка держит её через holdMedia), и не дольше
-// KEEP_MS после prefetch, если нажатия так и не было.
+// живёт, пока файл ждёт нажатия (шторка держит её через holdMedia, кнопка на
+// экране — через wantMedia), и не дольше KEEP_MS после prefetch или ухода кнопки
+// с экрана, если нажатия так и не было.
 const _entries = new Map<string, Entry>();
 const _holds = new Map<string, number>();
 const KEEP_MS = 120_000;
+
+// Кнопки на экране: url → сколько их. Порядок ключей — очередь прогрева.
+const _wanted = new Map<string, number>();
+// Прогрев не удался (файл велик, сервер отказал): на экране кнопка не запустит его
+// по кругу, а нажатие всё равно пойдёт обычным путём и покажет ошибку словами.
+const _warmSkip = new Set<string>();
 
 // Гвард от повторных запусков по одному url: пока идёт сохранение, лишние тапы
 // (пользователь думает «не жмётся») не плодят несколько шитшетов подряд.
@@ -131,13 +146,28 @@ function dropMedia(url: string, entry?: Entry): void {
   if (!cur || (entry && cur !== entry)) return;
   if (cur.timer) clearTimeout(cur.timer);
   _entries.delete(url);
+  // Тяжёлый файл прогрев всё равно не возьмёт: незачем начинать и обрывать.
+  if (warmTooBig(cur.size)) _warmSkip.add(url);
+  // Освободилось место: следующая кнопка на экране может начать прогрев.
+  if (_wanted.size) queueMicrotask(pumpWarm);
+}
+
+/** Держать файл ради кнопки на экране можно, только пока он лёгкий. */
+function keepForButton(url: string): boolean {
+  return _wanted.has(url) && !warmTooBig(_entries.get(url)?.size ?? 0);
 }
 
 function scheduleDrop(url: string, entry: Entry): void {
   if (entry.timer) clearTimeout(entry.timer);
   entry.timer = null;
-  if (_holds.get(url)) return;
+  if (_holds.get(url) || keepForButton(url)) return;
   entry.timer = setTimeout(() => dropMedia(url, entry), KEEP_MS);
+}
+
+/** Прогрев упёрся в размер: обрываем ответ, иначе браузер докачал бы файл впустую. */
+function warmOverflow(entry: Entry): Error {
+  entry.abort?.abort();
+  return namedError("TooBig", "too big to keep");
 }
 
 /**
@@ -155,6 +185,8 @@ async function readBody(r: Response, entry: Entry, notify: () => void): Promise<
   // «Поделиться» она ушла бы как .mp4.
   if (type.startsWith("text/")) throw namedError("BadType", "not a media file");
   const length = Number(r.headers.get("content-length")) || 0;
+  entry.size = length;
+  if (entry.warm && warmTooBig(length)) throw warmOverflow(entry);
   const reader = length > STREAM_MAX_BYTES ? undefined : r.body?.getReader();
   // Без потока шторка показывает неопределённую полосу, а не «0 из N МБ» до конца.
   if (!reader) return r.blob();
@@ -167,29 +199,42 @@ async function readBody(r: Response, entry: Entry, notify: () => void): Promise<
       parts.push(value);
       entry.done += value.byteLength;
       notify();
+      // Сервер мог не назвать длину — тогда порог проверяем по факту.
+      if (entry.warm && warmTooBig(entry.done)) throw warmOverflow(entry);
     }
   }
   return new Blob(parts, { type });
 }
 
-function startFetch(url: string): Entry {
+function startFetch(url: string, warm = false): Entry {
   const notify = () => entry.listeners.forEach((fn) => fn());
+  const abort = warm ? new AbortController() : null;
   const entry: Entry = {
-    blob: fetch(url, { credentials: "omit" }).then((r) => readBody(r, entry, notify)),
+    blob: fetch(url, { credentials: "omit", signal: abort?.signal }).then((r) => readBody(r, entry, notify)),
     settled: false,
     done: 0,
     total: 0,
     http: null,
+    size: 0,
     listeners: new Set(),
     timer: null,
+    warm,
+    abort,
   };
   entry.blob.then(
-    () => {
+    (blob) => {
       entry.settled = true;
+      entry.size = Math.max(entry.size, blob.size);
+      // Теперь вес известен: тяжёлый файл не должен лежать, пока кнопка на экране.
+      if (_entries.get(url) === entry) scheduleDrop(url, entry);
       notify();
+      pumpWarm();
     },
     () => {
       entry.settled = true;
+      // Запись уже убрана — значит, прогрев остановили мы сами (кнопка ушла с экрана):
+      // вернётся — попробуем снова. Иначе не удался он сам.
+      if (entry.warm && _entries.get(url) === entry) _warmSkip.add(url);
       // ошибку не кэшируем — дать возможность повтора
       dropMedia(url, entry);
       notify();
@@ -200,15 +245,93 @@ function startFetch(url: string): Entry {
   return entry;
 }
 
+/** Человек ждёт файл: прогрев другого файла не должен делить с ним канал. Он вернётся сам. */
+function stopWarmExcept(url: string): void {
+  for (const [other, entry] of _entries) {
+    if (other !== url && entry.warm && !entry.settled) {
+      entry.abort?.abort();
+      dropMedia(other, entry);
+    }
+  }
+}
+
 function entryFor(url: string): Entry {
-  return _entries.get(url) || startFetch(url);
+  const entry = _entries.get(url);
+  if (!entry?.settled) stopWarmExcept(url);
+  if (!entry) return startFetch(url);
+  // Файл нужен человеку: это больше не прогрев. Размер не ограничиваем и ответ не
+  // обрываем, иначе нажатие на тяжёлый файл получило бы ошибку вместо загрузки.
+  entry.warm = false;
+  return entry;
 }
 
 /** Начать загрузку файла заранее (вешать на onPointerDown кнопки «Скачать»). */
 export function prefetchMedia(url: string): void {
-  if (!url || _entries.has(url)) return;
-  // Ошибки здесь не ловим: это лишь «прогрев», их обработает saveMedia или шторка.
-  startFetch(url);
+  // Ошибки здесь не ловим: их обработает saveMedia или шторка.
+  if (url) entryFor(url);
+}
+
+/* ---------- прогрев: файл кнопки на экране ---------- */
+
+function pumpWarm(): void {
+  const { start, evict } = planWarm(
+    [..._wanted.keys()],
+    [..._entries].map(([url, e]) => ({
+      url,
+      loading: !e.settled,
+      spare: e.warm && !_wanted.has(url) && !_holds.get(url) && !_inFlight.has(url),
+    })),
+    _warmSkip,
+  );
+  if (evict) dropMedia(evict);
+  if (start) startFetch(start, true);
+}
+
+/**
+ * Можно ли на этом устройстве качать файлы заранее (вызывать только в браузере).
+ * navigator.connection в Safari нет, поэтому запрет saveData на iPhone не срабатывает:
+ * объём держат порог WARM_MAX_BYTES и один файл в загрузке.
+ */
+export function canWarmMedia(): boolean {
+  const { hints, env } = readSaveEnv();
+  return warmAllowed(env, hints, (navigator as ShareNavigator).connection?.saveData === true);
+}
+
+/**
+ * Кнопка «Скачать» на экране: файл качается заранее, когда подойдёт очередь, и
+ * пока кнопка видна, таймер KEEP_MS его не выбрасывает — иначе человек, досмотревший
+ * ролик, снова ждал бы шторку. Возвращает «ушла с экрана»: начатый прогрев
+ * обрывается (человек листает дальше), готовый файл живёт ещё KEEP_MS — на случай,
+ * если он вернётся.
+ */
+export function wantMedia(url: string): () => void {
+  if (!url) return () => {};
+  _wanted.set(url, (_wanted.get(url) || 0) + 1);
+  const entry = _entries.get(url);
+  if (entry?.timer && keepForButton(url)) {
+    clearTimeout(entry.timer);
+    entry.timer = null;
+  }
+  pumpWarm();
+  let gone = false;
+  return () => {
+    if (gone) return;
+    gone = true;
+    const left = (_wanted.get(url) || 1) - 1;
+    if (left > 0) {
+      _wanted.set(url, left);
+      return;
+    }
+    _wanted.delete(url);
+    const cur = _entries.get(url);
+    if (cur?.warm && !cur.settled) {
+      cur.abort?.abort();
+      dropMedia(url, cur);
+    } else if (cur) {
+      scheduleDrop(url, cur);
+    }
+    pumpWarm();
+  };
 }
 
 /**
@@ -248,7 +371,9 @@ export function holdMedia(url: string): () => void {
       return;
     }
     _holds.delete(url);
-    dropMedia(url);
+    // Кнопка ещё на экране: файл пригодится для следующего нажатия, и качать его
+    // заново прогревом было бы дороже, чем подержать.
+    if (!keepForButton(url)) dropMedia(url);
   };
 }
 
@@ -503,7 +628,8 @@ export async function saveMedia(url: string, filename: string, opts: SaveOptions
     return { result: "sheet", sheet: { reason: name, failed: true, diag, http: entry ? entry.http : null } };
   } finally {
     _inFlight.delete(url);
-    // Освобождаем память (видео — несколько МБ), если файл не нужен шторке.
-    if (!handOver && !_holds.get(url)) dropMedia(url);
+    // Освобождаем память (видео — несколько МБ), если файл не нужен шторке и его
+    // кнопка не на экране: иначе после закрытого окна второе нажатие ждало бы файл заново.
+    if (!handOver && !_holds.get(url) && !keepForButton(url)) dropMedia(url);
   }
 }

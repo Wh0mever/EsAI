@@ -5,8 +5,18 @@ import "../lib/vstudio/nodeTsHooks.mjs";
 import { test, afterEach } from "node:test";
 import assert from "node:assert/strict";
 
-const { saveMedia, followMedia, holdMedia, prefetchMedia, shareFile, toFile, canShareFileNow, STREAM_MAX_BYTES } =
-  await import("./saveMedia.ts");
+const {
+  saveMedia,
+  followMedia,
+  holdMedia,
+  prefetchMedia,
+  shareFile,
+  toFile,
+  canShareFileNow,
+  canWarmMedia,
+  wantMedia,
+  STREAM_MAX_BYTES,
+} = await import("./saveMedia.ts");
 const { detectEnv, sheetMode } = await import("./saveEnv.ts");
 
 const IPHONE_SAFARI =
@@ -359,4 +369,390 @@ test("повторные тапы во время сохранения не пл
   assert.deepEqual([a.result, b.result], ["saved", "cancelled"]);
   assert.equal(s.fetches, 1);
   assert.equal(s.shares.length, 1);
+});
+
+/* ---------- прогрев: файл кнопки на экране ---------- */
+
+const MB = 1024 * 1024;
+const tick = () => new Promise((resolve) => setImmediate(resolve));
+const settle = async () => {
+  for (let i = 0; i < 6; i += 1) await tick();
+};
+/** Убрать запись и её таймер на 2 минуты: иначе тест ждал бы его. */
+const forget = (url) => holdMedia(url)();
+
+/** Ответ, который отдаёт куски по мере вызова feed; обрыв сигналом обрывает поток, как в браузере. */
+function streamResponse(init, { length = null } = {}) {
+  let ctrl;
+  const body = new ReadableStream({ start: (c) => (ctrl = c) });
+  init?.signal?.addEventListener("abort", () => {
+    s.aborts = (s.aborts || 0) + 1;
+    try {
+      ctrl.error(Object.assign(new Error("aborted"), { name: "AbortError" }));
+    } catch {
+      /* поток уже закрыт */
+    }
+  });
+  const headers = { "content-type": "video/mp4" };
+  if (length != null) headers["content-length"] = String(length);
+  return {
+    response: new Response(body, { status: 200, headers }),
+    feed: (bytes) => ctrl.enqueue(new Uint8Array(bytes)),
+    end: () => ctrl.close(),
+  };
+}
+
+/** Ответы на каждый адрес: тест сам решает, когда файл «докачался». */
+function manualFetch() {
+  const calls = new Map();
+  const pending = new Map();
+  const impl = (url, init) => {
+    const stream = streamResponse(init);
+    calls.set(url, stream);
+    const wait = pending.get(url);
+    if (wait) wait(stream);
+    return stream.response;
+  };
+  const finish = async (url) => {
+    const stream = calls.get(url);
+    stream.feed(4096);
+    stream.end();
+    await settle();
+  };
+  return { impl, calls, finish };
+}
+
+test("canWarmMedia: iPhone — да, экономия трафика и компьютер — нет", () => {
+  setup();
+  assert.equal(canWarmMedia(), true);
+  setup();
+  navigator.connection = { saveData: true };
+  assert.equal(canWarmMedia(), false);
+  setup({ device: "win" });
+  assert.equal(canWarmMedia(), false);
+});
+
+test("прогрев: файл готов заранее — первое нажатие сразу открывает окно, второго запроса нет", async () => {
+  setup();
+  const url = nextUrl();
+  const leave = wantMedia(url);
+  await settle();
+  assert.equal(s.fetches, 1);
+  const out = await saveMedia(url, "esai-video.mp4", { report, budgetMs: 1 });
+  assert.deepEqual(out, { result: "saved" }, "ждать файл не пришлось");
+  assert.equal(s.fetches, 1);
+  assert.equal(s.shares.length, 1);
+  assert.equal(s.reports.length, 0, "шторки не было");
+  leave();
+  forget(url);
+});
+
+test("прогрев: окно закрыли, кнопка на экране — второе нажатие берёт файл из памяти", async () => {
+  setup({ share: (_d, count) => { if (count === 1) throw named("AbortError"); } });
+  const url = nextUrl();
+  const leave = wantMedia(url);
+  await settle();
+  assert.deepEqual(await saveMedia(url, "esai-video.mp4"), { result: "cancelled" });
+  assert.deepEqual(await saveMedia(url, "esai-video.mp4", { budgetMs: 1 }), { result: "saved" });
+  assert.equal(s.fetches, 1);
+  leave();
+  forget(url);
+});
+
+test("прогрев: длина больше 30 МБ — ответ оборван, повторно не качаем, нажатие работает как раньше", async () => {
+  const big = String(30 * MB + 1);
+  let inits = [];
+  setup({
+    fetchImpl: (_url, init) => {
+      inits.push(init);
+      return {
+        ok: true,
+        status: 200,
+        headers: new Headers({ "content-type": "video/mp4", "content-length": big }),
+        body: null,
+        blob: async () => new Blob([VIDEO], { type: "video/mp4" }),
+      };
+    },
+  });
+  const url = nextUrl();
+  const leave = wantMedia(url);
+  await settle();
+  assert.equal(s.fetches, 1);
+  assert.equal(inits[0].signal.aborted, true, "браузер не докачивает файл в никуда");
+
+  // Кнопка ушла и вернулась: прогрев по кругу не запускается.
+  leave();
+  const again = wantMedia(url);
+  await settle();
+  assert.equal(s.fetches, 1);
+
+  // Нажатие качает файл обычным путём, без порога.
+  assert.deepEqual(await saveMedia(url, "esai-video.mp4", { report }), { result: "saved" });
+  assert.equal(s.fetches, 2);
+  assert.equal(inits[1].signal, undefined, "загрузку по нажатию обрывать нечем");
+  again();
+  forget(url);
+});
+
+test("прогрев: сервер не назвал длину — обрыв по факту на 30 МБ", async () => {
+  const net = manualFetch();
+  setup({ fetchImpl: net.impl });
+  const url = nextUrl();
+  const leave = wantMedia(url);
+  await settle();
+  const stream = net.calls.get(url);
+  stream.feed(16 * MB);
+  await settle();
+  assert.equal(s.aborts || 0, 0);
+  stream.feed(16 * MB);
+  await settle();
+  assert.equal(s.aborts, 1);
+  // Запись убрана — память свободна, а нажатие начнёт загрузку заново.
+  const follow = followMedia(url, () => {});
+  assert.equal(s.fetches, 2);
+  follow.stop();
+  await net.finish(url);
+  await follow.blob;
+  leave();
+  forget(url);
+});
+
+test("прогрев: нажатие во время загрузки тяжёлого файла отменяет порог — ошибки вместо файла нет", async () => {
+  const net = manualFetch();
+  setup({ fetchImpl: net.impl });
+  const url = nextUrl();
+  const leave = wantMedia(url);
+  await settle();
+  prefetchMedia(url); // палец на кнопке
+  const stream = net.calls.get(url);
+  stream.feed(31 * MB);
+  await settle();
+  assert.equal(s.aborts || 0, 0, "человек ждёт файл — обрывать нельзя");
+  const save = saveMedia(url, "esai-video.mp4", { report, budgetMs: 1000 });
+  stream.end();
+  assert.deepEqual(await save, { result: "saved" });
+  assert.equal(s.fetches, 1);
+  assert.equal(s.shares[0].files[0].size, 31 * MB);
+  leave();
+  forget(url);
+});
+
+test("прогрев: ушла с экрана посреди загрузки — обрыв; вернулась — снова; нажатая — не обрывается", async () => {
+  const net = manualFetch();
+  setup({ fetchImpl: net.impl });
+  const url = nextUrl();
+  wantMedia(url)();
+  await settle();
+  assert.equal(s.aborts, 1);
+  const back = wantMedia(url);
+  await settle();
+  assert.equal(s.fetches, 2, "обрыв нашими руками не считается неудачей");
+
+  prefetchMedia(url);
+  back();
+  await settle();
+  assert.equal(s.aborts, 1, "человек нажал — файл докачается, даже если кнопка уехала");
+  await net.finish(url);
+  forget(url);
+});
+
+test("прогрев: одновременно один файл, следующий ждёт очереди, в памяти два", async () => {
+  const net = manualFetch();
+  setup({ fetchImpl: net.impl });
+  const [a, b, c] = [nextUrl(), nextUrl(), nextUrl()];
+  const leaveA = wantMedia(a);
+  const leaveB = wantMedia(b);
+  const leaveC = wantMedia(c);
+  await settle();
+  assert.deepEqual([...net.calls.keys()], [a], "второй файл ждёт");
+  await net.finish(a);
+  assert.deepEqual([...net.calls.keys()], [a, b]);
+  await net.finish(b);
+  assert.deepEqual([...net.calls.keys()], [a, b], "в памяти уже два, и оба на экране — третий ждёт");
+
+  // Первая кнопка ушла с экрана: её файл вытесняется ради той, что на экране.
+  leaveA();
+  await settle();
+  assert.deepEqual([...net.calls.keys()], [a, b, c]);
+  await net.finish(c);
+  const seen = net.calls.size;
+  followMedia(a, () => {}).stop();
+  assert.equal(net.calls.size, seen, "вытесненный файл качается заново только по запросу");
+  assert.equal(s.fetches, 4);
+  await net.finish(a);
+  leaveB();
+  leaveC();
+  for (const url of [a, b, c]) forget(url);
+});
+
+test("прогрев: вытесняется только прогретое — файл под шторкой и файл по нажатию остаются", async () => {
+  const net = manualFetch();
+  setup({ fetchImpl: net.impl });
+  const [a, b, c] = [nextUrl(), nextUrl(), nextUrl()];
+  const leaveA = wantMedia(a);
+  await settle();
+  await net.finish(a);
+  const free = holdMedia(a);
+  leaveA();
+  prefetchMedia(b);
+  await net.finish(b);
+  const leaveC = wantMedia(c);
+  await settle();
+  assert.equal(net.calls.has(c), false, "места нет, а выбросить нечего");
+  free();
+  await settle();
+  assert.equal(net.calls.has(c), true, "шторка закрылась — место освободилось");
+  await net.finish(c);
+  leaveC();
+  for (const url of [b, c]) forget(url);
+});
+
+test("прогрев: пока кнопка на экране, таймер файл не выбрасывает; ушла — живёт ещё 2 минуты", async (t) => {
+  setup();
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const url = nextUrl();
+  const leave = wantMedia(url);
+  await settle();
+  t.mock.timers.tick(10 * 60 * 1000);
+  await followMedia(url, () => {}).blob;
+  assert.equal(s.fetches, 1, "человек досматривал ролик — файл на месте");
+
+  leave();
+  t.mock.timers.tick(119_000);
+  await followMedia(url, () => {}).blob;
+  assert.equal(s.fetches, 1, "вернулся через минуту — файл ещё здесь");
+  t.mock.timers.tick(2000);
+  await followMedia(url, () => {}).blob;
+  assert.equal(s.fetches, 2, "прошло две минуты — выброшен");
+  forget(url);
+});
+
+test("прогрев: шторка закрыта, кнопка на экране — файл остаётся; кнопки нет — выброшен", async () => {
+  setup();
+  const url = nextUrl();
+  const leave = wantMedia(url);
+  await settle();
+  holdMedia(url)();
+  await followMedia(url, () => {}).blob;
+  assert.equal(s.fetches, 1);
+  leave();
+  holdMedia(url)();
+  await followMedia(url, () => {}).blob;
+  assert.equal(s.fetches, 2);
+  forget(url);
+});
+
+test("тяжёлый файл по нажатию: кнопка на экране его в памяти не держит", async () => {
+  const big = String(120 * MB);
+  setup({
+    fetchImpl: () => ({
+      ok: true,
+      status: 200,
+      headers: new Headers({ "content-type": "video/mp4", "content-length": big }),
+      body: null,
+      blob: async () => new Blob([VIDEO], { type: "video/mp4" }),
+    }),
+  });
+  const url = nextUrl();
+  const leave = wantMedia(url);
+  await settle();
+  assert.equal(s.fetches, 1, "прогрев оборван по заголовку");
+
+  // Нажали, файл докачался и отдан в окно: на следующий раз его снова качаем, а не держим 120 МБ.
+  assert.deepEqual(await saveMedia(url, "esai-film.mp4", { report }), { result: "saved" });
+  assert.equal(s.fetches, 2);
+  holdMedia(url)();
+  await followMedia(url, () => {}).blob;
+  assert.equal(s.fetches, 3, "выброшен, хотя кнопка на экране");
+  holdMedia(url)();
+  leave();
+  forget(url);
+});
+
+test("нажатие на тяжёлый файл без отпускания: докачанный файл не лежит до ухода кнопки", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const big = String(120 * MB);
+  setup({
+    fetchImpl: () => ({
+      ok: true,
+      status: 200,
+      headers: new Headers({ "content-type": "video/mp4", "content-length": big }),
+      body: null,
+      blob: async () => new Blob([VIDEO], { type: "video/mp4" }),
+    }),
+  });
+  const url = nextUrl();
+  const leave = wantMedia(url);
+  prefetchMedia(url);
+  for (let i = 0; i < 5; i += 1) await Promise.resolve();
+  await followMedia(url, () => {}).blob;
+  const before = s.fetches;
+  t.mock.timers.tick(120_000);
+  await followMedia(url, () => {}).blob;
+  assert.equal(s.fetches, before + 1, "через две минуты выброшен");
+  leave();
+  forget(url);
+});
+
+test("нажатие останавливает прогрев другого файла, потом он возвращается", async () => {
+  const net = manualFetch();
+  setup({ fetchImpl: net.impl });
+  const warm = nextUrl();
+  const tapped = nextUrl();
+  const leave = wantMedia(warm);
+  await settle();
+  assert.equal(s.fetches, 1);
+
+  prefetchMedia(tapped);
+  await settle();
+  assert.equal(s.aborts, 1, "канал отдан файлу, который ждёт человек");
+  assert.equal(s.fetches, 2);
+
+  await net.finish(tapped);
+  await settle();
+  assert.equal(s.fetches, 3, "обрыв нашими руками не считается неудачей");
+  await net.finish(warm);
+  leave();
+  forget(warm);
+  forget(tapped);
+});
+
+test("нажатие на готовый файл не трогает чужой прогрев: канал никому не нужен", async () => {
+  const net = manualFetch();
+  setup({ fetchImpl: net.impl });
+  const ready = nextUrl();
+  const warm = nextUrl();
+  const leaveReady = wantMedia(ready);
+  await settle();
+  await net.finish(ready);
+  const leaveWarm = wantMedia(warm);
+  await settle();
+  assert.equal(s.fetches, 2);
+
+  prefetchMedia(ready);
+  await settle();
+  assert.deepEqual(await saveMedia(ready, "esai-video.mp4", { report }), { result: "saved" });
+  await settle();
+  assert.equal(s.aborts || 0, 0);
+  assert.equal(s.fetches, 2);
+  await net.finish(warm);
+  leaveWarm();
+  leaveReady();
+  forget(warm);
+  forget(ready);
+});
+
+test("прогрев: сервер отказал — без повторов по кругу; нажатие покажет шторку с кодом ответа", async () => {
+  setup({ fetchImpl: () => fileResponse({ status: 404 }) });
+  const url = nextUrl();
+  const leave = wantMedia(url);
+  await settle();
+  assert.equal(s.fetches, 1);
+  leave();
+  wantMedia(url)();
+  await settle();
+  assert.equal(s.fetches, 1);
+  const out = await saveMedia(url, "esai-video.mp4", { report });
+  assert.equal(out.result, "sheet");
+  assert.equal(out.sheet.http, 404);
 });

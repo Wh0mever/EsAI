@@ -181,6 +181,7 @@ export default function TimelinePanel({
             busyIds={busyIds}
             repricing={repricing}
             {...handlers}
+            heroVoices={project?.hero_voices}
             characters={characters}
             framingId={framingId}
             frameCredits={frameCredits}

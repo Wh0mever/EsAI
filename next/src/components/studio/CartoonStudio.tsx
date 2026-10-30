@@ -11,6 +11,7 @@ import CartoonTopBar, { CartoonHeader, ErrorBanner } from "./CartoonTopBar";
 import HeroStrip from "./HeroStrip";
 import MoviesRail from "./MoviesRail";
 import ResultPanel from "./ResultPanel";
+import HeroVoiceDialog from "./HeroVoiceDialog";
 import SceneAudioDialog from "./SceneAudioDialog";
 import SceneLibrary from "./SceneLibrary";
 import TimelinePanel from "./TimelinePanel";
@@ -326,9 +327,17 @@ export default function CartoonStudio({ variant = "site" }: { variant?: "site" |
             scene={s.dialogs.audioScene}
             config={s.dialogs.audioConfig}
             characters={s.dialogs.audioCharacters}
+            heroVoices={s.project?.hero_voices}
             onClose={actions.closeAudio}
             onChanged={actions.audioChanged}
             onNeedCredits={(required, bal) => actions.openPaywall({ required, balance: bal, kind: "audio" })}
+          />
+          <HeroVoiceDialog
+            scene={s.dialogs.voiceScene}
+            heroVoices={s.project?.hero_voices}
+            onClose={actions.closeVoiceScene}
+            onDub={actions.dubLine}
+            onPin={actions.pinHeroVoice}
           />
           <VoiceAllDialog
             open={Boolean(s.dialogs.voicePlan)}

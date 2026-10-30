@@ -24,6 +24,7 @@ from django.utils import timezone
 from ai.pricing import PriceUnavailable
 from plans.wallet import InsufficientTokens
 
+from .audio import line_ready
 from .models import CartoonProject, CartoonScene
 from .director import ensure_video_prompt
 from .pricing import shot_config, shot_video_credits
@@ -32,6 +33,7 @@ from .services import (CustomSceneRejected, assemble_project, charge, draw_custo
                        generate_scene_video, human_error, last_frame_of, previous_anchor,
                        get_or_create_keyframe, pooled_keyframe, preset_for_scene,
                        remember_pair_video)
+from .voiceover import RenderLine
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +94,15 @@ def _close_entry(entry, text: str) -> None:
         logger.exception("журнал генераций не закрылся")
 
 
+def _drop_line(line, why: str) -> None:
+    """Ролик не выдан — голос к нему тоже никому не достался."""
+    try:
+        if line is not None:
+            line.discard(why)
+    except Exception:
+        logger.exception("голос героя: файлы не убрались")
+
+
 def _heartbeat(scene_id: int, clock=time.monotonic):
     """Отметка «съёмка жива» раз в минуту — по ней уборка не трогает долгий ролик."""
     last = [clock()]
@@ -137,13 +148,13 @@ def _draw_frame(scene, preset, character, aspect: str) -> tuple[str, int, dict]:
 def _planned_frame(scene, shot, drawn: int) -> int:
     """Сколько взять за нарисованный кадр: его часть цены из снимка «Снять».
 
-    Человек платит то, что видел на кнопке (credits_planned = кадр + видео), а не
-    цену кадра, пересчитанную через полчаса очереди. Кадр из общего запаса
+    Человек платит то, что видел на кнопке (credits_planned = кадр + видео + голос),
+    а не цену кадра, пересчитанную через полчаса очереди. Кадр из общего запаса
     бесплатен (drawn == 0). Сцена без снимка (поставлена до дока) — как раньше.
     """
     if not drawn or not shot.snapshot or shot.credits_planned is None or shot.video_credits is None:
         return drawn
-    planned = max(0, int(shot.credits_planned) - int(shot.video_credits))
+    planned = max(0, int(shot.credits_planned) - int(shot.video_credits) - int(shot.voice_credits or 0))
     if not planned:
         # При «Снять» кадр уже был, а к съёмке пропал: в цену он не входил — не берём.
         logger.warning("сцена %s: кадр не входил в цену запуска, рисую без списания", scene.pk)
@@ -247,12 +258,15 @@ def render_scene(self, scene_id: int) -> dict:
         return {"status": "gone"}
     scene.status = CartoonScene.STATUS_VIDEO
     entry = None
+    line = None
+    beat = _heartbeat(scene.pk)
     _video_entry_closed = False
     try:
         # Промпт съёмки: разложенное по секундам действие, реплика героя и
         # запрет типовых артефактов. Собирается один раз на сцену — под длину
         # снимка (кэш под прежнюю длину сбрасывают «Снять» и смена дока).
-        plan = ensure_video_prompt(scene, character, preset, shot.duration)
+        plan = ensure_video_prompt(scene, character, preset, shot.duration,
+                                   judge=line_ready(scene.project.user))
         # Журнал генераций: по нему в админке видно, кто и что снимал, и
         # сверяются списания провайдера.
         from ai import genlog
@@ -270,7 +284,7 @@ def render_scene(self, scene_id: int) -> dict:
                                                character=character,
                                                aspect=shot.aspect,
                                                entry=entry,
-                                               heartbeat=_heartbeat(scene.pk),
+                                               heartbeat=beat,
                                                model=shot.model, duration=shot.duration,
                                                resolution=shot.resolution)
         except Exception as video_exc:
@@ -289,6 +303,10 @@ def render_scene(self, scene_id: int) -> dict:
             raise
         # Последний кадр пригодится следующей сцене как опора.
         scene.last_frame = last_frame_of(scene.video)
+        # Голос героя — до «готова»: фронт перестаёт опрашивать сцену, как только она
+        # готова, и показал бы сырое видео с голосом модели. TTS и ffmpeg здесь, вне
+        # транзакции: они дольше замка строки. Сбой голоса сюда не долетает.
+        line = RenderLine(scene, character, video_price).prepare(beat)
         # Деньги и сцена — одной транзакцией, и только пока сцена жива и всё ещё
         # снимается. Раньше списание проходило, а сохранение удалённой сцены
         # падало: деньги ушли, ролика нет.
@@ -304,43 +322,53 @@ def render_scene(self, scene_id: int) -> dict:
             # Прошлое сведение относилось к прошлому ролику: если его не сбросить,
             # после пересъёмки в ленте продолжал бы играть старый вариант.
             scene.mixed_video = ""
-            scene.save(update_fields=["video", "last_frame", "mixed_video", "credits_spent",
-                                      "status", "error", "updated_at"])
+            # Голос — там же, но отдельно откатываемой частью: видео списывается всегда.
+            line.commit()
+            scene.save(update_fields=["video", "last_frame", "mixed_video", "speech_start",
+                                      "speech_end", "credits_spent", "status", "error", "updated_at"])
         # Адрес, а не путь к файлу: из админки «результат» открывался как
         # /admin-new/cartoon/scenes/<файл>.mp4 и давал 404.
         from django.core.files.storage import default_storage as _storage
 
         entry.delivered(credits=video_price, result_url=_storage.url(scene.video))
         _video_entry_closed = True
+        # Сцена выдана: с этого места голос уже её, откатывать нечего.
+        delivered_line, line = line, None
+        delivered_line.finish()
         # Звук, набранный до съёмки, накладывается сам (клиент: «в итоге всё
         # автоматически объединяется»). Сбой сведения не портит снятую сцену.
-        try:
-            from .audio import remix_scene
+        # С голосом героя всё уже сведено до транзакции — второй ffmpeg не нужен.
+        if not scene.mixed_video:
+            try:
+                from .audio import remix_scene
 
-            remix_scene(scene)
-        except Exception:
-            logger.exception("сцена %s: звук не свёлся после съёмки", scene_id)
+                remix_scene(scene)
+            except Exception:
+                logger.exception("сцена %s: звук не свёлся после съёмки", scene_id)
         # Готовая пара «библиотечный герой + сцена» становится движущимся
         # превью для всех. Сбой здесь не должен портить уже снятую сцену.
         try:
             remember_pair_video(scene)
         except Exception:
             logger.exception("сцена %s: ролик не лёг в общий запас", scene_id)
-        _notify_scene(scene, ok=True)
+        _notify_scene(scene, ok=True, voice_credits=delivered_line.paid)
         return {"status": "ready", "scene": scene.pk}
     except _SceneGone:
         logger.warning("сцена %s: удалена или прервана до выдачи ролика", scene_id)
         _close_entry(entry, f"сцену удалили или прервали до выдачи ролика: {scene.video}")
+        _drop_line(line, "сцену удалили или прервали до выдачи ролика")
         return {"status": "gone"}
     except InsufficientTokens:
         # Баланс ушёл на другое, пока шла съёмка (запуск сцены уже учитывает
         # другие снимающиеся сцены). Ролик снят и оплачен провайдеру — в разбор.
         logger.warning("сцена %s: не хватило кредитов к моменту готовности", scene_id)
         _close_entry(entry, f"не хватило кредитов к моменту готовности: {scene.video}")
+        _drop_line(line, "не хватило кредитов на видео к моменту готовности")
         _fail(scene, NO_CREDITS_VIDEO_ERROR)
         return {"status": "no_credits"}
     except Exception as exc:
         logger.exception("сцена %s: видео не получилось", scene_id)
+        _drop_line(line, f"ролик не выдан: {exc}")
         # Ролик снят и оплачен провайдеру, но сломалось списание или сохранение:
         # запись не должна остаться «в работе» навсегда — это в разбор.
         if not _video_entry_closed:
@@ -589,7 +617,7 @@ def build_preset_preview(preset_id, source) -> bool:
     return build_preview(preset_id, source)
 
 
-def _notify_scene(scene, ok: bool) -> None:
+def _notify_scene(scene, ok: bool, voice_credits: int = 0) -> None:
     """Сказать человеку в Telegram, что сцена готова (или нет)."""
     try:
         from django.core.files.storage import default_storage
@@ -609,7 +637,7 @@ def _notify_scene(scene, ok: bool) -> None:
             except Exception:
                 video_url = ""
             notify(user, "ready",
-                   f"🎬 Сцена «{title}» готова! Списано {scene.credits_spent} кр.",
+                   f"🎬 Сцена «{title}» готова! Списано {scene.credits_spent + voice_credits} кр.",
                    url=studio, url_label="Открыть в студии", video_url=video_url or None)
         else:
             notify(user, "ready",

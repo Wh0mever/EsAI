@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { FiCheck, FiLink } from "react-icons/fi";
 import VideoPlayer from "./VideoPlayer";
-import SaveMediaButton from "@/components/ui/SaveMediaButton";
+import SaveMediaButton, { SAVE_CTA } from "@/components/ui/SaveMediaButton";
 
 /**
  * Плеер публичной страницы ролика (/v/<код>) — тот же VideoPlayer плюс два
@@ -46,8 +46,8 @@ export default function SharedVideoPlayer({
           url={src}
           filename={downloadName}
           label="Скачать"
-          iconClassName="text-[15px]"
-          className="inline-flex cursor-pointer items-center gap-1.5 text-sm text-muted-2 transition-colors hover:text-foreground"
+          className={SAVE_CTA}
+          warm={false}
         >
           Скачать
         </SaveMediaButton>

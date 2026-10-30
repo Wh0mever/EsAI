@@ -39,6 +39,9 @@ urlpatterns = [
     path("scenes/<int:pk>/audio/sfx/", views_audio.SceneSfxView.as_view(), name="scene-audio-sfx"),
     path("scenes/<int:pk>/audio/upload/", views_audio.SceneUploadAudioView.as_view(), name="scene-audio-upload"),
     path("scenes/<int:pk>/audio/mix/", views_audio.SceneMixView.as_view(), name="scene-audio-mix"),
+    # Голос героя вместо голоса модели: реплика сцены и голос на весь мультфильм.
+    path("scenes/<int:pk>/audio/line/", views_audio.SceneLineView.as_view(), name="scene-audio-line"),
+    path("projects/<int:pk>/hero-voice/", views_audio.ProjectHeroVoiceView.as_view(), name="project-hero-voice"),
     # «Озвучить весь мультфильм»: сначала план с ценой, потом запуск.
     path("projects/<int:pk>/voice-plan/", views_audio.ProjectVoicePlanView.as_view(), name="project-voice-plan"),
     path("projects/<int:pk>/voice-all/", views_audio.ProjectVoiceAllView.as_view(), name="project-voice-all"),

@@ -5,7 +5,7 @@
  * ProjectRail, MENU_POP и TALL_HIT из StudioTopBar): импорт даже одной из них
  * притянул бы в мультстудию весь стор видеостудии.
  */
-import { VS_BTN_GHOST, VS_BTN_GOLD, VS_FOCUS, VS_PILL, vx } from "@/components/vstudio/ui/skin";
+import { VS_BTN_GHOST, VS_BTN_GOLD, VS_FOCUS, VS_PILL, VS_PILL_ON, vx } from "@/components/vstudio/ui/skin";
 
 /** Отступ между секциями мультстудии: рабочий экран, плотнее первого экрана видеостудии (VS_SECTION_GAP). */
 export const CS_GAP = "mt-8 sm:mt-10";
@@ -29,6 +29,8 @@ export const CS_STRIP = "vs-noscroll relative -mx-4 overflow-x-auto overscroll-x
 export const CS_CHIP = vx(VS_PILL, "relative active:scale-[0.97] before:absolute before:inset-x-0 before:-inset-y-0.5 before:content-[''] md:before:hidden");
 /** Кнопка в карточке: тихая, во всю ширину, 44 px на телефоне. */
 export const CS_CARD_BTN = vx(VS_BTN_GHOST, "w-full !min-h-11 !px-3 !text-[13px] md:!min-h-9");
+/** Главное действие карточки («Снять сцену», «Озвучить голосом героя»): золотой контур, а не заливка — золотая кнопка на экране одна, в доке. */
+export const CS_CARD_GOLD = vx(VS_BTN_GHOST, VS_PILL_ON, "w-full !font-semibold hover:!bg-accent/[0.16]");
 /** Золотая кнопка дока — как RUN_GOLD у RunButton. */
 export const CS_RUN_GOLD = vx(VS_BTN_GOLD, "whitespace-nowrap md:!min-h-11");
 /** Кнопка дока, когда действие закрыто, — как RUN_OFF у RunButton. */

@@ -747,13 +747,15 @@ export function reshootDurationQuestion(args: {
   return { key: "studio_ui.scene_reshoot_duration", params: { from, to, credits } };
 }
 
-/** Реплика длиннее сцены не уместится (2–3 слова в секунду), а больше 300 знаков сервер не хранит. */
+/** Больше 300 знаков реплики сервер не хранит. */
 export const DIALOGUE_MAX = 300;
+/** Живая речь — около 13 знаков в секунду (та же норма, что director.LINE_CHARS_PER_SEC на сервере). */
+export const LINE_CHARS_PER_SEC = 13;
 
-/** Предел поля реплики: по длительности сцены, но не больше, чем сохранит сервер. */
+/** Предел поля реплики: по длине снимка (clipSeconds), но не больше, чем сохранит сервер. */
 export function dialogueMaxLength(seconds: number | null | undefined): number {
   const s = typeof seconds === "number" && Number.isFinite(seconds) && seconds > 0 ? seconds : 5;
-  return Math.min(DIALOGUE_MAX, Math.max(40, Math.round(s * 14)));
+  return Math.min(DIALOGUE_MAX, Math.max(40, Math.round(s * LINE_CHARS_PER_SEC)));
 }
 
 /**

@@ -102,6 +102,7 @@ type Settings = {
   studio_music_credits_per_min?: number;
   studio_sfx_credits?: number;
   studio_scene_credits?: number;
+  studio_line_voice_mode?: string;
   /** курс, по которому реально выставляется криптосчёт */
   currency_kgs_to_usd_rate: number;
   /** зафиксированный админом вручную (0 — не задан, берётся живой) */
@@ -302,6 +303,7 @@ export default function AdminSettingsPage() {
   });
   const [audioSaving, setAudioSaving] = useState(false);
   const [audioError, setAudioError] = useState<string | null>(null);
+  const [lineMode, setLineMode] = useState("on");
   const [audioFlash, setAudioFlash] = useState(false);
   const [audioTesting, setAudioTesting] = useState(false);
   const [audioTest, setAudioTest] = useState<{ ok: boolean; error?: string | null; voices?: number } | null>(null);
@@ -342,6 +344,7 @@ export default function AdminSettingsPage() {
       studio_music_credits_per_min: String(s.studio_music_credits_per_min ?? 30),
       studio_sfx_credits: String(s.studio_sfx_credits ?? 10),
     });
+    setLineMode(s.studio_line_voice_mode ?? "on");
   };
 
   const syncRateDraft = (s: Settings) => {
@@ -621,6 +624,7 @@ export default function AdminSettingsPage() {
   const audioDirty =
     settings !== null &&
     (Boolean(elKey.trim()) ||
+      lineMode !== (settings.studio_line_voice_mode ?? "on") ||
       AUDIO_PRICES.some((f) => audioDraft[f.key] !== String(settings[f.key] ?? "")));
 
   const saveAudio = async () => {
@@ -636,6 +640,7 @@ export default function AdminSettingsPage() {
       patch[f.key] = n;
     }
     if (elKey.trim()) patch.elevenlabs_api_key = elKey.trim();
+    if (lineMode !== (settings.studio_line_voice_mode ?? "on")) patch.studio_line_voice_mode = lineMode;
     if (Object.keys(patch).length === 0) return;
     setAudioSaving(true);
     setAudioError(null);
@@ -1169,6 +1174,25 @@ export default function AdminSettingsPage() {
               />
             </div>
           ))}
+        </div>
+
+        <div className="mt-4 flex max-w-xl flex-col gap-1">
+          <label className="text-xs text-muted" htmlFor="line-voice-mode">
+            Голос героя вместо голоса модели
+          </label>
+          <select
+            id="line-voice-mode"
+            value={lineMode}
+            onChange={(e) => setLineMode(e.target.value)}
+            className={INPUT}
+          >
+            <option value="on">Всем: реплика озвучивается сама, голос входит в цену сцены</option>
+            <option value="staff">Только сотрудникам: для проверки перед запуском</option>
+            <option value="off">Выключено: реплику говорит видеомодель</option>
+          </select>
+          <span className="text-[11px] text-muted-2">
+            Действует сразу, без выкладки. Уже снятые сцены не меняются.
+          </span>
         </div>
 
         {audioError && <div className="mt-3 text-sm text-red-400">{audioError}</div>}

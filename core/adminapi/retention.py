@@ -7,6 +7,10 @@
 
 Кого не считаем: сотрудников и тестовый аккаунт платёжки — их заходы есть в
 таблице, но к возвратам живых людей отношения не имеют.
+
+Блок «По направлениям» (F30) — тем же проходом в Python, источник — журнал
+кредитов plans.TokenTransaction: списание = успешная генерация, а журнал генераций
+ai.GenerationLog есть только с сентября.
 """
 from __future__ import annotations
 
@@ -23,9 +27,12 @@ from django.db.models import Count, Min, Q
 from django.utils import timezone
 from rest_framework.response import Response
 
-from audit.activity import local_day, local_tz, sync_recent
+from ai.handlers import _is_any_image_model
+from ai.models import AiChatMessage
+from audit.activity import day_start, local_day, local_tz, sync_recent
 from audit.models import ActivitySource, UserActivityDay
 from payments.models import Payment
+from plans.models import TokenTransaction
 
 from .views import StaffAPIView
 
@@ -40,23 +47,49 @@ COHORT_WEEKS = 12
 COHORT_K = 8
 STICKINESS_DAYS = 30
 
+# С этого дня журнал кредитов = успешные генерации. Подпись на странице говорит
+# то же самое (retention.ts, DIRECTIONS_NOTE).
+DIRECTIONS_SINCE = date(2026, 6, 28)
+# Строки отчёта «По направлениям» в порядке показа: (группа, подпись, сценарии).
+DIRECTIONS = (
+    ("video", "Видео", (("cartoon_scene", "Мультстудия"), ("vstudio_video", "Видеостудия"),
+                        ("chat_video", "Чат"))),
+    ("image", "Изображения", (("cartoon_image", "Мультстудия"), ("vstudio_image", "Видеостудия"),
+                              ("chat_image", "Чат"))),
+    # Сценарий один: подстрока только повторила бы строку группы.
+    ("text", "Текст", (("text", "Чат"),)),
+)
+# Причины списания, у которых сценарий ясен сразу. Чат разбирается отдельно (_chat_scenario).
+SCENARIO_BY_REASON = {
+    "cartoon_scene": "cartoon_scene",
+    "cartoon_keyframe": "cartoon_image",
+    "cartoon_character": "cartoon_image",
+    "vstudio_video": "vstudio_video",
+    "vstudio_image": "vstudio_image",
+}
+CHAT_REASON = "chat"
+MESSAGES_CHUNK = 2000
+
 
 def _now():
     """Текущий момент. Отдельной функцией, чтобы тесты могли зафиксировать «сегодня»."""
     return timezone.now()
 
 
-def _share(part, whole):
-    """Доля в процентах с одним знаком; None, когда считать не из чего.
+def _one_decimal(value: Fraction) -> float:
+    """Один знак после запятой «как в таблице» (81,25 → 81,3).
 
-    Округляем «как в таблице» (81,25 → 81,3): round() у float округляет к чётному,
-    и плитка расходилась бы с пересчётом руками.
+    round() у float округляет к чётному, и плитка расходилась бы с пересчётом руками.
     """
+    exact = Decimal(value.numerator) / Decimal(value.denominator)
+    return float(exact.quantize(Decimal("0.1"), rounding=ROUND_HALF_UP))
+
+
+def _share(part, whole):
+    """Доля в процентах с одним знаком; None, когда считать не из чего."""
     if not whole:
         return None
-    pct = Fraction(part) * 100 / Fraction(whole)
-    exact = Decimal(pct.numerator) / Decimal(pct.denominator)
-    return float(exact.quantize(Decimal("0.1"), rounding=ROUND_HALF_UP))
+    return _one_decimal(Fraction(part) * 100 / Fraction(whole))
 
 
 def _has_day(days: list[date], start: date, end: date) -> bool:
@@ -136,20 +169,167 @@ def _cohorts(joined, by_user, today):
     return cohorts
 
 
-def _payers(joined) -> dict:
-    """Платившие хоть раз и платившие 2+ раза (без тестовых оплат)."""
+def _paid_by_user(joined) -> dict[int, int]:
+    """{id: сколько раз заплатил} — успешные не тестовые оплаты учитываемых людей."""
     # order_by() обязателен: сортировка модели попала бы в GROUP BY и разбила
     # бы одного плательщика на несколько строк.
     rows = (Payment.objects.filter(success=True, is_test=False, user__isnull=False)
             .order_by().values_list("user_id").annotate(n=Count("id")))
-    paying = repeat = 0
-    for uid, n in rows:
+    return {uid: n for uid, n in rows if uid in joined}
+
+
+def _payers(paid: dict[int, int]) -> dict:
+    """Платившие хоть раз и платившие 2+ раза (без тестовых оплат)."""
+    repeat = sum(1 for n in paid.values() if n >= 2)
+    return {"paying": len(paid), "repeat": repeat, "repeat_share": _share(repeat, len(paid))}
+
+
+def _chat_scenario(meta: dict) -> str | None:
+    """Сценарий списания чата; None — по строке журнала не понять, смотреть сообщение.
+
+    Флаги image и video есть в журнале не всегда. Nano Banana и другие модели,
+    рисующие через обычный чат, списываются той же веткой, что и текст, без флага
+    (ai.handlers, «Списание + сохранение»), поэтому «нет флага = текст» отдало бы все
+    их картинки тексту. Главный признак здесь — модель: без готовой картинки такая
+    модель с 25.08.2026 не списывает ничего (_image_expected_missed; раньше списывала,
+    и подпись на странице это оговаривает), а id модели лежит в самой строке журнала.
+    Флаг у сообщения не подошёл бы: он появился только этой осенью,
+    а сообщения исчезают, когда человек чистит историю.
+
+    У частичного списания (не хватило баланса) нет ни флага, ни модели — только
+    message_id, отсюда None.
+    """
+    if meta.get("video"):
+        return "chat_video"
+    if meta.get("image"):
+        return "chat_image"
+    model = meta.get("openrouter_id") or meta.get("model")
+    if not model:
+        return None
+    return "chat_image" if _is_any_image_model(model) else "text"
+
+
+def _message_media(ids: set[int]) -> dict[int, str]:
+    """{id сообщения: сценарий} для тех из ids, где чат выдал картинку или ролик.
+
+    Кроме флагов смотрим вложения: у старых картинок флага в сообщении нет.
+    """
+    found: dict[int, str] = {}
+    ordered = sorted(ids)
+    for start in range(0, len(ordered), MESSAGES_CHUNK):
+        rows = (AiChatMessage.objects.filter(pk__in=ordered[start:start + MESSAGES_CHUNK])
+                .order_by().values_list("id", "meta", "attachments"))
+        for pk, meta, attachments in rows:
+            flags = meta if isinstance(meta, dict) else {}
+            files = attachments if isinstance(attachments, list) else []
+            kinds = {item.get("type") for item in files if isinstance(item, dict)}
+            if flags.get("video") or "video" in kinds:
+                found[pk] = "chat_video"
+            elif flags.get("image") or "image" in kinds:
+                found[pk] = "chat_image"
+    return found
+
+
+def _generations(joined) -> dict[str, dict[int, Counter]]:
+    """{сценарий: {id: {местный день: сколько генераций}}} из журнала кредитов.
+
+    Одна строка со списанием — одна генерация: частичная строка пишется вместо
+    полной, а не вместе с ней. Нулевые строки (модель не отдала картинку) сюда
+    не попадают: delta < 0.
+    """
+    spent: dict[str, dict[int, Counter]] = defaultdict(lambda: defaultdict(Counter))
+    undecided = []
+    tz = local_tz()
+    rows = (TokenTransaction.objects
+            .filter(delta__lt=0, reason__in=(CHAT_REASON, *SCENARIO_BY_REASON),
+                    created_at__gte=day_start(DIRECTIONS_SINCE))
+            .order_by().values_list("user_id", "reason", "created_at", "meta"))
+    for uid, reason, created_at, meta in rows.iterator(chunk_size=5000):
         if uid not in joined:
             continue
-        paying += 1
-        if n >= 2:
-            repeat += 1
-    return {"paying": paying, "repeat": repeat, "repeat_share": _share(repeat, paying)}
+        day = timezone.localtime(created_at, tz).date()
+        meta = meta if isinstance(meta, dict) else {}
+        scenario = SCENARIO_BY_REASON.get(reason) or _chat_scenario(meta)
+        if scenario:
+            spent[scenario][uid][day] += 1
+        else:
+            undecided.append((uid, day, meta.get("message_id")))
+
+    # Таких строк единицы, поэтому сообщения поднимаем только для них, а не весь чат.
+    # Сообщения нет (чат удалён) — считаем текстом: больше о строке ничего не известно.
+    media = _message_media({mid for _, _, mid in undecided if mid})
+    for uid, day, mid in undecided:
+        spent[media.get(mid, "text")][uid][day] += 1
+    return spent
+
+
+def _direction_stats(people, by_user, paid, today, window_start) -> dict:
+    """Цифры одной строки «По направлениям»; people — {id: {день: сколько генераций}}."""
+    generations = generations_period = active_period = repeat = paying = 0
+    # По окну N: [база, вернулись к направлению, вернулись на сайт].
+    windows = {n: [0, 0, 0] for n in RETURNED_WITHIN}
+    for uid, per_day in people.items():
+        days = sorted(per_day)
+        in_period = sum(n for day, n in per_day.items() if window_start <= day <= today)
+        generations += sum(per_day.values())
+        generations_period += in_period
+        active_period += 1 if in_period else 0
+        # Два раза за один день — один заход, а не привычка: считаем разные дни.
+        repeat += 1 if len(days) >= 2 else 0
+        paying += 1 if uid in paid else 0
+        activity = by_user.get(uid, [])
+        for n, tally in windows.items():
+            # База — только те, у кого все N дней после первой генерации уже прошли.
+            if days[0] > today - timedelta(days=n):
+                continue
+            start, end = days[0] + timedelta(days=1), days[0] + timedelta(days=n)
+            tally[0] += 1
+            tally[1] += 1 if _has_day(days, start, end) else 0
+            tally[2] += 1 if _has_day(activity, start, end) else 0
+
+    def returned(column: int) -> list[dict]:
+        return [{"days": n, "base": tally[0], "returned": tally[column],
+                 "share": _share(tally[column], tally[0])} for n, tally in windows.items()]
+
+    users = len(people)
+    return {
+        "users": users,
+        "generations": generations,
+        "per_user": _one_decimal(Fraction(generations, users)) if users else None,
+        "repeat": repeat,
+        "repeat_share": _share(repeat, users),
+        "returned_direction": returned(1),
+        "returned_site": returned(2),
+        "paid": paying,
+        "paid_share": _share(paying, users),
+        "active_period": active_period,
+        "generations_period": generations_period,
+    }
+
+
+def _directions(joined, by_user, paid, today, window_start) -> list[dict]:
+    """Строки блока «По направлениям»: группа, под ней её сценарии.
+
+    Группа — объединение дней сценариев, а не сумма строк: мультфильм в понедельник
+    и ролик в студии во вторник — повтор «Видео», хотя в каждом сценарии это один день.
+    """
+    spent = _generations(joined)
+
+    def stats(people) -> dict:
+        return _direction_stats(people, by_user, paid, today, window_start)
+
+    rows = []
+    for group, group_label, scenarios in DIRECTIONS:
+        merged: dict[int, Counter] = defaultdict(Counter)
+        for key, _ in scenarios:
+            for uid, per_day in spent[key].items():
+                merged[uid].update(per_day)
+        rows.append({"key": group, "group": group, "label": group_label, "parent": None,
+                     **stats(merged)})
+        if len(scenarios) > 1:
+            rows.extend({"key": key, "group": group, "label": label, "parent": group,
+                         **stats(spent[key])} for key, label in scenarios)
+    return rows
 
 
 def retention_report(days: int = DEFAULT_DAYS, now=None) -> dict:
@@ -208,6 +388,7 @@ def retention_report(days: int = DEFAULT_DAYS, now=None) -> dict:
     bounds = UserActivityDay.objects.aggregate(
         first=Min("day"), first_live=Min("day", filter=Q(source=ActivitySource.LIVE)))
     users_total = len(joined)
+    paid = _paid_by_user(joined)
 
     return {
         "generated_at": timezone.localtime(now, local_tz()).isoformat(timespec="seconds"),
@@ -231,7 +412,8 @@ def retention_report(days: int = DEFAULT_DAYS, now=None) -> dict:
         "returned_within": returned_within,
         "daily": daily,
         "cohorts": _cohorts(joined, by_user, today),
-        "payers": _payers(joined),
+        "payers": _payers(paid),
+        "directions": _directions(joined, by_user, paid, today, window_start),
     }
 
 

@@ -251,7 +251,7 @@ test("meta: только перечислимое, без адресов и сы
     "os", "os_ver", "prefetch_hit", "result", "size_kb", "stage", "standalone", "step", "type_ok", "v", "vis",
     "wait_ms", "where",
   ]);
-  assert.equal(meta.v, "s3");
+  assert.equal(meta.v, "s4");
   assert.equal(meta.err, "NotAllowedError");
   assert.equal(meta.wait_ms, 6200);
   assert.equal(meta.size_kb, 3072);
@@ -274,7 +274,7 @@ test("код для поддержки и подвал шторки", () => {
   assert.match(code, /^[A-HJ-NP-Z2-9]{6}$/);
   assert.equal(code.length, 6);
   assert.match(newDiagCode(), /^[A-HJ-NP-Z2-9]{6}$/);
-  assert.equal(envLabel(detectEnv(ios(TG_IOS, { tgProxy: true }))), "iOS 26.0 · Telegram · s3");
-  assert.equal(envLabel(detectEnv(ios(SAFARI_26, { standalone: true }))), "iOS 26.0 · Safari · PWA · s3");
-  assert.equal(envLabel(detectEnv(android(ANDROID_CHROME))), "Android 14 · Chrome · s3");
+  assert.equal(envLabel(detectEnv(ios(TG_IOS, { tgProxy: true }))), "iOS 26.0 · Telegram · s4");
+  assert.equal(envLabel(detectEnv(ios(SAFARI_26, { standalone: true }))), "iOS 26.0 · Safari · PWA · s4");
+  assert.equal(envLabel(detectEnv(android(ANDROID_CHROME))), "Android 14 · Chrome · s4");
 });

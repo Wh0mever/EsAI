@@ -49,6 +49,27 @@ export type CohortWeek = { k: number; share: number | null; eligible: number; re
 export type Cohort = { weekStart: string; size: number; weeks: CohortWeek[] };
 export type Payers = { paying: number; repeat: number; repeatShare: number | null };
 
+/** Строка «По направлениям»: группа (parent = null) или её сценарий. Порядок задаёт сервер. */
+export type Direction = {
+  key: string;
+  group: string;
+  label: string;
+  parent: string | null;
+  users: number;
+  generations: number;
+  perUser: number | null;
+  repeat: number;
+  repeatShare: number | null;
+  /** Окна 1/7/30 дней от первой генерации: снова генерировали в этом направлении. */
+  returnedDirection: ReturnedWithin[];
+  /** Те же окна, но любая активность на сайте. */
+  returnedSite: ReturnedWithin[];
+  paid: number;
+  paidShare: number | null;
+  activePeriod: number;
+  generationsPeriod: number;
+};
+
 export type Retention = {
   generatedAt: string | null;
   today: string | null;
@@ -64,6 +85,8 @@ export type Retention = {
   /** От новых недель к старым; в каждой ровно COHORT_WEEKS недель k = 1…8. */
   cohorts: Cohort[];
   payers: Payers;
+  /** null — сервер старее страницы и блока не знает: блок тогда не показываем. */
+  directions: Direction[] | null;
 };
 
 /* ------------------------------------------------------------------ */
@@ -180,6 +203,45 @@ function parsePayers(raw: unknown): Payers {
   return { paying: count(r.paying), repeat: count(r.repeat), repeatShare: share(r.repeat_share) };
 }
 
+/** «На человека»: число ≥ 0 с 1 знаком. Потолка 100, как у доли, здесь нет. */
+export function perUser(v: unknown): number | null {
+  if (v === null || v === undefined || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) && n >= 0 ? Math.round(n * 10) / 10 : null;
+}
+
+function parseDirections(raw: unknown): Direction[] | null {
+  // Нет ключа — старый сервер: таблица из нулей соврала бы, что генераций не было.
+  if (!Array.isArray(raw)) return null;
+  const seen = new Set<string>();
+  const out: Direction[] = [];
+  for (const item of raw) {
+    const r = rowOf(item);
+    const key = typeof r.key === "string" ? r.key : "";
+    const label = typeof r.label === "string" ? r.label : "";
+    if (!key || !label || seen.has(key)) continue;
+    seen.add(key);
+    out.push({
+      key,
+      label,
+      group: typeof r.group === "string" ? r.group : key,
+      parent: typeof r.parent === "string" && r.parent ? r.parent : null,
+      users: count(r.users),
+      generations: count(r.generations),
+      perUser: perUser(r.per_user),
+      repeat: count(r.repeat),
+      repeatShare: share(r.repeat_share),
+      returnedDirection: parseWithin(r.returned_direction),
+      returnedSite: parseWithin(r.returned_site),
+      paid: count(r.paid),
+      paidShare: share(r.paid_share),
+      activePeriod: count(r.active_period),
+      generationsPeriod: count(r.generations_period),
+    });
+  }
+  return out.length ? out : null;
+}
+
 /**
  * Отчёт из ответа сервера. null — только если ответ вообще не объект
  * (HTML-страница 502, пустое тело): тогда показываем ошибку, а не пустой отчёт.
@@ -198,6 +260,7 @@ export function parseRetention(raw: unknown): Retention | null {
     daily: parseDaily(raw.daily),
     cohorts: parseCohorts(raw.cohorts),
     payers: parsePayers(raw.payers),
+    directions: parseDirections(raw.directions),
   };
 }
 
@@ -327,6 +390,37 @@ export function historyWarning(historySince: string | null, today: string | null
   if (!from || !now) return null;
   const days = Math.round((now.getTime() - from.getTime()) / 86_400_000);
   return days < HISTORY_ENOUGH_DAYS ? text : null;
+}
+
+/* ------------------------------------------------------------------ */
+/* По направлениям                                                     */
+/* ------------------------------------------------------------------ */
+
+/** Подпись блока: 28 июня — дата из core/adminapi/retention.py (DIRECTIONS_SINCE). */
+export const DIRECTIONS_NOTE =
+  "Считаем только успешные генерации — те, за которые списаны кредиты; данные с 28 июня 2026. " +
+  "Повторили — генерировали в этом направлении в 2 и более разных дня: два раза за один день повтором не считается. " +
+  "Вернулись — снова сгенерировали в этом направлении или просто зашли на сайт в следующие N дней после первой " +
+  "генерации; считаем только тех, у кого эти N дней уже прошли. " +
+  "В «Изображения» входят и кадры, которые мультстудия рисует при съёмке сцены; до 25 августа в «Чат» здесь " +
+  "могли попасть и списанные ответы без картинки. " +
+  "Генерации Telegram-аккаунта до объединения с сайтом не входят. " +
+  "Один человек может быть в нескольких строках, поэтому строки не складываются.";
+
+/** «2,5» — всегда один знак, чтобы столбец читался ровно; нет числа — «—». */
+export function fmtPerUser(n: number | null): string {
+  if (n === null || !Number.isFinite(n)) return "—";
+  return n.toLocaleString("ru-RU", { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+}
+
+/** Окно N дней из разобранного списка; у parseWithin все три есть всегда. */
+export function windowOf(list: ReturnedWithin[], days: number): ReturnedWithin {
+  return list.find((w) => w.days === days) ?? { days, base: 0, returned: 0, share: null };
+}
+
+/** Подпись под долей возврата; пустая база — «некого считать», а не «0 из 0». */
+export function windowNote(w: ReturnedWithin): string {
+  return w.base ? `${fmtNum(w.returned)} из ${fmtNum(w.base)}` : "некого считать";
 }
 
 /* ------------------------------------------------------------------ */

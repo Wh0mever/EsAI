@@ -458,11 +458,11 @@ class ShotConfig:
     """
 
     __slots__ = ("model", "resolution", "duration", "aspect", "preset_default", "model_available",
-                 "snapshot", "credits_planned", "video_credits")
+                 "snapshot", "credits_planned", "video_credits", "voice_credits")
 
     def __init__(self, model, resolution: str, duration: int, aspect: str, *, preset_default: bool,
                  model_available: bool = True, snapshot: bool = False, credits_planned=None,
-                 video_credits=None):
+                 video_credits=None, voice_credits=None):
         self.model = model
         self.resolution = resolution
         self.duration = int(duration)
@@ -472,6 +472,7 @@ class ShotConfig:
         self.snapshot = snapshot
         self.credits_planned = credits_planned
         self.video_credits = video_credits
+        self.voice_credits = voice_credits
 
     @property
     def model_id(self) -> str:
@@ -558,7 +559,8 @@ def shot_config(scene, memo: dict | None = None) -> ShotConfig:
                       and res == own_res and dur == own_dur)
     return ShotConfig(model, res, dur, scene.shot_aspect or scene.project.aspect_ratio or "16:9",
                       preset_default=preset_default, snapshot=True,
-                      credits_planned=scene.credits_planned, video_credits=scene.shot_video_credits)
+                      credits_planned=scene.credits_planned, video_credits=scene.shot_video_credits,
+                      voice_credits=scene.shot_voice_credits)
 
 
 def scene_duration(scene) -> int:
@@ -695,15 +697,17 @@ def price_or_none(preset, cfg: ShotConfig, *, keyframe_ready: bool = False,
     return price
 
 
-def snapshot_fields(cfg: ShotConfig, price: ScenePrice, *, keyframe_ready: bool) -> dict:
+def snapshot_fields(cfg: ShotConfig, price: ScenePrice, *, keyframe_ready: bool, voice: int = 0) -> dict:
     """Поля снимка для условного UPDATE при «Снять» (views._queue_render).
 
     credits_planned — то, что человек видел на кнопке; shot_video_credits — его
     видео-часть: её спишет готовый ролик, а резерв после кадра держит только её.
+    shot_voice_credits — часть за голос героя: спишется, только если голос готов.
     """
-    planned = price.video if keyframe_ready else price.total
+    planned = (price.video if keyframe_ready else price.total) + voice
     return {"shot_model": cfg.model, "shot_resolution": cfg.resolution, "shot_duration": cfg.duration,
-            "shot_aspect": cfg.aspect, "credits_planned": planned, "shot_video_credits": price.video}
+            "shot_aspect": cfg.aspect, "credits_planned": planned, "shot_video_credits": price.video,
+            "shot_voice_credits": voice}
 
 
 def shot_video_credits(scene, cfg: ShotConfig | None = None) -> int:
@@ -716,6 +720,38 @@ def shot_video_credits(scene, cfg: ShotConfig | None = None) -> int:
         return int(scene.shot_video_credits)
     cfg = cfg or shot_config(scene)
     return config_price(scene.preset, cfg, keyframe_ready=True).video
+
+
+_UNSET = object()
+
+
+def line_voice_credits(scene, *, line=_UNSET, ready: bool | None = None) -> int:
+    """Сколько автоозвучка реплики добавит к цене «Снять» прямо сейчас.
+
+    Режиссёр на момент цены ещё не решил, слова это или описание: считаем как за
+    голос, а описание голос не спишет (tasks.render_scene). Уже известно, что
+    описание, — не считаем. Прежняя реплика с тем же текстом и голосом снова ляжет
+    на новый ролик бесплатно: синтезировать нечего.
+
+    line — уже загруженная дорожка, ready — уже проверенный режим (лента считает
+    сразу все сцены и не должна ходить за этим в базу на каждую).
+    """
+    from . import audio, voiceover
+
+    text = (scene.dialogue or "").strip()
+    if not text:
+        return 0
+    if ready is None:
+        ready = audio.line_ready(scene.project.user)
+    if not ready or (scene.video_prompt and not scene.dialogue_is_speech):
+        return 0
+    track = voiceover.line_track(scene) if line is _UNSET else line
+    if track is not None and track.text == text:
+        hero = scene.character_id or scene.project.character_id
+        chosen = ((scene.project.hero_voices or {}).get(str(hero)) or {}).get("voice_id")
+        if not chosen or chosen == track.voice_id:
+            return 0
+    return audio.voice_price(text)
 
 
 # ---------------------------------------------------------------- настройки новых мультфильмов
@@ -869,7 +905,9 @@ def reserved_credits(user, exclude_scene_id: int | None = None) -> int:
         ready = scene.status == CartoonScene.STATUS_VIDEO or bool(scene.keyframe)
         if has_snapshot(scene):
             video = scene.shot_video_credits
-            total += int(video if ready and video is not None else scene.credits_planned)
+            # credits_planned уже с голосом; после кадра резерв — видео и голос.
+            part = None if video is None else video + int(scene.shot_voice_credits or 0)
+            total += int(part if ready and part is not None else scene.credits_planned)
             continue
         total += _reserve_for(scene, ready)
     return total

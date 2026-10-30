@@ -132,6 +132,9 @@ KEYS = (
     "studio_voice_min_credits",
     "studio_music_credits_per_min",
     "studio_sfx_credits",
+    # Автоозвучка реплики голосом героя: on (нет значения — так же), staff или off.
+    # Читает cartoon.audio.line_mode.
+    "studio_line_voice_mode",
     # Программа EsAI Creators (creators/flags.py): режим off/staff/on, срок холда
     # комиссии в днях и рубильник приёма заявок на вывод — без выкладки.
     "creators_mode",

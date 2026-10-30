@@ -6,8 +6,6 @@ import {
   FiLoader,
   FiMic,
   FiMusic,
-  FiPause,
-  FiPlay,
   FiSquare,
   FiTrash2,
   FiUpload,
@@ -29,7 +27,9 @@ import { fetchData } from "@/tools/fetchData";
 import type { StudioScene } from "./SceneTimeline";
 import type { ApiRefusal } from "./cartoonTypes";
 import { clipSeconds } from "./dockLogic";
+import type { HeroVoices } from "./lineVoice";
 import { CS_NOTE_GOLD } from "./ui/cartoonSkin";
+import VoicePicker, { useVoicePreview, useVoices } from "./VoicePicker";
 
 /**
  * Звук сцены: реплики героев, свой голос, музыка и эффекты.
@@ -43,19 +43,10 @@ import { CS_NOTE_GOLD } from "./ui/cartoonSkin";
 
 export type AudioConfig = {
   enabled: boolean;
+  /** Голос героя включён для всех: гостю он входит в цену «Снять». */
+  line_voice?: boolean;
   prices: { voice_per_1k: number; voice_min: number; music_per_min: number; sfx: number };
   limits: { voice_chars: number; music_sec: [number, number]; sfx_sec: [number, number]; upload_mb: number };
-};
-
-type Voice = {
-  id: string;
-  name: string;
-  gender: string;
-  age: string;
-  accent: string;
-  description: string;
-  use_case: string;
-  preview: string;
 };
 
 type Track = {
@@ -64,7 +55,8 @@ type Track = {
   status?: "pending" | "ready" | "failed";
   error?: string;
   credits_planned?: number;
-  kind: "voice" | "own" | "music" | "sfx";
+  /** line — реплика вместо голоса модели (голос героя), одна на сцену. */
+  kind: "voice" | "line" | "own" | "music" | "sfx";
   text: string;
   voice_id: string;
   voice_name: string;
@@ -86,12 +78,9 @@ type SceneAudio = {
 
 type Tab = "voice" | "own" | "music" | "sfx";
 
-const TAB_ICON = { voice: FiZap, own: FiMic, music: FiMusic, sfx: FiVolume2 };
+const TAB_ICON = { voice: FiZap, line: FiZap, own: FiMic, music: FiMusic, sfx: FiVolume2 };
 
 const LAST_VOICE_KEY = "esai.studio.voiceByCharacter";
-
-/** Перевод подписи голоса: незнакомое слово возвращается как есть (defaultValue). */
-type Tr = (key: string, options: { defaultValue: string }) => string;
 
 /** Числовое поле окна: 44 px на телефоне, шрифт 16 px — иначе iOS приближает страницу. */
 const NUMBER_FIELD = vx(VS_INPUT, "!min-h-11 !w-20 !px-2 tabular-nums max-sm:!text-base md:!min-h-9");
@@ -100,41 +89,6 @@ const TEXT_FIELD = vx(VS_INPUT, "resize-none py-2 leading-snug max-sm:!text-base
 /** Ползунок дорожки: высокая зона нажатия на телефоне. */
 const RANGE = "h-11 min-w-0 flex-1 cursor-pointer accent-[var(--accent)] md:h-8";
 const SPIN = "animate-spin motion-reduce:animate-none";
-
-/**
- * Подпись голоса на языке человека.
- *
- * ElevenLabs размечает голоса по-английски («female · middle_aged ·
- * professional»), и в русском интерфейсе это выглядит как служебный вывод.
- * Переводим то, что знаем, а незнакомое слово показываем как есть.
- */
-/** «Bella - Professional, Bright, Warm» → «Bella». */
-function voiceShortName(v: Voice): string {
-  return (v.name || "").split(" - ")[0].trim() || v.name;
-}
-
-/** Характер голоса по-русски: «мягкий, тёплый». Для известных голосов —
- *  написанное руками описание, для остальных — перевод слов из названия. */
-function voiceCharacter(v: Voice, t: Tr): string {
-  const key = voiceShortName(v).toLowerCase().replace(/[^a-z]+/g, "");
-  const known = t(`studio_ui.voice_n_${key}`, { defaultValue: "" });
-  if (known) return known;
-  const tail = (v.name || "").split(" - ")[1] || v.description || "";
-  return tail
-    .split(/,| and /)
-    .map((w) => w.trim())
-    .filter(Boolean)
-    .map((w) =>
-      t(`studio_ui.voice_w_${w.toLowerCase().replace(/[^a-z]+/g, "_")}`, { defaultValue: w })
-    )
-    .join(", ");
-}
-
-function voiceTraits(v: Voice, t: Tr): string {
-  const word = (raw: string) =>
-    raw ? t(`studio_ui.voice_w_${raw.toLowerCase().replace(/[^a-z_]+/g, "_")}`, { defaultValue: raw }) : "";
-  return [word(v.gender), word(v.age)].filter(Boolean).join(" · ");
-}
 
 function readVoiceMemory(): Record<string, string> {
   try {
@@ -159,6 +113,7 @@ export default function SceneAudioDialog({
   scene,
   config,
   characters,
+  heroVoices,
   onClose,
   onChanged,
   onNeedCredits,
@@ -167,22 +122,27 @@ export default function SceneAudioDialog({
   config: AudioConfig | null;
   /** Чьи реплики можно озвучить: герои ленты. */
   characters: { id: number; name: string }[];
+  /** Голоса героев мультфильма: голос героя — один на весь мультфильм. */
+  heroVoices?: HeroVoices;
   onClose: () => void;
   /** Звук сцены поменялся и уже сведён (или сведётся после съёмки). */
   onChanged: () => void;
   onNeedCredits: (required: number, balance: number) => void;
 }) {
-  const { t, i18n } = useTranslation("common");
+  const { t } = useTranslation("common");
   const open = Boolean(scene);
   const [data, setData] = useState<SceneAudio | null>(null);
-  const [voices, setVoices] = useState<Voice[]>([]);
+  const voices = useVoices(open);
+  const preview = useVoicePreview();
   const [tab, setTab] = useState<Tab>("voice");
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [dirty, setDirty] = useState(false);
 
   const [text, setText] = useState("");
-  const [voiceId, setVoiceId] = useState("");
+  const [pickedVoice, setVoiceId] = useState("");
+  // Пока ничего не выбрано — первый голос каталога.
+  const voiceId = pickedVoice || voices[0]?.id || "";
   const [characterId, setCharacterId] = useState<number | null>(null);
   const [prompt, setPrompt] = useState("");
   const [seconds, setSeconds] = useState(10);
@@ -193,28 +153,42 @@ export default function SceneAudioDialog({
   const streamRef = useRef<MediaStream | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const fileRef = useRef<HTMLInputElement | null>(null);
-  const previewRef = useRef<HTMLAudioElement | null>(null);
-  const [previewing, setPreviewing] = useState<string | null>(null);
 
   // Длина настоящего ролика: у снятой сцены — по съёмке, а не по нынешнему доку
   // (preset.duration — это уже длительность следующей съёмки).
   const sceneDuration = clipSeconds(scene);
   const prices = config?.prices;
 
+  /** Голос героя запоминается: второй раз озвучивая того же героя, человек не ищет голос
+   *  заново, и герой звучит одинаково во всех сценах. Голос, закреплённый за героем в
+   *  мультфильме, важнее памяти этого браузера. */
+  const pickCharacter = (heroId: number | null) => {
+    setCharacterId(heroId);
+    const voice = heroId ? heroVoices?.[String(heroId)]?.voice_id || readVoiceMemory()[String(heroId)] : "";
+    if (voice) setVoiceId(voice);
+  };
+
+  // Открыли окно у другой сцены — всё начинается заново. Сверяем при отрисовке, а не в
+  // эффекте: так окно не мигает звуком прошлой сцены.
+  const openId = scene?.id ?? null;
+  const [shownId, setShownId] = useState<number | null>(null);
+  if (openId !== shownId) {
+    setShownId(openId);
+    if (scene) {
+      setData(null);
+      setError("");
+      setDirty(false);
+      setText("");
+      setPrompt("");
+      setStartSec(0);
+      setTab("voice");
+      setSeconds(Math.max(config?.limits.music_sec[0] ?? 3, Math.min(30, sceneDuration)));
+      pickCharacter(scene.character?.id ?? null);
+    }
+  }
+
   useEffect(() => {
     if (!scene) return;
-    setData(null);
-    setError("");
-    setDirty(false);
-    setText("");
-    setPrompt("");
-    setStartSec(0);
-    setTab("voice");
-    setSeconds(Math.max(config?.limits.music_sec[0] ?? 3, Math.min(30, sceneDuration)));
-    const heroId = scene.character?.id ?? null;
-    setCharacterId(heroId);
-    const remembered = heroId ? readVoiceMemory()[String(heroId)] : "";
-    if (remembered) setVoiceId(remembered);
     void (async () => {
       const res = await fetchData<SceneAudio>(`cartoon/scenes/${scene.id}/audio/`, "GET", undefined, true);
       if (res.ok && res.data) {
@@ -234,26 +208,6 @@ export default function SceneAudioDialog({
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scene?.id]);
-
-  useEffect(() => {
-    if (!open || voices.length) return;
-    void (async () => {
-      const res = await fetchData<Voice[]>("cartoon/audio/voices/", "GET", undefined, false);
-      if (res.ok && Array.isArray(res.data)) {
-        const list = res.data;
-        setVoices(list);
-        setVoiceId((v) => v || list[0]?.id || "");
-      }
-    })();
-  }, [open, voices.length]);
-
-  // Голос героя запоминается: второй раз озвучивая того же героя, человек
-  // не ищет голос заново, и герой звучит одинаково во всех сценах.
-  useEffect(() => {
-    if (!characterId) return;
-    const remembered = readVoiceMemory()[String(characterId)];
-    if (remembered) setVoiceId(remembered);
-  }, [characterId]);
 
   // Музыка и эффекты делаются в фоне. Пока хоть одна дорожка «готовится»,
   // перечитываем список — человек видит, как она становится готовой.
@@ -294,40 +248,9 @@ export default function SceneAudioDialog({
       }
       streamRef.current?.getTracks().forEach((tr) => tr.stop());
       streamRef.current = null;
-      previewRef.current?.pause();
     },
     []
   );
-
-  const stopPreview = () => {
-    previewRef.current?.pause();
-    setPreviewing(null);
-  };
-
-  /** Пример голоса. Клиент: он должен звучать по-русски — родной образец у
-   *  провайдера английский, и по нему не понять, как заговорит герой. */
-  const playPreview = async (v: Voice) => {
-    if (previewing === v.id) {
-      stopPreview();
-      return;
-    }
-    previewRef.current?.pause();
-    setPreviewing(v.id);
-    const lang = (i18n.language || "ru").slice(0, 2);
-    const res = await fetchData<{ url: string }>(
-      `cartoon/audio/voices/${encodeURIComponent(v.id)}/preview/?lang=${lang === "ky" ? "kg" : lang}`,
-      "GET", undefined, false
-    );
-    const src = (res.ok && res.data?.url) || v.preview;
-    if (!src) {
-      setPreviewing(null);
-      return;
-    }
-    const a = new Audio(src);
-    previewRef.current = a;
-    a.onended = () => setPreviewing(null);
-    void a.play().catch(() => setPreviewing(null));
-  };
 
   const addTrack = (track: Track) => {
     setData((d) => {
@@ -432,6 +355,14 @@ export default function SceneAudioDialog({
     setRecording(false);
   };
 
+  // Отпустить ползунок можно и не двигая: браузер округлил бы момент реплики до шага 0,1 с.
+  const startMoved = useRef(false);
+  const commitStart = (track: Track, input: HTMLInputElement) => {
+    if (!startMoved.current) return;
+    startMoved.current = false;
+    void patchTrack(track, { start_sec: Number(input.value) });
+  };
+
   const patchTrack = async (track: Track, patch: Partial<Pick<Track, "start_sec" | "volume">>) => {
     const prev = data;
     setData((d) => (d ? { ...d, tracks: d.tracks.map((x) => (x.id === track.id ? { ...x, ...patch } : x)) } : d));
@@ -469,7 +400,7 @@ export default function SceneAudioDialog({
   /** Свести звук со сценой и закрыть. У не снятой сцены сведение будет после съёмки. */
   const finish = async () => {
     if (recording) stopRecording();
-    stopPreview();
+    preview.stop();
     if (scene && dirty && data?.has_video) {
       setBusy("mix");
       const res = await fetchData(`cartoon/scenes/${scene.id}/audio/mix/`, "POST", {}, true);
@@ -556,7 +487,7 @@ export default function SceneAudioDialog({
               {t("studio_ui.audio_who")}
               <select
                 value={characterId ?? ""}
-                onChange={(e) => setCharacterId(e.target.value ? Number(e.target.value) : null)}
+                onChange={(e) => pickCharacter(e.target.value ? Number(e.target.value) : null)}
                 className={vx(VS_INPUT, "cursor-pointer max-sm:!text-base")}
               >
                 <option value="">{t("studio_ui.audio_narrator")}</option>
@@ -579,46 +510,7 @@ export default function SceneAudioDialog({
                   {t("studio_ui.audio_voice")}
                 </span>
                 <span className="text-[11px] text-muted-2">{t("studio_ui.audio_voice_note")}</span>
-                <div className="grid max-h-44 grid-cols-1 gap-1.5 overflow-y-auto pr-1 sm:grid-cols-2">
-                  {voices.length === 0 && <span className="text-xs text-muted-2">{t("studio_ui.audio_loading")}</span>}
-                  {voices.map((v) => (
-                    <div
-                      key={v.id}
-                      className={vx(
-                        "flex items-center gap-2 rounded-xl border px-1.5 py-1 transition-colors",
-                        voiceId === v.id ? "border-vs-accent/45 bg-accent/[0.1]" : "border-vs-ink/10 hover:border-vs-ink/20",
-                      )}
-                    >
-                      <button
-                        type="button"
-                        onClick={() => void playPreview(v)}
-                        aria-label={`${t("studio_ui.audio_listen")}: ${voiceShortName(v)}`}
-                        aria-pressed={previewing === v.id}
-                        title={t("studio_ui.audio_listen")}
-                        className={vx(
-                          "grid size-11 shrink-0 cursor-pointer place-items-center rounded-full bg-vs-ink/[0.06] text-foreground transition-colors hover:bg-vs-ink/[0.1] disabled:opacity-40 md:size-8",
-                          VS_FOCUS,
-                        )}
-                      >
-                        {previewing === v.id ? <FiPause aria-hidden /> : <FiPlay aria-hidden />}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setVoiceId(v.id)}
-                        aria-pressed={voiceId === v.id}
-                        className={vx("min-h-11 min-w-0 flex-1 cursor-pointer rounded-lg px-1 text-left md:min-h-9", VS_FOCUS)}
-                      >
-                        <div className="truncate text-sm text-foreground">
-                          <span className="font-semibold">{voiceShortName(v)}</span>
-                          <span className="text-muted"> — {voiceCharacter(v, t)}</span>
-                        </div>
-                        <div className="truncate text-[10px] text-muted-2">
-                          {voiceTraits(v, t)}
-                        </div>
-                      </button>
-                    </div>
-                  ))}
-                </div>
+                <VoicePicker voices={voices} value={voiceId} onChange={setVoiceId} preview={preview} />
               </div>
               <textarea
                 value={text}
@@ -754,13 +646,21 @@ export default function SceneAudioDialog({
             {!data && <FiLoader className={vx(SPIN, "text-muted")} aria-hidden />}
             {data?.tracks.length === 0 && <p className="text-xs text-muted-2">{t("studio_ui.audio_no_tracks")}</p>}
             {data?.tracks.map((tr) => {
-              const Icon = TAB_ICON[tr.kind === "voice" ? "voice" : tr.kind];
-              const overflow = tr.start_sec + tr.duration > sceneDuration + 0.05;
+              const Icon = TAB_ICON[tr.kind];
+              // Реплику сведение ускоряет до ×1,15, а в файле на конце около 0,3 с тишины.
+              const overflow =
+                tr.kind === "line"
+                  ? tr.start_sec + (tr.duration - 0.3) / 1.15 > sceneDuration + 0.15
+                  : tr.start_sec + tr.duration > sceneDuration + 0.05;
               return (
                 <div key={tr.id} className="flex flex-col gap-2 rounded-xl border border-vs-ink/10 bg-vs-ink/[0.03] p-2.5">
                   <div className="flex items-start gap-2">
                     <Icon className="mt-0.5 shrink-0 text-vs-accent" aria-hidden />
                     <div className="min-w-0 flex-1">
+                      {/* Реплика звучит вместо голоса модели: у неё другая судьба, чем у дорожки поверх. */}
+                      {tr.kind === "line" && (
+                        <div className="text-[11px] font-semibold text-vs-accent">{t("studio_ui.audio_track_line")}</div>
+                      )}
                       <div className="truncate text-sm text-foreground">
                         {tr.character ? `${tr.character.name}: ` : ""}
                         {tr.text || t(`studio_ui.audio_tab_${tr.kind}`)}
@@ -807,11 +707,12 @@ export default function SceneAudioDialog({
                         value={tr.start_sec}
                         onChange={(e) => {
                           const v = Number(e.target.value);
+                          startMoved.current = true;
                           setData((d) => d && { ...d, tracks: d.tracks.map((x) => (x.id === tr.id ? { ...x, start_sec: v } : x)) });
                         }}
-                        onMouseUp={(e) => void patchTrack(tr, { start_sec: Number((e.target as HTMLInputElement).value) })}
-                        onTouchEnd={(e) => void patchTrack(tr, { start_sec: Number((e.target as HTMLInputElement).value) })}
-                        onKeyUp={(e) => void patchTrack(tr, { start_sec: Number((e.target as HTMLInputElement).value) })}
+                        onMouseUp={(e) => commitStart(tr, e.target as HTMLInputElement)}
+                        onTouchEnd={(e) => commitStart(tr, e.target as HTMLInputElement)}
+                        onKeyUp={(e) => commitStart(tr, e.target as HTMLInputElement)}
                         className={RANGE}
                       />
                       <span className="w-10 text-right tabular-nums">{tr.start_sec.toFixed(1)}</span>

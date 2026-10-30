@@ -1,11 +1,12 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useId, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { useTranslation } from "react-i18next";
 import Cookies from "js-cookie";
 import {
+  FiChevronDown,
   FiPlus,
   FiX,
   FiUser,
@@ -41,6 +42,19 @@ import { useBonusSettings } from "@/hooks/useBonusSettings";
 import { pushSupported, pushPermission, enablePush } from "@/tools/webPush";
 import { CREATORS_NAV } from "@/lib/creators/format";
 import { NAV_RU } from "@/lib/creators/labels";
+import { footOpenFrom, footValue, SIDEBAR_FOOT_KEY } from "@/components/ui/sidebarFoot";
+
+/** Развёрнут ли нижний блок при запуске. Хранилище бывает закрыто (приватный режим) — это не ошибка. */
+function readFootOpen(): boolean {
+  if (typeof window === "undefined") return true;
+  let saved: string | null = null;
+  try {
+    saved = window.localStorage.getItem(SIDEBAR_FOOT_KEY);
+  } catch {
+    // без хранилища — как при первом открытии
+  }
+  return footOpenFrom(saved, window.innerWidth);
+}
 
 // «Видеостудия» в меню чата — по тому же правилу, что в меню сайта
 // (components/main/Nav.tsx): флаг сборки включают, когда студия открыта всем.
@@ -89,6 +103,30 @@ export default function ChatSidebar({
   const [memoryOpen, setMemoryOpen] = useState(false);
   const [promoOpen, setPromoOpen] = useState(false);
   const isAuthed = authed ?? (typeof window !== "undefined" ? Boolean(Cookies.get("access")) : false);
+
+  // Нижний блок вошедшего (баланс и пункты меню) сворачивается в одну строку: на телефоне
+  // он занимал почти весь экран, и на историю чатов оставалось три строки. Шторка
+  // при загрузке страницы закрыта, поэтому чтение хранилища здесь не расходится с сервером.
+  const [footOpen, setFootOpen] = useState(readFootOpen);
+  const footId = useId();
+  const reducedMotion = useReducedMotion();
+  const toggleFoot = () => {
+    const next = !footOpen;
+    setFootOpen(next);
+    try {
+      window.localStorage.setItem(SIDEBAR_FOOT_KEY, footValue(next));
+    } catch {
+      // не запомнилось — при следующем открытии будет вид по умолчанию
+    }
+  };
+  // Строка и карточка сменяют друг друга одновременно: одна сжимается, другая растёт
+  // с той же скоростью, поэтому высота блока меняется плавно, без скачка.
+  const footFold = {
+    initial: { height: 0, opacity: 0 },
+    animate: { height: "auto", opacity: 1 },
+    exit: { height: 0, opacity: 0 },
+    transition: { duration: reducedMotion ? 0 : 0.24, ease: "easeOut" as const },
+  };
 
   // Push-уведомления о бонусах. Показываем пункт только если браузер поддерживает
   // Web Push. Разрешение запрашиваем СТРОГО из жеста (клик) — iOS иначе молча
@@ -266,6 +304,117 @@ export default function ChatSidebar({
     { key: "dark", icon: <FiMoon />, label: t("theme.dark", { defaultValue: "Тёмная" }) },
     { key: "system", icon: <FiMonitor />, label: t("theme.system", { defaultValue: "Системная" }) },
   ];
+
+  const footLabel = footOpen
+    ? t("chat.foot_hide", { defaultValue: "Свернуть меню" })
+    : t("chat.foot_show", { defaultValue: "Показать меню" });
+
+  // Пункты под балансом: у вошедшего сворачиваются вместе с ним, у гостя всегда на виду.
+  const footLinks = (
+    <>
+      {/* Профиль и Настройки — только для вошедших (гостю не нужны,
+          могут запутать; вход у гостя вынесен наверх заметной кнопкой). */}
+      {isAuthed && (
+        <NextLink
+          href="/profile"
+          onClick={onClose}
+          className="flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm hover:bg-surface-2 cursor-pointer"
+        >
+          {profile?.avatar_url ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={profile.avatar_url} alt="" className="w-7 h-7 rounded-full object-cover shrink-0 border border-border" />
+          ) : (
+            <span className="w-7 h-7 rounded-full bg-surface-2 grid place-items-center shrink-0">
+              <FiUser className="text-muted" />
+            </span>
+          )}
+          <span className="min-w-0 truncate">{displayName}</span>
+        </NextLink>
+      )}
+      {isAuthed && (
+        <NextLink
+          href="/pricing"
+          onClick={onClose}
+          className="flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm hover:bg-surface-2 cursor-pointer"
+        >
+          <FiSettings className="text-muted" /> {t("common.settings", { defaultValue: "Настройки" })}
+        </NextLink>
+      )}
+      {/* Партнёрство — из чата раньше было недостижимо (жалоба клиента
+          «пользователь сможет найти?»): ссылки были только в
+          маркетинговой шапке и на /pricing. */}
+      <NextLink
+        href="/referral"
+        onClick={onClose}
+        className="flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm hover:bg-surface-2 cursor-pointer"
+      >
+        <FiGift className="text-accent" /> {t("chat.partnership", { defaultValue: "🤝 Партнёрство" })}
+      </NextLink>
+      {/* Программа EsAI Creators — пункт появляется вместе с меню сайта
+          (флаг сборки), когда программа открыта всем. */}
+      {CREATORS_NAV && (
+        <NextLink
+          href="/creators"
+          onClick={onClose}
+          className="flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm hover:bg-surface-2 cursor-pointer"
+        >
+          <FiAward className="text-accent" /> {t("nav.link", { ns: "creators", defaultValue: NAV_RU.link })}
+        </NextLink>
+      )}
+      {isAuthed ? (
+        <>
+          <NextLink
+            href="/transfer"
+            onClick={onClose}
+            className="flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm hover:bg-surface-2 cursor-pointer"
+          >
+            <FiSend className="text-muted" /> {t("chat.transfer_credits", { defaultValue: "💸 Перевести кредиты" })}
+          </NextLink>
+          <button
+            type="button"
+            onClick={() => setPromoOpen(true)}
+            className="w-full flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm hover:bg-surface-2 cursor-pointer text-left"
+          >
+            <FiTag className="text-muted" /> {t("chat.promo", { defaultValue: "🎟 Промокод" })}
+          </button>
+          <button
+            type="button"
+            onClick={() => setMemoryOpen(true)}
+            className="w-full flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm hover:bg-surface-2 cursor-pointer text-left"
+          >
+            <FiCpu className="text-muted" /> {t("chat.memory", { defaultValue: "Память" })}
+          </button>
+          {pushCan && (
+            <button
+              type="button"
+              onClick={handleEnablePush}
+              disabled={pushBusy || pushState === "granted"}
+              className="w-full flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm hover:bg-surface-2 cursor-pointer text-left disabled:cursor-default"
+            >
+              <FiBell className={pushState === "granted" ? "text-accent" : "text-muted"} />{" "}
+              {pushState === "granted"
+                ? t("push.enabled", { defaultValue: "🔔 Уведомления включены" })
+                : t("push.enable", { defaultValue: "🔔 Уведомления о бонусах" })}
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setClearOpen(true)}
+            className="w-full flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm hover:bg-surface-2 cursor-pointer text-left"
+          >
+            <FiTrash2 className="text-muted" /> {t("chat.clear_history", { defaultValue: "Очистить историю" })}
+          </button>
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="w-full flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm hover:bg-surface-2 cursor-pointer text-left text-rose-400"
+          >
+            <FiLogOut /> {t("nav.logout", { defaultValue: "Выйти" })}
+          </button>
+        </>
+      ) : null /* гостю «Войти» показываем заметной кнопкой выше, дублировать внизу не нужно */}
+    </>
+  );
 
   return (
     <>
@@ -555,158 +704,117 @@ export default function ChatSidebar({
 
               </div>{/* конец прокручиваемой середины */}
 
-              {/* Закреплён вне прокрутки. Авторизован — баланс + «Пополнить».
-                  Гость — вместо баланса «0» заметная кнопка «Войти» с намёком на
-                  подарок (баланс и пополнение до входа не показываем). */}
-              <div className="px-3 pt-3 pb-1 shrink-0">
-                {isAuthed ? (
-                  <div className="rounded-xl border border-border bg-surface-2 p-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs text-muted">{t("balance.label", { defaultValue: "Баланс токенов" })}</span>
-                      <FiZap className="text-accent" />
-                    </div>
-                    <div className="mt-0.5 text-xl font-bold text-foreground">
-                      {(balance ?? 0).toLocaleString()}
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        onTopUp();
-                        onClose();
-                      }}
-                      className="mt-2 w-full rounded-lg bg-accent text-on-accent font-semibold text-sm py-2 hover:bg-accent-strong transition-colors cursor-pointer"
-                    >
-                      {t("balance.topup", { defaultValue: "Пополнить" })}
-                    </button>
-                  </div>
-                ) : (
-                  <div className="rounded-xl border border-accent/40 bg-accent/[0.07] p-3 text-center">
-                    <p className="text-sm text-foreground font-medium mb-2.5">
-                      {/* Бонус за регистрацию убран — зовём на ежедневные кредиты. */}
-                      🎁 {bonus.loaded && bonus.daily_free_credits > 0
-                        ? t("guest.sidebar_bonus", {
-                            count: bonus.daily_free_credits,
-                            defaultValue: "Бесплатные кредиты каждый день — до {{count}}",
-                          })
-                        : t("guest.sidebar_bonus_plain", {
-                            defaultValue: "Бесплатные кредиты каждый день",
-                          })}
-                    </p>
-                    <NextLink
-                      href="/auth/signin"
-                      onClick={onClose}
-                      className="flex w-full items-center justify-center rounded-lg bg-accent text-on-accent font-bold text-lg text-center py-3 hover:bg-accent-strong transition-colors cursor-pointer"
-                    >
-                      {t("auth.login", { defaultValue: "Войти" })}
-                    </NextLink>
-                  </div>
-                )}
-              </div>
-
-              {/* Footer actions */}
-              <div className="px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] border-t border-border shrink-0 space-y-1">
-                {/* Профиль и Настройки — только для вошедших (гостю не нужны,
-                    могут запутать; вход у гостя вынесен наверх заметной кнопкой). */}
-                {isAuthed && (
-                  <NextLink
-                    href="/profile"
-                    onClick={onClose}
-                    className="flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm hover:bg-surface-2 cursor-pointer"
-                  >
-                    {profile?.avatar_url ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={profile.avatar_url} alt="" className="w-7 h-7 rounded-full object-cover shrink-0 border border-border" />
-                    ) : (
-                      <span className="w-7 h-7 rounded-full bg-surface-2 grid place-items-center shrink-0">
-                        <FiUser className="text-muted" />
-                      </span>
-                    )}
-                    <span className="min-w-0 truncate">{displayName}</span>
-                  </NextLink>
-                )}
-                {isAuthed && (
-                  <NextLink
-                    href="/pricing"
-                    onClick={onClose}
-                    className="flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm hover:bg-surface-2 cursor-pointer"
-                  >
-                    <FiSettings className="text-muted" /> {t("common.settings", { defaultValue: "Настройки" })}
-                  </NextLink>
-                )}
-                {/* Партнёрство — из чата раньше было недостижимо (жалоба клиента
-                    «пользователь сможет найти?»): ссылки были только в
-                    маркетинговой шапке и на /pricing. */}
-                <NextLink
-                  href="/referral"
-                  onClick={onClose}
-                  className="flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm hover:bg-surface-2 cursor-pointer"
+              {/* Закреплён вне прокрутки. Авторизован — баланс + «Пополнить» и пункты
+                  меню, всё это сворачивается в одну строку. Блок не длиннее 72 % экрана и
+                  прокручивается сам: на низком экране он не вытесняет шапку и историю. */}
+              {isAuthed ? (
+                <div
+                  id={footId}
+                  className="min-h-0 max-h-[72dvh] shrink overflow-y-auto overscroll-contain pb-[max(0.75rem,env(safe-area-inset-bottom))]"
                 >
-                  <FiGift className="text-accent" /> {t("chat.partnership", { defaultValue: "🤝 Партнёрство" })}
-                </NextLink>
-                {/* Программа EsAI Creators — пункт появляется вместе с меню сайта
-                    (флаг сборки), когда программа открыта всем. */}
-                {CREATORS_NAV && (
-                  <NextLink
-                    href="/creators"
-                    onClick={onClose}
-                    className="flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm hover:bg-surface-2 cursor-pointer"
-                  >
-                    <FiAward className="text-accent" /> {t("nav.link", { ns: "creators", defaultValue: NAV_RU.link })}
-                  </NextLink>
-                )}
-                {isAuthed ? (
-                  <>
-                    <NextLink
-                      href="/transfer"
-                      onClick={onClose}
-                      className="flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm hover:bg-surface-2 cursor-pointer"
-                    >
-                      <FiSend className="text-muted" /> {t("chat.transfer_credits", { defaultValue: "💸 Перевести кредиты" })}
-                    </NextLink>
-                    <button
-                      type="button"
-                      onClick={() => setPromoOpen(true)}
-                      className="w-full flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm hover:bg-surface-2 cursor-pointer text-left"
-                    >
-                      <FiTag className="text-muted" /> {t("chat.promo", { defaultValue: "🎟 Промокод" })}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setMemoryOpen(true)}
-                      className="w-full flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm hover:bg-surface-2 cursor-pointer text-left"
-                    >
-                      <FiCpu className="text-muted" /> {t("chat.memory", { defaultValue: "Память" })}
-                    </button>
-                    {pushCan && (
+                  <div className="px-3 pt-3 pb-1">
+                    <div className="relative rounded-xl border border-border bg-surface-2">
+                      {/* Одна кнопка на оба вида: фокус и палец остаются на месте. */}
                       <button
                         type="button"
-                        onClick={handleEnablePush}
-                        disabled={pushBusy || pushState === "granted"}
-                        className="w-full flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm hover:bg-surface-2 cursor-pointer text-left disabled:cursor-default"
+                        onClick={toggleFoot}
+                        aria-expanded={footOpen}
+                        aria-controls={footId}
+                        aria-label={footLabel}
+                        title={footLabel}
+                        className="absolute right-0.5 top-0.5 z-10 grid h-11 w-11 cursor-pointer place-items-center rounded-lg text-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/80"
                       >
-                        <FiBell className={pushState === "granted" ? "text-accent" : "text-muted"} />{" "}
-                        {pushState === "granted"
-                          ? t("push.enabled", { defaultValue: "🔔 Уведомления включены" })
-                          : t("push.enable", { defaultValue: "🔔 Уведомления о бонусах" })}
+                        <FiChevronDown
+                          className={`transition-transform duration-200 motion-reduce:transition-none ${footOpen ? "rotate-180" : ""}`}
+                        />
                       </button>
+                      <AnimatePresence initial={false}>
+                        {footOpen ? (
+                          <motion.div key="card" {...footFold} className="overflow-hidden">
+                            <div className="p-3">
+                              <div className="flex items-center justify-between pr-9">
+                                <span className="text-xs text-muted">{t("balance.label", { defaultValue: "Баланс токенов" })}</span>
+                                <FiZap className="text-accent" />
+                              </div>
+                              <div className="mt-0.5 text-xl font-bold text-foreground">
+                                {(balance ?? 0).toLocaleString()}
+                              </div>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  onTopUp();
+                                  onClose();
+                                }}
+                                className="mt-2 w-full rounded-lg bg-accent text-on-accent font-semibold text-sm py-2 hover:bg-accent-strong transition-colors cursor-pointer"
+                              >
+                                {t("balance.topup", { defaultValue: "Пополнить" })}
+                              </button>
+                            </div>
+                          </motion.div>
+                        ) : (
+                          <motion.div key="row" {...footFold} className="overflow-hidden">
+                            <div className="flex min-h-12 items-center gap-2 py-1 pl-3 pr-12">
+                              <FiZap className="shrink-0 text-accent" />
+                              <span className="shrink-0 text-[15px] font-bold tabular-nums text-foreground">
+                                {(balance ?? 0).toLocaleString()}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  onTopUp();
+                                  onClose();
+                                }}
+                                className="ml-auto shrink-0 whitespace-nowrap rounded-lg bg-accent px-2.5 py-1.5 text-[13px] font-semibold text-on-accent hover:bg-accent-strong transition-colors cursor-pointer"
+                              >
+                                {t("balance.topup", { defaultValue: "Пополнить" })}
+                              </button>
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+                  </div>
+                  <AnimatePresence initial={false}>
+                    {footOpen && (
+                      <motion.div key="links" {...footFold} className="overflow-hidden">
+                        <div className="px-3 pt-3 border-t border-border space-y-1">{footLinks}</div>
+                      </motion.div>
                     )}
-                    <button
-                      type="button"
-                      onClick={() => setClearOpen(true)}
-                      className="w-full flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm hover:bg-surface-2 cursor-pointer text-left"
-                    >
-                      <FiTrash2 className="text-muted" /> {t("chat.clear_history", { defaultValue: "Очистить историю" })}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleLogout}
-                      className="w-full flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm hover:bg-surface-2 cursor-pointer text-left text-rose-400"
-                    >
-                      <FiLogOut /> {t("nav.logout", { defaultValue: "Выйти" })}
-                    </button>
-                  </>
-                ) : null /* гостю «Войти» показываем заметной кнопкой выше, дублировать внизу не нужно */}
-              </div>
+                  </AnimatePresence>
+                </div>
+              ) : (
+                <>
+                  {/* Гость — вместо баланса «0» заметная кнопка «Войти» с намёком на
+                      подарок (баланс и пополнение до входа не показываем). */}
+                  <div className="px-3 pt-3 pb-1 shrink-0">
+                    <div className="rounded-xl border border-accent/40 bg-accent/[0.07] p-3 text-center">
+                      <p className="text-sm text-foreground font-medium mb-2.5">
+                        {/* Бонус за регистрацию убран — зовём на ежедневные кредиты. */}
+                        🎁 {bonus.loaded && bonus.daily_free_credits > 0
+                          ? t("guest.sidebar_bonus", {
+                              count: bonus.daily_free_credits,
+                              defaultValue: "Бесплатные кредиты каждый день — до {{count}}",
+                            })
+                          : t("guest.sidebar_bonus_plain", {
+                              defaultValue: "Бесплатные кредиты каждый день",
+                            })}
+                      </p>
+                      <NextLink
+                        href="/auth/signin"
+                        onClick={onClose}
+                        className="flex w-full items-center justify-center rounded-lg bg-accent text-on-accent font-bold text-lg text-center py-3 hover:bg-accent-strong transition-colors cursor-pointer"
+                      >
+                        {t("auth.login", { defaultValue: "Войти" })}
+                      </NextLink>
+                    </div>
+                  </div>
+
+                  {/* Footer actions */}
+                  <div className="px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] border-t border-border shrink-0 space-y-1">
+                    {footLinks}
+                  </div>
+                </>
+              )}
             </motion.aside>
           </>
         )}

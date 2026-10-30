@@ -62,8 +62,8 @@ class DirectorTests(TestCase):
         self.assertIn("5 seconds", payload)
         # Реплика уходит дословно — её играет модель, а не пересказывает.
         self.assertIn("Я хочу вернуть доверенность", payload)
-        # И бюджет слов, чтобы реплика не обрывалась на полуслове.
-        self.assertIn("12 words", payload)
+        # И бюджет в знаках, чтобы реплика уложилась в окно речи.
+        self.assertIn("about 65 characters", payload)
         self.assertIn("blurry", data["negative"])
         self.assertIn("deformed limbs", data["negative"])
 
@@ -74,7 +74,8 @@ class DirectorTests(TestCase):
         self.assertIn("does not speak", ask.call_args[0][0])
 
     def test_prompt_is_built_once_and_survives_retry(self):
-        with patch("cartoon.director._ask", return_value={"prompt": "снято", "negative": "n"}) as ask:
+        answer = {"prompt": "снято", "negative": "n", "line_lang": "other"}
+        with patch("cartoon.director._ask", return_value=answer) as ask:
             first = director.ensure_video_prompt(self.scene, self.hero, self.preset, 5)
             second = director.ensure_video_prompt(self.scene, self.hero, self.preset, 5)
         self.assertEqual(ask.call_count, 1)
@@ -153,23 +154,39 @@ class DialogueAndVoiceTests(TestCase):
         user = get_user_model().objects.create_user(email="v@example.com", password="x-12345678")
         self.project = CartoonProject.objects.create(user=user, character=self.hero)
         self.with_line = CartoonScene.objects.create(
-            project=self.project, preset=self.preset, order=0, dialogue="Вернуть?")
+            project=self.project, preset=self.preset, order=0, dialogue="Вернуть?",
+            status=CartoonScene.STATUS_READY, video="cartoon/scenes/v.mp4", voice_hint={"lang": "other"})
         self.without = CartoonScene.objects.create(project=self.project, preset=self.preset, order=1)
 
-    def test_scene_with_a_written_line_is_not_voiced_twice(self):
-        """Такую реплику персонаж уже говорит в кадре — второй голос поверх лишний."""
+    def _plan(self):
         voices = [{"id": "m1", "name": "Георгий", "gender": "male"},
                   {"id": "f1", "name": "Лаура", "gender": "female"}]
         with patch("cartoon.audio.list_voices", return_value=voices), \
              patch("cartoon.voiceover.write_lines", return_value={1: "Придумано ИИ"}) as writer:
             plan = voiceover.build_plan(self.project)
-        lines = {l["scene_id"]: l["text"] for l in plan["lines"]}
-        self.assertNotIn(self.with_line.pk, lines)
-        self.assertEqual(lines[self.without.pk], "Придумано ИИ")
-        self.assertEqual(plan["spoken_in_video"], 1)
-        # Модель спрашивали только про сцену без реплики.
+        # Модель спрашивают только про сцену без реплики.
         self.assertEqual(writer.call_count, 1)
         self.assertEqual([s.pk for s in writer.call_args[0][0]], [self.without.pk])
+        return plan, {l["scene_id"]: l["text"] for l in plan["lines"]}
+
+    def test_written_line_is_voiced_word_for_word(self):
+        """Голос героя заменяет речь модели: текст человека не переписывается."""
+        plan, lines = self._plan()
+        self.assertEqual(lines, {self.with_line.pk: "Вернуть?", self.without.pk: "Придумано ИИ"})
+        self.assertEqual(plan["spoken_in_video"], 0)
+        self.assertEqual([l["line"] for l in plan["lines"]], [True, False])
+
+    def test_with_auto_voice_off_the_line_stays_with_the_model(self):
+        """Выключено — как раньше: реплику говорит модель, второй голос поверх лишний."""
+        from adminapi.runtime import set_runtime
+
+        from cartoon import audio
+
+        set_runtime(audio.LINE_MODE_KEY, "off")
+        self.addCleanup(set_runtime, audio.LINE_MODE_KEY, "on")
+        plan, lines = self._plan()
+        self.assertEqual(lines, {self.without.pk: "Придумано ИИ"})
+        self.assertEqual(plan["spoken_in_video"], 1)
 
 
 @override_settings(CACHES=CACHES)

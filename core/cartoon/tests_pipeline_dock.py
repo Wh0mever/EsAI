@@ -215,7 +215,7 @@ class DirectorDurationTests(_Pipeline):
         seen = self.shoot(scene)
         self.assertEqual(seen["video"][0]["duration"], 10)
         self.assertIn("Shot length: 10 seconds, beats like 0-4s ... 4-8s ... 8-10s", seen["director"][0])
-        self.assertIn("about 25 words", seen["director"][0])
+        self.assertIn("about 130 characters", seen["director"][0])
         self.assertEqual(scene.video_prompt, "directed")
 
     def test_fallback_prompt_uses_the_snapshot_duration(self):

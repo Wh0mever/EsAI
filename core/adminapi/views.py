@@ -759,6 +759,7 @@ def _settings_snapshot() -> dict:
     snapshot["studio_voice_min_credits"] = _audio_prices["voice_min"]
     snapshot["studio_music_credits_per_min"] = _audio_prices["music_per_min"]
     snapshot["studio_sfx_credits"] = _audio_prices["sfx"]
+    snapshot["studio_line_voice_mode"] = _studio_audio.line_mode()
     from cartoon.pricing import studio_scene_price as _studio_scene_price
 
     snapshot["studio_scene_credits"] = _studio_scene_price()
@@ -1070,6 +1071,16 @@ class SettingsView(StaffAPIView):
                 return Response({"detail": f"{field} должен быть в диапазоне 0..100000"},
                                 status=status.HTTP_400_BAD_REQUEST)
             set_runtime(field, value)
+
+        # Автоозвучка реплики голосом героя: off = всё как до неё.
+        if "studio_line_voice_mode" in data:
+            from cartoon import audio as studio_audio
+
+            mode = str(data["studio_line_voice_mode"] or "").strip().lower()
+            if mode not in studio_audio.LINE_MODES:
+                return Response({"detail": "studio_line_voice_mode: допустимо off, staff или on"},
+                                status=status.HTTP_400_BAD_REQUEST)
+            set_runtime("studio_line_voice_mode", mode)
 
         # Ключи — write-only. Пустая строка означает «убрать значение из
         # админки», чтобы снова действовал ключ из окружения.

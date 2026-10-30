@@ -274,6 +274,10 @@ class CartoonProject(models.Model):
     # это ожидание оборвавшейся склейкой.
     assembly_started_at = models.DateTimeField(null=True, blank=True,
                                                verbose_name="Склейка началась")
+    # Голос каждого героя на весь мультфильм: {"<id героя>": {"voice_id", "voice_name"}}.
+    # Видеомодель не помнит голос между съёмками, поэтому один и тот же герой
+    # говорил бы по-разному — голос закрепляется здесь (cartoon.voiceover.hero_voice).
+    hero_voices = models.JSONField(default=dict, blank=True, verbose_name="Голоса героев")
 
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -340,6 +344,17 @@ class CartoonScene(models.Model):
     # Уходит и в промпт съёмки (модель играет реплику), и в озвучку.
     dialogue = models.CharField(max_length=300, blank=True, default="",
                                 verbose_name="Реплика героя")
+    # Решение режиссёра: в поле реплики слова героя или описание событий («он
+    # играет, потом ищет маму»). Описание вслух не читаем и за голос не берём.
+    # Кэшируется вместе с video_prompt и сбрасывается вместе с ним при смене реплики.
+    dialogue_is_speech = models.BooleanField(default=True, verbose_name="Реплика — прямая речь")
+    # Каким голосом режиссёр слышит героя ({"gender", "age"}): нужен, пока голос за
+    # героем ещё не закреплён. Живёт в сцене, потому что промпт кэшируется.
+    voice_hint = models.JSONField(default=dict, blank=True, verbose_name="Голос по мнению режиссёра")
+    # Окно, где в ролике говорит сама модель, секунды. Считается бесплатно (ffmpeg).
+    # Пусто — не считалось или модель промолчала.
+    speech_start = models.FloatField(null=True, blank=True, verbose_name="Речь модели: начало, с")
+    speech_end = models.FloatField(null=True, blank=True, verbose_name="Речь модели: конец, с")
     # Готовый промпт съёмки, разложенный режиссёром по секундам. Кэш: при
     # пересъёмке его не собирают заново.
     video_prompt = models.TextField(blank=True, default="", verbose_name="Промпт съёмки")
@@ -387,6 +402,11 @@ class CartoonScene(models.Model):
     shot_video_credits = models.PositiveIntegerField(
         null=True, blank=True, verbose_name="Видео по цене запуска",
         help_text="Видео-часть цены при запуске — её и списывает готовый ролик.")
+    # Отдельно от видео, потому что голос может и не случиться (описание, сбой),
+    # а часть кадра задача считает как «цена запуска минус видео минус голос».
+    shot_voice_credits = models.PositiveIntegerField(
+        null=True, blank=True, verbose_name="Голос по цене запуска",
+        help_text="Часть цены при запуске за автоозвучку реплики. Спишется, только если голос готов.")
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -484,11 +504,15 @@ class CartoonAudioTrack(models.Model):
     KIND_OWN = "own"
     KIND_MUSIC = "music"
     KIND_SFX = "sfx"
+    # Реплика героя вместо речи модели: сведение глушит речь в её окне и ставит
+    # эту дорожку (cartoon/audio.py). Одна на сцену — см. Meta.
+    KIND_LINE = "line"
     KIND_CHOICES = [
         (KIND_VOICE, "ИИ-голос"),
         (KIND_OWN, "Свой голос"),
         (KIND_MUSIC, "Музыка"),
         (KIND_SFX, "Звуковой эффект"),
+        (KIND_LINE, "Реплика героя"),
     ]
 
     scene = models.ForeignKey("CartoonScene", on_delete=models.CASCADE, related_name="audio_tracks",
@@ -522,6 +546,11 @@ class CartoonAudioTrack(models.Model):
         ordering = ("start_sec", "id")
         verbose_name = "Звуковая дорожка"
         verbose_name_plural = "Звуковые дорожки"
+        constraints = [
+            # Две реплики на сцену — это два голоса разом и двойная оплата.
+            models.UniqueConstraint(fields=["scene"], condition=models.Q(kind="line"),
+                                    name="cartoon_one_line_per_scene"),
+        ]
 
     def __str__(self):
         return f"{self.get_kind_display()} · сцена {self.scene_id}"

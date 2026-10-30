@@ -10,7 +10,7 @@ import VideoPlayer from "@/components/video/VideoPlayer";
 import NextLink from "@/components/ui/nextLink/NextLink";
 import { BACKEND, fetchData } from "@/tools/fetchData";
 // «Скачать» — общая кнопка: шитшет на телефоне, файл на компьютере, «Сохранить» для второго нажатия.
-import SaveMediaButton from "@/components/ui/SaveMediaButton";
+import SaveMediaButton, { SAVE_CTA } from "@/components/ui/SaveMediaButton";
 import type { Message, ChatSource } from "@/types/chat";
 import type { LiveMessage } from "./chatRetry";
 
@@ -120,9 +120,11 @@ function ImageLightbox({ url, alt, onClose }: { url: string; alt: string; onClos
           (url.match(/\.(png|jpe?g|webp)(\?|$)/i) ? "" : ".png")
         }
         label={t("chat.actions.download_image", { defaultValue: "Скачать изображение" })}
-        iconClassName="text-xl"
-        className="absolute top-4 right-[4.5rem] z-10 w-11 h-11 rounded-full bg-white/10 hover:bg-white/20 text-white grid place-items-center cursor-pointer"
-      />
+        // Поверх просмотра: !absolute перебивает relative из SAVE_CTA, top — по центру «×» рядом.
+        className={`${SAVE_CTA} !absolute top-[27px] right-[4.5rem] z-10`}
+      >
+        {t("chat.download", { defaultValue: "Скачать" })}
+      </SaveMediaButton>
       <button
         type="button"
         onClick={onClose}
@@ -234,15 +236,15 @@ function Attachments({ atts, onExtendVideo }: { atts?: any[]; onExtendVideo?: (u
                 className="w-64 sm:w-80"
                 playLabel={t("chat.actions.play_video", { defaultValue: "Смотреть" })}
               />
-              <div className="flex items-center gap-3">
+              {/* mt-2: зона нажатия «Скачать» шире самой кнопки и не должна ложиться на низ плеера. */}
+              <div className="mt-2 flex items-center gap-3">
                 <SaveMediaButton
                   url={url}
                   filename={a?.name || "esai-video.mp4"}
                   label={t("chat.actions.download_video", { defaultValue: "Скачать видео" })}
-                  iconClassName="text-[13px]"
-                  className="inline-flex items-center gap-1 text-xs text-muted-2 hover:text-foreground transition-colors self-start"
+                  className={SAVE_CTA}
                 >
-                  {t("chat.actions.download_video", { defaultValue: "Скачать видео" })}
+                  {t("chat.download", { defaultValue: "Скачать" })}
                 </SaveMediaButton>
 
                 <ShareVideoButton url={a?.url || ""} prompt={a?.prompt} model={a?.model} />

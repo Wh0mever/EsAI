@@ -9,6 +9,9 @@
   POST   scenes/<id>/audio/sfx/     — звуковой эффект {prompt, seconds?}
   POST   scenes/<id>/audio/upload/  — свой голос файлом или с диктофона
   POST   scenes/<id>/audio/mix/     — свести дорожки с видео сцены
+  POST   scenes/<id>/audio/line/    — озвучить реплику готовой сцены голосом героя {voice_id?}
+  DELETE scenes/<id>/audio/line/    — вернуть голос модели
+  PATCH  projects/<id>/hero-voice/  — голос героя на весь мультфильм {character_id, voice_id}
   POST   projects/<id>/voice-plan/  — ИИ пишет реплики на все сцены (бесплатно)
   POST   projects/<id>/voice-all/   — озвучить весь мультфильм по плану
   PATCH  audio/<id>/                — момент начала и громкость дорожки
@@ -23,15 +26,16 @@ import uuid
 
 from django.core.cache import cache
 from django.core.files.storage import default_storage
+from django.db import transaction
 from django.shortcuts import get_object_or_404
 from rest_framework import status
 from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.response import Response
 
-from . import audio, voiceover
+from . import audio, director, voiceover
 from .models import CartoonAudioTrack, CartoonProject, CartoonScene
 from .tasks import voice_movie
-from .views import StudioAPIView, StudioPublicAPIView, _lang, _no_credits, _pick_character
+from .views import StudioAPIView, StudioPublicAPIView, _lang, _no_credits, _pick_character, scene_json
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +69,8 @@ def _scene_audio_json(scene) -> dict:
         "sound_volume": scene.sound_volume,
         "has_video": bool(scene.video),
         "mixed_video": _url(scene.mixed_video),
+        "dialogue_is_speech": scene.dialogue_is_speech,
+        "speech_window": audio.window_json(scene),
         "tracks": [track_json(t) for t in scene.audio_tracks.select_related("character").order_by("start_sec", "id")],
     }
 
@@ -165,8 +171,13 @@ def _queue(request, scene, *, kind, price, text, seconds=0):
 
 
 def _generate(request, scene, *, kind, price, reason, make, text="", voice_id="", voice_name="",
-              character=None, meta=None):
-    """Сгенерировать звук, сохранить и только потом списать."""
+              character=None, meta=None, old_line=None):
+    """Сгенерировать звук, сохранить и только потом списать.
+
+    Реплика героя (KIND_LINE) ещё и сводится до списания: человек платит за голос,
+    который уже слышен в сцене, а сбой ffmpeg стоит ему ноль. Прежняя реплика
+    (old_line) заменяется той же транзакцией, что и списание.
+    """
     from plans.wallet import InsufficientTokens
 
     from .services import charge
@@ -186,9 +197,14 @@ def _generate(request, scene, *, kind, price, reason, make, text="", voice_id=""
             user=request.user, kind=kind if kind in ("voice", "music", "sfx") else "voice",
             source="studio", provider="elevenlabs", model=voice_id or kind, prompt=text,
             credits_planned=price, scene_id=scene.pk, params=meta or {})
+        is_line = kind == CartoonAudioTrack.KIND_LINE
+        draft = None
         try:
             raw = make()
             path, duration = audio.save_audio(raw)
+            if is_line:
+                draft = voiceover.draft_line(scene, path, duration, text=text, voice_id=voice_id,
+                                             voice_name=voice_name, character=character, price=price)
         except audio.AudioNotConfigured:
             entry.failed("ключ ElevenLabs не задан")
             return Response({"detail": "Озвучка пока не подключена"},
@@ -198,20 +214,57 @@ def _generate(request, scene, *, kind, price, reason, make, text="", voice_id=""
             logger.exception("звук студии (%s): генерация не удалась", kind)
             return Response({"detail": "Не получилось сделать звук — попробуйте ещё раз"},
                             status=status.HTTP_502_BAD_GATEWAY)
+        charge_meta = {"scene": scene.pk, "kind": kind, **(meta or {})}
         try:
-            charge(request.user, price, reason, meta={"scene": scene.pk, "kind": kind, **(meta or {})},
-                   respect_reserves=True)
+            if draft is None:
+                charge(request.user, price, reason, meta=charge_meta, respect_reserves=True)
+            else:
+                with transaction.atomic():
+                    # Голос делался секунды: сцену могли запустить в пересъёмку.
+                    if not CartoonScene.objects.select_for_update().filter(
+                            pk=scene.pk, status=CartoonScene.STATUS_READY, video=scene.video).exists():
+                        raise voiceover.SceneMoved()
+                    # Под замком строки: «Озвучить весь мультфильм» не ждёт эту кнопку.
+                    if draft.rival(old_line) is not None:
+                        raise voiceover.Superseded("реплику уже озвучили")
+                    charge(request.user, price, reason, meta=charge_meta, respect_reserves=True)
+                    draft.install()
         except InsufficientTokens:
-            default_storage.delete(path)
+            if draft is not None:
+                draft.drop()
+            else:
+                default_storage.delete(path)
             # Звук провайдер сделал и деньги за него взял, а человек не получил.
             entry.lost("не хватило кредитов к моменту готовности")
             return _no_credits(price, _balance(request.user))
-        start, volume = _start_and_volume(_data(request))
-        track = CartoonAudioTrack.objects.create(
-            scene=scene, kind=kind, character=character, voice_id=voice_id, voice_name=voice_name,
-            text=text, file=path, duration=duration, start_sec=start, volume=volume, credits_spent=price)
-        # Сведённый ролик устарел: в нём ещё нет новой дорожки.
-        _drop_mix(scene)
+        except voiceover.SceneMoved:
+            draft.drop()
+            entry.lost("сцену начали переснимать, пока делался голос")
+            return Response({"detail": "Сцену уже переснимают — озвучьте её, когда съёмка закончится",
+                             "error_code": "scene_busy"}, status=status.HTTP_409_CONFLICT)
+        except voiceover.Superseded as exc:
+            draft.drop()
+            entry.lost(str(exc))
+            return Response(track_json(voiceover.line_track(scene)))
+        except Exception as exc:
+            # Провайдеру за звук заплачено: запись журнала должна пережить откат запроса.
+            logger.exception("звук студии (%s): списание не прошло", kind)
+            if draft is not None:
+                draft.drop()
+            else:
+                default_storage.delete(path)
+            entry.lost(str(exc)[:500])
+            return Response({"detail": "Не получилось сделать звук — попробуйте ещё раз"},
+                            status=status.HTTP_502_BAD_GATEWAY)
+        if draft is not None:
+            track = draft.track
+        else:
+            start, volume = _start_and_volume(_data(request))
+            track = CartoonAudioTrack.objects.create(
+                scene=scene, kind=kind, character=character, voice_id=voice_id, voice_name=voice_name,
+                text=text, file=path, duration=duration, start_sec=start, volume=volume, credits_spent=price)
+            # Сведённый ролик устарел: в нём ещё нет новой дорожки.
+            _drop_mix(scene)
         entry.delivered(credits=price, result_url=_url(path))
     finally:
         if cache.get(lock) == token:
@@ -223,6 +276,8 @@ class AudioConfigView(StudioPublicAPIView):
     def get(self, request):
         return Response({
             "enabled": audio.is_configured(),
+            # Голос героя входит в цену «Снять» для всех: гостю цена считается на его стороне.
+            "line_voice": audio.is_configured() and audio.line_mode() == "on",
             "prices": audio.prices(),
             "limits": {"voice_chars": audio.MAX_VOICE_CHARS,
                        "music_sec": [audio.MUSIC_MIN_SEC, audio.MUSIC_MAX_SEC],
@@ -300,6 +355,103 @@ class SceneVoiceView(StudioAPIView):
                          reason="cartoon_voice", make=lambda: audio.tts(text, voice_id), text=text,
                          voice_id=voice_id, voice_name=voice_name, character=character,
                          meta={"chars": len(text)})
+
+
+class SceneLineView(StudioAPIView):
+    """Голос героя вместо голоса модели у готовой сцены — без пересъёмки.
+
+    POST {voice_id?} — озвучить реплику: тем же голосом героя или новым, и новый
+    голос становится голосом героя на весь мультфильм. Цена известна заранее
+    (line_voice_price), списание — за готовый и уже сведённый голос.
+    DELETE — «Вернуть голос модели»: убрать дорожку и свести заново.
+    """
+
+    def _voice(self, request, scene, character):
+        """(голос, None) или (None, ответ-отказ). Голос — {"voice_id", "voice_name"}."""
+        voice_id = str(_data(request).get("voice_id") or "").strip()[:64]
+        if not voice_id:
+            try:
+                return voiceover.hero_voice(scene.project, character, scene.voice_hint), None
+            except Exception:
+                logger.exception("голос героя сцены %s не выбрался", scene.pk)
+                return None, Response({"detail": "Голоса сейчас недоступны — попробуйте позже"},
+                                      status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        return _catalog_voice(voice_id)
+
+    def post(self, request, pk):
+        if (resp := _need_config()):
+            return resp
+        scene = _my_scene(request, pk)
+        if not audio.line_enabled(request.user):
+            return Response({"detail": "Озвучка реплик пока недоступна", "error_code": "line_voice_off"},
+                            status=status.HTTP_403_FORBIDDEN)
+        text = (scene.dialogue or "").strip()
+        if not text:
+            return Response({"detail": "Сначала напишите реплику героя", "error_code": "no_dialogue"},
+                            status=status.HTTP_400_BAD_REQUEST)
+        if scene.status != CartoonScene.STATUS_READY or not scene.video:
+            return Response({"detail": "Озвучить можно готовую сцену", "error_code": "scene_not_ready"},
+                            status=status.HTTP_400_BAD_REQUEST)
+        # Снято до автоозвучки или слова поправили: режиссёр их не видел, а это может быть описание.
+        if director.unjudged(scene):
+            director.judge_lines([scene])
+        if not scene.dialogue_is_speech:
+            return Response({"detail": "Похоже на описание, а не на слова героя — напишите, что он говорит вслух",
+                             "error_code": "not_speech"}, status=status.HTTP_400_BAD_REQUEST)
+        character = scene.character or scene.project.character
+        if not character:
+            return Response({"detail": "Сначала выберите героя"}, status=status.HTTP_400_BAD_REQUEST)
+        voice, refused = self._voice(request, scene, character)
+        if refused is not None:
+            return refused
+        voice_id, voice_name = voice["voice_id"], voice.get("voice_name", "")
+        chosen = bool(str(_data(request).get("voice_id") or "").strip())
+        lang = voiceover.line_lang(scene)
+        try:
+            # Сводим сами, до списания: другой ffmpeg затёр бы результат.
+            with audio.mix_lock(scene.pk, wait=False):
+                old = voiceover.line_track(scene)
+                if old is not None and old.text == text and old.voice_id == voice_id:
+                    # Те же слова тем же голосом: второго синтеза и второго списания не будет.
+                    response = Response(track_json(old))
+                else:
+                    response = _generate(request, scene, kind=CartoonAudioTrack.KIND_LINE,
+                                         price=audio.voice_price(text), reason="cartoon_voice",
+                                         make=lambda: audio.tts(text, voice_id, lang=lang), text=text,
+                                         voice_id=voice_id, voice_name=voice_name, character=character,
+                                         meta={"chars": len(text)}, old_line=old)
+        except audio.MixBusy:
+            return Response({"detail": "Сцена уже сводится"}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+        if response.status_code not in (status.HTTP_200_OK, status.HTTP_201_CREATED):
+            return response
+        if response.status_code == status.HTTP_200_OK and not scene.mixed_video:
+            # Голос подписан на карточке, а сведение когда-то не удалось: чиним бесплатно.
+            try:
+                audio.remix_scene(scene, wait=False)
+            except Exception:
+                logger.exception("сцена %s: реплика не свелась повторно", scene.pk)
+        # Голос запоминаем только за состоявшуюся озвучку: неудачная «смена» героя не меняет.
+        # Вернулись к голосу, который уже звучит в сцене, — это тоже выбор голоса героя.
+        if response.status_code == status.HTTP_201_CREATED or chosen:
+            voiceover.set_hero_voice(scene.project, character, voice)
+        return Response({**response.data, "scene": scene_json(scene, _lang(request)),
+                         "hero_voices": scene.project.hero_voices or {}}, status=response.status_code)
+
+    def delete(self, request, pk):
+        scene = _my_scene(request, pk)
+        if scene.status in voiceover.WORKING_STATES:
+            return Response({"detail": "Сцена сейчас снимается — голос можно будет вернуть после съёмки",
+                             "error_code": "scene_busy"}, status=status.HTTP_400_BAD_REQUEST)
+        deleted, _ = scene.audio_tracks.filter(kind=CartoonAudioTrack.KIND_LINE).delete()
+        if deleted:
+            try:
+                audio.remix_scene(scene, wait=False)
+            except Exception:
+                # Дорожки уже нет. Пустое сведение значит «играть исходный ролик», а
+                # остальные дорожки сведут при закрытии окна звука или перед склейкой.
+                logger.exception("сцена %s: после возврата голоса не свелась", scene.pk)
+                _drop_mix(scene)
+        return Response({**_scene_audio_json(scene), "scene": scene_json(scene, _lang(request))})
 
 
 class SceneMusicView(StudioAPIView):
@@ -434,7 +586,58 @@ class AudioTrackDetailView(StudioAPIView):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
+def _catalog_voice(voice_id: str):
+    """Голос из каталога: ({"voice_id", "voice_name"}, None) или (None, ответ-отказ).
+
+    Чужих голосов не берём: id уходит в адрес запроса к провайдеру и закрепляется
+    за героем на весь мультфильм.
+    """
+    if not audio.valid_voice_id(voice_id):
+        return None, Response({"detail": "Выберите голос"}, status=status.HTTP_400_BAD_REQUEST)
+    try:
+        voices = audio.list_voices() or []
+    except Exception:
+        logger.exception("голоса ElevenLabs не загрузились")
+        voices = []
+    if not voices:
+        return None, Response({"detail": "Голоса сейчас недоступны — попробуйте позже"},
+                              status=status.HTTP_503_SERVICE_UNAVAILABLE)
+    found = next((v for v in voices if v.get("id") == voice_id), None)
+    if found is None:
+        return None, Response({"detail": "Такого голоса нет в списке"}, status=status.HTTP_400_BAD_REQUEST)
+    return {"voice_id": voice_id, "voice_name": found.get("name", "")}, None
+
+
+class ProjectHeroVoiceView(StudioAPIView):
+    """PATCH {character_id, voice_id} — голос героя на весь мультфильм.
+
+    Уже озвученные сцены не трогаем и не переозвучиваем за деньги сами: новый
+    голос ляжет на следующие съёмки и по кнопке «Сменить» на карточке.
+    """
+
+    def patch(self, request, pk):
+        project = get_object_or_404(CartoonProject, pk=pk, user=request.user)
+        data = _data(request)
+        character = _pick_character(request, data.get("character_id"))
+        if not character:
+            return Response({"detail": "Выберите героя"}, status=status.HTTP_400_BAD_REQUEST)
+        voice, refused = _catalog_voice(str(data.get("voice_id") or "").strip()[:64])
+        if refused is not None:
+            return refused
+        voiceover.set_hero_voice(project, character, voice)
+        return Response({"hero_voices": project.hero_voices})
+
+
 # ---------------------------------------- озвучить весь мультфильм ---------
+
+# Почему план пуст: (счётчик плана, код для переводов, текст). Важнее то, что человек может сделать.
+_EMPTY_PLAN = (
+    ("unshot", "unshot", "Реплики озвучатся сами при съёмке — сначала снимите сцены"),
+    ("working", "working", "Сцены снимаются — голос появится вместе с ними"),
+    ("descriptions", "descriptions", "В сценах описания, а не слова героя: напишите, что он говорит вслух"),
+    ("line_voiced", "voiced", "Озвучивать нечего: все реплики уже озвучены"),
+)
+
 
 class ProjectVoicePlanView(StudioAPIView):
     """POST — реплики на все сцены и итоговая цена. Ничего не списывает.
@@ -469,8 +672,12 @@ class ProjectVoicePlanView(StudioAPIView):
         finally:
             cache.delete(lock)
         if not plan["lines"]:
-            return Response({"detail": "Сначала добавьте сцены в ленту"},
-                            status=status.HTTP_400_BAD_REQUEST)
+            for key, code, text in _EMPTY_PLAN:
+                if plan.get(key):
+                    break
+            else:
+                code, text = "empty", "Сначала добавьте сцены в ленту"
+            return Response({"detail": text, "error_code": code}, status=status.HTTP_400_BAD_REQUEST)
         plan["balance"] = _balance(request.user)
         return Response(plan)
 
@@ -482,7 +689,8 @@ class ProjectVoiceAllView(StudioAPIView):
         if (resp := _need_config()):
             return resp
         project = get_object_or_404(CartoonProject, pk=pk, user=request.user)
-        scene_ids = set(project.scenes.values_list("pk", flat=True))
+        scenes = {row["pk"]: row for row in project.scenes.values("pk", "dialogue", "dialogue_is_speech")}
+        line_on = audio.line_ready(request.user)
         raw_lines = _data(request).get("lines") or []
         if not isinstance(raw_lines, list) or not raw_lines:
             return Response({"detail": "Нечего озвучивать"}, status=status.HTTP_400_BAD_REQUEST)
@@ -500,16 +708,23 @@ class ProjectVoiceAllView(StudioAPIView):
                 continue
             text = " ".join(str(item.get("text") or "").split())[:voiceover.MAX_LINE_CHARS]
             voice_id = str(item.get("voice_id") or "").strip()[:64]
+            scene = scenes.get(scene_id)
+            # Реплика человека заморожена: что бы ни прислал клиент, озвучиваем
+            # её текст из сцены, а описание вслух не читаем.
+            spoken = (scene["dialogue"] or "").strip() if scene and line_on else ""
+            if spoken and not scene["dialogue_is_speech"]:
+                continue
+            text = spoken or text
             # Одна сцена — одна реплика: повтор в списке иначе оплатился бы
             # дважды, а озвучка с replace оставила бы одну дорожку.
-            if scene_id in seen or scene_id not in scene_ids or not text:
+            if scene_id in seen or scene is None or not text:
                 continue
             if not audio.valid_voice_id(voice_id):
                 continue
             seen.add(scene_id)
             total += audio.voice_price(text)
             plan.append({"scene_id": scene_id, "text": text, "voice_id": voice_id,
-                         "voice_name": str(item.get("voice_name") or "")[:120]})
+                         "voice_name": str(item.get("voice_name") or "")[:120], "line": bool(spoken)})
         if not plan:
             return Response({"detail": "Нечего озвучивать"}, status=status.HTTP_400_BAD_REQUEST)
         if _balance(request.user) < total:
