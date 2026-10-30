@@ -196,7 +196,24 @@ function lineRefusalKey(status: number, code: unknown): LineTextKey {
 
 /** Перевод отказа плана озвучки: у сервера текст только русский, код — у всех. */
 export function emptyPlanKey(code: unknown): string {
-  return ["unshot", "working", "descriptions", "voiced"].includes(String(code))
+  return ["unshot", "working", "descriptions", "voiced", "erased"].includes(String(code))
     ? `studio_ui.voiceall_nothing_${code}`
     : "studio_ui.voiceall_nothing";
+}
+
+/**
+ * Обрежет ли конец ролика реплику при таком начале. Считаем как сведение (audio.fit_line):
+ * в файле на конце около 0,3 с тишины, а темп зависит от окна речи — от 1 до ×1,15.
+ * Точный темп знает только сервер, поэтому запас 0,15 с: ложная тревога уводит реплику от губ.
+ */
+export function lineOverflows(
+  start: number,
+  duration: number,
+  clip: number,
+  window: readonly [number, number] | null | undefined,
+): boolean {
+  const spoken = Math.max(0, duration - 0.3);
+  const room = window ? Math.min(window[1], clip) - window[0] : clip - 0.5;
+  const tempo = room > 0 ? Math.min(1.15, Math.max(1, spoken / room)) : 1;
+  return start + spoken / tempo > clip + 0.15;
 }

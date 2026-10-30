@@ -27,7 +27,7 @@ import { fetchData } from "@/tools/fetchData";
 import type { StudioScene } from "./SceneTimeline";
 import type { ApiRefusal } from "./cartoonTypes";
 import { clipSeconds } from "./dockLogic";
-import type { HeroVoices } from "./lineVoice";
+import { lineOverflows, type HeroVoices } from "./lineVoice";
 import { CS_NOTE_GOLD } from "./ui/cartoonSkin";
 import VoicePicker, { useVoicePreview, useVoices } from "./VoicePicker";
 
@@ -72,6 +72,8 @@ type SceneAudio = {
   scene_id: number;
   sound_volume: number;
   has_video: boolean;
+  /** Окно речи модели в ролике, секунды. */
+  speech_window?: [number, number] | null;
   mixed_video: string;
   tracks: Track[];
 };
@@ -647,10 +649,9 @@ export default function SceneAudioDialog({
             {data?.tracks.length === 0 && <p className="text-xs text-muted-2">{t("studio_ui.audio_no_tracks")}</p>}
             {data?.tracks.map((tr) => {
               const Icon = TAB_ICON[tr.kind];
-              // Реплику сведение ускоряет до ×1,15, а в файле на конце около 0,3 с тишины.
               const overflow =
                 tr.kind === "line"
-                  ? tr.start_sec + (tr.duration - 0.3) / 1.15 > sceneDuration + 0.15
+                  ? lineOverflows(tr.start_sec, tr.duration, sceneDuration, data?.speech_window)
                   : tr.start_sec + tr.duration > sceneDuration + 0.05;
               return (
                 <div key={tr.id} className="flex flex-col gap-2 rounded-xl border border-vs-ink/10 bg-vs-ink/[0.03] p-2.5">

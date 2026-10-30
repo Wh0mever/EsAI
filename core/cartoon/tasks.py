@@ -450,7 +450,8 @@ def make_audio(self, track_id: int) -> dict:
 
 
 @shared_task(bind=True, max_retries=0)
-def voice_movie(self, project_id: int, plan: list, replace: bool = True, token: str = "") -> dict:
+def voice_movie(self, project_id: int, plan: list, replace: bool = True, token: str = "",
+                pinned: dict | None = None) -> dict:
     """Озвучить все реплики мультфильма. Каждая реплика оплачивается по факту.
 
     В очереди, а не во вьюхе: десять реплик — это десятки секунд у ElevenLabs
@@ -466,7 +467,7 @@ def voice_movie(self, project_id: int, plan: list, replace: bool = True, token: 
             cache.delete(lock_key(project_id))
         return {"status": "no_project"}
     try:
-        return voice_project(project, plan or [], replace, token=token)
+        return voice_project(project, plan or [], replace, token=token, pinned=pinned)
     except Exception:
         # Прогресс должен закрыться в любом случае: иначе студия будет вечно
         # показывать «озвучиваю» и не даст запустить заново. Но только свой:

@@ -2019,6 +2019,7 @@
 		"voiceall_nothing_working": "Сцены снимаются — голос появится вместе с ними",
 		"voiceall_nothing_descriptions": "В сценах описания, а не слова героя: напишите, что он говорит вслух",
 		"voiceall_nothing_voiced": "Все реплики уже озвучены",
+		"voiceall_nothing_erased": "Реплику стёрли, а голос остался — уберите его в окне «Звук»",
 		"voiceall_nothing": "Озвучивать нечего",
 		"redraw_frame": "🔄 Кадр заново · {{credits}} кр",
 		"redraw_frame_plain": "🔄 Кадр заново",

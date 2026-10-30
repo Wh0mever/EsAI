@@ -2027,6 +2027,7 @@
 		"voiceall_nothing_working": "The scenes are being shot — the voice will come with them",
 		"voiceall_nothing_descriptions": "The scenes hold descriptions, not the hero's words: write what the hero says aloud",
 		"voiceall_nothing_voiced": "All lines are already voiced",
+		"voiceall_nothing_erased": "The line was erased but its voice remains — remove it in the Sound window",
 		"voiceall_nothing": "Nothing to voice",
 		"redraw_frame": "🔄 Redraw the frame · {{credits}} cr",
 		"redraw_frame_plain": "🔄 Redraw the frame",

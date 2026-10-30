@@ -195,7 +195,8 @@ test("Тексты голоса есть во всех языках, en и kg �
   const ru = read("ru");
   const keys = Object.keys(ru).filter((k) => /^(line_|hero_voice_|audio_tab_line$|audio_track_line$|dialogue_)/.test(k));
   keys.push("voiceall_own_lines", "voiceall_line_voiced", "voiceall_descriptions", "voiceall_nothing", "voiceall_unshot",
-    "voiceall_nothing_unshot", "voiceall_nothing_working", "voiceall_nothing_descriptions", "voiceall_nothing_voiced");
+    "voiceall_nothing_unshot", "voiceall_nothing_working", "voiceall_nothing_descriptions", "voiceall_nothing_voiced",
+    "voiceall_nothing_erased");
   assert.ok(keys.length >= 30, `ключей: ${keys.length}`);
   for (const lang of ["en", "kg"]) {
     const other = read(lang);
@@ -217,9 +218,23 @@ test("Тексты голоса есть во всех языках, en и kg �
   }
 });
 
+test("lineOverflows: числа настоящих роликов — реплика с темпом 1 и реплика, ускоренная сведением", () => {
+  // Сдвинули вручную: темп 1, потеряно 0,65 с речи.
+  assert.equal(lv.lineOverflows(1.1, 4.91, 5.088, [0.2, 5.25]), true);
+  assert.equal(lv.lineOverflows(3.3, 2.32, 5.088, [1.7, 4.1]), true);
+  assert.equal(lv.lineOverflows(4.6, 4.36, 8.1, [3.75, 7.9]), true);
+  // Поставило само сведение: впритык к концу и с ускорением, обрезки нет.
+  assert.equal(lv.lineOverflows(1.054, 4.91, 5.088, [1.7, 4.1]), false);
+  assert.equal(lv.lineOverflows(0.05, 4.91, 5.088, [0.05, 4.8]), false);
+  // Окна нет: реплика с половины секунды.
+  assert.equal(lv.lineOverflows(0.5, 3, 5, null), false);
+  assert.equal(lv.lineOverflows(3, 3, 5, null), true);
+});
+
 test("emptyPlanKey: своё объяснение по коду, неизвестный код — общее «Озвучивать нечего»", () => {
   assert.equal(lv.emptyPlanKey("unshot"), "studio_ui.voiceall_nothing_unshot");
   assert.equal(lv.emptyPlanKey("voiced"), "studio_ui.voiceall_nothing_voiced");
+  assert.equal(lv.emptyPlanKey("erased"), "studio_ui.voiceall_nothing_erased");
   assert.equal(lv.emptyPlanKey("empty"), "studio_ui.voiceall_nothing");
   assert.equal(lv.emptyPlanKey(undefined), "studio_ui.voiceall_nothing");
 });

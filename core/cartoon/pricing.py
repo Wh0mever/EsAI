@@ -743,7 +743,8 @@ def line_voice_credits(scene, *, line=_UNSET, ready: bool | None = None) -> int:
         return 0
     if ready is None:
         ready = audio.line_ready(scene.project.user)
-    if not ready or (scene.video_prompt and not scene.dialogue_is_speech):
+    # False ставит только решение режиссёра, правка слов его снимает.
+    if not ready or not scene.dialogue_is_speech:
         return 0
     track = voiceover.line_track(scene) if line is _UNSET else line
     if track is not None and track.text == text:

@@ -636,6 +636,7 @@ _EMPTY_PLAN = (
     ("working", "working", "Сцены снимаются — голос появится вместе с ними"),
     ("descriptions", "descriptions", "В сценах описания, а не слова героя: напишите, что он говорит вслух"),
     ("line_voiced", "voiced", "Озвучивать нечего: все реплики уже озвучены"),
+    ("erased", "erased", "Реплику стёрли, а голос остался — уберите его в окне «Звук»"),
 )
 
 
@@ -747,7 +748,8 @@ class ProjectVoiceAllView(StudioAPIView):
         voiceover.set_progress(project.pk, done=0, total=len(plan), error="", spent=0,
                                finished=False, queued=True)
         try:
-            voice_movie.delay(project.pk, plan, bool(_data(request).get("replace", True)), token)
+            voice_movie.delay(project.pk, plan, bool(_data(request).get("replace", True)), token,
+                              dict(project.hero_voices or {}))
         except Exception:
             if cache.get(lock) == token:
                 cache.delete(lock)

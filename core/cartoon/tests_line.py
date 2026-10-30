@@ -1178,6 +1178,59 @@ class ReviewMoneyTests(LineApiTests):
         project.refresh_from_db()
         self.assertEqual(project.hero_voices[str(self.hero.pk)]["voice_id"], "voice-m1")
 
+    def test_voice_changed_while_the_run_waits_in_the_queue_stays(self):
+        scene = self.ready(voice_hint={"lang": "other"})
+        project = scene.project
+        project.hero_voices = {str(self.hero.pk): {"voice_id": "voice-f1", "voice_name": "Bella"}}
+        project.save(update_fields=["hero_voices"])
+        with patch("cartoon.views_audio.voice_movie.delay") as delay, \
+             patch("cartoon.audio.list_voices", return_value=VOICES):
+            started = _client(self.user).post(f"/api/cartoon/projects/{project.pk}/voice-all/",
+                                              {"lines": [self.plan_item(scene)]}, format="json")
+        self.assertEqual(started.status_code, 202, started.content)
+        args = delay.call_args[0]
+        self.assertEqual(args[4][str(self.hero.pk)]["voice_id"], "voice-f1")
+        # Пока запуск ждёт воркер, голос героя сменили; вторая сцена озвучивается по плану.
+        voiceover.set_hero_voice(project, self.hero, {"voice_id": "voice-m1", "voice_name": "George"})
+        plan = args[1]
+        with patch("cartoon.audio.tts", return_value=b"mp3"), \
+             patch("cartoon.audio.save_audio", return_value=(LINE_FILE, 2.0)), \
+             patch("cartoon.audio.scene_window", return_value=(1.0, 3.0)), \
+             patch("cartoon.audio.mix_scene", MagicMock(side_effect=_place)):
+            voiceover.voice_project(project, plan, True, pinned=args[4])
+        project.refresh_from_db()
+        self.assertEqual(project.hero_voices[str(self.hero.pk)]["voice_id"], "voice-m1")
+
+    def test_ai_line_does_not_land_on_words_written_while_it_waited(self):
+        scene = self.ready(dialogue="")
+        CartoonScene.objects.filter(pk=scene.pk).update(dialogue="Мои слова героя")
+        scene.refresh_from_db()
+        item = {**self.plan_item(scene, "Реплика от ИИ"), "line": False}
+        result, tts = self.run_plan(scene.project, [item])
+        self.assertEqual((result["done"], tts.call_count), (0, 0))
+        self.assertEqual(self.charges("cartoon_voice"), [])
+
+    def test_ai_line_does_not_land_on_an_erased_voiced_line(self):
+        scene = self.ready(dialogue="")
+        CartoonAudioTrack.objects.create(scene=scene, kind="line", text="Прежние слова", voice_id="voice-f1",
+                                         file=LINE_FILE, duration=2.0)
+        item = {**self.plan_item(scene, "Реплика от ИИ"), "line": False}
+        result, tts = self.run_plan(scene.project, [item])
+        self.assertEqual((result["done"], tts.call_count), (0, 0))
+
+    def test_empty_plan_explains_an_erased_line(self):
+        scene = self.ready(dialogue="", voice_hint={"lang": "other"})
+        CartoonAudioTrack.objects.create(scene=scene, kind="line", text="Прежние слова", voice_id="voice-f1",
+                                         file=LINE_FILE, duration=2.0)
+        response = self.empty_plan(scene)
+        self.assertEqual((response.status_code, response.json().get("error_code")), (400, "erased"))
+
+    def test_price_has_no_voice_after_the_verdict_on_edited_words(self):
+        scene = self.ready(dialogue=DESCRIPTION, dialogue_is_speech=False)
+        CartoonScene.objects.filter(pk=scene.pk).update(video_prompt="")
+        scene.refresh_from_db()
+        self.assertEqual(cp.line_voice_credits(scene), 0)
+
     def test_erased_line_does_not_get_a_second_voice_from_the_plan(self):
         scene = self.ready(dialogue="", voice_hint={"lang": "other"})
         CartoonAudioTrack.objects.create(scene=scene, kind="line", text="Прежние слова", voice_id="voice-f1",
@@ -1443,6 +1496,26 @@ class ReviewDirectorTests(LineBase):
         with patch("cartoon.director._ask_lines", side_effect=director.DirectorFailed("тайм-аут")) as ask:
             director.judge_lines(scenes)
         self.assertEqual(ask.call_count, 1)
+
+    def test_empty_record_is_not_a_decision(self):
+        scene = self.fresh(DESCRIPTION)
+        self.judge(scene, {"lines": [{"n": 1}]})
+        self.assertEqual(scene.voice_hint, {})
+
+    def test_without_an_answer_about_the_language_the_letters_decide(self):
+        scene = self.fresh("Кандайсың, менин атым Өмүр")
+        self.judge(scene, {"lines": [{"n": 1, "line_is_speech": True}]})
+        self.assertEqual(scene.voice_hint, {"lang": "ky"})
+        scene = self.fresh("Привет, мама!")
+        self.judge(scene, {"lines": [{"n": 1, "line_is_speech": True, "line_lang": "kyrgyz?"}]})
+        self.assertEqual(scene.voice_hint, {"lang": "other"})
+
+    def test_speech_without_double_quotes_inside_a_beat_leaves(self):
+        for form in ("the character says: He is a hero who plays and cries", "she says 'He is a hero who plays'"):
+            cleaned = director._unsaid(f"0-2s The kitten plays, 2-4s {form}, 4-5s it sits.")
+            self.assertNotIn("hero who plays", cleaned, form)
+            self.assertIn("0-2s The kitten plays", cleaned)
+            self.assertIn("4-5s it sits", cleaned)
 
     def test_explicit_no_counts_even_without_a_voice(self):
         scene = self.fresh(DESCRIPTION)

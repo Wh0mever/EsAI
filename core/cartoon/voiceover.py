@@ -715,15 +715,15 @@ def build_plan(project, lang: str = "ru") -> dict:
         "project__character", "project__video_model").order_by("order", "id"))
     everything = [s for s in everything if _scene_hero(s)]
     spoken = [s for s in everything if (s.dialogue or "").strip()]
-    frozen, line_voiced, descriptions, unshot, working, ready = {}, 0, 0, 0, 0, {}
+    frozen, line_voiced, descriptions, unshot, working = {}, 0, 0, 0, 0
+    ready = dict(CartoonAudioTrack.objects.filter(
+        scene__project=project, kind=CartoonAudioTrack.KIND_LINE).values_list("scene_id", "text"))
     line_on = audio.line_ready(project.user)
     if line_on:
         # Снятое до автоозвучки и поправленные слова режиссёр не читал: описание здесь
         # прочли бы вслух.
         director.judge_lines([s for s in spoken if s.video and director.unjudged(s)
                               and s.status not in WORKING_STATES])
-        ready = dict(CartoonAudioTrack.objects.filter(
-            scene__project=project, kind=CartoonAudioTrack.KIND_LINE).values_list("scene_id", "text"))
         for scene in spoken:
             text = scene.dialogue.strip()
             if not scene.dialogue_is_speech:
@@ -738,8 +738,9 @@ def build_plan(project, lang: str = "ru") -> dict:
                 working += 1
             else:
                 unshot += 1
+    erased = sum(1 for s in everything if s.pk in ready and not (s.dialogue or "").strip())
     counts = {"spoken_in_video": 0 if line_on else len(spoken), "line_voiced": line_voiced,
-              "descriptions": descriptions, "unshot": unshot, "working": working}
+              "descriptions": descriptions, "unshot": unshot, "working": working, "erased": erased}
     # Реплику стёрли, а дорожка осталась: новая ИИ-реплика зазвучала бы поверх неё.
     scenes = [s for s in everything if s.pk in frozen
               or (not (s.dialogue or "").strip() and s.pk not in ready)][:MAX_LINES]
@@ -890,12 +891,16 @@ def _voice_line(scene, text, voice_id, voice_name, character, replace, guard, li
     return track
 
 
-def voice_project(project, plan: list, replace: bool = True, token: str = "") -> dict:
+def voice_project(project, plan: list, replace: bool = True, token: str = "", pinned: dict | None = None) -> dict:
     """Озвучить все реплики плана и свести снятые сцены. Считает прогресс.
 
     token — замок этого запуска. Потерян (человек перезапустил озвучку, пока эта
     задача стояла в очереди или висела на синтезе) — останавливаемся до списания
     и чужой прогресс не трогаем.
+
+    pinned — голоса героев на момент запуска кнопкой: запуск ждёт очередь до получаса, и
+    голос, сменённый за это время на карточке, план затирать не должен. Нет снимка —
+    берём нынешние (задача старого формата во время выкладки).
     """
     from celery.exceptions import SoftTimeLimitExceeded
 
@@ -913,7 +918,7 @@ def voice_project(project, plan: list, replace: bool = True, token: str = "") ->
     touch_lock(project.pk, token)
     done, spent, error = 0, 0, ""
     project.refresh_from_db(fields=["hero_voices"])
-    pinned = dict(project.hero_voices or {})
+    pinned = dict(project.hero_voices or {}) if pinned is None else dict(pinned)
     for item in plan:
         if not lock_owned(project.pk, token):
             error = "superseded"
@@ -935,6 +940,10 @@ def voice_project(project, plan: list, replace: bool = True, token: str = "") ->
         # план устарел, за него человек платить не должен.
         if line and (scene.status in WORKING_STATES or not scene.video or not scene.dialogue_is_speech
                      or " ".join((scene.dialogue or "").split()) != " ".join(str(item.get("text") or "").split())):
+            continue
+        # ИИ-реплику план писал пустой сцене. Появились свои слова или дорожка реплики —
+        # она легла бы вторым голосом поверх них.
+        if not line and ((scene.dialogue or "").strip() or line_track(scene) is not None):
             continue
         try:
             track = voice_line(scene, item.get("text"), item.get("voice_id"),

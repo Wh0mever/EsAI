@@ -205,6 +205,16 @@ def _voice_hint(raw, lang=None) -> dict:
     return hint
 
 
+def _line_lang(raw, dialogue: str) -> str:
+    """Язык реплики из ответа режиссёра; не ответил — по буквам, как для непрочитанных слов."""
+    from .audio import line_lang
+
+    lang = str(raw or "").strip().lower()
+    if lang in LINE_LANGS:
+        return lang
+    return "ky" if line_lang(dialogue) else "other"
+
+
 def unjudged(scene) -> bool:
     """Режиссёр не читал нынешние слова сцены. Пол и возраст он даёт и без реплики,
     поэтому признак — язык: его ставит только чтение реплики, а правка слов снимает."""
@@ -222,7 +232,8 @@ _SPOKEN_PHRASE = re.compile(rf"(?:\s+(?:and|then|while|as))?\s*(?:{_SPEECH_LABEL
                             rf'""|{_CYRILLIC})[^,;.!?]*', re.I)
 _BEAT = re.compile(r"\b\d+\s*[-–—]\s*\d+\s*s\b", re.I)
 # В такте «says nothing and runs» — действие. Резать можно только то, что и правда звучит.
-_REAL_SPEECH = re.compile(rf'""|{_SPEECH_LABEL}|{_CYRILLIC}|lip[- ]sync|audible speech', re.I)
+_REAL_SPEECH = re.compile(rf'""|{_SPEECH_LABEL}|{_CYRILLIC}|lip[- ]sync|audible speech'
+                          r"|\b(?:says?|said)\s*[:'‘’]", re.I)
 _ONLY_BEATS = re.compile(r"\W*(?:\d+\s*[-–—]\s*\d+\s*s\b\W*)+", re.I)
 
 
@@ -291,7 +302,7 @@ def compose(scene, character, preset, duration: int, judge: bool = True) -> dict
     return {"prompt": prompt[:MAX_PROMPT_CHARS],
             "negative": negative[:MAX_NEGATIVE_CHARS + len(BASE_NEGATIVE) + 2],
             "line_is_speech": speech,
-            "voice": _voice_hint(data.get("voice"), (data.get("line_lang") or "other") if dialogue else None)}
+            "voice": _voice_hint(data.get("voice"), _line_lang(data.get("line_lang"), dialogue) if dialogue else None)}
 
 
 def fallback(scene, character, preset, duration: int, speech: bool = True) -> dict:
@@ -387,11 +398,12 @@ def judge_lines(scenes: list) -> None:
                 scene = chunk[int(item.get("n")) - 1] if int(item.get("n")) > 0 else None
             except (AttributeError, IndexError, TypeError, ValueError):
                 continue
-            if scene is None:
+            # Пустая запись — не решение: такая сцена осталась бы «прочитанной» навсегда.
+            if scene is None or ("line_is_speech" not in item and not item.get("line_lang")):
                 continue
             scene.dialogue_is_speech = _is_speech(item.get("line_is_speech", True))
             scene.voice_hint = {**(scene.voice_hint or {}),
-                                **_voice_hint(item.get("voice"), item.get("line_lang") or "other")}
+                                **_voice_hint(item.get("voice"), _line_lang(item.get("line_lang"), scene.dialogue))}
             fields = ["dialogue_is_speech", "voice_hint", "updated_at"]
             if not scene.dialogue_is_speech and scene.video_prompt:
                 # Промпт собран, когда реплику считали речью: пересъёмка снова прочла бы её.
