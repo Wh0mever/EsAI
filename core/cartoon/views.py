@@ -348,7 +348,8 @@ def scene_json(s: CartoonScene, lang: str = "ru", pair_videos: dict | None = Non
     # Голос героя входит в цену «Снять»: человек видит на кнопке всё, что спишется.
     # Цена снимка (planned) его уже содержит.
     dialogue = (s.dialogue or "").strip()
-    line_on = bool(dialogue) and _line_on(s, memo)
+    voice_on = _line_on(s, memo)
+    line_on = bool(dialogue) and voice_on
     line = _scene_line(s, memo)
     voice_price = int(s.shot_voice_credits or 0) if planned is not None else 0
     if (planned is None and line_on and video_price is not None and s.preset_id
@@ -365,6 +366,8 @@ def scene_json(s: CartoonScene, lang: str = "ru", pair_videos: dict | None = Non
         "dialogue_is_speech": s.dialogue_is_speech,
         # Голос героя в этой сцене: null — звучит голос модели.
         "line_voice": _line_voice_json(s, line),
+        # Голос героя работает для хозяина сцены: выбрать его можно и до того, как написаны слова.
+        "line_voice_on": voice_on,
         # Сколько стоит озвучить реплику сейчас; null — озвучивать нечего или выключено.
         "line_voice_price": (audio.voice_price(dialogue)
                              if line_on and s.dialogue_is_speech else None),

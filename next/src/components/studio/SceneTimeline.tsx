@@ -68,6 +68,7 @@ export type StudioScene = {
   line_voice?: LineVoice | null;
   /** Сколько стоит озвучить реплику сейчас; null — нельзя (нет реплики, описание, режим выключен). */
   line_voice_price?: number | null;
+  line_voice_on?: boolean;
   /** Сколько из цены «Снять» — голос героя; 0 — голоса в цене нет. */
   render_voice_credits?: number;
   /** Кем снимается эта сцена: свой герой или герой всего мультфильма. */

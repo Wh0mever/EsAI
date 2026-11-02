@@ -1059,6 +1059,13 @@ class ReviewMoneyTests(LineApiTests):
     def project_of(self, scene):
         return scene.project
 
+    def test_card_knows_about_the_voice_before_the_words(self):
+        scene = self.fresh("")
+        self.assertTrue(self.row(scene)["line_voice_on"])
+        set_runtime(audio.LINE_MODE_KEY, "off")
+        self.addCleanup(set_runtime, audio.LINE_MODE_KEY, "on")
+        self.assertFalse(self.row(scene)["line_voice_on"])
+
     def test_voice_chosen_in_the_plan_is_pinned(self):
         scene = self.ready(voice_hint=SPEECH["voice"])
         project = scene.project

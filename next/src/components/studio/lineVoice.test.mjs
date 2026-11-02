@@ -113,6 +113,19 @@ test("гость: новых полей у сцены нет — ничего", 
   assert.deepEqual(lv.lineVoiceView({ status: "draft", dialogue: "Ура!", ...HERO }), { kind: "none" });
 });
 
+test("голос на черновике виден и до слов: выбрать его можно заранее", () => {
+  const blank = { dialogue: "", line_voice: null, line_voice_price: null, line_voice_on: true, ...HERO };
+  for (const status of ["draft", "failed"]) {
+    assert.deepEqual(lv.lineVoiceView({ ...blank, status }),
+      { kind: "voice", voice: null, canChange: true, dubPrice: null, canRestore: false, stale: false });
+  }
+  assert.equal(lv.lineVoiceView({ ...blank, status: "draft" }, PINNED).voice.name, "Adam");
+  // Выключено, нет героя или сцена уже снята: на карточке ничего нового.
+  assert.deepEqual(lv.lineVoiceView({ ...blank, status: "draft", line_voice_on: false }), { kind: "none" });
+  assert.deepEqual(lv.lineVoiceView({ ...blank, status: "draft", character: null }), { kind: "none" });
+  assert.deepEqual(lv.lineVoiceView({ ...blank, status: "ready" }), { kind: "none" });
+});
+
 test("окно голоса: готовая сцена озвучивается, до съёмки голос только закрепляется", () => {
   assert.equal(lv.voiceDialogMode({ status: "ready" }), "dub");
   assert.equal(lv.voiceDialogMode({ status: "draft" }), "pin");

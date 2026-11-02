@@ -33,6 +33,8 @@ type LineScene = {
   dialogue_is_speech?: boolean;
   line_voice?: LineVoice | null;
   line_voice_price?: number | null;
+  /** Голос героя работает для хозяина сцены; цена появляется только вместе со словами. */
+  line_voice_on?: boolean;
   character?: { id: number } | null;
 };
 
@@ -72,6 +74,10 @@ export function heroVoiceOf(voices: HeroVoices | null | undefined, scene: Pick<L
  * пересъёмке режиссёр решил «описание»). Озвучка и смена голоса — только у готовой
  * сцены: иначе сервер ответит scene_not_ready.
  */
+function voiceOf(hero: HeroVoice | null) {
+  return hero ? { id: hero.voice_id, name: shortVoiceName(hero.voice_name) } : null;
+}
+
 export function lineVoiceView(scene: LineScene, heroVoices?: HeroVoices | null): LineVoiceView {
   const dialogue = (scene.dialogue || "").trim();
   const ready = scene.status === "ready";
@@ -94,13 +100,18 @@ export function lineVoiceView(scene: LineScene, heroVoices?: HeroVoices | null):
     };
   }
 
-  if (!dialogue) return { kind: "none" };
+  if (!dialogue) {
+    // Голос можно выбрать заранее: клиент искал его на карточке, пока слова ещё не сохранены.
+    if (!scene.line_voice_on || !scene.character || (scene.status !== "draft" && scene.status !== "failed")) {
+      return { kind: "none" };
+    }
+    return { kind: "voice", voice: voiceOf(heroVoiceOf(heroVoices, scene)), canChange: true, dubPrice: null, canRestore: false, stale: false };
+  }
   if (scene.dialogue_is_speech === false) return { kind: "description" };
   // Цены нет — режим выключен, не для этого человека или нет ключа: ничего нового.
   if (price == null) return { kind: "none" };
 
-  const hero = heroVoiceOf(heroVoices, scene);
-  const voice = hero ? { id: hero.voice_id, name: shortVoiceName(hero.voice_name) } : null;
+  const voice = voiceOf(heroVoiceOf(heroVoices, scene));
   const canChange = Boolean(scene.character);
   if (ready) return { kind: "voice", voice, canChange, dubPrice: price, canRestore: false, stale: false };
   // До съёмки: голос можно выбрать заранее и бесплатно. Снимается сцена — поля реплики нет.
