@@ -385,10 +385,12 @@ export default function Composer() {
         case "condense":
           void runCondense();
           break;
-        case "topup":
+        case "topup": {
           trackVs("vstudio_paywall");
-          actions.openTopUp();
+          const v = live.current.view;
+          actions.openTopUp(v.kind === "topup" ? { cost: v.credits, missing: v.missing } : undefined);
           break;
+        }
         case "pick_model": {
           const s = live.current.state;
           if (plan.model) {
@@ -453,7 +455,7 @@ export default function Composer() {
     }
     if (q.balance && q.balance.available < q.credits) {
       trackVs("vstudio_paywall");
-      actions.openTopUp();
+      actions.openTopUp({ cost: q.credits, missing: Math.max(1, Math.ceil(q.credits - q.balance.available)) });
       return;
     }
     const id = pendingRun.current && pendingRun.current.key === key ? pendingRun.current.id : newClientRequestId();
@@ -522,7 +524,7 @@ export default function Composer() {
         return;
       case "topup":
         trackVs("vstudio_paywall");
-        actions.openTopUp();
+        actions.openTopUp({ cost: v.credits, missing: v.missing });
         return;
       case "blocked":
         trackVs("vstudio_blocked", { code: String(v.issue.code) });

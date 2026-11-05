@@ -154,7 +154,7 @@ function ImageGenForm({ onClose, onCreated }: { onClose: () => void; onCreated: 
       return;
     }
     if (missing > 0) {
-      actions.openTopUp();
+      actions.openTopUp({ cost: credits, missing });
       return;
     }
     setSending(true);

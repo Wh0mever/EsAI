@@ -1,6 +1,4 @@
 import type { Metadata } from "next";
-import Header from "@/components/main/Header";
-import Footer from "@/components/main/Footer";
 import { SITE_NAME, SITE_URL, OG_IMAGE, OG_IMAGE_ALT, OG_IMAGE_META } from "@/lib/seo/site";
 
 export const metadata: Metadata = {
@@ -24,11 +22,7 @@ export default function StudioPricingLayout({
 }: Readonly<{
 	children: React.ReactNode;
 }>) {
-	return (
-		<>
-			<Header />
-			{children}
-			<Footer />
-		</>
-	);
+	// Шапку и подвал рисует родительский pricing/layout: свои здесь давали
+	// второй подвал внизу страницы.
+	return children;
 }

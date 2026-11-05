@@ -23,6 +23,9 @@ import { useQrReturn } from "@/hooks/useQrReturn";
 import { clockSkewMs, isQrInvoice } from "@/lib/qrpay";
 import { clearQrSession, saveQrSession } from "@/lib/qrSession";
 import type { QrCancelResult, QrInvoice } from "@/types/qrpay";
+import PackageCarousel, { recommendLabelKey } from "@/components/pricing/PackageCarousel";
+import { recommendPackage } from "@/lib/packagePick";
+import type { PackageNeed } from "@/lib/packagePick";
 
 // Экран криптооплаты тянет за собой QR и значки монет — грузим его только
 // тому, кто действительно выбрал крипту.
@@ -137,6 +140,13 @@ type TokenPackagesProps = {
    * считают не запросы и картинки, а сцены и мультфильмы.
    */
   valueOverride?: (pkg: Pkg) => { title: string; rows: string[] } | null;
+  /**
+   * «carousel» — общая карусель выбора пакета (как в видеостудии): тарифы
+   * студии. По умолчанию прежняя сетка — её видит /pricing.
+   */
+  layout?: "grid" | "carousel";
+  /** Сколько не хватило на операцию: первым встанет самый дешёвый подходящий пакет. */
+  need?: PackageNeed | null;
 };
 
 /**
@@ -163,6 +173,8 @@ export default function TokenPackages({
   onPurchaseEnd,
   returnTo,
   valueOverride,
+  layout = "grid",
+  need = null,
 }: TokenPackagesProps = {}) {
   const { t, i18n } = useTranslation("common");
   // Названия и подписи пакетов лежат в базе на трёх языках (админка),
@@ -743,8 +755,52 @@ export default function TokenPackages({
     return defaults[idx] || "";
   };
 
+  // Строки «Примерно хватит на» по ответу packages/value — общие для сетки и карусели.
+  const valueRowsOf = (p: Pkg): { key: string; node: string }[] => {
+    const v = valueById[String(p.id)] || {};
+    const rows: { key: string; node: string }[] = [];
+    if (v.text) {
+      rows.push({
+        key: "text",
+        node: t("packages.value_text", { count: v.text.count, defaultValue: "💬 До {{count}} обычных запросов" }),
+      });
+    }
+    if (v.image) {
+      rows.push({
+        key: "image",
+        node: t("packages.value_image", { count: v.image.count, defaultValue: "🎨 До {{count}} изображений" }),
+      });
+    }
+    if (v.video) {
+      rows.push({
+        key: "video",
+        node: t("packages.value_video", { count: v.video.count, defaultValue: "🎬 До {{count}} видео" }),
+      });
+    }
+    if (v.document) {
+      rows.push({
+        key: "document",
+        node: t("packages.value_document", { count: v.document.count, defaultValue: "📄 До {{count}} страниц перевода" }),
+      });
+    }
+    return rows;
+  };
+
+  const shownPrice = (p: Pkg) =>
+    shownDiscount ? (
+      <>
+        <span className="mr-2 text-base font-normal text-muted line-through">{priceText(p.price)}</span>
+        <span className="text-accent">{priceText(Math.round(p.price * (1 - shownDiscount / 100) * 100) / 100)}</span>
+      </>
+    ) : (
+      priceText(p.price)
+    );
+
+  const recommended = layout === "carousel" ? recommendPackage(packages, need?.missing) : null;
+  const fitsKey = recommendLabelKey(need);
+
   return (
-    <div className="w-full px-4 sm:px-8 lg:px-16 xl:px-24 2xl:px-40 py-10">
+    <div className={layout === "carousel" ? "w-full" : "w-full px-4 sm:px-8 lg:px-16 xl:px-24 2xl:px-40 py-10"}>
       {/* Вернуть человека туда, откуда он ушёл. Без этого единственным
           способом продолжить было начать оплату заново — и один человек в
           разборе воронки нажал «Пополнить» десять раз подряд. */}
@@ -921,7 +977,39 @@ export default function TokenPackages({
         />
       )}
 
-      {!loading && packages.length > 0 && (
+      {!loading && packages.length > 0 && layout === "carousel" && (
+        <PackageCarousel
+          packages={packages}
+          startId={recommended?.id ?? null}
+          recommendLabel={
+            fitsKey
+              ? t(fitsKey, {
+                  defaultValue: need?.for === "scene" ? "Хватит на текущую съёмку" : "Хватит на текущую генерацию",
+                })
+              : undefined
+          }
+          price={shownPrice}
+          value={(p) => {
+            const custom = valueOverride ? valueOverride(p) : null;
+            if (custom) return custom;
+            const rows = valueRowsOf(p);
+            return rows.length
+              ? { title: t("packages.value_title", { defaultValue: "Примерно хватит на" }), rows: rows.map((r) => r.node) }
+              : null;
+          }}
+          buyLabel={(p) =>
+            !authed
+              ? t("packages.login_to_topup", { defaultValue: "Войдите, чтобы пополнить" })
+              : buyingId === p.id
+              ? t("common.processing", { defaultValue: "Обработка..." })
+              : t("pkg_picker.buy", { defaultValue: "Купить" })
+          }
+          onBuy={onBuy}
+          busy={buyingId != null}
+        />
+      )}
+
+      {!loading && packages.length > 0 && layout === "grid" && (
         <div className="grid gap-5 w-full justify-center items-stretch [grid-template-columns:repeat(auto-fit,minmax(260px,340px))]">
           {packages.map((p, idx) => {
             const featured = Boolean(p.featured) || idx === featuredFallbackIndex;

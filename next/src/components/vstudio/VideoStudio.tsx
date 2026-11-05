@@ -9,6 +9,7 @@ import { FiAlertTriangle, FiCheck, FiFilm, FiLogIn, FiPlus, FiRefreshCw, FiWifiO
 import EsaiLogo from "@/components/brand/EsaiLogo";
 import PaywallModal from "@/components/chat/PaywallModal";
 import TopUpModal from "@/components/chat/TopUpModal";
+import type { PackageNeed } from "@/lib/packagePick";
 import { StudioAuthDialog } from "@/components/studio/StudioDialogs";
 import { useBalance } from "@/hooks/useBalance";
 import { ensureAccess, getToken } from "@/tools/fetchData";
@@ -189,6 +190,8 @@ export default function VideoStudio({ projectUid }: VideoStudioProps) {
   const [railSearch, setRailSearch] = useState(false);
   /** Баланс из последнего quote/запуска и сумма резерва дублей в этот момент (для поправки). */
   const [balSnap, setBalSnap] = useState<BalanceSnapshot | null>(null);
+  // Сколько не хватило на генерацию, с которой открыли пополнение.
+  const [topupNeed, setTopupNeed] = useState<PackageNeed | null>(null);
 
   const breakpoint = useVsBreakpoint();
   const breakpointRef = useRef(breakpoint);
@@ -338,9 +341,22 @@ export default function VideoStudio({ projectUid }: VideoStudioProps) {
         if (!opts?.silent) toast(errorText(tRef.current, err), "error");
       };
       switch (r.kind) {
-        case "paywall":
-          dispatch({ type: "ui/paywall", paywall: r.paywall });
+        case "paywall": {
+          // Не хватило кредитов и сервер назвал суммы — сразу пакеты, без
+          // промежуточного окна: оно было лишним шагом до оплаты.
+          const p = r.paywall;
+          const missing =
+            p.reason === "insufficient_balance" && typeof p.requiredEstimate === "number" && typeof p.balanceTokens === "number"
+              ? Math.ceil(p.requiredEstimate - p.balanceTokens)
+              : 0;
+          if (missing > 0 && authedRef.current === true) {
+            setTopupNeed({ missing, cost: Math.ceil(p.requiredEstimate || 0), for: "generation" });
+            dispatch({ type: "ui/topup", open: true });
+            break;
+          }
+          dispatch({ type: "ui/paywall", paywall: p });
           break;
+        }
         case "auth":
           openAuth();
           break;
@@ -479,8 +495,9 @@ export default function VideoStudio({ projectUid }: VideoStudioProps) {
         dispatch({ type: "ui/panel", panel: "library", open: true });
       },
       openPaywall: (paywall) => dispatch({ type: "ui/paywall", paywall }),
-      openTopUp: () => {
+      openTopUp: (need) => {
         if (!requireAuth()) return;
+        setTopupNeed(need && need.missing > 0 ? { missing: need.missing, cost: need.cost, for: "generation" } : null);
         dispatch({ type: "ui/topup", open: true });
       },
       refreshBalance: () => {
@@ -1051,7 +1068,15 @@ export default function VideoStudio({ projectUid }: VideoStudioProps) {
       <PaywallModal
         context={state.ui.paywall}
         onClose={() => dispatch({ type: "ui/paywall", paywall: null })}
-        onTopUp={() => dispatch({ type: "ui/topup", open: true })}
+        onTopUp={() => {
+          const p = state.ui.paywall;
+          const missing =
+            p && typeof p.requiredEstimate === "number" && typeof p.balanceTokens === "number"
+              ? Math.ceil(p.requiredEstimate - p.balanceTokens)
+              : 0;
+          setTopupNeed(missing > 0 && p ? { missing, cost: Math.ceil(p.requiredEstimate || 0), for: "generation" } : null);
+          dispatch({ type: "ui/topup", open: true });
+        }}
       />
       <TopUpModal
         open={state.ui.topup}
@@ -1061,6 +1086,7 @@ export default function VideoStudio({ projectUid }: VideoStudioProps) {
         }}
         // Со страницы банка — обратно в студию, в тот же проект, а не в профиль.
         returnTo={currentPath}
+        need={topupNeed}
       />
       <StudioAuthDialog
         open={state.ui.auth}

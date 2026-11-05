@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import { FiLogIn, FiZap } from "react-icons/fi";
 import { Modal } from "@/components/dialog/Dialog";
 import { rememberReturnPath } from "@/tools/authNext";
+import { needHref } from "@/lib/packagePick";
 
 /**
  * Всплывающие окна студии.
@@ -66,8 +67,9 @@ export function StudioPaywallDialog({
           </div>
         </div>
 
+        {/* Тарифы откроются сразу на пакете, которого хватит на эту операцию. */}
         <a
-          href={pricingHref}
+          href={needHref(pricingHref, required, balance, kind)}
           className="inline-flex items-center justify-center gap-2 rounded-xl bg-accent px-5 py-3 font-semibold text-on-accent transition-colors hover:bg-accent-strong"
         >
           <FiZap />

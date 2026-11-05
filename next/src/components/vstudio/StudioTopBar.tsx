@@ -90,7 +90,7 @@ export function BalanceChip({ variant = "chip" }: { variant?: "chip" | "rail" | 
     return (
       <button
         type="button"
-        onClick={actions.openTopUp}
+        onClick={() => actions.openTopUp()}
         className={vx(
           "flex w-11 cursor-pointer flex-col items-center gap-1 rounded-2xl border border-vs-ink/10 bg-vs-ink/[0.05] py-2 text-muted transition-colors hover:border-vs-accent/45 hover:bg-vs-ink/[0.09] hover:text-foreground",
           VS_FOCUS,
@@ -111,7 +111,7 @@ export function BalanceChip({ variant = "chip" }: { variant?: "chip" | "rail" | 
     <div className={rail ? "flex flex-col gap-1" : "flex shrink-0 flex-col items-end md:flex-row-reverse md:items-center md:gap-2.5"}>
       <button
         type="button"
-        onClick={actions.openTopUp}
+        onClick={() => actions.openTopUp()}
         className={vx(
           VS_PILL,
           "hover:!border-vs-accent/45",

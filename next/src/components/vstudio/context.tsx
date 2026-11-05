@@ -55,7 +55,8 @@ export type VStudioActions = {
   /** «Мои материалы»: нижняя шторка библиотеки (ui.panels.library). Гостю — окно входа. */
   openLibrary: () => void;
   openPaywall: (paywall: PaywallContext) => void;
-  openTopUp: () => void;
+  /** need — нехватка на текущую генерацию: окно встанет на подходящий пакет. */
+  openTopUp: (need?: { cost: number; missing: number }) => void;
   /** Перечитать баланс (useBalance слушает событие balance:refresh). */
   refreshBalance: () => void;
 };
