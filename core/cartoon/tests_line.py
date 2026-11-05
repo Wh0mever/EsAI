@@ -1698,6 +1698,13 @@ class WindowTests(SimpleTestCase):
         self.assertEqual(audio.window_from_levels(levels), (1.0, 6.75))
         self.assertEqual(audio.lips_from_levels(levels), 4.0)
 
+    def test_lips_group_has_its_end(self):
+        levels = _levels((1, -50), (1, -20), (2, -50), (2.5, -20), (1, -50))
+        start, end = audio.lips_group_from_levels(levels)
+        self.assertEqual(start, 4.0)
+        self.assertGreater(end, 6.0)
+        self.assertIsNone(audio.lips_group_from_levels(_levels((5, -60))))
+
     def test_lips_of_one_group_are_the_window_start(self):
         levels = _levels((1, -50), (1, -20), (0.3, -50), (1, -20), (1, -50))
         self.assertEqual(audio.lips_from_levels(levels), 1.0)
@@ -1753,6 +1760,20 @@ class FitTests(SimpleTestCase):
 
     def test_line_longer_than_the_room_after_the_lips_goes_as_close_as_it_fits(self):
         self.assertEqual(audio.fit_line(6.0, (1.7, 8.25), 10.0, 5.5), (4.783, 1.15))
+
+    def test_line_that_fits_the_lips_group_still_goes_to_the_lips(self):
+        """Свист в начале окна, слова 5,5–8,25: короткая реплика — на губы, как раньше."""
+        self.assertEqual(audio.fit_line(2.5, (1.7, 8.25), 10.0, 5.5, 8.25), (5.5, 1.0))
+
+    def test_line_longer_than_the_lips_group_starts_with_the_window(self):
+        """Прод 04.11.2026: длинная реплика на 15-секундной сцене вставала на 6,0 при окне
+        с 0,45 — рот молча шевелился 5 секунд. Не влезает в группу — говорит всё окно."""
+        start, tempo = audio.fit_line(9.0, (0.45, 14.0), 15.0, 6.0, 9.5)
+        self.assertEqual((start, tempo), (0.45, 1.0))
+
+    def test_slack_lets_a_line_a_bit_longer_than_the_group_keep_the_lips(self):
+        self.assertEqual(audio.fit_line(3.6, (1.0, 8.0), 10.0, 5.0, 7.7)[0], 5.0)
+        self.assertEqual(audio.fit_line(4.0, (1.0, 8.0), 10.0, 5.0, 7.7)[0], 1.0)
 
     def test_line_longer_than_the_clip_starts_at_zero_even_with_lips(self):
         self.assertEqual(audio.fit_line(13.0, (1.7, 8.25), 10.0, 5.5), (0.0, 1.15))
@@ -2094,3 +2115,37 @@ class RealFlowTests(LineBase):
         self.assertTrue(scene.mixed_video)
         self.assertEqual((self.charges("cartoon_scene"), self.charges("cartoon_voice")), ([28], [5]))
         self.assertTrue(self._played(scene.mixed_video)["audio"])
+
+
+class TtsRetryTests(SimpleTestCase):
+    """03.11.2026 озвучка на проде упала на обрыве соединения с ElevenLabs — без повтора."""
+
+    def _run(self, *effects):
+        with patch.object(audio, "_post_audio", side_effect=list(effects)) as post, \
+                patch.object(audio.time, "sleep") as sleep:
+            try:
+                return audio._speak("Привет", "bella", "eleven_multilingual_v2", None, None), post, sleep
+            except Exception as exc:  # noqa: BLE001 — тесту нужен сам отказ
+                return exc, post, sleep
+
+    def test_connection_drop_is_retried_once(self):
+        import requests
+        out, post, sleep = self._run(requests.exceptions.ConnectionError("Max retries exceeded"), b"mp3")
+        self.assertEqual(out, b"mp3")
+        self.assertEqual(post.call_count, 2)
+        sleep.assert_called_once()
+
+    def test_busy_provider_is_retried_once_then_gives_up(self):
+        busy = audio.AudioProviderError("busy", status=503)
+        out, post, _ = self._run(busy, audio.AudioProviderError("busy", status=503))
+        self.assertIsInstance(out, audio.AudioProviderError)
+        self.assertEqual(post.call_count, 2)
+
+    def test_refusal_and_read_timeout_are_not_retried(self):
+        """4xx — отказ по делу; таймаут чтения — запрос мог уже озвучиваться (второй счёт)."""
+        import requests
+        for exc in (audio.AudioProviderError("bad voice", status=400), requests.exceptions.ReadTimeout("slow")):
+            out, post, sleep = self._run(exc, b"mp3")
+            self.assertIs(out, exc)
+            self.assertEqual(post.call_count, 1)
+            sleep.assert_not_called()

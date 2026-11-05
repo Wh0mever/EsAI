@@ -27,6 +27,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 import uuid
 from contextlib import contextmanager
 from pathlib import Path
@@ -75,6 +76,9 @@ QUIET_MAX_SEC = 3.0         # больше не нужно: это только 
 # Сведение реплики.
 LINE_START_SEC = 0.5        # модель промолчала: реплика идёт с начала такта
 LINE_MAX_TEMPO = 1.15       # быстрее — голос становится мультяшно-чужим
+# Реплика «помещается в группу губ», даже если вылезает за неё на столько:
+# конец фразы модели часто тише порога и отрезается раньше.
+LIPS_FIT_SLACK_SEC = 0.5
 LINE_RAMP_SEC = 0.08        # спуск и подъём звука модели на краях окна
 LINE_TAIL_SEC = 0.12        # затухание, если реплика упёрлась в конец ролика
 LINE_PAUSE_DB = -38         # тише — пауза в озвучке
@@ -220,13 +224,31 @@ def ky_model() -> str:
     return str(getattr(settings, "ELEVENLABS_KY_MODEL", default) or "").strip()
 
 
+# Сбои, после которых озвучку можно спокойно запросить ещё раз: ElevenLabs не
+# начинал работу (нет соединения) или сам просит повторить. Таймаут чтения не
+# здесь: запрос мог уже озвучиваться, второй стал бы вторым счётом.
+TTS_RETRY_STATUSES = frozenset({429, 502, 503, 504})
+TTS_RETRY_PAUSE_SEC = 2.0
+
+
 def _speak(text: str, voice_id: str, model: str, language_code: str | None, speed: float | None) -> bytes:
     body = {"text": text, "model_id": model}
     if language_code:
         body["language_code"] = language_code
     if speed:
         body["voice_settings"] = {"speed": float(speed)}
-    return _post_audio(f"/v1/text-to-speech/{voice_id}", body)
+    path = f"/v1/text-to-speech/{voice_id}"
+    try:
+        return _post_audio(path, body)
+    except requests.exceptions.ConnectionError as exc:
+        # 03.11.2026 озвучка на проде упала на «Max retries exceeded» — один повтор.
+        logger.warning("озвучка: нет соединения с ElevenLabs (%s), повторяю", exc.__class__.__name__)
+    except AudioProviderError as exc:
+        if exc.status not in TTS_RETRY_STATUSES:
+            raise
+        logger.warning("озвучка: ElevenLabs ответил %s, повторяю", exc.status)
+    time.sleep(TTS_RETRY_PAUSE_SEC)
+    return _post_audio(path, body)
 
 
 def tts(text: str, voice_id: str, model: str | None = None, language_code: str | None = None,
@@ -462,8 +484,8 @@ def window_from_levels(levels: list[float]) -> tuple[float, float] | None:
     return round(pieces[0][0], 2), round(pieces[-1][1] + SPEECH_TAIL_SEC, 2)
 
 
-def lips_from_levels(levels: list[float]) -> float | None:
-    """Где ставить реплику: начало самой длинной группы кусков окна.
+def lips_group_from_levels(levels: list[float]) -> tuple[float, float] | None:
+    """Самая длинная группа кусков окна: (начало, конец).
 
     Модель заказывает и эффекты: свист за четыре секунды до слов — тоже кусок окна.
     Если поставить реплику на него, она прозвучит задолго до того, как герой
@@ -478,7 +500,14 @@ def lips_from_levels(levels: list[float]) -> float | None:
             groups[-1][1] = piece[1]
         else:
             groups.append(list(piece))
-    return round(max(groups, key=lambda group: group[1] - group[0])[0], 2)
+    start, end = max(groups, key=lambda group: group[1] - group[0])
+    return round(start, 2), round(end, 2)
+
+
+def lips_from_levels(levels: list[float]) -> float | None:
+    """Где ставить реплику: начало самой длинной группы кусков окна."""
+    group = lips_group_from_levels(levels)
+    return group[0] if group else None
 
 
 def quiet_from_levels(levels: list[float]) -> tuple[float, float] | None:
@@ -530,7 +559,7 @@ def window_json(scene) -> list | None:
 
 
 def fit_line(duration: float, window: tuple[float, float] | None, clip: float,
-             lips: float | None = None) -> tuple[float, float]:
+             lips: float | None = None, lips_end: float | None = None) -> tuple[float, float]:
     """Куда поставить реплику длиной duration и как её ускорить: (начало, темп).
 
     Короче окна — на начало окна. Длиннее — ускоряем до ×1,15. Всё равно длиннее —
@@ -538,12 +567,17 @@ def fit_line(duration: float, window: tuple[float, float] | None, clip: float,
     сдвигаем начало раньше окна. clip — длина ролика, 0 — неизвестна.
     lips — где в окне начинается настоящая речь (lips_from_levels): реплика встаёт
     туда, а если до конца ролика не хватает места — так близко к губам, как влезет.
+    lips_end — конец этой группы. Реплика в неё не помещается — значит, герой
+    говорит её всё окно, а самая длинная группа — лишь одна из фраз: начинаем с
+    начала окна. Иначе рот молча шевелился 4–5 секунд до голоса (сцены 3403,
+    3406, 3410, 3411 на проде, 04.11.2026).
     """
     duration = max(0.0, float(duration or 0))
     start, end = window if window else (LINE_START_SEC, clip or LINE_START_SEC + duration)
     if clip:
         end = min(end, clip)
-    if lips is not None and start < lips:
+    fits_group = lips_end is None or lips is None or duration / LINE_MAX_TEMPO <= lips_end - lips + LIPS_FIT_SLACK_SEC
+    if lips is not None and start < lips and fits_group:
         start = max(start, min(lips, (clip or end) - duration / LINE_MAX_TEMPO))
     room = max(0.0, end - start)
     tempo = 1.0
@@ -610,7 +644,7 @@ def _cut_at(room: float, tempo: float, pauses: list) -> float:
 
 
 def _line_chain(index: int, label: str, track, local: Path, window, clip: float, *, place: bool,
-                lips: float | None = None) -> str:
+                lips: tuple[float, float] | None = None) -> str:
     """Цепочка фильтров реплики: темп, громкость −16 LUFS, обрезка у конца ролика, место.
 
     place — поставить по окну и запомнить в track.start_sec (новая реплика или
@@ -618,7 +652,7 @@ def _line_chain(index: int, label: str, track, local: Path, window, clip: float,
     """
     pauses = _pauses(local)
     duration = _spoken_length(float(track.duration or 0), pauses)
-    start, tempo = fit_line(duration, window, clip, lips)
+    start, tempo = fit_line(duration, window, clip, *(lips or (None, None)))
     if place:
         track.start_sec = start
     start = max(0.0, float(track.start_sec))
@@ -805,7 +839,7 @@ def mix_scene(scene, line=None) -> str:
             if track.kind == "line":
                 has_line = True
                 parts.append(_line_chain(idx, f"[t{i}]", track, local, window, duration,
-                                         place=track is line, lips=lips_from_levels(levels)))
+                                         place=track is line, lips=lips_group_from_levels(levels)))
             else:
                 delay = max(0, int(float(track.start_sec) * 1000))
                 vol = min(VOLUME_MAX, max(VOLUME_MIN, float(track.volume)))
