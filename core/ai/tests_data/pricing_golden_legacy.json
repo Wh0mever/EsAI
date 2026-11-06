@@ -285,6 +285,8 @@
    "data": {
     "assembly": 0,
     "character": 4,
+    "scene_cheapest": 30,
+    "scene_cheapest_seconds": 4,
     "scene_max": 37,
     "scene_min": 37,
     "scene_typical": 37,
@@ -327,7 +329,7 @@
        "unit_model_name": "GPT-5.4 mini"
       },
       "video": {
-       "count": 86,
+       "count": 590,
        "recommended": false,
        "unit_model_name": "Grok Video"
       }
@@ -359,7 +361,7 @@
        "unit_model_name": "GPT-5.4 mini"
       },
       "video": {
-       "count": 33,
+       "count": 227,
        "recommended": false,
        "unit_model_name": "Grok Video"
       }
@@ -391,7 +393,7 @@
        "unit_model_name": "GPT-5.4 mini"
       },
       "video": {
-       "count": 16,
+       "count": 109,
        "recommended": false,
        "unit_model_name": "Grok Video"
       }
@@ -423,8 +425,8 @@
        "unit_model_name": "GPT-5.4 mini"
       },
       "video": {
-       "count": 6,
-       "recommended": true,
+       "count": 45,
+       "recommended": false,
        "unit_model_name": "Grok Video"
       }
      }
@@ -455,8 +457,8 @@
        "unit_model_name": "GPT-5.4 mini"
       },
       "video": {
-       "count": 2,
-       "recommended": false,
+       "count": 13,
+       "recommended": true,
        "unit_model_name": "Grok Video"
       }
      }
@@ -4032,6 +4034,8 @@
      "data": {
       "assembly": 0,
       "character": 4,
+      "scene_cheapest": 30,
+      "scene_cheapest_seconds": 4,
       "scene_max": 37,
       "scene_min": 37,
       "scene_typical": 37,
@@ -4234,6 +4238,8 @@
      "data": {
       "assembly": 0,
       "character": 4,
+      "scene_cheapest": 30,
+      "scene_cheapest_seconds": 4,
       "scene_max": 100,
       "scene_min": 100,
       "scene_typical": 100,
@@ -4436,6 +4442,8 @@
      "data": {
       "assembly": 0,
       "character": 4,
+      "scene_cheapest": 30,
+      "scene_cheapest_seconds": 4,
       "scene_max": 200,
       "scene_min": 200,
       "scene_typical": 200,
@@ -4744,7 +4752,7 @@
       "unit_model_name": "GPT-5.4 mini"
      },
      "video": {
-      "count": 86,
+      "count": 590,
       "recommended": false,
       "unit_model_name": "Grok Video"
      }
@@ -4776,7 +4784,7 @@
       "unit_model_name": "GPT-5.4 mini"
      },
      "video": {
-      "count": 33,
+      "count": 227,
       "recommended": false,
       "unit_model_name": "Grok Video"
      }
@@ -4808,7 +4816,7 @@
       "unit_model_name": "GPT-5.4 mini"
      },
      "video": {
-      "count": 16,
+      "count": 109,
       "recommended": false,
       "unit_model_name": "Grok Video"
      }
@@ -4840,8 +4848,8 @@
       "unit_model_name": "GPT-5.4 mini"
      },
      "video": {
-      "count": 6,
-      "recommended": true,
+      "count": 45,
+      "recommended": false,
       "unit_model_name": "Grok Video"
      }
     }
@@ -4872,8 +4880,8 @@
       "unit_model_name": "GPT-5.4 mini"
      },
      "video": {
-      "count": 2,
-      "recommended": false,
+      "count": 13,
+      "recommended": true,
       "unit_model_name": "Grok Video"
      }
     }

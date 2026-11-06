@@ -74,8 +74,31 @@ class CreditValueVideoTests(TestCase):
             self.assertIsNone(cv._video_credits(self.models[GROK]))
 
     def test_packages_value_follows_the_mode(self):
+        """Карточки пишут «до N видео» — по самому дешёвому ролику модели (07.11.2026)."""
+        cheapest = cv._video_credits_cheapest(self.models[GROK])
+        self.assertLess(cheapest, Decimal(75))
         rows = {r["name"]: r["value"] for r in cv.compute_all_packages_value("ru")}
-        self.assertEqual(rows["MASTER"]["video"]["count"], 6500 // 75)
+        self.assertEqual(rows["MASTER"]["video"]["count"], 6500 // int(cheapest))
         self.markup()
+        cheapest = cv._video_credits_cheapest(self.models[GROK])
+        self.assertLess(cheapest, Decimal(56))
         rows = {r["name"]: r["value"] for r in cv.compute_all_packages_value("ru")}
-        self.assertEqual(rows["MASTER"]["video"]["count"], 6500 // 56)
+        self.assertEqual(rows["MASTER"]["video"]["count"], 6500 // int(cheapest))
+
+    def test_cheapest_video_is_the_minimum_of_the_price_table(self):
+        """Seedance: квадрат дешевле 16:9 — минимум берётся по всем пропорциям."""
+        from ai.handlers import _openrouter_video_catalog
+        from ai.video_cost import price_table, price_tables_by_aspect
+        model = self.models[SEEDANCE]
+        spec = _openrouter_video_catalog(SEEDANCE) or {}
+        res = [str(r) for r in spec.get("supported_resolutions") or []]
+        dur = [int(d) for d in spec.get("supported_durations") or []]
+        cells = [c for t in [price_table(model, spec, res, dur), *price_tables_by_aspect(model, spec, res, dur).values()]
+                 for row in t.values() for c in row.values()]
+        self.assertEqual(cv._video_credits_cheapest(model), Decimal(min(cells)))
+
+    def test_cheapest_video_falls_back_when_the_catalogue_is_down(self):
+        with patch("ai.handlers._openrouter_video_catalog", side_effect=RuntimeError("down")):
+            self.assertIsNone(cv._video_credits_cheapest(self.models[GROK]))
+            rows = {r["name"]: r["value"] for r in cv.compute_all_packages_value("ru")}
+        self.assertIn("video", rows["MASTER"])

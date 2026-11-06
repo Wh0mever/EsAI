@@ -20,6 +20,7 @@ from __future__ import annotations
 import base64
 import io
 import logging
+import re
 import uuid
 
 from django.core.files.base import ContentFile
@@ -740,12 +741,17 @@ class PricingView(StudioPublicAPIView):
         # по которой человек прикидывает, на сколько ему хватит пакета.
         typical = prices[len(prices) // 2]
         defaults = defaults_json(memo, preset=fallback)
+        cheapest = _cheapest_scene(presets, model, memo) if model is not None and not fallback else None
         return Response({
             "character": character,
             # «от N кр» за сцену — самая дешёвая сцена нового мультфильма.
             "scene_min": prices[0],
             "scene_typical": typical,
             "scene_max": prices[-1],
+            # Самая дешёвая сцена вместе с кадром героя: короткая, низкое качество,
+            # самые дешёвые пропорции. По ней карточки тарифов пишут «до N сцен».
+            "scene_cheapest": cheapest[0] if cheapest else prices[0],
+            "scene_cheapest_seconds": cheapest[1] if cheapest else defaults.get("duration"),
             # Склейка идёт на нашем сервере через ffmpeg и моделям не платится.
             "assembly": 0,
             # С чем снимается новый мультфильм: settings — настройки админки,
@@ -753,6 +759,44 @@ class PricingView(StudioPublicAPIView):
             "settings": {**defaults, "model_name": short_name(model) if model is not None and not fallback else "",
                          "aspect_ratio": "16:9"},
         })
+
+
+def _cheapest_scene(presets, model, memo: dict) -> tuple[int, int] | None:
+    """(кредиты, секунды) самой дешёвой сцены моделью по умолчанию.
+
+    Перебираем самую короткую длительность и самое низкое качество модели во
+    всех пропорциях каталога: у Seedance квадрат дешевле 16:9 (Mini 480p 4 с:
+    17 кр против 30). Кэш на 10 минут: пресетов сотни, а страница публичная.
+    """
+    from django.core.cache import cache
+
+    from ai.handlers import _openrouter_video_catalog
+
+    from .pricing import model_caps, price_or_none, resolve_config
+
+    key = f"cartoon:cheapest_scene:{model.pk}"
+    found = cache.get(key)
+    if found is not None:
+        return tuple(found) if found else None
+    caps = model_caps(model, memo)
+    try:
+        spec = _openrouter_video_catalog(model.openrouter_id) or {}
+    except Exception:
+        spec = {}
+    aspects = [str(a) for a in (spec.get("supported_aspect_ratios") or []) if a] or ["16:9"]
+    best = None
+    if caps and caps.durations and caps.resolutions:
+        duration = min(int(d) for d in caps.durations)
+        resolution = min(caps.resolutions, key=lambda r: int(re.sub(r"\D", "", str(r)) or 0))
+        for preset in presets:
+            for aspect in aspects:
+                cfg = resolve_config(preset, model=model, resolution=resolution, duration=duration,
+                                     aspect=aspect, memo=memo)
+                price = price_or_none(preset, cfg, memo=memo)
+                if price is not None and price.total > 0 and (best is None or price.total < best[0]):
+                    best = (int(price.total), int(cfg.duration or duration))
+    cache.set(key, list(best) if best else [], 600)
+    return best
 
 
 class CharactersView(StudioPublicAPIView):

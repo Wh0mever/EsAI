@@ -249,6 +249,40 @@ def _video_credits(model) -> Decimal | None:
         return None
 
 
+def _video_credits_cheapest(model) -> Decimal | None:
+    """Самый дешёвый ролик модели: минимум по качеству, длительности и пропорциям.
+
+    Для карточек тарифов «До N видео» (клиент 07.11.2026): «до» — это столько
+    самых коротких и дешёвых роликов, например Seedance 2.0 Mini 480p 4 с 1:1 =
+    17 кр. Цена — та же таблица, что видеостудия показывает «от N кр»
+    (ai.video_cost.price_table), поэтому витрина не расходится со списанием.
+    None — цены нет (markup без себестоимости) или каталог недоступен: тогда
+    считаем, как раньше, по ролику по умолчанию.
+    """
+    from ai.pricing import PriceUnavailable
+    from ai.video_cost import price_table, price_tables_by_aspect
+
+    if model.markup_coefficient is None:
+        return None
+    try:
+        from ai.handlers import _openrouter_video_catalog
+        spec = _openrouter_video_catalog(str(model.openrouter_id or "")) or {}
+    except Exception:
+        logger.exception("credit_value: каталог видео для %r недоступен", model.openrouter_id)
+        return None
+    resolutions = [str(r) for r in (spec.get("supported_resolutions") or []) if r]
+    durations = [int(d) for d in (spec.get("supported_durations") or []) if str(d).isdigit()]
+    if not resolutions or not durations:
+        return None
+    try:
+        tables = [price_table(model, spec, resolutions, durations),
+                  *price_tables_by_aspect(model, spec, resolutions, durations).values()]
+    except PriceUnavailable:
+        return None
+    cells = [c for t in tables for row in t.values() for c in row.values() if c and c > 0]
+    return Decimal(min(cells)) if cells else None
+
+
 def credits_per_unit(category: str, model=None) -> Decimal | None:
     """Сколько кредитов стоит ОДНА единица результата данной категории.
 
@@ -439,6 +473,9 @@ def compute_package_value(package) -> dict:
         if model is None:
             continue
         per_unit = credits_per_unit(category, model=model)
+        if category == "video":
+            # Карточки обещают «до N видео» — считаем по самому дешёвому ролику.
+            per_unit = _video_credits_cheapest(model) or per_unit
         if not per_unit or per_unit <= 0:
             continue
         count = int(

@@ -42,6 +42,9 @@ type StudioPricing = {
 	scene_min: number;
 	scene_typical: number;
 	scene_max: number;
+	/** Самая дешёвая сцена с кадром героя (Mini 480p 4 с 1:1 = 22 кр) и её длина. */
+	scene_cheapest?: number;
+	scene_cheapest_seconds?: number | null;
 	/** С чем снимается новый мультфильм: settings — настройки по умолчанию из админки
 	 *  (Seedance Mini 480p 5 с), preset — откат на сцены библиотеки. Цены выше — по ним. */
 	settings?: {
@@ -87,10 +90,11 @@ export default function StudioPricing() {
 
 	// Пришли со съёмки конкретной сцены — считаем по её цене: она и спишется.
 	const fromScene = need?.for === "scene" && need.cost > 0;
-	const scene = (fromScene && need ? need.cost : 0) || pricing?.scene_typical || 0;
-	const seconds = pricing?.settings?.duration || 5;
+	// Карточки обещают «до N сцен» — по самой дешёвой сцене (клиент 07.11.2026).
+	const scene = (fromScene && need ? need.cost : 0) || pricing?.scene_cheapest || pricing?.scene_typical || 0;
+	const seconds = pricing?.scene_cheapest_seconds || pricing?.settings?.duration || 5;
 	// «от N кр» — самая дешёвая сцена НОВОГО мультфильма (как его снимет студия).
-	const sceneFrom = pricing?.scene_min || 0;
+	const sceneFrom = pricing?.scene_cheapest || pricing?.scene_min || 0;
 	const character = pricing?.character || 0;
 	const defaults = pricing?.settings?.source === "settings" ? pricing.settings : null;
 
@@ -124,7 +128,7 @@ export default function StudioPricing() {
 								: t("studio_pricing.value_scenes", {
 										count: scenes,
 										seconds,
-										defaultValue: "🎬 {{count}} сцен по {{seconds}} секунд",
+										defaultValue: "До {{count}} сцен по {{seconds}} с",
 									}),
 						];
 						if (movies >= 1) {
@@ -132,7 +136,7 @@ export default function StudioPricing() {
 								t("studio_pricing.value_movies", {
 									count: movies,
 									seconds: seconds * SCENES_PER_MOVIE,
-									defaultValue: "🎞 {{count}} мультфильмов по {{seconds}} секунд",
+									defaultValue: "До {{count}} мультфильмов по {{seconds}} с",
 								})
 							);
 						}
@@ -191,10 +195,10 @@ export default function StudioPricing() {
 						<div className="flex flex-col gap-1 rounded-xl bg-surface-2 p-4">
 							<FiFilm className="text-xl text-accent" />
 							<span className="text-sm text-muted">
-								{defaults?.duration
+								{pricing?.scene_cheapest_seconds || defaults?.duration
 									? t("studio_pricing.math_scene_seconds", {
 											defaultValue: "Сцена {{seconds}} с",
-											seconds: defaults.duration,
+											seconds: pricing?.scene_cheapest_seconds || defaults?.duration,
 										})
 									: t("studio_pricing.math_scene", { defaultValue: "Сцена 5 секунд" })}
 							</span>
