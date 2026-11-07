@@ -239,12 +239,16 @@ export default function StudioPricing() {
 							</span>
 						</div>
 					</div>
-					{scene > 0 && (
+					{sceneFrom > 0 && (
 						<p className="mt-4 text-sm text-muted">
+							{/* Пример — по минимальной цене сцены, как и «от N кр» выше (клиент 07.11.2026). */}
 							{t("studio_pricing.math_example", {
 								defaultValue:
-									"Мультфильм из 4 сцен — это 20 секунд и {{total}} кредитов. Неудачная сцена пересобирается по цене одной сцены, остальные не трогаются.",
-								total: (pricing?.scene_typical || scene) * SCENES_PER_MOVIE,
+									"Мультфильм из {{scenes}} сцен по {{seconds}} секунды — всего {{total_seconds}} секунд и от {{total}} кредитов. Неудачная сцена пересобирается по цене одной сцены, остальные не трогаются.",
+								scenes: SCENES_PER_MOVIE,
+								seconds: pricing?.scene_cheapest_seconds || defaults?.duration || 4,
+								total_seconds: (pricing?.scene_cheapest_seconds || defaults?.duration || 4) * SCENES_PER_MOVIE,
+								total: sceneFrom * SCENES_PER_MOVIE,
 							})}
 						</p>
 					)}

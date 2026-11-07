@@ -1840,7 +1840,7 @@
 		"math_assembly": "Assembling the cartoon",
 		"math_free": "Free",
 		"math_assembly_note": "As many times as you like — scenes are not charged again",
-		"math_example": "A four-scene cartoon is 20 seconds and {{total}} credits. A scene you don't like is re-shot for the price of one scene; the rest stay untouched.",
+		"math_example": "A cartoon of {{scenes}} scenes, {{seconds}} seconds each — {{total_seconds}} seconds in total, from {{total}} credits. A scene you don't like is re-shot for the price of one scene; the rest stay untouched.",
 		"credits_one": "{{count}} credit",
 		"credits_other": "{{count}} credits",
 		"value_title": "Enough for",
