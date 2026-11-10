@@ -3,6 +3,7 @@ import { I18nProvider } from "@/i18n/i18n-provider";
 import type { Metadata, Viewport } from "next";
 import BackToTopButton from "@/components/ui/toTop/BackToTop";
 import PwaManager from "@/components/pwa/PwaManager";
+import LowBalanceNotice from "@/components/billing/LowBalanceNotice";
 import "./globals.css";
 import "highlight.js/styles/github-dark.css";
 import "@/assets/style.scss";
@@ -178,6 +179,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
 					<BackToTopButton />
 					{children}
 					<PwaManager />
+					<LowBalanceNotice />
 				</I18nProvider>
 			</body>
 		</html>

@@ -9,6 +9,7 @@ import { FiAlertTriangle, FiCheck, FiFilm, FiLogIn, FiPlus, FiRefreshCw, FiWifiO
 import EsaiLogo from "@/components/brand/EsaiLogo";
 import PaywallModal from "@/components/chat/PaywallModal";
 import TopUpModal from "@/components/chat/TopUpModal";
+import { useTopUpRequest } from "@/lib/topupRequest";
 import type { PackageNeed } from "@/lib/packagePick";
 import { StudioAuthDialog } from "@/components/studio/StudioDialogs";
 import { useBalance } from "@/hooks/useBalance";
@@ -510,6 +511,8 @@ export default function VideoStudio({ projectUid }: VideoStudioProps) {
     }),
     [dispatch, fetchProjects, handleError, newSession, openProject, requireAuth, toast],
   );
+  // Напоминание об остатке открывает пакеты здесь же — генерация идёт дальше.
+  useTopUpRequest(() => actions.openTopUp());
 
   /* ---------- вход ---------- */
 

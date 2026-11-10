@@ -641,3 +641,34 @@ class ExitDiscountOffer(models.Model):
 
     def __str__(self):
         return f"ExitDiscountOffer user={self.user_id} device={self.device_key or '-'}"
+
+
+# =========================================================================
+# Напоминание о заканчивающихся кредитах (клиент 09.11.2026)
+# =========================================================================
+
+
+class LowBalanceNotice(models.Model):
+    """Какое напоминание об остатке человек уже видел в текущем цикле.
+
+    Цикл — от одной покупки пакета до следующей: cycle_tx_id — id той
+    TokenTransaction(reason="purchase"). Новая покупка = другой id = цикл
+    начинается заново, отдельно сбрасывать ничего не нужно.
+    shown_level — самый низкий показанный порог (20 или 10), null — ничего.
+    """
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="low_balance_notice",
+        verbose_name="Пользователь",
+    )
+    cycle_tx_id = models.BigIntegerField(verbose_name="Покупка, с которой идёт цикл")
+    shown_level = models.PositiveSmallIntegerField(null=True, blank=True, verbose_name="Показан порог, %")
+    updated_at = models.DateTimeField(auto_now=True, verbose_name="Обновлено")
+
+    class Meta:
+        verbose_name = "Напоминание об остатке"
+        verbose_name_plural = "Напоминания об остатке"
+
+    def __str__(self):
+        return f"LowBalanceNotice user={self.user_id} cycle={self.cycle_tx_id} shown={self.shown_level}"

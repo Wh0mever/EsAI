@@ -2354,5 +2354,12 @@
 		"held_continue": "Continue with the discount — {{amount}}",
 		"held_full": "{{method}} without the discount — {{amount}}",
 		"qr_banks_more": "and other banks"
+	},
+	"low_balance": {
+		"soft_text": "Your balance is running low. Top up to keep creating videos, cartoons and images without a break.",
+		"soft_cta": "Top up balance",
+		"urgent_text": "You have very few credits left! Top up and keep creating content with EsAI.",
+		"urgent_cta": "Choose a plan",
+		"close": "Close"
 	}
 }

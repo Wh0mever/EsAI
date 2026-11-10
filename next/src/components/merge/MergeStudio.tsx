@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { FiLogIn, FiPlus, FiScissors } from "react-icons/fi";
 import PaywallModal from "@/components/chat/PaywallModal";
 import TopUpModal from "@/components/chat/TopUpModal";
+import { useTopUpRequest } from "@/lib/topupRequest";
 import BottomSheet from "@/components/vstudio/BottomSheet";
 import VStudioShell, { useVsBreakpoint } from "@/components/vstudio/VStudioShell";
 import { useVisualViewport } from "@/components/vstudio/hooks/useVisualViewport";
@@ -59,6 +60,7 @@ export default function MergeStudio() {
   const { t } = useTranslation("vstudio", { useSuspense: false });
   const m = useMerge();
   const { actions } = m;
+  useTopUpRequest(() => actions.openTopup());
   const breakpoint = useVsBreakpoint();
   // Высота оболочки — видимая часть окна: на телефоне с клавиатурой док остаётся над ней.
   useVisualViewport({ cssVars: true });

@@ -18,6 +18,7 @@ import type { VideoSettings } from "./VideoParamsPanel";
 import ChatSidebar, { type ChatItem } from "./ChatSidebar";
 import EsaiLogo from "@/components/brand/EsaiLogo";
 import TopUpModal from "./TopUpModal";
+import { useTopUpRequest } from "@/lib/topupRequest";
 import GuestLimitModal from "./GuestLimitModal";
 import { useBonusSettings } from "@/hooks/useBonusSettings";
 import PaywallModal, { type PaywallContext, type PaywallReason } from "./PaywallModal";
@@ -155,6 +156,8 @@ export default function ChatWorkspace({ chatId, mode = MODE, heroSlot, belowComp
 
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [topUpOpen, setTopUpOpen] = useState(false);
+  // Напоминание об остатке открывает пакеты прямо здесь, без ухода из чата.
+  useTopUpRequest(() => setTopUpOpen(true));
   /** non-null shows the branded up-sell modal (premium/insufficient/daily). */
   const [paywall, setPaywall] = useState<PaywallContext | null>(null);
   const [guestLimitOpen, setGuestLimitOpen] = useState(false);

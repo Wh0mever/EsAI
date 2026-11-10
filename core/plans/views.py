@@ -282,6 +282,8 @@ class TokenBalanceView(APIView):
     def get(self, request):
         from .tiers import is_unlimited, user_tier
 
+        from .low_balance import pending_notice
+
         balance = int(getattr(request.user, "token_balance", 0) or 0)
         unlimited = is_unlimited(request.user)
         # По правам безлимитный аккаунт совпадает с платным, но человеку это
@@ -298,9 +300,30 @@ class TokenBalanceView(APIView):
                 "tier": "unlimited" if unlimited else user_tier(request.user),
                 "is_paid": bool(getattr(request.user, "is_paid", False)),
                 "is_unlimited": unlimited,
+                # Напоминание «кредиты заканчиваются»: {"level", "cycle", "base"} или null.
+                "low_balance": pending_notice(request.user),
             },
             status=200,
         )
+
+
+class LowBalanceSeenView(APIView):
+    """POST /api/plans/balance/low-seen/ {"level": 20|10, "cycle": id покупки}.
+
+    Фронт отмечает, что показал напоминание, — второй раз в этом цикле его не будет.
+    """
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        from .low_balance import mark_shown
+
+        try:
+            level = int(request.data.get("level"))
+            cycle = int(request.data.get("cycle"))
+        except (TypeError, ValueError):
+            return Response({"detail": "level и cycle — числа"}, status=400)
+        return Response({"ok": mark_shown(request.user, level, cycle)}, status=200)
 
 
 class TokenPackageListView(generics.ListAPIView):

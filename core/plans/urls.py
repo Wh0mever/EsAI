@@ -1,5 +1,6 @@
 from django.urls import path
 from .views import (
+    LowBalanceSeenView,
     PlanListView, PlanRetrieveView,
     MeSubscriptionView, MeUsageView, MeAddonsView,
     ActivatePlanView, UnsubscribeView, ResumeSubscriptionView,
@@ -19,6 +20,7 @@ urlpatterns = [
     path("list/", PlanListView.as_view(), name="plan-list"),
     # Token system (pay-as-you-go). Объявлены ДО "<int:pk>/", чтобы не перехватывались.
     path("balance/", TokenBalanceView.as_view(), name="token-balance"),
+    path("balance/low-seen/", LowBalanceSeenView.as_view(), name="token-balance-low-seen"),
     path("packages/", TokenPackageListView.as_view(), name="token-packages"),
     path("packages/value/", TokenPackageValueListView.as_view(), name="token-packages-value"),
     path("currency-rate/", CurrencyRateView.as_view(), name="currency-rate"),
