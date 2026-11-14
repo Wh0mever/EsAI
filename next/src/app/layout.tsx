@@ -4,6 +4,7 @@ import type { Metadata, Viewport } from "next";
 import BackToTopButton from "@/components/ui/toTop/BackToTop";
 import PwaManager from "@/components/pwa/PwaManager";
 import LowBalanceNotice from "@/components/billing/LowBalanceNotice";
+import PresencePing from "@/components/bootstrap/PresencePing";
 import "./globals.css";
 import "highlight.js/styles/github-dark.css";
 import "@/assets/style.scss";
@@ -180,6 +181,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
 					{children}
 					<PwaManager />
 					<LowBalanceNotice />
+					<PresencePing />
 				</I18nProvider>
 			</body>
 		</html>

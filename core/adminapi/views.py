@@ -109,6 +109,17 @@ class StaffAPIView(APIView):
     permission_classes = [IsStaff]
 
 
+# ---------------------------------------------------------------- online ---
+
+class OnlineView(StaffAPIView):
+    """GET /api/manage/online/ — сколько человек на сайте сейчас (users.presence)."""
+
+    def get(self, request):
+        from users.presence import snapshot
+
+        return Response(snapshot())
+
+
 # ---------------------------------------------------------------- summary ---
 
 class SummaryView(StaffAPIView):

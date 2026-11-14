@@ -280,6 +280,8 @@ REST_FRAMEWORK = {
     ],
     "DEFAULT_THROTTLE_RATES": {
         "anon": env.str("DRF_THROTTLE_ANON", default="30/min"),
+        # Отметка «вкладка открыта» (users.presence): раз в 45 с с вкладки, запас на NAT.
+        "presence": env.str("DRF_THROTTLE_PRESENCE", default="60/min"),
         "user": env.str("DRF_THROTTLE_USER", default="120/min"),
         # Крипта. Создание счёта дёргает платный API процессора — держим редко.
         # Опрос статуса делает открытая вкладка раз в 5-15 секунд, поэтому

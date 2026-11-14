@@ -7,6 +7,7 @@ from django.utils.http import urlencode
 from rest_framework_simplejwt.tokens import RefreshToken
 from botapi.views import TelegramLinkStartView, TelegramPrefsView, WebAppAuthView
 from .views import *
+from .presence import PresencePingView
 
 
 def _allowed_frontend_hosts() -> set:
@@ -132,6 +133,7 @@ def _social_signup_closed(request, *args, **kwargs):
 
 
 urlpatterns = [
+    path("presence/", PresencePingView.as_view(), name="presence"),
     # Вход по паролю закрыт целиком. Регистрация с паролем (signup/, token/ и
     # формы allauth) не проверяла владение почтой: можно было заранее завести
     # аккаунт на чужой email, дождаться, пока хозяин войдёт кодом и пополнит

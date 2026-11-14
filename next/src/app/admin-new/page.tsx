@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { fetchData } from "@/tools/fetchData";
+import OnlineCard from "./OnlineCard";
 import {
   FiUsers,
   FiTrendingUp,
@@ -184,6 +185,8 @@ export default function AdminDashboardPage() {
   return (
     <div className="space-y-6">
       <h1 className="text-2xl font-semibold">Дашборд</h1>
+
+      <OnlineCard />
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {cards.map((c) => {

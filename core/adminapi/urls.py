@@ -9,6 +9,7 @@ app_name = "adminapi"
 urlpatterns = [
     path("login/", views.AdminLoginAPIView.as_view(), name="login"),
     path("summary/", views.SummaryView.as_view(), name="summary"),
+    path("online/", views.OnlineView.as_view(), name="online"),
     path("models/", views.ModelsListView.as_view(), name="models-list"),
     # «Добавить модель»: поиск в каталоге OpenRouter; пересчёт тарифов текста и
     # тарифа картинок Nano Banana в чате.
