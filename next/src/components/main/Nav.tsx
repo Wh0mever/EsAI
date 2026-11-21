@@ -9,12 +9,16 @@ import { DropDownHovered } from "@/components/ui/dropDown/DropDownHovered";
 import { Button } from "@/components/ui/buttons/Buttons";
 import { usePathname } from "next/navigation";
 import { setLanguagePreference } from "@/lib/locale";
-// «Creators» в меню — по тому же правилу, что «Видеостудия» ниже: флаг сборки
-// NEXT_PUBLIC_CREATORS_NAV включают, когда программа открыта всем. Подпись —
-// имя программы, одинаковое на всех языках, поэтому она верна и тогда, когда
-// namespace creators на этой странице ещё не загружен.
-import { CREATORS_NAV } from "@/lib/creators/format";
-import { NAV_RU } from "@/lib/creators/labels";
+// Состав меню — lib/nav/menu.ts (общий с подвалом и оболочками студий).
+// Шапка по решению клиента 16.11.2026: Главная · Студии ▾ · Инструменты ▾ ·
+// Тарифы · Блог · Креаторы · язык. «О нас», «Контакты», «Помощь», «Условия»
+// ушли из шапки компьютера в подвал; в мобильном меню они остаются.
+import { STUDIOS, TOOLS, MAIN_TAIL, COMPANY, LEGAL, pathOf, type MenuItem } from "@/lib/nav/menu";
+import { CREATIVE_PATH } from "@/lib/nav/paths";
+
+// /creative есть и в «Студиях», и в «Инструментах» (категории). Подсвечиваем
+// только «Студии», иначе на странице Creative Studio горели оба пункта.
+const TOOLS_ACTIVE = TOOLS.filter((i) => pathOf(i.href) !== CREATIVE_PATH);
 
 type Variant = "desktop" | "mobile";
 type Props = { variant?: Variant; className?: string; onNavigate?: () => void };
@@ -26,17 +30,6 @@ const LANGUAGES: Lang[] = [
   { code: "en", icon: "/images/local/en.webp", label: "English" },
   { code: "kg", icon: "/images/local/kg.webp", label: "Кыргызча" },
 ];
-
-// В мобильном меню «Блог» — обычный пункт над «Категориями», и на /blog они не подсвечиваются.
-const MOBILE_CATEGORIES_ROUTES = ["/about", "/contact-us", "/faq", "/terms-conditions", "/creators"];
-// На десктопе «Блог» — первый пункт «Категорий» (в ряду его место заняла «Академия»),
-// поэтому /blog и /blog/<slug> подсвечивают «Категории».
-const CATEGORIES_ROUTES = ["/blog", ...MOBILE_CATEGORIES_ROUTES];
-
-// «Видеостудия» в меню — только когда студия открыта всем (VSTUDIO_MODE=on на
-// бэкенде). Пока она в режиме staff, обычный посетитель увидел бы там лишь
-// «скоро откроется». Флаг вшивается при сборке.
-const VSTUDIO_NAV = process.env.NEXT_PUBLIC_VSTUDIO_NAV === "1";
 
 function useLocale() {
   const { i18n } = useTranslation();
@@ -83,18 +76,26 @@ const LanguageMenu = memo(function LanguageMenu({
 /* ---------- Active helpers ---------- */
 function useActive() {
   const pathname = usePathname() || "/";
-  const isActive = (href: string, exact = false) =>
-    exact ? pathname === href : pathname === href || pathname.startsWith(href + "/");
-  const anyActive = (routes: string[]) => routes.some(r => isActive(r, false));
+  const isActive = (href: string, exact = false) => {
+    const h = pathOf(href);
+    return exact ? pathname === h : pathname === h || pathname.startsWith(h + "/");
+  };
+  const anyActive = (items: MenuItem[]) => items.some((i) => isActive(i.href));
   return { pathname, isActive, anyActive };
 }
 
+function useLabel() {
+  const { t } = useTranslation("home");
+  return (i: MenuItem) => t(i.label, { ns: i.ns || "home", defaultValue: i.fallback });
+}
+
 /* ---------- Mobile ---------- */
-// Только навигация: валюта убрана (одна валюта — сом), язык вынесен в шапку
-// (LangSwitch), чтобы не нагружать меню (запрос клиента).
-function MobileNav({ className, onNavigate }: any) {
-  const { isActive, anyActive } = useActive();
-  const { t } = useTranslation('home');
+// Только навигация: язык вынесен в шапку (LangSwitch). Группы с подзаголовками,
+// чтобы длинный список читался.
+function MobileNav({ className, onNavigate }: { className?: string; onNavigate?: () => void }) {
+  const { isActive } = useActive();
+  const { t } = useTranslation("home");
+  const label = useLabel();
 
   const linkCls = (href: string, exact = false) =>
     clsx(
@@ -102,267 +103,114 @@ function MobileNav({ className, onNavigate }: any) {
       isActive(href, exact) ? "bg-surface-3 text-foreground" : "text-muted"
     );
 
+  const item = (i: MenuItem, exact = false) => (
+    <li key={i.href + i.label}>
+      <Link
+        href={i.href}
+        prefetch={i.prefetch}
+        onClick={onNavigate}
+        className={linkCls(i.href, exact)}
+        aria-current={isActive(i.href, exact) ? "page" : undefined}
+      >
+        {label(i)}
+      </Link>
+    </li>
+  );
+
+  const group = (title: string, items: MenuItem[]) => (
+    <li className="mt-2">
+      <div className="px-4 pb-1 text-xs uppercase tracking-wide text-muted-2">{title}</div>
+      <ul className="flex flex-col">{items.map((i) => item(i))}</ul>
+    </li>
+  );
+
   return (
     <nav className={clsx("text-foreground", className)}>
-      <ul className="flex flex-col gap-2">
-        <li>
-          <Link href="/" onClick={onNavigate} className={linkCls("/", true)} aria-current={isActive("/", true) ? "page" : undefined}>
-            {t("nav.home")}
-          </Link>
-        </li>
-        <li>
-          <Link href="/pricing" onClick={onNavigate} className={linkCls("/pricing")} aria-current={isActive("/pricing") ? "page" : undefined}>
-            {t("nav.pricing")}
-          </Link>
-        </li>
-        <li>
-          <Link href="/studio" onClick={onNavigate} className={linkCls("/studio")} aria-current={isActive("/studio") ? "page" : undefined}>
-            {t("nav.studio", { defaultValue: "Мультфильмы" })}
-          </Link>
-        </li>
-        {VSTUDIO_NAV && (
-          <li>
-            <Link
-              href="/video-studio"
-              onClick={onNavigate}
-              className={linkCls("/video-studio")}
-              aria-current={isActive("/video-studio") ? "page" : undefined}
-            >
-              {t("nav.vstudio", { defaultValue: "Видеостудия" })}
-            </Link>
-          </li>
-        )}
-        <li>
-          <Link href="/merge" prefetch={false} onClick={onNavigate} className={linkCls("/merge")} aria-current={isActive("/merge") ? "page" : undefined}>
-            {t("nav.merge", { defaultValue: "Склейка" })}
-          </Link>
-        </li>
-        <li>
-          <Link href="/academy" onClick={onNavigate} className={linkCls("/academy")} aria-current={isActive("/academy") ? "page" : undefined}>
-            {t("nav.academy", { defaultValue: "EsAI Академия" })}
-          </Link>
-        </li>
-        <li>
-          <Link href="/blog" onClick={onNavigate} className={linkCls("/blog")} aria-current={isActive("/blog") ? "page" : undefined}>
-            {t("nav.blog")}
-          </Link>
-        </li>
-
+      <ul className="flex flex-col gap-1">
+        {item({ href: "/", label: "nav.home", fallback: "Главная" }, true)}
+        {group(t("nav.studios", { defaultValue: "Студии" }), STUDIOS)}
+        {group(t("nav.tools", { defaultValue: "Инструменты" }), TOOLS)}
         <li className="mt-2">
-          <div
-            className={clsx(
-              "px-4 pb-1 text-xs uppercase tracking-wide",
-              anyActive(MOBILE_CATEGORIES_ROUTES) ? "text-rose-400" : "text-muted-2"
-            )}
-          >
-            {t("nav.categories")}
-          </div>
-          <div className="flex flex-col">
-            <Link href="/about" onClick={onNavigate} className={linkCls("/about")} aria-current={isActive("/about") ? "page" : undefined}>
-              {t("nav.about")}
-            </Link>
-            <Link href="/referral" onClick={onNavigate} className={linkCls("/referral")} aria-current={isActive("/referral") ? "page" : undefined}>
-              {t("nav.referral")}
-            </Link>
-            {CREATORS_NAV && (
-              <Link href="/creators" onClick={onNavigate} className={linkCls("/creators")} aria-current={isActive("/creators") ? "page" : undefined}>
-                {t("nav.link", { ns: "creators", defaultValue: NAV_RU.link })}
-              </Link>
-            )}
-            <Link href="/contact-us" onClick={onNavigate} className={linkCls("/contact-us")} aria-current={isActive("/contact-us") ? "page" : undefined}>
-              {t("nav.contact")}
-            </Link>
-            <Link href="/faq" onClick={onNavigate} className={linkCls("/faq")} aria-current={isActive("/faq") ? "page" : undefined}>
-              {t("nav.help")}
-            </Link>
-            <Link
-              href="/terms-conditions"
-              onClick={onNavigate}
-              className={linkCls("/terms-conditions")}
-              aria-current={isActive("/terms-conditions") ? "page" : undefined}
-            >
-              {t("nav.terms")}
-            </Link>
-          </div>
+          <ul className="flex flex-col">{MAIN_TAIL.map((i) => item(i))}</ul>
         </li>
+        {group(t("nav.more", { defaultValue: "Ещё" }), [...COMPANY, LEGAL[0]])}
       </ul>
     </nav>
   );
 }
 
 /* ---------- Desktop ---------- */
-// Валюта убрана; компактный переключатель языка (флаг) оставлен.
-function PCNav({ className, onNavigate, t, changeLanguage, currentLang }: any) {
-  const { isActive, anyActive } = useActive();
+type PCProps = {
+  className?: string;
+  onNavigate?: () => void;
+  t: (k: string, o?: Record<string, unknown>) => string;
+  changeLanguage: (code: string) => void;
+  currentLang: string;
+};
 
-  const linkCls = (href: string, exact = false) =>
-    clsx(
-      "py-3 relative",
-      isActive(href, exact) ? "text-foreground" : "text-muted",
-      "hover:text-foreground"
-    );
+function PCNav({ className, onNavigate, t, changeLanguage, currentLang }: PCProps) {
+  const { isActive, anyActive } = useActive();
+  const label = useLabel();
+
+  const linkCls = (active: boolean) =>
+    clsx("py-3 relative", active ? "text-foreground" : "text-muted", "hover:text-foreground");
 
   const linkInner = (active: boolean) =>
     clsx(
       "inline-block",
-      active && "after:content-[''] after:block after:h-[2px] after:bg-rose-500 after:rounded-full after:mt-1"
+      active && "after:content-[''] after:block after:h-[2px] after:bg-[#F5C518] after:rounded-full after:mt-1"
     );
 
-  const categoriesActive = anyActive(CATEGORIES_ROUTES);
+  const dropdown = (title: string, items: MenuItem[], activeBy: MenuItem[] = items) => {
+    const active = anyActive(activeBy);
+    return (
+      <li className={linkCls(active)}>
+        <DropDownHovered
+          handleText={
+            <span className={linkInner(active)} aria-current={active ? "page" : undefined}>
+              {title}
+            </span>
+          }
+        >
+          <ul className="flex flex-col text-sm py-2 min-w-56">
+            {items.map((i, n) => (
+              <li key={i.href + i.label} className={clsx(n < items.length - 1 && "border-b border-neutral-700")}>
+                <Link
+                  href={i.href}
+                  prefetch={i.prefetch}
+                  onClick={onNavigate}
+                  className="py-3.5 px-8 hover:bg-surface-2 transition-all duration-300 flex w-full"
+                >
+                  {label(i)}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </DropDownHovered>
+      </li>
+    );
+  };
+
+  const plain = (i: MenuItem, exact = false) => {
+    const active = isActive(i.href, exact);
+    return (
+      <li key={i.href + i.label} className={linkCls(active)}>
+        <Link href={i.href} prefetch={i.prefetch} onClick={onNavigate} className={linkInner(active)} aria-current={active ? "page" : undefined}>
+          {label(i)}
+        </Link>
+      </li>
+    );
+  };
 
   return (
     <nav className={clsx("bg-surface px-3 xl:px-6 rounded-4xl flex items-center shadow-md", className)}>
-      {/* Ниже xl ряд плотнее (поля, промежутки, 14 px): иначе у вошедшего по-кыргызски шапка
-          уезжает за край (на 1024 px так было ещё до «Академии» в ряду). nowrap — чтобы в
-          тесноте пункт («Башкы бет») не ломался на две строки. */}
+      {/* Ниже xl ряд плотнее: у вошедшего по-кыргызски шапка тесная на 1024 px.
+          nowrap — чтобы пункт не ломался на две строки. */}
       <ul className="flex items-center gap-2 min-[1100px]:gap-3 xl:gap-5 2xl:gap-8 text-sm xl:text-base whitespace-nowrap">
-        <li className={linkCls("/", true)}>
-          <Link href="/" onClick={onNavigate} className={linkInner(isActive("/", true))} aria-current={isActive("/", true) ? "page" : undefined}>
-            {t("nav.home")}
-          </Link>
-        </li>
-        <li className={linkCls("/pricing")}>
-          <Link href="/pricing" onClick={onNavigate} className={linkInner(isActive("/pricing"))} aria-current={isActive("/pricing") ? "page" : undefined}>
-            {t("nav.pricing")}
-          </Link>
-        </li>
-        <li className={linkCls("/studio")}>
-          <Link href="/studio" onClick={onNavigate} className={linkInner(isActive("/studio"))} aria-current={isActive("/studio") ? "page" : undefined}>
-            {t("nav.studio", { defaultValue: "Мультфильмы" })}
-          </Link>
-        </li>
-        {VSTUDIO_NAV && (
-          <li className={linkCls("/video-studio")}>
-            <Link
-              href="/video-studio"
-              onClick={onNavigate}
-              className={linkInner(isActive("/video-studio"))}
-              aria-current={isActive("/video-studio") ? "page" : undefined}
-            >
-              {t("nav.vstudio", { defaultValue: "Видеостудия" })}
-            </Link>
-          </li>
-        )}
-        <li className={linkCls("/merge")}>
-          <Link href="/merge" prefetch={false} onClick={onNavigate} className={linkInner(isActive("/merge"))} aria-current={isActive("/merge") ? "page" : undefined}>
-            {t("nav.merge", { defaultValue: "Склейка" })}
-          </Link>
-        </li>
-        {/* «Академия» всегда в ряду (владелец: «должна быть видна»). Полная подпись
-            «EsAI Академия» помещается только от 1536 px, ниже — короткая; переключает CSS,
-            без JS, чтобы при гидрации ничего не прыгало. */}
-        <li className={linkCls("/academy")}>
-          <Link href="/academy" onClick={onNavigate} className={linkInner(isActive("/academy"))} aria-current={isActive("/academy") ? "page" : undefined}>
-            <span className="2xl:hidden">{t("nav.academy_short", { defaultValue: "Академия" })}</span>
-            <span className="hidden 2xl:inline">{t("nav.academy", { defaultValue: "EsAI Академия" })}</span>
-          </Link>
-        </li>
-
-        <li className={clsx("py-3", categoriesActive ? "text-foreground" : "text-muted", "hover:text-foreground")}>
-          <DropDownHovered
-            handleText={
-              <span className={linkInner(categoriesActive)} aria-current={categoriesActive ? "page" : undefined}>
-                {t("nav.categories")}
-              </span>
-            }
-          >
-            <ul className="flex flex-col text-sm py-2">
-              <li className="border-b border-neutral-700">
-                <Link
-                  href="/blog"
-                  onClick={onNavigate}
-                  className={clsx(
-                    "py-4 px-8 hover:bg-surface-2 transition-all duration-300 flex w-full",
-                    isActive("/blog") && "bg-surface-2"
-                  )}
-                  aria-current={isActive("/blog") ? "page" : undefined}
-                >
-                  {t("nav.blog")}
-                </Link>
-              </li>
-              <li className="border-b border-neutral-700">
-                <Link
-                  href="/about"
-                  onClick={onNavigate}
-                  className={clsx(
-                    "py-4 px-8 hover:bg-surface-2 transition-all duration-300 flex w-full",
-                    isActive("/about") && "bg-surface-2"
-                  )}
-                  aria-current={isActive("/about") ? "page" : undefined}
-                >
-                  {t("nav.about")}
-                </Link>
-              </li>
-              <li className="border-b border-neutral-700">
-                <Link
-                  href="/referral"
-                  onClick={onNavigate}
-                  className={clsx(
-                    "py-4 px-8 hover:bg-surface-2 transition-all duration-300 flex w-full",
-                    isActive("/referral") && "bg-surface-2"
-                  )}
-                  aria-current={isActive("/referral") ? "page" : undefined}
-                >
-                  {t("nav.referral")}
-                </Link>
-              </li>
-              {CREATORS_NAV && (
-                <li className="border-b border-neutral-700">
-                  <Link
-                    href="/creators"
-                    onClick={onNavigate}
-                    className={clsx(
-                      "py-4 px-8 hover:bg-surface-2 transition-all duration-300 flex w-full",
-                      isActive("/creators") && "bg-surface-2"
-                    )}
-                    aria-current={isActive("/creators") ? "page" : undefined}
-                  >
-                    {t("nav.link", { ns: "creators", defaultValue: NAV_RU.link })}
-                  </Link>
-                </li>
-              )}
-              <li className="border-b border-neutral-700">
-                <Link
-                  href="/contact-us"
-                  onClick={onNavigate}
-                  className={clsx(
-                    "py-4 px-8 hover:bg-surface-2 transition-all duration-300 flex w-full",
-                    isActive("/contact-us") && "bg-surface-2"
-                  )}
-                  aria-current={isActive("/contact-us") ? "page" : undefined}
-                >
-                  {t("nav.contact")}
-                </Link>
-              </li>
-              <li className="border-b border-neutral-700">
-                <Link
-                  href="/faq"
-                  onClick={onNavigate}
-                  className={clsx(
-                    "py-4 px-8 hover:bg-surface-2 transition-all duration-300 flex w-full",
-                    isActive("/faq") && "bg-surface-2"
-                  )}
-                  aria-current={isActive("/faq") ? "page" : undefined}
-                >
-                  {t("nav.help")}
-                </Link>
-              </li>
-              <li>
-                <Link
-                  href="/terms-conditions"
-                  onClick={onNavigate}
-                  className={clsx(
-                    "py-4 px-8 hover:bg-surface-2 transition-all duration-300 flex w-full",
-                    isActive("/terms-conditions") && "bg-surface-2"
-                  )}
-                  aria-current={isActive("/terms-conditions") ? "page" : undefined}
-                >
-                  {t("nav.terms")}
-                </Link>
-              </li>
-            </ul>
-          </DropDownHovered>
-        </li>
+        {plain({ href: "/", label: "nav.home", fallback: "Главная" }, true)}
+        {dropdown(t("nav.studios", { defaultValue: "Студии" }), STUDIOS)}
+        {dropdown(t("nav.tools", { defaultValue: "Инструменты" }), TOOLS, TOOLS_ACTIVE)}
+        {MAIN_TAIL.map((i) => plain(i))}
 
         <li className="py-3">
           <DropDownHovered

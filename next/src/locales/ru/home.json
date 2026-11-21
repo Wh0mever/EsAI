@@ -23,6 +23,23 @@
 		"vstudio": "Видеостудия",
 		"merge": "Склейка",
 		"academy": "EsAI Академия",
-		"academy_short": "Академия"
+		"academy_short": "Академия",
+		"studios": "Студии",
+		"tools": "Инструменты",
+		"tariffs": "Тарифы",
+		"creators": "Креаторы",
+		"chat": "Чаты ИИ",
+		"creative": "Creative Studio",
+		"cartoon": "Мультстудия",
+		"merge_full": "Склейка видео",
+		"models": "Модели",
+		"all_tools": "Все 15 инструментов",
+		"more": "Ещё",
+		"company": "Компания",
+		"legal": "Документы",
+		"cat_video": "Видео и движение",
+		"cat_image": "Изображения",
+		"cat_characters": "AI-персонажи",
+		"cat_ads": "Реклама и маркетинг"
 	}
 }

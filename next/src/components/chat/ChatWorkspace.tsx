@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { CHAT_PATH } from "@/lib/nav/paths";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import { FiMenu, FiPlus, FiZap, FiFilm, FiX } from "react-icons/fi";
@@ -372,7 +373,7 @@ export default function ChatWorkspace({ chatId, mode = MODE, heroSlot, belowComp
         // Чат удалён (в другой вкладке/устройстве) — не держим мёртвую сессию:
         // иначе следующее сообщение уходило бы в несуществующий чат.
         if (res?.status === 404) {
-          router.replace("/");
+          router.replace(CHAT_PATH);
           return;
         }
         const history = (res?.data?.messages || res?.data?.results?.messages) as Message[] | undefined;
@@ -960,7 +961,7 @@ export default function ChatWorkspace({ chatId, mode = MODE, heroSlot, belowComp
     setExtendVideoUrl(null);
     continueFromRef.current = null;
     if (chatId) {
-      router.push("/");
+      router.push(CHAT_PATH);
     } else {
       // Новый чат на стартовом «/»: сбрасываем активную сессию, иначе следующее
       // сообщение прилепится к предыдущему диалогу.

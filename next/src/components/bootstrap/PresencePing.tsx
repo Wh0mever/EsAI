@@ -38,6 +38,7 @@ function sectionOf(pathname: string | null): string {
   if (p.startsWith("/video-studio")) return "video_studio";
   if (p === "/studio" || p.startsWith("/studio/") || p.startsWith("/tg/studio")) return "studio";
   if (p === "/merge" || p.startsWith("/merge/")) return "merge";
+  if (p === "/creative" || p.startsWith("/creative/")) return "creative";
   if (p.startsWith("/pricing")) return "pricing";
   return "other";
 }

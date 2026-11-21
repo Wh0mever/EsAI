@@ -3,6 +3,7 @@ import type { NextRequest } from 'next/server';
 import { localeFromAcceptLanguage } from '@/lib/localeDetect';
 import { SEO_MODELS } from '@/lib/seo/models';
 import { SEO_FUNCTIONS } from '@/lib/seo/functions';
+import { CREATIVE_TOOLS } from '@/lib/creative/tools';
 import { SITE_URL } from '@/lib/seo/site';
 import { safeReturnPath } from '@/tools/returnPath';
 
@@ -14,6 +15,8 @@ import { safeReturnPath } from '@/tools/returnPath';
 // ДО рендера) — гарантированный hard-404 для краулеров, без «мусорных» страниц.
 const MODEL_SLUGS = new Set(SEO_MODELS.map((m) => m.slug));
 const FUNCTION_SLUGS = new Set(SEO_FUNCTIONS.map((f) => f.slug));
+// То же для страниц инструментов Creative Studio: /creative/<id>.
+const CREATIVE_IDS = new Set(CREATIVE_TOOLS.map((t) => t.id));
 
 function seoNotFound(): NextResponse {
   const html = `<!doctype html><html lang="ru"><head><meta charset="utf-8"/>` +
@@ -25,7 +28,13 @@ function seoNotFound(): NextResponse {
     `letter-spacing:-2px}p{color:#bdbdbd;margin:12px 0 28px}a{display:inline-block;` +
     `background:#F5C518;color:#141414;font-weight:700;text-decoration:none;padding:12px 26px;` +
     `border-radius:999px}.b{color:#F5C518;font-weight:700}</style></head><body><main>` +
-    `<div class="b" style="font-size:22px;letter-spacing:1px;margin-bottom:8px">EsAI</div>` +
+    // Действующий логотип (рисунок из public/esai-logo.svg), а не надпись. Встроен
+    // с белым «Es»: файл красит «Es» по теме системы и на тёмном фоне пропадал бы.
+    `<svg viewBox="0 0 400 170" width="120" height="51" role="img" aria-label="EsAI" style="display:block;margin:0 auto 8px">` +
+    `<text x="8" y="132" font-family="Inter,Helvetica Neue,Arial,sans-serif" font-weight="800" letter-spacing="-6">` +
+    `<tspan fill="#fff" font-size="155">E</tspan><tspan fill="#fff" font-size="98">s</tspan>` +
+    `<tspan font-size="155" fill="#F5C518">AI</tspan></text>` +
+    `<path d="M348 6 Q348 40 384 40 Q348 40 348 74 Q348 40 312 40 Q348 40 348 6 Z" fill="#F5C518"/></svg>` +
     `<h1>404</h1><p>Такой страницы нет. Возможно, она удалена или адрес введён с ошибкой.</p>` +
     `<a href="/">На главную</a></main></body></html>`;
   return new NextResponse(html, {
@@ -167,6 +176,8 @@ export async function middleware(request: NextRequest) {
     const known = kind === 'model' ? MODEL_SLUGS.has(slug) : FUNCTION_SLUGS.has(slug);
     if (!known) return seoNotFound();
   }
+  const creativeMatch = pathname.match(/^\/creative\/([^/]+)\/?$/);
+  if (creativeMatch && !CREATIVE_IDS.has(decodeURIComponent(creativeMatch[1]))) return seoNotFound();
 
   // Prefer forwarded host/host header, fallback to URL hostname
   const rawHost = request.headers.get('x-forwarded-host') || request.headers.get('host') || request.nextUrl.hostname;

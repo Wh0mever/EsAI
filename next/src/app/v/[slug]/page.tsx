@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import { cache } from "react";
 import { notFound } from "next/navigation";
 import NextLink from "@/components/ui/nextLink/NextLink";
+import EsaiLogo from "@/components/brand/EsaiLogo";
+import { CHAT_PATH } from "@/lib/nav/paths";
 import { SITE_NAME, SITE_URL, absoluteUrl } from "@/lib/seo/site";
 import SharedVideoPlayer from "@/components/video/SharedVideoPlayer";
 import ShareButtons from "@/components/ui/ShareButtons";
@@ -120,12 +122,12 @@ export default async function SharedVideoPage({ params }: { params: Promise<Para
   return (
     <main className="min-h-dvh bg-background text-foreground flex flex-col">
       <header className="flex items-center justify-between px-4 sm:px-6 h-14 border-b border-border">
-        <NextLink href="/" className="text-lg font-semibold tracking-tight">
-          {SITE_NAME}
-          <span className="text-accent">✨</span>
+        {/* Действующий логотип, а не надпись (просьба клиента 16.11: логотип везде настоящий). */}
+        <NextLink href="/" aria-label={SITE_NAME}>
+          <EsaiLogo className="h-7 w-auto" />
         </NextLink>
         <NextLink
-          href={cartoon ? "/studio" : "/"}
+          href={cartoon ? "/studio" : CHAT_PATH}
           className="rounded-full bg-accent text-on-accent text-sm font-semibold px-4 py-1.5 hover:bg-accent-strong transition-colors"
         >
           {cartoon ? "Создать мультфильм" : "Создать своё"}

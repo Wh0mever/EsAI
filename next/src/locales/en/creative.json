@@ -1,0 +1,118 @@
+{
+	"meta": {
+		"title": "Creative Studio — 15 AI tools for video, images and ads"
+	},
+	"page": {
+		"badge": "Creative Studio",
+		"title_a": "15 creative",
+		"title_b": "tools",
+		"subtitle": "Professional AI tools for video, images and advertising.",
+		"filter_all": "All tools",
+		"filters_label": "Tool categories",
+		"empty": "No tools in this category yet.",
+		"soon": "Soon",
+		"examples_title": "Examples",
+		"examples_sub": "Real results made with Creative Studio tools."
+	},
+	"tool": {
+		"back": "All tools",
+		"soon_title": "This tool is coming soon",
+		"soon_text": "We are preparing this tool. Meanwhile, try other EsAI sections.",
+		"output_image": "Output: image",
+		"output_video": "Output: video",
+		"other": "More tools in this category"
+	},
+	"hub": {
+		"meta_title": "EsAI — everything for creating and working with AI: chat, video, cartoons, images",
+		"title_a": "Everything for creativity",
+		"title_b": "and work",
+		"title_c": "with AI",
+		"subtitle": "Video, cartoons, images and smart AI tools in one place.",
+		"start": "Start for free",
+		"examples": "See examples",
+		"check_balance": "One balance",
+		"check_models": "Many AI models",
+		"check_vpn": "No VPN",
+		"balance": "Your balance",
+		"credits": "cr",
+		"topup": "Top up",
+		"open_chat": "Open chat",
+		"directions": "Main sections",
+		"other_tools": "Other tools",
+		"dir_cartoon": "Cartoon Studio",
+		"dir_cartoon_desc": "Make cartoons with AI",
+		"dir_video": "Video Studio",
+		"dir_video_desc": "AI video from text, photos and ideas",
+		"dir_creative": "Creative Studio",
+		"dir_creative_desc": "15 creative tools",
+		"dir_chat": "AI chats",
+		"dir_chat_desc": "ChatGPT, Claude, Gemini and more",
+		"dir_merge": "Video merge",
+		"dir_merge_desc": "Join ready clips into one video",
+		"cta_title": "Try EsAI today",
+		"cta_text": "Create, experiment and bring ideas to life with AI",
+		"cta_button": "Create account"
+	},
+	"tools": {
+		"motion-transfer": {
+			"name": "Motion transfer",
+			"desc": "Bring a character from a photo to life using a video"
+		},
+		"object-swap": {
+			"name": "Object swap",
+			"desc": "Replace any object in a video"
+		},
+		"restyle": {
+			"name": "Restyle",
+			"desc": "Transform a video into a different style"
+		},
+		"character-motion": {
+			"name": "Character motion",
+			"desc": "Give a character new movements"
+		},
+		"item-swap": {
+			"name": "Item swap",
+			"desc": "Swap an object for another one (for example, your product)"
+		},
+		"ad-creative": {
+			"name": "Ad creative",
+			"desc": "A ready-made ad video for your product"
+		},
+		"photo-restyle": {
+			"name": "Photo transformation",
+			"desc": "Turn a photo into a professional style (studio, fashion, cinema)"
+		},
+		"text-to-image": {
+			"name": "Text to image",
+			"desc": "Create a unique image from a text description"
+		},
+		"virtual-blogger": {
+			"name": "Virtual blogger",
+			"desc": "Create a virtual character sheet: looks, angles and outfits"
+		},
+		"consistent-character": {
+			"name": "Consistent character",
+			"desc": "Create a hero in different looks and locations"
+		},
+		"portrait": {
+			"name": "Photorealistic portrait",
+			"desc": "Create a realistic studio-quality portrait"
+		},
+		"ad-campaign": {
+			"name": "Ad campaign",
+			"desc": "A series of ready visuals to promote your product"
+		},
+		"ad-poster": {
+			"name": "Ad poster",
+			"desc": "Create a striking poster with text and branding"
+		},
+		"product-ad": {
+			"name": "Premium product ad",
+			"desc": "A product ad shot with motion and light"
+		},
+		"script-to-video": {
+			"name": "Script to video",
+			"desc": "Turn an idea or a script into a finished video"
+		}
+	}
+}

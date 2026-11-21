@@ -19,6 +19,7 @@ const SECTION_LABELS: [string, string][] = [
   ["video_studio", "Видеостудия"],
   ["studio", "Мультстудия"],
   ["merge", "Склейка"],
+  ["creative", "Creative Studio"],
   ["pricing", "Тарифы"],
   ["other", "Другие страницы"],
 ];

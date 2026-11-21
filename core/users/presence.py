@@ -25,7 +25,7 @@ from rest_framework_simplejwt.authentication import JWTAuthentication
 
 ONLINE_WINDOW_SEC = 120
 # Раздел сайта, где сейчас человек. Неизвестное — «other».
-SECTIONS = ("chat", "video_studio", "studio", "merge", "pricing", "other")
+SECTIONS = ("chat", "video_studio", "studio", "merge", "creative", "pricing", "other")
 _VID_RE = re.compile(r"^[A-Za-z0-9-]{16,64}$")
 
 K_VISITORS = "esai:presence:v"

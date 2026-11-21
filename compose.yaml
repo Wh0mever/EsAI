@@ -269,6 +269,9 @@ services:
         # Пункт «Creators» в меню и подвале, sitemap и индексация /creators.
         # Ставить 1 только вместе с creators_mode=on в админке.
         NEXT_PUBLIC_CREATORS_NAV: ${NEXT_PUBLIC_CREATORS_NAV:-}
+        # Creative Studio в меню «Студии»/«Инструменты» и в подвале.
+        # Ставить 1 только вместе с CREATIVE_MODE=on на бэкенде.
+        NEXT_PUBLIC_CREATIVE_NAV: ${NEXT_PUBLIC_CREATIVE_NAV:-}
     env_file: .env
     environment:
       NODE_ENV: production

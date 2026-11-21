@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useId, useRef, useState } from "react";
+import { CHAT_PATH } from "@/lib/nav/paths";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { useTranslation } from "react-i18next";
@@ -261,7 +262,7 @@ export default function ChatSidebar({
             onClose();
             router.push(`/dashboard/${next.chat_mode || "text-chat"}/${ref(next)}`);
           } else {
-            router.push("/");
+            router.push(CHAT_PATH);
           }
         }
       }

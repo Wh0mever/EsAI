@@ -23,6 +23,23 @@
 		"vstudio": "Video studio",
 		"merge": "Video merge",
 		"academy": "EsAI Academy",
-		"academy_short": "Academy"
+		"academy_short": "Academy",
+		"studios": "Studios",
+		"tools": "Tools",
+		"tariffs": "Pricing",
+		"creators": "Creators",
+		"chat": "AI chats",
+		"creative": "Creative Studio",
+		"cartoon": "Cartoon Studio",
+		"merge_full": "Video merge",
+		"models": "Models",
+		"all_tools": "All 15 tools",
+		"more": "More",
+		"company": "Company",
+		"legal": "Legal",
+		"cat_video": "Video & motion",
+		"cat_image": "Images",
+		"cat_characters": "AI characters",
+		"cat_ads": "Ads & marketing"
 	}
 }
