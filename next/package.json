@@ -31,7 +31,7 @@
     "i18next": "^25.3.1",
     "i18next-resources-to-backend": "^1.2.1",
     "js-cookie": "^3.0.8",
-    "next": "16.4.2",
+    "next": "16.4.6",
     "react": "19.3.1",
     "react-dom": "19.3.1",
     "react-i18next": "^15.6.0",
@@ -51,7 +51,7 @@
     "@types/react-dom": "^19.3.0",
     "autoprefixer": "^10.4.21",
     "eslint": "^9",
-    "eslint-config-next": "16.4.2",
+    "eslint-config-next": "16.4.6",
     "postcss": "^8.5.31",
     "tailwindcss": "^4.1.12",
     "typescript": "^5"
