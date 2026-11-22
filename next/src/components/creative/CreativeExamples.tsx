@@ -26,7 +26,7 @@ export default function CreativeExamples() {
               )}
               <div className="p-4">
                 {tool && (
-                  <p className="text-xs font-medium uppercase tracking-wide text-[#F5C518]">
+                  <p className="text-xs font-medium uppercase tracking-wide text-accent">
                     {t(`tools.${tool.id}.name`, { defaultValue: tool.name })}
                   </p>
                 )}

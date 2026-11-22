@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import Nav from "./Nav";
 import LangSwitch from "./LangSwitch";
@@ -14,13 +15,35 @@ export default function Header() {
 	const [open, setOpen] = useState(false);
 	const [scrolled, setScrolled] = useState(false);
 	const [hidden, setHidden] = useState(false);
+	// Под шапкой всегда тёмный первый экран (data-dark-hero: новая главная,
+	// Creative Studio) — «Es» в логотипе белое и в светлой теме, иначе пропадает.
+	const pathname = usePathname();
+	const [onDarkHero, setOnDarkHero] = useState(false);
+	useEffect(() => {
+		const check = () => {
+			const hero = document.querySelector("[data-dark-hero]");
+			setOnDarkHero(!!hero && hero.getBoundingClientRect().bottom > 64);
+		};
+		// Новая страница может дорисоваться позже шапки (каталог Creative Studio
+		// живёт в Suspense) — проверяем ещё несколько раз в первые полторы секунды.
+		const timers = [0, 150, 500, 1500].map((ms) => window.setTimeout(check, ms));
+		window.addEventListener("scroll", check, { passive: true });
+		window.addEventListener("resize", check);
+		return () => {
+			timers.forEach((id) => window.clearTimeout(id));
+			window.removeEventListener("scroll", check);
+			window.removeEventListener("resize", check);
+		};
+	}, [pathname]);
 
 	const lastYRef = useRef(0);
 	const tickingRef = useRef(false);
 
-	// lock page scroll when mobile menu open
+	// lock page scroll when mobile menu open; фокус — на кнопку «закрыть»
+	const closeBtnRef = useRef<HTMLButtonElement>(null);
 	useEffect(() => {
 		document.body.classList.toggle("overflow-hidden", open);
+		if (open) closeBtnRef.current?.focus();
 	}, [open]);
 
 	useEffect(() => {
@@ -78,6 +101,8 @@ export default function Header() {
 
 	return (
 		<header
+			// фокус с клавиатуры возвращает уехавшую шапку (WCAG 2.4.11)
+			onFocus={() => setHidden(false)}
 			className={[
 				"fixed w-full z-[200] select-none transition-transform duration-300",
 				"will-change-transform",
@@ -126,7 +151,10 @@ export default function Header() {
 					</button>
 
 					<NextLink href="/">
-						<EsaiLogo className="h-9 w-auto max-w-[150px]" />
+						<EsaiLogo
+							className={`h-9 w-auto max-w-[150px] ${onDarkHero ? "drop-shadow-[0_1px_3px_rgba(0,0,0,0.75)]" : ""}`}
+							tone={onDarkHero ? "ondark" : "auto"}
+						/>
 					</NextLink>
 				</div>
 
@@ -147,8 +175,13 @@ export default function Header() {
 				<div className="absolute inset-0 bg-black/50" />
 			</div>
 
-			{/* mobile drawer */}
+			{/* mobile drawer: закрытое меню inert — его ссылки не ловят фокус и не читаются
+			    экранным диктором; Escape закрывает */}
 			<aside
+				inert={!open}
+				onKeyDown={(e) => {
+					if (e.key === "Escape") closeMenu();
+				}}
 				className={`lg:hidden fixed right-0 top-0 z-[200] h-dvh w-[88%] max-w-[420px]
 	bg-surface/95 text-foreground backdrop-blur-xl border-l border-border
 	transition-transform will-change-transform
@@ -161,6 +194,7 @@ export default function Header() {
 						{/* Компактный переключатель языка — вынесен из меню (запрос клиента) */}
 						<LangSwitch />
 						<button
+							ref={closeBtnRef}
 							className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-border bg-surface-2 active:scale-95 cursor-pointer"
 							onClick={closeMenu}
 							aria-label={t("common.close", { defaultValue: "Close" })}

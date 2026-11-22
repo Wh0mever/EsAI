@@ -30,13 +30,13 @@ export default function ToolSoon({ id }: { id: string }) {
       </Link>
 
       <section className="mt-5 grid gap-6 md:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] md:items-center">
-        <div className="group relative aspect-[4/3] overflow-hidden rounded-2xl border border-border bg-neutral-950">
-          <ToolArt tool={tool} priority />
+        <div className="group relative aspect-video overflow-hidden rounded-2xl border border-border bg-neutral-950">
+          <ToolArt tool={tool} fetchPriority="high" sizes="(min-width: 1280px) 570px, (min-width: 768px) 45vw, 100vw" />
         </div>
         <div>
           <Link
             href={`${CREATIVE_PATH}?cat=${cat.id}`}
-            className="text-xs font-semibold uppercase tracking-wide text-[#F5C518] hover:underline"
+            className="text-xs font-semibold uppercase tracking-wide text-accent hover:underline"
           >
             {tHome(cat.label, { defaultValue: cat.fallback })}
           </Link>
@@ -44,7 +44,7 @@ export default function ToolSoon({ id }: { id: string }) {
             {t(`tools.${tool.id}.name`, { defaultValue: tool.name })}
           </h1>
           <p className="mt-3 text-lg text-muted">{t(`tools.${tool.id}.desc`, { defaultValue: tool.desc })}</p>
-          <p className="mt-2 text-sm text-muted-2">
+          <p className="mt-2 text-sm text-muted">
             {tool.output === "image"
               ? t("tool.output_image", { defaultValue: "Результат: изображение" })
               : t("tool.output_video", { defaultValue: "Результат: видео" })}

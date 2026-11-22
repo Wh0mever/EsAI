@@ -22,7 +22,8 @@ import {
   FaNewspaper,
   FaStar,
 } from "react-icons/fa6";
-import { ensureAccess, fetchData } from "@/tools/fetchData";
+import { ensureAccess, fetchData, getToken } from "@/tools/fetchData";
+import { isJwtValid } from "@/tools/jwt";
 import { CHAT_PATH, CREATIVE_PATH } from "@/lib/nav/paths";
 import { CREATIVE_NAV, VSTUDIO_NAV } from "@/lib/nav/menu";
 import { CREATORS_NAV } from "@/lib/creators/format";
@@ -36,13 +37,17 @@ import { HAS_EXAMPLES } from "@/lib/creative/examples";
 // Шохруха.
 //
 // Картинки — от клиента (без надписей, текст накладываем кодом, чтобы работали
-// три языка). Для «Чатов ИИ» и «Склейки видео» обложек ещё нет — заглушки.
+// три языка); конвертация — creative-studio/work/img_1122.py.
 
 type Me = { token_balance?: number | string; is_unlimited?: boolean } | null;
 
 function useMe() {
-  const [authed, setAuthed] = useState(false);
+  // Живой access в cookie — сразу экран вошедшего, без кадра с «Начать бесплатно».
+  // HomeHub рисуется только в браузере (переводы грузятся на клиенте), так что
+  // расхождения с серверной разметкой нет. Просроченный access проверит ensureAccess.
+  const [authed, setAuthed] = useState(() => typeof document !== "undefined" && isJwtValid(getToken("access")));
   const [me, setMe] = useState<Me>(null);
+  const [failed, setFailed] = useState(false);
   useEffect(() => {
     let alive = true;
     // Тот же путь, что у шапки (AuthButtons) и боковой панели чата: проверка
@@ -52,14 +57,19 @@ function useMe() {
       setAuthed(ok);
       if (!ok) return;
       fetchData<{ user?: Me }>("users/profile/", "get", null, true)
-        .then((r) => alive && setMe(r?.data?.user || null))
-        .catch(() => {});
+        .then((r) => {
+          if (!alive) return;
+          const u = r?.data?.user;
+          if (u) setMe(u);
+          else setFailed(true);
+        })
+        .catch(() => alive && setFailed(true));
     });
     return () => {
       alive = false;
     };
   }, []);
-  return { authed, me };
+  return { authed, me, failed };
 }
 
 const GOLD = "#F5C518";
@@ -72,7 +82,8 @@ type Dir = {
   desc: string;
   descRu: string;
   Icon: typeof FaVideo;
-  img?: { src: string; srcSet: string; pos: string };
+  // card — обрезка 4:5 для обычной карточки; src/srcSet 16:9 — для широкой на телефоне
+  img?: { src: string; srcSet: string; pos: string; card: string };
   soon?: boolean;
   prefetch?: boolean;
 };
@@ -80,7 +91,7 @@ type Dir = {
 export default function HomeHub() {
   const { t } = useTranslation("creative");
   const tHome = useTranslation("home").t;
-  const { authed, me } = useMe();
+  const { authed, me, failed } = useMe();
 
   const examplesHref = HAS_EXAMPLES ? `${CREATIVE_PATH}#examples` : CREATIVE_PATH;
   const balance = me ? (me.is_unlimited ? "∞" : Number(me.token_balance ?? 0).toLocaleString("ru-RU")) : null;
@@ -89,28 +100,30 @@ export default function HomeHub() {
     {
       key: "cartoon", href: "/studio", title: "hub.dir_cartoon", titleRu: "Мультстудия",
       desc: "hub.dir_cartoon_desc", descRu: "Создавай мультфильмы с помощью ИИ", Icon: FaClapperboard,
-      img: { src: "/images/home/dir-cartoon-960.webp", srcSet: "/images/home/dir-cartoon-480.webp 480w, /images/home/dir-cartoon-960.webp 960w", pos: "38% 30%" },
+      img: { src: "/images/home/dir-cartoon-960.webp", srcSet: "/images/home/dir-cartoon-480.webp 480w, /images/home/dir-cartoon-960.webp 960w", pos: "38% 30%", card: "/images/home/dir-cartoon-card.webp" },
     },
     ...(VSTUDIO_NAV
       ? [{
           key: "video", href: "/video-studio", title: "hub.dir_video", titleRu: "Видеостудия",
           desc: "hub.dir_video_desc", descRu: "Генерация AI-видео из текста, фото и идей", Icon: FaVideo,
-          img: { src: "/images/home/dir-video-960.webp", srcSet: "/images/home/dir-video-480.webp 480w, /images/home/dir-video-960.webp 960w", pos: "72% 25%" },
+          img: { src: "/images/home/dir-video-960.webp", srcSet: "/images/home/dir-video-480.webp 480w, /images/home/dir-video-960.webp 960w", pos: "72% 25%", card: "/images/home/dir-video-card.webp" },
         } as Dir]
       : []),
     {
       key: "creative", href: CREATIVE_PATH, title: "hub.dir_creative", titleRu: "Creative Studio",
       desc: "hub.dir_creative_desc", descRu: "15 творческих инструментов", Icon: FaWandMagicSparkles,
-      img: { src: "/images/home/dir-creative-960.webp", srcSet: "/images/home/dir-creative-480.webp 480w, /images/home/dir-creative-960.webp 960w", pos: "58% 25%" },
+      img: { src: "/images/home/dir-creative-960.webp", srcSet: "/images/home/dir-creative-480.webp 480w, /images/home/dir-creative-960.webp 960w", pos: "58% 25%", card: "/images/home/dir-creative-card.webp" },
       soon: !CREATIVE_NAV,
     },
     {
       key: "chat", href: CHAT_PATH, title: "hub.dir_chat", titleRu: "Чаты ИИ",
       desc: "hub.dir_chat_desc", descRu: "ChatGPT, Claude, Gemini и другие", Icon: FaComments,
+      img: { src: "/images/home/dir-chat-960.webp", srcSet: "/images/home/dir-chat-480.webp 480w, /images/home/dir-chat-960.webp 960w", pos: "30% 50%", card: "/images/home/dir-chat-card.webp" },
     },
     {
       key: "merge", href: "/merge", title: "hub.dir_merge", titleRu: "Склейка видео",
       desc: "hub.dir_merge_desc", descRu: "Собери ролик из готовых клипов", Icon: FaLayerGroup, prefetch: false,
+      img: { src: "/images/home/dir-merge-960.webp", srcSet: "/images/home/dir-merge-480.webp 480w, /images/home/dir-merge-960.webp 960w", pos: "50% 50%", card: "/images/home/dir-merge-card.webp" },
     },
   ];
 
@@ -128,18 +141,22 @@ export default function HomeHub() {
   return (
     <main className="pb-16">
       {/* ---------- Первый экран (всегда тёмный: текст на картинке) ---------- */}
-      <section className="relative overflow-hidden bg-neutral-950 text-white">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src="/images/home/hero-cat-1536.webp"
-          srcSet="/images/home/hero-cat-768.webp 768w, /images/home/hero-cat-1536.webp 1536w"
-          sizes="(min-width: 768px) 100vw, 100vw"
+      <section data-dark-hero className="relative overflow-hidden bg-neutral-950 text-white">
+        <picture>
+          <source media="(max-width: 767px)" srcSet="/images/home/cat-esai-m-800.webp" />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+          src="/images/home/cat-esai-1280.webp"
+          srcSet="/images/home/cat-esai-768.webp 768w, /images/home/cat-esai-1280.webp 1280w"
+          sizes="(min-width: 1280px) 1280px, 100vw"
           alt=""
           fetchPriority="high"
-          className="absolute inset-x-0 top-0 h-[440px] w-full object-cover object-[78%_20%] md:inset-0 md:h-full md:object-[70%_30%]"
-        />
+          className="absolute inset-x-0 top-0 h-[440px] w-full object-cover object-[90%_20%] md:inset-0 md:h-full md:object-[70%_40%] xl:left-auto xl:w-[1280px] xl:max-w-full xl:object-[70%_45%] xl:[mask-image:linear-gradient(to_right,transparent,#000_30%)]"
+          />
+        </picture>
         {/* Телефон: картинка сверху, текст снизу на тёмном. Компьютер: текст слева. */}
         <div className="absolute inset-x-0 top-0 h-[440px] bg-gradient-to-b from-transparent from-40% to-neutral-950 md:inset-0 md:h-full md:bg-gradient-to-r md:from-neutral-950/90 md:from-0% md:via-neutral-950/45 md:to-transparent" />
+        <div className="absolute inset-x-0 top-0 h-28 bg-gradient-to-b from-neutral-950/80 to-transparent md:h-24 md:from-neutral-950/60" />
         <div className="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-background to-transparent" />
 
         <div className="relative mx-auto flex max-w-7xl flex-col justify-end px-4 pb-12 pt-[330px] sm:px-6 md:min-h-[600px] md:justify-center md:pb-20 md:pt-32 lg:px-8 xl:min-h-[680px]">
@@ -162,7 +179,7 @@ export default function HomeHub() {
                 >
                   <span className="text-sm text-white/70">{t("hub.balance", { defaultValue: "Ваш баланс" })}</span>
                   <span className="text-lg font-bold tabular-nums" style={{ color: GOLD }}>
-                    {balance ?? "…"} <span className="text-sm font-semibold">{t("hub.credits", { defaultValue: "кр" })}</span>
+                    {balance ?? (failed ? "—" : "…")} <span className="text-sm font-semibold">{t("hub.credits", { defaultValue: "кр" })}</span>
                   </span>
                   <span className="rounded-full px-3 py-1.5 text-sm font-semibold text-black" style={{ background: GOLD }}>
                     {t("hub.topup", { defaultValue: "Пополнить" })}
@@ -256,7 +273,7 @@ export default function HomeHub() {
                 <div className="flex items-start gap-4">
                   <FaBolt aria-hidden="true" className="mt-1 size-9 shrink-0" style={{ color: GOLD }} />
                   <div>
-                    <p className="text-2xl font-extrabold sm:text-3xl">{t("hub.cta_title", { defaultValue: "Попробуй EsAI уже сегодня" })}</p>
+                    <h2 className="text-2xl font-extrabold sm:text-3xl">{t("hub.cta_title", { defaultValue: "Попробуй EsAI уже сегодня" })}</h2>
                     <p className="mt-1.5 text-white/80">{t("hub.cta_text", { defaultValue: "Создавай, экспериментируй и воплощай идеи с ИИ" })}</p>
                   </div>
                 </div>
@@ -284,23 +301,38 @@ function DirCard({ d, t, wide = false }: { d: Dir; t: (k: string, o?: Record<str
         "group relative flex flex-col overflow-hidden rounded-2xl border border-white/10 bg-neutral-950 text-white",
         wide ? "aspect-[2/1] md:aspect-[4/5]" : "aspect-[4/5]",
         "transition duration-300 hover:-translate-y-0.5 hover:border-[#F5C518]/60 hover:shadow-[0_8px_30px_-12px_rgba(245,197,24,0.45)]",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F5C518] focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-text)] focus-visible:ring-offset-2 focus-visible:ring-offset-background"
       )}
     >
       {d.img ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={d.img.src}
-          srcSet={d.img.srcSet}
-          sizes="(min-width: 1024px) 20vw, (min-width: 768px) 33vw, 50vw"
-          alt=""
-          loading="lazy"
-          decoding="async"
-          className="absolute inset-0 size-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
-          style={{ objectPosition: d.img.pos }}
-        />
+        wide ? (
+          // широкая (2:1) только на телефоне: там 16:9 по ширине экрана, от 768 px — обрезка 4:5
+          <picture>
+            <source media="(min-width: 768px)" srcSet={d.img.card} />
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={d.img.src}
+              srcSet={d.img.srcSet}
+              sizes="100vw"
+              alt=""
+              loading="lazy"
+              decoding="async"
+              className="absolute inset-0 size-full object-cover transition-transform duration-500 group-hover:scale-[1.04] md:![object-position:center]"
+              style={{ objectPosition: d.img.pos }}
+            />
+          </picture>
+        ) : (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={d.img.card}
+            alt=""
+            loading="lazy"
+            decoding="async"
+            className="absolute inset-0 size-full object-cover transition-transform duration-500 group-hover:scale-[1.04]"
+          />
+        )
       ) : (
-        // Обложки нет — заглушка в общем стиле (клиент пришлёт картинку).
+        // Без обложки — заглушка в общем стиле.
         <span
           aria-hidden="true"
           className="absolute inset-0 grid place-items-center"
@@ -320,7 +352,7 @@ function DirCard({ d, t, wide = false }: { d: Dir; t: (k: string, o?: Record<str
         <span className="min-w-0 flex-1">
           <d.Icon aria-hidden="true" className="mb-2 size-5" style={{ color: GOLD }} />
           <span className="block text-base font-bold leading-tight sm:text-lg">{t(d.title, { defaultValue: d.titleRu })}</span>
-          <span className="mt-1 line-clamp-2 block text-xs leading-snug text-white/75 sm:text-[13px]">{t(d.desc, { defaultValue: d.descRu })}</span>
+          <span className="mt-1 line-clamp-2 text-xs leading-snug text-white/75 sm:text-[13px]">{t(d.desc, { defaultValue: d.descRu })}</span>
         </span>
         <span aria-hidden="true" className="grid size-7 shrink-0 place-items-center rounded-full text-black transition-transform duration-300 group-hover:translate-x-0.5" style={{ background: GOLD }}>
           <FaChevronRight className="size-3" />

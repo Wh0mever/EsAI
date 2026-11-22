@@ -30,7 +30,8 @@ export default function AuthButtons() {
 
   if (isAuthenticated) {
     return (
-      <div className="flex items-center gap-2">
+      // Подложка, как у гостя: шапка прозрачная, и «Профиль» ложился прямо на картинку первого экрана.
+      <div className="flex items-center gap-2 bg-surface-2 rounded-4xl px-3 py-2">
         <Link
           href="/profile"
           className="hidden lg:inline-flex border border-border-strong px-4 py-2 rounded-3xl hover:bg-surface-2 hover:text-foreground text-nowrap duration-300"
@@ -48,14 +49,16 @@ export default function AuthButtons() {
         <Link
           href="/profile"
           className="lg:hidden border border-border-strong p-3 rounded-3xl hover:bg-surface-2 hover:text-foreground duration-300"
+          aria-label={t("nav.profile")}
         >
-          <FiUser className="text-xl" />
+          <FiUser className="text-xl" aria-hidden="true" />
         </Link>
         <Link
           href="/dashboard/text-chat"
           className="lg:hidden bg-accent text-on-accent p-3 rounded-3xl hover:bg-accent-strong duration-300"
+          aria-label={t("nav.ai_chat")}
         >
-          <FiGrid className="text-xl" />
+          <FiGrid className="text-xl" aria-hidden="true" />
         </Link>
       </div>
     );
@@ -76,8 +79,9 @@ export default function AuthButtons() {
 			<Link
 				href="/auth/signin"
 				className="lg:hidden bg-accent text-on-accent p-3 rounded-3xl hover:bg-accent-strong duration-300"
+				aria-label={t("nav.signin", { defaultValue: "Войти" })}
 			>
-				<FiLogIn className="text-xl" />
+				<FiLogIn className="text-xl" aria-hidden="true" />
 			</Link>
 		</div>
 	);

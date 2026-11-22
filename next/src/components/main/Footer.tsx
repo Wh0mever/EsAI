@@ -27,7 +27,7 @@ export default function Footer() {
         <nav aria-label={t("nav.more", { defaultValue: "Ещё" })} className="grid grid-cols-2 md:grid-cols-4 gap-x-6 gap-y-8 pb-10 mb-10 border-b border-border">
           {columns.map((c) => (
             <div key={c.title}>
-              <p className="text-xs uppercase tracking-wide text-muted-2 mb-3">{c.title}</p>
+              <p className="text-xs uppercase tracking-wide text-muted mb-3">{c.title}</p>
               <ul className="flex flex-col gap-2 text-sm text-muted">
                 {c.items.map((i) => (
                   <li key={i.href + i.label}>
@@ -60,7 +60,7 @@ export default function Footer() {
                 className="inline-flex items-center gap-2 text-sm text-foreground/90 hover:text-foreground transition-colors"
                 aria-label="Telegram"
               >
-                <FaTelegram />
+                <FaTelegram aria-hidden="true" />
                 <span className="hidden sm:inline">Telegram</span>
               </a>
               <a
@@ -70,7 +70,7 @@ export default function Footer() {
                 className="inline-flex items-center gap-2 text-sm text-foreground/90 hover:text-foreground transition-colors"
                 aria-label="Facebook"
               >
-                <FaFacebook />
+                <FaFacebook aria-hidden="true" />
                 <span className="hidden sm:inline">Facebook</span>
               </a>
               <a
@@ -80,7 +80,7 @@ export default function Footer() {
                 className="inline-flex items-center gap-2 text-sm text-foreground/90 hover:text-foreground transition-colors"
                 aria-label="X (Twitter)"
               >
-                <FaXTwitter />
+                <FaXTwitter aria-hidden="true" />
               </a>
               <a
                 href="https://www.threads.com/@esai.kg"
@@ -89,12 +89,12 @@ export default function Footer() {
                 className="inline-flex items-center gap-2 text-sm text-foreground/90 hover:text-foreground transition-colors"
                 aria-label="Threads"
               >
-                <SiThreads />
+                <SiThreads aria-hidden="true" />
               </a>
             </div>
 
             <div className="flex items-center gap-4">
-              <img src="/images/icons/footer_visa_el.webp" alt="Visa" className="h-9 sm:h-11 w-auto" />
+              <img src="/images/icons/footer_visa_el.webp" alt="Visa" width={277} height={50} className="h-9 sm:h-11 w-auto" />
               {/* Счётчик рейтинга WWW.NET.KG — нужен на каждой странице,
                   футер как раз общий для всех разделов сайта. */}
               <NetKgCounter />
@@ -103,7 +103,7 @@ export default function Footer() {
 
           <div className="flex flex-col items-center md:items-end justify-center gap-2">
             <EsaiLogo className="h-7 w-auto" />
-            <p className="text-xs text-muted-2">© 2026 | EsAI</p>
+            <p className="text-xs text-muted">© 2026 | EsAI</p>
           </div>
 
         </div>

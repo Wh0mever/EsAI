@@ -10,8 +10,10 @@ import ToolArt from "./ToolArt";
 
 // Карточка инструмента по макету клиента: превью, номер в жёлтом круге,
 // название, описание, жёлтая стрелка. Вся карточка — одна ссылка.
-// Текст лежит поверх нижней части картинки на затемнении, поэтому карточка
-// всегда тёмная (как первый экран), независимо от темы сайта.
+// От 640 px текст лежит поверх нижней части картинки на затемнении (карточка 4:3).
+// На телефоне две узкие колонки: там картинка 16:9 видна целиком, текст — под ней,
+// иначе «было ≫ стало» на превью обрезалось бы до середины.
+// Карточка всегда тёмная (как первый экран), независимо от темы сайта.
 export default function ToolCard({ tool, priority = false }: { tool: CreativeTool; priority?: boolean }) {
   const { t } = useTranslation("creative");
   const name = t(`tools.${tool.id}.name`, { defaultValue: tool.name });
@@ -21,34 +23,36 @@ export default function ToolCard({ tool, priority = false }: { tool: CreativeToo
     <Link
       href={`${CREATIVE_PATH}/${tool.id}`}
       className={clsx(
-        "group relative flex aspect-[3/4] flex-col overflow-hidden rounded-2xl sm:aspect-[4/3]",
+        "group relative flex h-full flex-col overflow-hidden rounded-2xl sm:aspect-[4/3] sm:h-auto",
         "border border-white/10 bg-neutral-950 text-white",
         "transition duration-300 hover:-translate-y-0.5 hover:border-[#F5C518]/60 hover:shadow-[0_8px_30px_-12px_rgba(245,197,24,0.45)]",
-        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F5C518] focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-text)] focus-visible:ring-offset-2 focus-visible:ring-offset-background"
       )}
     >
-      <ToolArt tool={tool} priority={priority} />
+      <span className="relative block aspect-video overflow-hidden sm:absolute sm:inset-0 sm:aspect-auto">
+        <ToolArt tool={tool} priority={priority} />
+      </span>
 
       <span
         aria-hidden="true"
-        className="absolute left-3 top-3 grid size-7 place-items-center rounded-full bg-[#F5C518] text-[13px] font-bold text-black shadow"
+        className="absolute left-2 top-2 grid size-6 place-items-center rounded-full bg-[#F5C518] text-[11px] font-bold text-black shadow sm:left-3 sm:top-3 sm:size-7 sm:text-[13px]"
       >
         {tool.n}
       </span>
       {tool.state === "soon" && (
-        <span className="absolute right-3 top-3 rounded-full bg-black/60 px-2.5 py-1 text-[11px] font-medium text-white/85 backdrop-blur">
+        <span className="absolute right-2 top-2 rounded-full bg-black/60 px-2 py-0.5 text-[10px] font-medium text-white/85 backdrop-blur sm:right-3 sm:top-3 sm:px-2.5 sm:py-1 sm:text-[11px]">
           {t("page.soon", { defaultValue: "Скоро" })}
         </span>
       )}
 
-      <span className="relative mt-auto flex items-end gap-2 bg-gradient-to-t from-black via-black/85 to-transparent px-3 pb-3 pt-10 sm:px-3.5">
+      <span className="relative flex flex-1 items-start gap-2 px-3 pb-3 pt-2.5 sm:mt-auto sm:flex-none sm:items-end sm:bg-gradient-to-t sm:from-black sm:via-black/85 sm:to-transparent sm:px-3.5 sm:pt-10">
         <span className="min-w-0 flex-1">
-          <span className="block text-sm font-semibold leading-tight sm:text-base">{name}</span>
-          <span className="mt-1 line-clamp-2 block text-xs leading-snug text-white/70 sm:text-[13px]">{desc}</span>
+          <span className="block hyphens-auto break-words text-sm font-semibold leading-tight sm:text-base">{name}</span>
+          <span className="mt-1 line-clamp-2 text-xs leading-snug text-white/70 sm:text-[13px]">{desc}</span>
         </span>
         <span
           aria-hidden="true"
-          className="grid size-7 shrink-0 place-items-center rounded-full bg-[#F5C518] text-black transition-transform duration-300 group-hover:translate-x-0.5"
+          className="hidden size-7 shrink-0 place-items-center rounded-full bg-[#F5C518] text-black transition-transform duration-300 group-hover:translate-x-0.5 sm:grid"
         >
           <FaChevronRight className="size-3" />
         </span>

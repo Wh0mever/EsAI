@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Header from "@/components/main/Header";
 import Footer from "@/components/main/Footer";
+import { OG_IMAGE_META, SITE_NAME, SITE_URL } from "@/lib/seo/site";
 
 // Временный адрес новой главной (этап A4) — для согласования с клиентом.
 // Закрыт от поиска, не в меню и не в карте сайта. После замены главной (A6)
@@ -8,6 +9,13 @@ import Footer from "@/components/main/Footer";
 export const metadata: Metadata = {
 	title: "EsAI — всё для творчества и работы с ИИ",
 	robots: { index: false, follow: false },
+	openGraph: {
+		images: [OG_IMAGE_META],
+		title: "EsAI — всё для творчества и работы с ИИ",
+		url: `${SITE_URL}/home-preview`,
+		siteName: SITE_NAME,
+		type: "website",
+	},
 };
 
 export default function HomePreviewLayout({ children }: Readonly<{ children: React.ReactNode }>) {

@@ -1,7 +1,7 @@
 "use client";
 
 import clsx from "clsx";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import { FaFilm, FaImage, FaUser, FaBullhorn, FaTableCellsLarge } from "react-icons/fa6";
 import { CREATIVE_TOOLS, isCategory } from "@/lib/creative/tools";
@@ -23,7 +23,6 @@ const CAT_ICON: Record<CreativeCategory, typeof FaFilm> = {
 export default function CreativeCatalog() {
   const { t } = useTranslation("creative");
   const tHome = useTranslation("home").t;
-  const router = useRouter();
   const pathname = usePathname();
   const params = useSearchParams();
   const raw = params.get("cat");
@@ -36,13 +35,16 @@ export default function CreativeCatalog() {
     if (next) sp.set("cat", next);
     else sp.delete("cat");
     const qs = sp.toString();
-    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    // Фильтр — по готовому списку в браузере; router.replace гонял бы запрос к
+    // серверу на каждое нажатие. Next держит useSearchParams в согласии с
+    // history.replaceState (с 14.1), «назад» работает как раньше.
+    window.history.replaceState(null, "", qs ? `${pathname}?${qs}` : pathname);
   };
 
   const pill = (active: boolean) =>
     clsx(
       "inline-flex shrink-0 items-center gap-2.5 rounded-xl border px-4 py-2.5 text-sm font-medium transition-colors sm:px-5 sm:py-3",
-      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F5C518] focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+      "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-text)] focus-visible:ring-offset-2 focus-visible:ring-offset-background",
       active
         ? "border-[#F5C518] bg-[#F5C518] text-black"
         : "border-border bg-surface text-foreground hover:border-[#F5C518]/60"
@@ -50,17 +52,15 @@ export default function CreativeCatalog() {
 
   return (
     <main className="pb-16">
-      {/* Первый экран — всегда тёмный: текст лежит на картинке. Картинка — временная
-          (обложка Creative Studio с главной); версию без надписей клиент ещё пришлёт. */}
-      <section className="relative overflow-hidden bg-neutral-950 text-white">
+      {/* Первый экран — всегда тёмный: текст лежит на картинке. Картинка — баннер клиента
+          3:1 без надписей (22.11). */}
+      <section data-dark-hero className="relative overflow-hidden bg-neutral-950 text-white">
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src="/images/creative/hero-1280.webp"
-          srcSet="/images/creative/hero-640.webp 640w, /images/creative/hero-1280.webp 1280w"
-          sizes="(min-width: 768px) 60vw, 100vw"
+          src="/images/creative/cs-hero-1280.webp"
           alt=""
           fetchPriority="high"
-          className="absolute inset-y-0 right-0 h-full w-full object-cover object-[70%_30%] opacity-70 md:w-[62%] md:opacity-100"
+          className="absolute inset-y-0 right-0 h-full w-full object-cover object-[70%_30%] opacity-70 md:w-[62%] md:opacity-100 md:[mask-image:linear-gradient(to_right,transparent,#000_35%)]"
         />
         <div className="absolute inset-0 bg-gradient-to-r from-neutral-950 via-neutral-950/85 to-neutral-950/10 md:via-neutral-950/70" />
         <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-background to-transparent" />

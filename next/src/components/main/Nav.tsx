@@ -59,12 +59,13 @@ const LanguageMenu = memo(function LanguageMenu({
         <li key={code} className="border-b border-neutral-700 last:border-b-0">
           <Button
             onClick={() => changeLanguage(code)}
+            aria-current={currentLang === code ? "true" : undefined}
             className={clsx(
               "py-4 px-8 w-full text-left flex items-center gap-2 transition-all duration-300 hover:bg-surface-2",
-              currentLang === code && "bg-neutral-700"
+              currentLang === code && "bg-surface-3"
             )}
           >
-            <img src={icon} alt={label} className="min-w-4 h-4 w-6 object-cover rounded-[2px]" />
+            <img src={icon} alt="" className="min-w-4 h-4 w-6 object-cover rounded-[2px]" />
             <span>{label}</span>
           </Button>
         </li>
@@ -119,7 +120,7 @@ function MobileNav({ className, onNavigate }: { className?: string; onNavigate?:
 
   const group = (title: string, items: MenuItem[]) => (
     <li className="mt-2">
-      <div className="px-4 pb-1 text-xs uppercase tracking-wide text-muted-2">{title}</div>
+      <div className="px-4 pb-1 text-xs uppercase tracking-wide text-muted">{title}</div>
       <ul className="flex flex-col">{items.map((i) => item(i))}</ul>
     </li>
   );
@@ -160,6 +161,9 @@ function PCNav({ className, onNavigate, t, changeLanguage, currentLang }: PCProp
       "inline-block",
       active && "after:content-[''] after:block after:h-[2px] after:bg-[#F5C518] after:rounded-full after:mt-1"
     );
+
+  // Имя переключателя языка для экранного диктора — на самом языке, без перевода.
+  const LANG_NAME: Record<string, string> = { ru: "Русский", en: "English", kg: "Кыргызча" };
 
   const dropdown = (title: string, items: MenuItem[], activeBy: MenuItem[] = items) => {
     const active = anyActive(activeBy);
@@ -216,7 +220,7 @@ function PCNav({ className, onNavigate, t, changeLanguage, currentLang }: PCProp
           <DropDownHovered
             handleText={
               <span className="flex items-center gap-1">
-                <img src={`/images/local/${currentLang}.webp`} alt="" />
+                <img src={`/images/local/${currentLang}.webp`} alt={LANG_NAME[currentLang] ?? currentLang} />
               </span>
             }
           >
