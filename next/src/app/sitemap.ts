@@ -3,6 +3,7 @@ import { SITE_URL } from "@/lib/seo/site";
 import { SEO_MODELS } from "@/lib/seo/models";
 import { SEO_FUNCTIONS } from "@/lib/seo/functions";
 import { getArticles, articleDate } from "@/lib/content";
+import { CREATIVE_TOOLS } from "@/lib/creative/tools";
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const now = new Date();
@@ -16,7 +17,19 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     },
   ];
 
+  const creativeOpen = process.env.NEXT_PUBLIC_CREATIVE_NAV === "1";
+
   const staticPages: MetadataRoute.Sitemap = [
+    // Чат — на своём адресе: с этапа A6 «/» — хаб платформы.
+    { path: "/chat", priority: 0.9 },
+    // Creative Studio и её 15 инструментов — в карте вместе с пунктом меню (флаг
+    // сборки), как видеостудия. Пока флаг выключен, страницы закрыты noindex.
+    ...(creativeOpen
+      ? [
+          { path: "/creative", priority: 0.8 },
+          ...CREATIVE_TOOLS.map((t) => ({ path: `/creative/${t.id}`, priority: 0.6 })),
+        ]
+      : []),
     // Студия — флагманский раздел со своим SEO-заголовком; её в карте не было.
     { path: "/studio", priority: 0.9 },
     // Видеостудия попадает в карту вместе с пунктом меню: пока она открыта

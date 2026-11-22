@@ -1,6 +1,7 @@
 "use client";
 
 import { useId, useState, type KeyboardEvent } from "react";
+import { CHAT_PATH } from "@/lib/nav/paths";
 import { useTranslation } from "react-i18next";
 import {
   FiArrowUpRight,
@@ -481,7 +482,7 @@ function EmptyTab({ tab }: { tab: MergeTab }) {
         : null
       : tab === "cartoon"
         ? { href: "/studio", label: t("merge.picker.toCartoon", { defaultValue: "Открыть мультстудию" }) }
-        : { href: "/", label: t("page.toChat", { defaultValue: "Открыть чат" }) };
+        : { href: CHAT_PATH, label: t("page.toChat", { defaultValue: "Открыть чат" }) };
   return (
     <div className={CS_EMPTY}>
       <FiFilm className="size-6 text-muted-2" aria-hidden="true" />

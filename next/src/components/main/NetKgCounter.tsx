@@ -39,6 +39,15 @@ export default function NetKgCounter() {
   const [imgSrc, setImgSrc] = useState<string | null>(null);
 
   useEffect(() => {
+    // Запрос к net.kg — после load: картинка грузилась 1–21 с и держала событие load
+    // (Lighthouse 22.11). Визит засчитывается так же, просто чуть позже.
+    if (document.readyState !== "complete") {
+      const onLoad = () => setTimeout(build, 0);
+      window.addEventListener("load", onLoad, { once: true });
+      return () => window.removeEventListener("load", onLoad);
+    }
+    build();
+    function build() {
     try {
       // Оригинал ставит эту куку и потом проверяет, включены ли куки вообще.
       document.cookie = "astratop=1; path=/";
@@ -63,6 +72,7 @@ export default function NetKgCounter() {
       // Счётчик — вспомогательная вещь: любая ошибка не должна ломать футер.
       // Показываем «голый» вариант без параметров, визит всё равно засчитается.
       setImgSrc(`https://www.net.kg/img.php?id=${SITE_ID}`);
+    }
     }
   }, []);
 

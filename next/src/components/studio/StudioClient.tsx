@@ -41,7 +41,7 @@ const EMPTY: CartoonModels = { script: [], image: [], video: [] };
 /**
  * StudioClient — визуальная студия «Создание мультфильмов». НЕ список моделей,
  * а понятный конвейер из трёх шагов. Каждый шаг ведёт в чат с подходящей
- * моделью через уже поддерживаемый deep-link `/?model=<openrouter_id>&q=<prompt>`.
+ * моделью через уже поддерживаемый deep-link `/chat?model=<openrouter_id>&q=<prompt>`.
  */
 export default function StudioClient() {
 	const { t } = useTranslation("common");

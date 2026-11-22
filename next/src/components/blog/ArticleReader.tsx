@@ -102,7 +102,19 @@ export default function ArticleReader({ children }: { children: ReactNode }) {
     }
 
     // Prime each block in the "hidden" pre-reveal state.
-    blocks.forEach((b) => b.classList.add("reveal"));
+    // Статья приходит с сервера уже нарисованной (i18n/settings.ts, SSR_ROUTES):
+    // блоки, которые человек уже видит, не прячем и не «проявляем» заново —
+    // оба класса сразу, без перехода, иначе видимый текст мигал бы после гидрации.
+    const viewportH = window.innerHeight || document.documentElement.clientHeight;
+    const pending: HTMLElement[] = [];
+    blocks.forEach((b) => {
+      if (b.getBoundingClientRect().top < viewportH) b.classList.add("reveal", "reveal-in");
+      else {
+        b.classList.add("reveal");
+        pending.push(b);
+      }
+    });
+    if (!pending.length) return;
 
     let revealed = 0;
     const observer = new IntersectionObserver(
@@ -125,7 +137,7 @@ export default function ArticleReader({ children }: { children: ReactNode }) {
       }
     );
 
-    blocks.forEach((b) => observer.observe(b));
+    pending.forEach((b) => observer.observe(b));
 
     return () => observer.disconnect();
   }, []);

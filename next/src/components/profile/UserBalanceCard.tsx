@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import { CHAT_PATH } from "@/lib/nav/paths";
 import Link from "next/link";
 import { Card } from "@/components/ui/cards/Cards";
 import PayAsYouGoBanner from "@/components/pricing/PayAsYouGoBanner";
@@ -79,7 +80,7 @@ export default function UserBalanceCard({ t, data }: Props) {
 						{t("balance.topup", { defaultValue: "Пополнить" })}
 					</Link>
 					<Link
-						href="/"
+						href={CHAT_PATH}
 						className="w-fit px-6 py-2 rounded-xl bg-surface-2 hover:bg-surface-3 duration-300"
 					>
 						{t("profile.open_chat", { defaultValue: "Открыть чат" })}

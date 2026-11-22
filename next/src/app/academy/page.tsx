@@ -72,7 +72,8 @@ export default async function AcademyPage({ searchParams }: { searchParams: Sear
 
   return (
     <>
-      {/* Та же разметка, что у SEO-блока layout: тот виден в HTML с сервера, эта — после загрузки страницы. */}
+      {/* Та же разметка, что у SEO-блока layout. С серверной отрисовкой (SSR_ROUTES) в HTML — эта,
+          при I18N_SSR=off — та (эта появится после загрузки страницы). */}
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdScript(breadcrumb) }} />
       {state.ok && state.view.courses.length > 0 && (
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLdScript(courseListJsonLd(state.view)) }} />

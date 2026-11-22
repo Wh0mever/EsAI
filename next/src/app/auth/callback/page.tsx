@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { CHAT_PATH } from "@/lib/nav/paths";
 import Cookies from "js-cookie";
 import { useTranslation } from "react-i18next";
 import { trackRegistration } from "@/tools/analytics";
@@ -88,20 +89,20 @@ export default function AuthCallback() {
         go("/auth/signin");
       }
     } catch {
-      go("/");
+      go(CHAT_PATH);
     }
 
     // Вкладка вернулась из bfcache (частый кейс in-app браузеров) → уводим.
     const onShow = (e: PageTransitionEvent) => {
       if (e.persisted) {
-        try { window.location.replace("/"); } catch {}
+        try { window.location.replace(CHAT_PATH); } catch {}
       }
     };
     window.addEventListener("pageshow", onShow);
 
     // Страховки от зависания: показать кнопку через 2.5с, форс-уход через 6с.
     const t1 = window.setTimeout(() => setStuck(true), 2500);
-    const t2 = window.setTimeout(() => { try { window.location.replace("/"); } catch {} }, 6000);
+    const t2 = window.setTimeout(() => { try { window.location.replace(CHAT_PATH); } catch {} }, 6000);
 
     return () => {
       window.removeEventListener("pageshow", onShow);
@@ -114,7 +115,7 @@ export default function AuthCallback() {
     <div className="w-full min-h-[60vh] flex flex-col items-center justify-center gap-4 p-6 text-center">
       <span className="text-muted">{t("common.processing", { defaultValue: "Обработка..." })}</span>
       {stuck && (
-        <a href="/" className="text-accent-strong underline underline-offset-2">
+        <a href={CHAT_PATH} className="text-accent-strong underline underline-offset-2">
           {t("common.continue", { defaultValue: "Продолжить" })}
         </a>
       )}

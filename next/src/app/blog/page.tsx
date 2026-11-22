@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { CHAT_PATH } from "@/lib/nav/paths";
 import SeoShell from "@/components/seo/SeoShell";
 import { SITE_NAME, absoluteUrl } from "@/lib/seo/site";
 import { breadcrumbJsonLd } from "@/lib/seo/jsonLd";
@@ -97,7 +98,7 @@ export default async function BlogListPage() {
         <div className="rounded-2xl border border-border bg-surface p-10 text-center text-muted">
           <p>Скоро здесь появятся статьи.</p>
           <Link
-            href="/"
+            href={CHAT_PATH}
             className="mt-4 inline-flex items-center rounded-full bg-accent text-on-accent font-semibold px-6 py-3 hover:bg-accent-strong transition-colors"
           >
             Открыть чат

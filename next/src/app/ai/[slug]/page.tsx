@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { CHAT_PATH } from "@/lib/nav/paths";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import SeoShell from "@/components/seo/SeoShell";
@@ -49,7 +50,7 @@ function buildChatHref(fn: { starterPrompt?: string; model?: string }): string {
   if (fn.starterPrompt) params.set("q", fn.starterPrompt);
   if (fn.model) params.set("model", fn.model);
   const qs = params.toString();
-  return qs ? `/?${qs}` : "/";
+  return qs ? `${CHAT_PATH}?${qs}` : CHAT_PATH;
 }
 
 export default async function FunctionPage({ params }: { params: Promise<Params> }) {

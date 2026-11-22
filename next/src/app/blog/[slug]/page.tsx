@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { CHAT_PATH } from "@/lib/nav/paths";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import SeoShell from "@/components/seo/SeoShell";
@@ -210,7 +211,7 @@ export default async function ArticlePage({ params }: { params: Promise<Params> 
               Все нейросети в одном чате — на русском и кыргызском. Начните бесплатно.
             </p>
             <Link
-              href="/"
+              href={CHAT_PATH}
               className="inline-flex items-center rounded-full bg-accent text-on-accent font-semibold px-6 py-3 hover:bg-accent-strong transition-colors"
             >
               Открыть чат

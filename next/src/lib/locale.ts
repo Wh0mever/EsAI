@@ -19,5 +19,12 @@ export function setLanguagePreference(code: UILang) {
     if (typeof document !== "undefined") document.documentElement.lang = code === "kg" ? "ky" : code;
   } catch {}
   // Instant, in-place language change.
-  void i18n.changeLanguage(code);
+  // На страницах с серверной отрисовкой (i18n/settings.ts, SSR_ROUTES) в браузере
+  // только часть словарей: нужные странице пространства имён, а русский — лишь как
+  // запасной (для kg пустой). Сначала догружаем целиком новый язык и русский
+  // (чанки уже в кэше браузера), потом переключаем — без сырых ключей на экране.
+  void i18n
+    .reloadResources([code, "ru"])
+    .catch(() => {})
+    .then(() => i18n.changeLanguage(code));
 }

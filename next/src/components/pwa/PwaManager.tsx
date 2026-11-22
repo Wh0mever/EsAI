@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import Cookies from "js-cookie";
 import { autoResubscribe } from "@/tools/webPush";
+import { CHAT_PATH } from "@/lib/nav/paths";
 
 /** beforeinstallprompt event (not in TS DOM lib). */
 type BeforeInstallPromptEvent = Event & {
@@ -53,7 +54,8 @@ function isInAppBrowser(): boolean {
 /** Страницы с чатом: поле ввода внизу экрана — туда баннер ставить нельзя. */
 function isChatPath(pathname: string | null): boolean {
   if (!pathname) return false;
-  return pathname === "/" || pathname.startsWith("/dashboard");
+  // С этапа A6 «/» — хаб без поля ввода внизу: там баннер в обычном месте.
+  return pathname === CHAT_PATH || pathname.startsWith(`${CHAT_PATH}/`) || pathname.startsWith("/dashboard");
 }
 
 /**

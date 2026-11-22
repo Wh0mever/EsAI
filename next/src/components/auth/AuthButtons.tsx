@@ -5,10 +5,15 @@ import { useTranslation } from "react-i18next";
 import { ensureAccess } from "@/tools/fetchData";
 import { useEffect, useState } from "react";
 import { FiLogIn, FiGrid, FiUser } from "react-icons/fi";
+import { useAuthedHint } from "@/components/bootstrap/AuthHint";
 
 export default function AuthButtons() {
 	const { t } = useTranslation("home");
-	const [isAuthenticated, setIsAuthenticated] = useState(false);
+	// Первый кадр — по подсказке сервера/cookie (одинаково в HTML и при гидрации),
+	// дальше решает ensureAccess(): он же тихо обновит истёкший access.
+	const hinted = useAuthedHint();
+	const [checked, setChecked] = useState<boolean | null>(null);
+	const isAuthenticated = checked ?? hinted;
 
   useEffect(() => {
     let alive = true;
@@ -16,7 +21,7 @@ export default function AuthButtons() {
     // назавтра вошедший человек видел в шапке «Войти».
     const check = () => {
       ensureAccess().then((ok) => {
-        if (alive) setIsAuthenticated(ok);
+        if (alive) setChecked(ok);
       });
     };
     check();

@@ -90,7 +90,7 @@ export default function ChatWorkspace({ chatId, mode = MODE, heroSlot, belowComp
   const [loading, setLoading] = useState(false);
   const [model, setModel] = useState("");
   // Активная сессия: из пропа (URL /dashboard/text-chat/<id>) ИЛИ созданная
-  // первым сообщением на стартовом «/». КРИТично: после создания сессии держим
+  // первым сообщением на стартовом /chat. КРИТично: после создания сессии держим
   // её id здесь и шлём в chat_id, иначе каждое сообщение = новая сессия и чат
   // «не помнит» предыдущее (и файлы из истории не учитываются).
   const [sessionId, setSessionId] = useState<string | undefined>(chatId);
@@ -280,7 +280,7 @@ export default function ChatWorkspace({ chatId, mode = MODE, heroSlot, belowComp
     []
   );
 
-  /* ---------- deep-link from SEO pages: /?model=<openrouter_id>&q=<prompt> ---------- */
+  /* ---------- deep-link from SEO pages: /chat?model=<openrouter_id>&q=<prompt> ---------- */
   useEffect(() => {
     if (typeof window === "undefined") return;
     try {
@@ -963,7 +963,7 @@ export default function ChatWorkspace({ chatId, mode = MODE, heroSlot, belowComp
     if (chatId) {
       router.push(CHAT_PATH);
     } else {
-      // Новый чат на стартовом «/»: сбрасываем активную сессию, иначе следующее
+      // Новый чат на стартовом /chat: сбрасываем активную сессию, иначе следующее
       // сообщение прилепится к предыдущему диалогу.
       setSessionId(undefined);
       setMessages([]);
@@ -972,7 +972,7 @@ export default function ChatWorkspace({ chatId, mode = MODE, heroSlot, belowComp
     }
   };
 
-  // Чат удалили в меню. Открытый сейчас — сбрасываем сессию: раньше на «/»
+  // Чат удалили в меню. Открытый сейчас — сбрасываем сессию: раньше на стартовом экране
   // sessionId оставался, и следующее сообщение уходило в удалённый чат.
   const handleChatDeleted = useCallback(
     (id: string, wasActive: boolean) => {
@@ -1203,7 +1203,7 @@ export default function ChatWorkspace({ chatId, mode = MODE, heroSlot, belowComp
         open={sidebarOpen}
         onClose={() => setSidebarOpen(false)}
         chats={chats}
-        // sessionId, а не chatId: на «/» чат создаётся первым сообщением и
+        // sessionId, а не chatId: на /chat чат создаётся первым сообщением и
         // chatId там всегда пуст — удаление такого чата не сбрасывало сессию.
         activeChatId={sessionId}
         balance={balance}

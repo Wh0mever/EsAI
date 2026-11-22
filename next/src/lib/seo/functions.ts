@@ -1,6 +1,6 @@
 // SEO function/use-case catalog for /ai/<slug> landing pages.
 // Extensible: add an entry to register a new ChPU route, sitemap entry and page.
-// `prompt` is sent to the chat via /?q=<prompt> as a starting prompt; `model`
+// `prompt` is sent to the chat via /chat?q=<prompt> as a starting prompt; `model`
 // (optional openrouter_id) preselects a recommended model.
 
 export type FunctionFaq = { q: string; a: string };
@@ -15,7 +15,7 @@ export type SeoFunction = {
   intro: string;
   /** Concrete examples of what the user can ask. */
   examples: string[];
-  /** Optional starter prompt placed into the chat input via /?q=... */
+  /** Optional starter prompt placed into the chat input via /chat?q=... */
   starterPrompt?: string;
   /** Optional recommended model (openrouter_id) for the CTA. */
   model?: string;

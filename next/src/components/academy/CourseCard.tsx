@@ -66,6 +66,11 @@ export default function CourseCard({
             loading={eager ? "eager" : "lazy"}
             decoding="async"
             onError={() => setFailed(full)}
+            // Страница приходит с сервера (i18n/settings.ts, SSR_ROUTES): если обложка не
+            // загрузилась ещё до гидрации, onError уже не сработает — проверяем при монтировании.
+            ref={(img) => {
+              if (img && img.complete && img.naturalWidth === 0) setFailed(full);
+            }}
             className="absolute inset-0 h-full w-full object-cover"
           />
         ) : (

@@ -6,6 +6,7 @@ import { SEO_FUNCTIONS } from '@/lib/seo/functions';
 import { CREATIVE_TOOLS } from '@/lib/creative/tools';
 import { SITE_URL } from '@/lib/seo/site';
 import { safeReturnPath } from '@/tools/returnPath';
+import { CHAT_PATH } from '@/lib/nav/paths';
 
 // Множества валидных SEO-слагов (чистые данные, edge-safe). Любой другой слаг
 // под /model/<x> или /ai/<x> (напр. удалённый /model/mistral) обязан отдавать
@@ -179,6 +180,22 @@ export async function middleware(request: NextRequest) {
   const creativeMatch = pathname.match(/^\/creative\/([^/]+)\/?$/);
   if (creativeMatch && !CREATIVE_IDS.has(decodeURIComponent(creativeMatch[1]))) return seoNotFound();
 
+  // A6: «/» — хаб платформы. Старые ссылки «в чат» (/?q=…, /?model=… — SEO-страницы,
+  // студия, закладки) ведут на /chat с теми же параметрами (?ref= и прочее едет вместе).
+  // /?ref=CODE без q/model остаётся на главной. 307 (по умолчанию) — не кэшируется
+  // браузерами и Cloudflare, откат замены главной безопасен.
+  if (pathname === '/') {
+    const sp = request.nextUrl.searchParams;
+    if (sp.has('q') || sp.has('model')) {
+      return NextResponse.redirect(new URL(CHAT_PATH + request.nextUrl.search, request.url));
+    }
+  }
+  // Временный адрес новой главной (этап A4) — после замены ведёт на «/».
+  // Папка app/home-preview остаётся, но запрос до неё больше не доходит.
+  if (pathname === '/home-preview' || pathname === '/home-preview/') {
+    return NextResponse.redirect(new URL('/' + request.nextUrl.search, request.url));
+  }
+
   // Prefer forwarded host/host header, fallback to URL hostname
   const rawHost = request.headers.get('x-forwarded-host') || request.headers.get('host') || request.nextUrl.hostname;
   const hostname = normalizeHost(rawHost);
@@ -239,6 +256,10 @@ export async function middleware(request: NextRequest) {
     const forwarded = new Headers(request.headers);
     forwarded.set('x-esai-path', pathname);
     forwarded.set('x-esai-search', request.nextUrl.search);
+    // Подсказка для разметки, не доступ (components/bootstrap/AuthHint): страницы с
+    // серверной отрисовкой сразу рисуют шапку и хаб вошедшего, без кадра «Войти» и
+    // без расхождения при гидрации. Значение от клиента всегда перезаписывается здесь.
+    forwarded.set('x-esai-authed', hasAccess ? '1' : '0');
     res = NextResponse.next({ request: { headers: forwarded } });
   }
 

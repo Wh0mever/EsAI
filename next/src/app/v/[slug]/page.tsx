@@ -189,7 +189,7 @@ export default async function SharedVideoPage({ params }: { params: Promise<Para
           </NextLink>
         ) : (
           <NextLink
-            href="/"
+            href={CHAT_PATH}
             className="mt-2 rounded-full border border-accent text-accent hover:bg-accent-soft transition-colors text-sm font-medium px-5 py-2"
           >
             Сделать такое же видео бесплатно

@@ -6,7 +6,7 @@ export default function manifest(): MetadataRoute.Manifest {
     name: "EsAI",
     short_name: "EsAI",
     description:
-      "EsAI — все нейросети в одном чате: ChatGPT, DeepSeek, Claude, Gemini. На русском, кыргызском и английском.",
+      "EsAI — всё для творчества и работы с ИИ: чаты с нейросетями (ChatGPT, Claude, Gemini, DeepSeek), видео, мультфильмы и изображения. На русском, кыргызском и английском.",
     id: "/",
     start_url: "/",
     scope: "/",

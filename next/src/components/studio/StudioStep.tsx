@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { CHAT_PATH } from "@/lib/nav/paths";
 import { useTranslation } from "react-i18next";
 import { motion } from "framer-motion";
 import { FiArrowRight, FiCheck, FiLock } from "react-icons/fi";
@@ -30,7 +31,7 @@ const modelKey = (m: CartoonModel) => String(m.openrouter_id || m.id);
  * StudioStep — крупная пронумерованная карточка одного этапа конвейера.
  * Показывает доступные модели маленькими чипами (человек выбирает одну),
  * примеры-подсказки и кнопку, которая ведёт в чат с выбранной моделью и
- * подставленным примером через deep-link `/?model=<id>&q=<prompt>`.
+ * подставленным примером через deep-link `/chat?model=<id>&q=<prompt>`.
  */
 export default function StudioStep({
 	id,
@@ -58,8 +59,8 @@ export default function StudioStep({
 		setSelected((prev) => prev || modelKey(firstFree));
 	}, [models]);
 
-	// Ссылка «в чат»: главная «/» = рабочий чат, поддерживает ?model=&q=.
-	const href = `/?model=${encodeURIComponent(selected)}${
+	// Ссылка «в чат»: чат на /chat, поддерживает ?model=&q=.
+	const href = `${CHAT_PATH}?model=${encodeURIComponent(selected)}${
 		prompt ? `&q=${encodeURIComponent(prompt)}` : ""
 	}`;
 

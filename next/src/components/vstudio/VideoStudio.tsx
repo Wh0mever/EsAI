@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
+import { CHAT_PATH } from "@/lib/nav/paths";
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -1202,7 +1203,7 @@ function DisabledPage({ guest, returnTo }: { guest: boolean; returnTo: string })
         })}
         action={
           <div className="flex flex-wrap items-center justify-center gap-2">
-            <Link href="/" className={PRIMARY_BTN}>
+            <Link href={CHAT_PATH} className={PRIMARY_BTN}>
               {t("page.toChat", { defaultValue: "Открыть чат" })}
             </Link>
             <Link href="/studio" className={SECONDARY_BTN}>

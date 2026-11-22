@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { CHAT_PATH } from "@/lib/nav/paths";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import SeoShell from "@/components/seo/SeoShell";
@@ -60,7 +61,7 @@ export default async function ModelPage({ params }: { params: Promise<Params> })
   if (!model) notFound();
 
   const related = getRelatedModels(slug);
-  const chatHref = `/?model=${encodeURIComponent(model.openrouter_id)}`;
+  const chatHref = `${CHAT_PATH}?model=${encodeURIComponent(model.openrouter_id)}`;
   // Студия по этой ссылке открывается уже с этой моделью в панели запроса;
   // если модели в студии нет, параметр молча пропускается (vstudio/deepLink.ts).
   const studioHref =

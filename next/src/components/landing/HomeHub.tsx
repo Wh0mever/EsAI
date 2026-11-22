@@ -22,8 +22,8 @@ import {
   FaNewspaper,
   FaStar,
 } from "react-icons/fa6";
-import { ensureAccess, fetchData, getToken } from "@/tools/fetchData";
-import { isJwtValid } from "@/tools/jwt";
+import { ensureAccess, fetchData } from "@/tools/fetchData";
+import { useAuthedHint } from "@/components/bootstrap/AuthHint";
 import { CHAT_PATH, CREATIVE_PATH } from "@/lib/nav/paths";
 import { CREATIVE_NAV, VSTUDIO_NAV } from "@/lib/nav/menu";
 import { CREATORS_NAV } from "@/lib/creators/format";
@@ -33,8 +33,7 @@ import { HAS_EXAMPLES } from "@/lib/creative/examples";
 // открывается у всех (гость, вошедший, установленное приложение), никого не
 // перенаправляет в чат, даёт переходы во все разделы. Вошедший видит баланс.
 //
-// Пока живёт на /home-preview (этап A4). Замена «/» — этап A6, только по слову
-// Шохруха.
+// Показывается на «/» (этап A6), чат — на /chat.
 //
 // Картинки — от клиента (без надписей, текст накладываем кодом, чтобы работали
 // три языка); конвертация — creative-studio/work/img_1122.py.
@@ -42,10 +41,14 @@ import { HAS_EXAMPLES } from "@/lib/creative/examples";
 type Me = { token_balance?: number | string; is_unlimited?: boolean } | null;
 
 function useMe() {
-  // Живой access в cookie — сразу экран вошедшего, без кадра с «Начать бесплатно».
-  // HomeHub рисуется только в браузере (переводы грузятся на клиенте), так что
-  // расхождения с серверной разметкой нет. Просроченный access проверит ensureAccess.
-  const [authed, setAuthed] = useState(() => typeof document !== "undefined" && isJwtValid(getToken("access")));
+  // Живой access — сразу экран вошедшего, без кадра с «Начать бесплатно».
+  // Хаб рисуется на сервере (i18n/settings.ts, SSR_ROUTES): первый кадр — по
+  // подсказке сервера из cookie (components/bootstrap/AuthHint), одинаково в HTML
+  // и при гидрации; сразу после гидрации — по cookie в браузере. Просроченный
+  // access проверит ensureAccess — его ответ окончательный.
+  const fromCookie = useAuthedHint();
+  const [checked, setChecked] = useState<boolean | null>(null);
+  const authed = checked ?? fromCookie;
   const [me, setMe] = useState<Me>(null);
   const [failed, setFailed] = useState(false);
   useEffect(() => {
@@ -54,7 +57,7 @@ function useMe() {
     // входа и профиль. Сессию не трогаем — только читаем.
     ensureAccess().then((ok) => {
       if (!alive) return;
-      setAuthed(ok);
+      setChecked(ok);
       if (!ok) return;
       fetchData<{ user?: Me }>("users/profile/", "get", null, true)
         .then((r) => {

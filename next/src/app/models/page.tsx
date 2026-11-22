@@ -14,7 +14,7 @@
  *
  * "Попробовать" ведёт либо на готовую SEO-статью /model/<slug> (если модель
  * есть в lib/seo/models.ts — сматчено по openrouter_id), либо прямо в чат с
- * предвыбранной моделью (/?model=<openrouter_id> — тот же паттерн, что уже
+ * предвыбранной моделью (/chat?model=<openrouter_id> — тот же паттерн, что уже
  * использует /model/[slug]/page.tsx), чтобы не дублировать SEO-контент.
  *
  * Логотипы — круглые бейджи "инициал вендора + брендовый цвет"
@@ -23,6 +23,7 @@
  */
 
 import { useEffect, useMemo, useState } from "react";
+import { CHAT_PATH } from "@/lib/nav/paths";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { FiSearch, FiEye, FiCpu, FiGlobe, FiStar, FiArrowRight } from "react-icons/fi";
@@ -82,7 +83,7 @@ function modelKey(m: CatalogModel): string {
 function tryHref(m: CatalogModel): string {
   const seo = SEO_MODELS.find((s) => s.openrouter_id === m.openrouter_id);
   if (seo) return `/model/${seo.slug}`;
-  return `/?model=${encodeURIComponent(m.openrouter_id || String(m.id))}`;
+  return `${CHAT_PATH}?model=${encodeURIComponent(m.openrouter_id || String(m.id))}`;
 }
 
 function SkeletonCard() {
@@ -165,7 +166,9 @@ export default function ModelsCatalogPage() {
   const showQuietFallback = !loading && loadError && models.length === 0;
 
   return (
-    <main className="w-full pt-24 sm:pt-28 pb-16">
+    // min-h: каталог догружается в браузере, а с серверной отрисовкой подвал виден сразу —
+    // без запаса высоты список сталкивал его вниз (CLS 0.36 на телефоне, Lighthouse 23.11).
+    <main className="w-full min-h-[100dvh] pt-24 sm:pt-28 pb-16">
       <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
         <header className="mb-5 sm:mb-6 max-w-2xl">
           <h1 className="text-2xl sm:text-3xl font-bold text-foreground leading-tight">

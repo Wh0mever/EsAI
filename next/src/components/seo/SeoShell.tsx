@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { CHAT_PATH } from "@/lib/nav/paths";
 import type { ReactNode } from "react";
 import { SITE_NAME } from "@/lib/seo/site";
 import type { SiteSettings } from "@/lib/content";
@@ -30,7 +31,7 @@ export default function SeoShell({
             <EsaiLogo className="h-6 w-auto" />
           </Link>
           <Link
-            href="/"
+            href={CHAT_PATH}
             className="inline-flex items-center rounded-full bg-accent text-on-accent text-sm font-semibold px-4 py-2 hover:bg-accent-strong transition-colors"
           >
             Открыть чат
@@ -47,7 +48,7 @@ export default function SeoShell({
             <span>© {year} {SITE_NAME}</span>
           </div>
           <nav className="flex items-center gap-4">
-            <Link href="/" className="hover:text-foreground transition-colors">Чат</Link>
+            <Link href={CHAT_PATH} className="hover:text-foreground transition-colors">Чат</Link>
             <Link href="/pricing" className="hover:text-foreground transition-colors">Цены</Link>
             <Link href="/blog" className="hover:text-foreground transition-colors">Блог</Link>
           </nav>

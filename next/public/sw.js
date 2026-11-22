@@ -11,7 +11,9 @@
 // v6: файлы пользователей (/media/) больше не идут через SW. Переход на ролик
 // копировал его целиком (мегабайты) в shell-кэш, а картинки и превью студий
 // навсегда оставались в static-кэше. Смена версии выбрасывает эти копии.
-const CACHE_VERSION = "esai-v6";
+// v7: главная «/» стала хабом (этап A6) — выбрасываем сохранённую оболочку
+// старой главной-чата и статику прошлых сборок.
+const CACHE_VERSION = "esai-v7";
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 const OFFLINE_URL = "/offline.html";

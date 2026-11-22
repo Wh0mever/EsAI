@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { CHAT_PATH } from "@/lib/nav/paths";
 import ArticleContent from "@/components/blog/ArticleContent";
 import ArticleReader from "@/components/blog/ArticleReader";
 import ArticleOutline from "@/components/blog/ArticleOutline";
@@ -97,7 +98,7 @@ export default function HomeArticleSection({ title, body, slug }: HomeArticleSec
               </p>
               <div className="flex flex-wrap items-center justify-center gap-3">
                 <Link
-                  href="/#"
+                  href={CHAT_PATH}
                   className="inline-flex items-center rounded-full bg-accent text-on-accent font-semibold px-6 py-3 hover:bg-accent-strong transition-colors"
                 >
                   Открыть чат

@@ -21,6 +21,7 @@ const SECTION_LABELS: [string, string][] = [
   ["merge", "Склейка"],
   ["creative", "Creative Studio"],
   ["pricing", "Тарифы"],
+  ["home", "Главная"],
   ["other", "Другие страницы"],
 ];
 

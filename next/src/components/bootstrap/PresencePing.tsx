@@ -34,7 +34,9 @@ function visitorId(): string | null {
 
 function sectionOf(pathname: string | null): string {
   const p = pathname || "/";
-  if (p === "/" || p.startsWith("/dashboard") || p.startsWith("/chat")) return "chat";
+  // Главная «/» — хаб платформы (этап A6), отдельный раздел; чат — /chat и /dashboard.
+  if (p === "/") return "home";
+  if (p.startsWith("/dashboard") || p === "/chat" || p.startsWith("/chat/")) return "chat";
   if (p.startsWith("/video-studio")) return "video_studio";
   if (p === "/studio" || p.startsWith("/studio/") || p.startsWith("/tg/studio")) return "studio";
   if (p === "/merge" || p.startsWith("/merge/")) return "merge";

@@ -30,6 +30,7 @@ import {
   FiAward,
   FiScissors,
   FiBookOpen,
+  FiHome,
 } from "react-icons/fi";
 import Link from "next/link";
 import NextLink from "@/components/ui/nextLink/NextLink";
@@ -255,7 +256,7 @@ export default function ChatSidebar({
         setItems(remaining);
         onChatDeleted?.(id, wasActive);
         // Удалили АКТИВНЫЙ чат → ведём на соседний (самый свежий из оставшихся),
-        // а не на основной экран; на "/" уходим только если чатов не осталось.
+        // а не на основной экран; на /chat уходим только если чатов не осталось.
         if (wasActive) {
           const next = remaining[0];
           if (next) {
@@ -470,6 +471,20 @@ export default function ChatSidebar({
                   невысоких экранах секции налезали друг на друга («История пуста»
                   уходила под карточку баланса). Теперь всё в одном скролле. */}
               <div className="flex-1 min-h-0 overflow-y-auto">
+              {/* «Главная» — хаб платформы «/» (этап A6): все направления EsAI.
+                  Логотип в шапке панели — не ссылка, а в открытом чате это
+                  самый заметный путь обратно на главную. */}
+              <div className="px-3 pt-3 shrink-0">
+                <Link
+                  href="/"
+                  onClick={onClose}
+                  className="w-full inline-flex items-center gap-2.5 rounded-xl px-3 py-2.5 text-sm text-foreground hover:bg-surface-2 transition-colors cursor-pointer"
+                >
+                  <FiHome className="text-accent shrink-0" />
+                  <span className="flex-1 min-w-0 truncate">{t("chat.home", { defaultValue: "Главная" })}</span>
+                </Link>
+              </div>
+
               {/* New chat */}
               <div className="px-3 pt-3 shrink-0">
                 <button

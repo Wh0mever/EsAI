@@ -1,6 +1,6 @@
-// /chat — the EsAI chat workspace (full-screen, no marketing
-// header/footer). It renders its own top bar and sidebar.
-export default function HomeLayout({
+// /chat — рабочий чат EsAI (на весь экран, без шапки и подвала сайта):
+// свою верхнюю строку и боковую панель он рисует сам.
+export default function ChatLayout({
 	children,
 }: Readonly<{
 	children: React.ReactNode;

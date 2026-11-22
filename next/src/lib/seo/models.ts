@@ -1,6 +1,6 @@
 // SEO model catalog for /model/<slug> landing pages.
 // Extensible: add a new entry to register a new ChPU route, sitemap entry and page.
-// `openrouter_id` is passed to the chat via /?model=<openrouter_id> so the
+// `openrouter_id` is passed to the chat via /chat?model=<openrouter_id> so the
 // composer pre-selects the right model.
 
 export type ModelFaq = { q: string; a: string };

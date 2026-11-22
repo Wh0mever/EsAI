@@ -26,6 +26,9 @@ import SuggestText from "./SuggestText";
 // H1 — заголовок H1 всегда один. Номер страницы корневой layout берёт из
 // заголовка x-esai-search (searchParams у layout нет); каталог — тот же запрос,
 // что у страницы, поэтому второго обращения к core нет.
+//
+// С серверной отрисовкой (i18n/settings.ts, SSR_ROUTES) настоящая страница уже в
+// HTML, и корневой layout этот блок не отдаёт. Нужен только при I18N_SSR=off.
 
 export default async function AcademySeoFallback({ lang, search }: { lang: string; search: string }) {
   const dict = lang === "en" ? en : lang === "kg" ? kg : ru;

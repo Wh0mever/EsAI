@@ -1,6 +1,7 @@
 "use client";
 
 import { useTranslation } from "react-i18next";
+import { CHAT_PATH } from "@/lib/nav/paths";
 import Link from "next/link";
 import { Modal } from "@/components/dialog/Dialog";
 import { FiLock } from "react-icons/fi";
@@ -47,7 +48,7 @@ export default function GuestLimitModal({ open, onClose }: Props) {
         <SocialAuthButtons />
 
         <Link
-          href="/auth/signin?next=/"
+          href={`/auth/signin?next=${encodeURIComponent(CHAT_PATH)}`}
           className="mt-4 inline-block text-sm text-accent-strong hover:text-accent transition-colors"
         >
           {t("guest.more_login_options", { defaultValue: "Все способы входа (Email)" })}

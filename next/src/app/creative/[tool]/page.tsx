@@ -3,6 +3,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { CREATIVE_TOOLS, toolById } from "@/lib/creative/tools";
 import { OG_IMAGE, OG_IMAGE_ALT, OG_IMAGE_META, SITE_NAME, SITE_URL } from "@/lib/seo/site";
+import { CREATIVE_NAV } from "@/lib/nav/menu";
 import { preload } from "react-dom";
 import ToolSoon from "@/components/creative/ToolSoon";
 
@@ -22,7 +23,8 @@ export async function generateMetadata({ params }: Params): Promise<Metadata> {
 		title,
 		description: tool.desc,
 		alternates: { canonical: `/creative/${tool.id}` },
-		robots: { index: false, follow: true },
+		// Индексируется вместе с разделом (флаг сборки NEXT_PUBLIC_CREATIVE_NAV, см. creative/layout.tsx).
+		robots: { index: CREATIVE_NAV, follow: true },
 		openGraph: {
 			images: [OG_IMAGE_META],
 			title,
