@@ -53,9 +53,9 @@ DIRECTIONS_SINCE = date(2026, 6, 28)
 # Строки отчёта «По направлениям» в порядке показа: (группа, подпись, сценарии).
 DIRECTIONS = (
     ("video", "Видео", (("cartoon_scene", "Мультстудия"), ("vstudio_video", "Видеостудия"),
-                        ("chat_video", "Чат"))),
+                        ("creative_video", "Creative Studio"), ("chat_video", "Чат"))),
     ("image", "Изображения", (("cartoon_image", "Мультстудия"), ("vstudio_image", "Видеостудия"),
-                              ("chat_image", "Чат"))),
+                              ("creative_image", "Creative Studio"), ("chat_image", "Чат"))),
     # Сценарий один: подстрока только повторила бы строку группы.
     ("text", "Текст", (("text", "Чат"),)),
 )
@@ -66,6 +66,9 @@ SCENARIO_BY_REASON = {
     "cartoon_character": "cartoon_image",
     "vstudio_video": "vstudio_video",
     "vstudio_image": "vstudio_image",
+    "creative_video": "creative_video",
+    "creative_image": "creative_image",
+    "creative_character": "creative_image",
 }
 CHAT_REASON = "chat"
 MESSAGES_CHUNK = 2000

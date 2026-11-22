@@ -266,12 +266,14 @@ class GenerationJobCreateView(APIView):
         balance = int(getattr(user, "token_balance", 0) or 0)
         # Ролики «снимается дольше» (задача delayed) ещё не списаны, но спишутся
         # при довозе — их цену вычитаем, как и в самой генерации.
-        from vstudio.reserve import merge_reserved, vstudio_reserved  # и дубли студии, и склейки
+        # и дубли студии, и склейки, и задачи Creative Studio
+        from vstudio.reserve import creative_reserved, merge_reserved, vstudio_reserved
 
         from .generation import reserved_video_credits, video_balance_error
 
         refusal = video_balance_error(
-            balance, reserved_video_credits(user) + vstudio_reserved(user) + merge_reserved(user), need)
+            balance, reserved_video_credits(user) + vstudio_reserved(user) + merge_reserved(user)
+            + creative_reserved(user), need)
         if refusal:
             return Response(refusal, status=status.HTTP_402_PAYMENT_REQUIRED)
 

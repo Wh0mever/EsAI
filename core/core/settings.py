@@ -149,6 +149,7 @@ INSTALLED_APPS = [
     "cartoon.apps.CartoonConfig",
     "vstudio.apps.VstudioConfig",
     "merge.apps.MergeConfig",
+    "creative.apps.CreativeConfig",
     "creators.apps.CreatorsConfig",
     "academy.apps.AcademyConfig",
 ]
@@ -307,6 +308,15 @@ REST_FRAMEWORK = {
         "vstudio_upload": env.str("DRF_THROTTLE_VSTUDIO_UPLOAD", default="40/min"),
         # «Сжать с ИИ» для человека бесплатно, а вызов модели оплачиваем мы.
         "vstudio_assist": env.str("DRF_THROTTLE_VSTUDIO_ASSIST", default="20/hour"),
+        # Creative Studio: свои счётчики, как у видеостудии (опрос работ и пересчёт
+        # цены на каждую правку формы не должны съедать общий лимит 120 в минуту).
+        "creative_read": env.str("DRF_THROTTLE_CREATIVE_READ", default="120/min"),
+        "creative_quote": env.str("DRF_THROTTLE_CREATIVE_QUOTE", default="90/min"),
+        "creative_run": env.str("DRF_THROTTLE_CREATIVE_RUN", default="20/min"),
+        "creative_upload": env.str("DRF_THROTTLE_CREATIVE_UPLOAD", default="40/min"),
+        "creative_poll": env.str("DRF_THROTTLE_CREATIVE_POLL", default="60/min"),
+        # Вебхук поставщика генераций (включается только с HF_WEBHOOK_SECRET).
+        "creative_hook": env.str("DRF_THROTTLE_CREATIVE_HOOK", default="600/min"),
         # Программа Creators. Переход по ссылке шлёт каждая загрузка страницы с
         # ?ref= (в том числе без входа), заявка подаётся считаные разы, а записи
         # в кабинете (код, публикация, вывод) — редкие действия руками.
@@ -695,6 +705,24 @@ CELERY_BEAT_SCHEDULE = {
         "task": "merge.tasks.purge_expired",
         "schedule": crontab(hour=4, minute=50),
     },
+    # Creative Studio: страховка конвейера — потерянная цепочка опроса, зависшая
+    # отправка, истёкшая аренда выдачи. Как у видеостудии: раз в минуту, старое
+    # сообщение выбрасываем (expire_seconds — так поле понимает DatabaseScheduler).
+    "creative:sweep_jobs": {
+        "task": "creative.tasks.sweep_jobs",
+        "schedule": timedelta(seconds=60),
+        "options": {"expire_seconds": 50},
+    },
+    # Каталоги поставщика (стили, пресеты, опции) и копии превью — раз в 6 часов.
+    "creative:sync_catalogs": {
+        "task": "creative.tasks.sync_catalogs",
+        "schedule": timedelta(hours=6),
+    },
+    # Старые загрузки людей без открытых задач — ночью.
+    "creative:purge_uploads": {
+        "task": "creative.tasks.purge_uploads",
+        "schedule": crontab(hour=5, minute=5),
+    },
 }
 
 # Оплата в Telegram-боте: off / staff / on (переопределяется в /admin-new →
@@ -747,6 +775,9 @@ CELERY_MEDIA_QUEUE = env.str("CELERY_MEDIA_QUEUE", default="media")
 # дубля ждёт провайдера до 150 с. Пусто — студия идёт в media, а если пуста
 # и она — в общую очередь (локальный стенд с одним воркером).
 CELERY_VSTUDIO_QUEUE = env.str("CELERY_VSTUDIO_QUEUE", default="vstudio").strip()
+# Задачи Creative Studio: пусто (по умолчанию) — в очередь видеостудии, отдельный
+# воркер не нужен. Задать имя — только вместе с воркером, который её слушает.
+CELERY_CREATIVE_QUEUE = env.str("CELERY_CREATIVE_QUEUE", default="").strip()
 # Музыка склейки по описанию ждёт ElevenLabs в слоте media до 540 с: сколько таких
 # заказов разом на весь сайт (runtime-ключ merge_music_concurrency важнее).
 MERGE_MUSIC_CONCURRENCY = env.int("MERGE_MUSIC_CONCURRENCY", default=2)
@@ -780,6 +811,17 @@ CELERY_TASK_ROUTES.update({
     "vstudio.tasks.build_showcase_clip": {"queue": CELERY_TASK_DEFAULT_QUEUE},
     "vstudio.tasks.*": {
         "queue": CELERY_VSTUDIO_QUEUE or CELERY_MEDIA_QUEUE or CELERY_TASK_DEFAULT_QUEUE,
+    },
+    # Creative Studio: страховка, чистка и каталоги — в общую очередь (как у студии),
+    # остальное — в CELERY_CREATIVE_QUEUE, а если она пуста — в очередь видеостудии
+    # (её слушает и celery_vstudio на проде, и единственный воркер dev-стенда).
+    "creative.tasks.sweep_jobs": {"queue": CELERY_TASK_DEFAULT_QUEUE},
+    "creative.tasks.purge_uploads": {"queue": CELERY_TASK_DEFAULT_QUEUE},
+    "creative.tasks.sync_catalog": {"queue": CELERY_TASK_DEFAULT_QUEUE},
+    "creative.tasks.sync_catalogs": {"queue": CELERY_TASK_DEFAULT_QUEUE},
+    "creative.tasks.*": {
+        "queue": (CELERY_CREATIVE_QUEUE or CELERY_VSTUDIO_QUEUE or CELERY_MEDIA_QUEUE
+                  or CELERY_TASK_DEFAULT_QUEUE),
     },
 })
 
@@ -815,6 +857,36 @@ VSTUDIO_ASSIST_MODEL = env.str("VSTUDIO_ASSIST_MODEL", default="google/gemini-2.
 # нет ссылок из кадров и дублей (purge_assets, ежедневно в 04:30). Меньше
 # суток не бывает: удаление по ошибке ещё можно разобрать.
 VSTUDIO_PURGE_DAYS = max(1, env.int("VSTUDIO_PURGE_DAYS", default=30))
+
+# === Creative Studio (/creative, приложение creative) ===
+# off — раздела нет (API 403 creative_disabled, кроме tools/); staff — работают
+# только сотрудники (обкатка); on — все вошедшие. Незнакомое значение — staff.
+# Поверх — правка из админки (runtime creative_mode).
+CREATIVE_MODES = ("off", "staff", "on")
+CREATIVE_MODE = env.str("CREATIVE_MODE", default="staff").strip().lower()
+if CREATIVE_MODE not in CREATIVE_MODES:
+    CREATIVE_MODE = "staff"
+# Ключ API поставщика генераций (вид id:secret). Только сервер: уходит одним
+# заголовком и только на хост API поставщика; в логи и ответы не печатается.
+HF_KEY = env.str("HF_KEY", default="").strip()
+# Секрет подписи вебхуков (whsec_…). Пусто — вебхук выключен (404), результат
+# забирается опросом.
+HF_WEBHOOK_SECRET = env.str("HF_WEBHOOK_SECRET", default="").strip()
+# Сколько задач разом у поставщика на весь сайт: остальные ждут у нас в очереди.
+CREATIVE_MAX_PARALLEL = max(1, env.int("CREATIVE_MAX_PARALLEL", default=4))
+# Сколько работ одного человека идут одновременно (каждая держит резерв кредитов).
+CREATIVE_MAX_OPEN_PER_USER = max(1, env.int("CREATIVE_MAX_OPEN_PER_USER", default=3))
+# Предел загружаемого видео, МБ. Не больше 90: сайт за Cloudflare Free, тело больше
+# 100 МБ он отрезает своей страницей 413 (как у склейки; nginx — 95m).
+CREATIVE_VIDEO_MAX_MB = max(1, min(90, env.int("CREATIVE_VIDEO_MAX_MB", default=90)))
+# Сколько дней хранятся загрузки людей (если их не ждёт открытая задача).
+CREATIVE_UPLOAD_KEEP_DAYS = max(1, env.int("CREATIVE_UPLOAD_KEEP_DAYS", default=7))
+# Квота загрузок одного человека за срок хранения: файлов и мегабайт (загрузки
+# бесплатны, а диск общий с оплаченными выдачами). Сверх — 409 upload_quota.
+CREATIVE_UPLOAD_MAX_FILES = max(1, env.int("CREATIVE_UPLOAD_MAX_FILES", default=60))
+CREATIVE_UPLOAD_MAX_MB = max(1, env.int("CREATIVE_UPLOAD_MAX_MB", default=2048))
+# Доп. хосты, с которых можно скачивать результаты (кроме поддоменов поставщика и CloudFront).
+CREATIVE_MEDIA_EXTRA_HOSTS = env.list("CREATIVE_MEDIA_EXTRA_HOSTS", default=[])
 
 # --- Guest (anonymous) chat free quota ---
 # Number of free chat requests an unauthenticated visitor gets before being

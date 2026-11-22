@@ -42,7 +42,7 @@ SYNC_RECENT_EVERY = 600
 
 # Движения кредитов, которые пишутся в запросе самого человека. Остальные не
 # годятся: daily_bonus ночная задача начисляет всем подряд; кадры и сцены
-# мультстудии, видео и картинки видеостудии, склейка списываются воркером, когда
+# мультстудии, видео и картинки видеостудии, склейка и Creative Studio списываются воркером, когда
 # результат готов, а покупка зачисляется по вебхуку или сверке — день такой
 # строки бывает следующим (ролик запущен в 23:57, готов в 00:04), и человек
 # «вернулся» бы, не заходя. Сам запуск этих действий виден по своим источникам:
@@ -133,6 +133,7 @@ SOURCES: tuple[tuple[str, str, str, str, Q | None], ...] = (
     ("vstudio_shot", "vstudio.Shot", "created_at", "user", None),
     ("vstudio_take", "vstudio.Take", "created_at", "user", None),
     ("merge", "merge.MergeProject", "created_at", "user", None),
+    ("creative_job", "creative.CreativeJob", "created_at", "user", None),
     ("site_feedback", "users.UserFeedback", "created_at", "user", None),
     ("promo", "plans.PromoActivation", "created_at", "user", None),
 )

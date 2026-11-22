@@ -145,6 +145,12 @@ KEYS = (
     # там же разбор: @имя → https://t.me/имя, mailto:…?subject → адрес); в общем
     # PATCH settings/ ключа нет намеренно. Читает academy.public.suggest, он проверяет ещё раз.
     "academy_suggest_url",
+    # Creative Studio: режим off/staff/on поверх CREATIVE_MODE из окружения и общая
+    # наценка инструментов в % к себестоимости (0…1000, нет значения — 40). Пишет
+    # панель /api/manage/creative/settings/ (наценку — только главный администратор);
+    # читают creative.access.creative_mode и creative.pricing.global_markup_pct.
+    "creative_mode",
+    "creative_markup_pct",
 )
 
 # Сентинел «в кэше пусто» — None невалиден: мы кэшируем и None («ключа нет в БД»).

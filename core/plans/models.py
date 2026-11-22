@@ -463,6 +463,10 @@ class TokenTransactionReason(models.TextChoices):
     # Звук склейки — только за готовый голос и готовую музыку (merge.audio).
     MERGE_VOICE = "merge_voice", "Склейка: голос"
     MERGE_MUSIC = "merge_music", "Склейка: музыка"
+    # Creative Studio тоже списывает только за выданный результат (creative.reserve).
+    CREATIVE_IMAGE = "creative_image", "Creative Studio: картинка"
+    CREATIVE_VIDEO = "creative_video", "Creative Studio: видео"
+    CREATIVE_CHARACTER = "creative_character", "Creative Studio: персонаж"
 
 
 # Списания видеостудии. Метрики трат считают их вместе с чатом — иначе
@@ -473,6 +477,10 @@ VSTUDIO_SPEND_REASONS = (TokenTransactionReason.VSTUDIO_VIDEO.value,
 MERGE_SPEND_REASONS = (TokenTransactionReason.MERGE_VIDEO.value,
                        TokenTransactionReason.MERGE_VOICE.value,
                        TokenTransactionReason.MERGE_MUSIC.value)
+# Списания Creative Studio: картинки, видео и обучение персонажа — в суммах трат админки.
+CREATIVE_SPEND_REASONS = (TokenTransactionReason.CREATIVE_IMAGE.value,
+                          TokenTransactionReason.CREATIVE_VIDEO.value,
+                          TokenTransactionReason.CREATIVE_CHARACTER.value)
 
 
 class TokenTransaction(models.Model):

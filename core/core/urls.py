@@ -11,11 +11,13 @@ urlpatterns = [
     path('api/ai/', include('ai.urls')),
     path('api/plans/', include('plans.urls')),
     path('api/payments/', include('payments.urls')),
+    path('api/manage/creative/', include('creative.urls_manage')),
     path('api/manage/', include('adminapi.urls')),
     path('api/bot/', include('botapi.urls')),
     path('api/cartoon/', include('cartoon.urls')),
     path('api/vstudio/', include('vstudio.urls')),
     path('api/merge/', include('merge.urls')),
+    path('api/creative/', include('creative.urls')),
     path('api/creators/', include('creators.urls')),
     path('api/academy/', include('academy.urls')),
 ]

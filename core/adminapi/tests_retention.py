@@ -289,7 +289,7 @@ class RetentionReportTests(RetentionFixtures, TestCase):
         self.assertTrue(all(r["share"] is None for r in data["returned_within"]))
         self.assertIsNone(data["payers"]["repeat_share"])
         # Генераций нет: строки всё равно на месте, деления на ноль — null, а не 0.
-        self.assertEqual(len(data["directions"]), 9)
+        self.assertEqual(len(data["directions"]), 11)
         for row in data["directions"]:
             self.assertEqual((row["users"], row["generations"]), (0, 0))
             for key in ("per_user", "repeat_share", "paid_share"):
@@ -398,10 +398,12 @@ class RetentionDirectionsTests(RetentionFixtures, TestCase):
             [("video", "video", "Видео", None),
              ("cartoon_scene", "video", "Мультстудия", "video"),
              ("vstudio_video", "video", "Видеостудия", "video"),
+             ("creative_video", "video", "Creative Studio", "video"),
              ("chat_video", "video", "Чат", "video"),
              ("image", "image", "Изображения", None),
              ("cartoon_image", "image", "Мультстудия", "image"),
              ("vstudio_image", "image", "Видеостудия", "image"),
+             ("creative_image", "image", "Creative Studio", "image"),
              ("chat_image", "image", "Чат", "image"),
              ("text", "text", "Текст", None)])
 

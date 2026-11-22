@@ -106,7 +106,7 @@ def collect_dashboard_metrics() -> dict:
 
     # ---- Токены ----
     try:
-        from plans.models import TokenTransaction, VSTUDIO_SPEND_REASONS
+        from plans.models import CREATIVE_SPEND_REASONS, TokenTransaction, VSTUDIO_SPEND_REASONS
 
         # Видеостудия списывает под своими причинами (vstudio_*) — без них её
         # выручка в метриках не видна. Общая цифра = чат + студия, и отдельно
@@ -121,10 +121,18 @@ def collect_dashboard_metrics() -> dict:
             .aggregate(s=Sum("delta"))["s"]
             or 0
         )
+        # Creative Studio — свои причины (creative_*), тоже в общей цифре.
+        spent_creative = (
+            TokenTransaction.objects.filter(reason__in=CREATIVE_SPEND_REASONS, delta__lt=0)
+            .aggregate(s=Sum("delta"))["s"]
+            or 0
+        )
         # delta отрицательная => списано = abs
         data["tokens_spent_chat"] = abs(_safe_int(spent_chat))
         data["tokens_spent_vstudio"] = abs(_safe_int(spent_vstudio))
-        data["tokens_spent"] = data["tokens_spent_chat"] + data["tokens_spent_vstudio"]
+        data["tokens_spent_creative"] = abs(_safe_int(spent_creative))
+        data["tokens_spent"] = (data["tokens_spent_chat"] + data["tokens_spent_vstudio"]
+                                + data["tokens_spent_creative"])
         credited = (
             TokenTransaction.objects.filter(reason="purchase", delta__gt=0)
             .aggregate(s=Sum("delta"))["s"]
@@ -134,6 +142,7 @@ def collect_dashboard_metrics() -> dict:
     except Exception:
         data["tokens_spent"] = data["tokens_purchased"] = 0
         data["tokens_spent_chat"] = data["tokens_spent_vstudio"] = 0
+        data["tokens_spent_creative"] = 0
 
     # ---- Популярные модели + запросы по модели (из AiChatMessage.meta -> model) ----
     # meta хранит model на сообщениях ассистента; считаем в Python, т.к.

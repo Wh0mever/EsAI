@@ -600,8 +600,10 @@ class GenerationLog(models.Model):
     # Общий довоз чата (recovery.recover_open_videos) берёт только chat и bot:
     # у видеостудии свой sweep.
     SOURCE_VSTUDIO = "vstudio"
+    # Creative Studio — ровно 8 символов. Свой конвейер и свой sweep (creative.pipeline).
+    SOURCE_CREATIVE = "creative"
     SOURCE_CHOICES = [(SOURCE_CHAT, "Чат"), (SOURCE_STUDIO, "Студия"), (SOURCE_BOT, "Бот"),
-                      (SOURCE_VSTUDIO, "Видеостудия")]
+                      (SOURCE_VSTUDIO, "Видеостудия"), (SOURCE_CREATIVE, "Creative Studio")]
 
     # Путь запроса. submitting — отправляем провайдеру; submitted — провайдер
     # принял и выдал ID (с этого момента он берёт деньги); delivered — человек

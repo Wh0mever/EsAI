@@ -7,7 +7,8 @@
 - видео чата и бота (ai.generation.reserved_video_credits — открытые записи журнала);
 - сцены мультстудии, которые снимаются (cartoon.pricing.reserved_credits);
 - дубли студии (vstudio_reserved);
-- склейки в очереди и в работе (merge.services.reserved_credits).
+- склейки в очереди и в работе (merge.services.reserved_credits);
+- задачи Creative Studio в резерве (creative.reserve.reserved_credits).
 Иначе две вкладки, чат и студия, или «запустил и перевёл кредиты другу»
 проходили бы проверку по одному и тому же балансу, а провайдеру мы платили бы
 за всё.
@@ -159,6 +160,17 @@ def _merge_reserved(user) -> int:
     return max(0, int(reserved_credits(user) or 0))
 
 
+def _creative_reserved(user) -> int:
+    """Задачи Creative Studio в резерве. Бросает при сбое БД (для strict)."""
+    from django.apps import apps
+
+    if not apps.is_installed("creative"):
+        return 0
+    from creative.reserve import reserved_credits
+
+    return max(0, int(reserved_credits(user) or 0))
+
+
 def _soft(fn, user, what: str) -> int:
     """Посчитать часть резерва, не роняя чужой запрос: при сбое 0 и warning.
 
@@ -194,8 +206,17 @@ def merge_reserved(user) -> int:
     return _soft(_merge_reserved, user, "резерв склеек")
 
 
+def creative_reserved(user) -> int:
+    """Кредиты в резерве у задач Creative Studio — добавка к гейтам чата, бота и
+    мультстудии рядом с vstudio_reserved и merge_reserved. Мягко: сбой → 0 и warning."""
+    if not getattr(user, "pk", None):
+        return 0
+    return _soft(_creative_reserved, user, "резерв Creative Studio")
+
+
 def total_reserved(user, *, strict: bool = False) -> int:
-    """Все резервы сайта: видео чата и бота + сцены мультстудии + дубли студии + склейки.
+    """Все резервы сайта: видео чата и бота + сцены мультстудии + дубли студии + склейки
+    + задачи Creative Studio.
 
     strict=True — для spend_gate студии: сбой не прячется (запрос упадёт и
     откатится, ничего не зарезервировав). По умолчанию — мягко, как в чужих
@@ -205,7 +226,8 @@ def total_reserved(user, *, strict: bool = False) -> int:
     if not getattr(user, "pk", None):
         return 0
     parts = ((_chat_reserved, "резерв видео чата"), (_cartoon_reserved, "резерв мультстудии"),
-             (_studio_reserved, "резерв видеостудии"), (_merge_reserved, "резерв склеек"))
+             (_studio_reserved, "резерв видеостудии"), (_merge_reserved, "резерв склеек"),
+             (_creative_reserved, "резерв Creative Studio"))
     if strict:
         return sum(fn(user) for fn, _ in parts)
     return sum(_soft(fn, user, what) for fn, what in parts)
@@ -388,7 +410,7 @@ def charge_on_delivery(user, amount: int, reason: str, meta=None) -> Charge:
 
 __all__ = [
     "SpendRefused", "AlreadyStarted", "Charge", "spend_gate", "vstudio_reserved", "merge_reserved",
-    "total_reserved",
+    "creative_reserved", "total_reserved",
     "balance_snapshot", "balance_refusal", "provider_refusal", "charge_on_delivery",
     "reason_for", "max_open", "min_provider_usd", "DEFAULT_MAX_OPEN",
 ]

@@ -20,7 +20,7 @@ from ai.models import GPTModels
 from content.models import BlogPost, SiteSettings
 from payments.models import Payment
 from plans.models import (ExitDiscountOffer, PromoCode, TokenPackage, TokenTransaction,
-                          MERGE_SPEND_REASONS, VSTUDIO_SPEND_REASONS)
+                          CREATIVE_SPEND_REASONS, MERGE_SPEND_REASONS, VSTUDIO_SPEND_REASONS)
 from plans.wallet import clawback_tokens, credit_tokens
 
 from .permissions import IsStaff
@@ -137,9 +137,10 @@ class SummaryView(StaffAPIView):
         # Видеостудия списывает под своими причинами (vstudio_*): без них её
         # выручка на дашборде не видна вовсе, поэтому считаем их вместе с чатом
         # и отдельной строкой. Склейка (merge_video) и её звук (merge_voice,
-        # merge_music) — тоже траты за готовое, они в общей сумме.
+        # merge_music) — тоже траты за готовое, они в общей сумме. Creative Studio
+        # (creative_*) — так же: в общей сумме и отдельной строкой.
         spend_qs = TokenTransaction.objects.filter(reason__in=(
-            "chat", *VSTUDIO_SPEND_REASONS, *MERGE_SPEND_REASONS))
+            "chat", *VSTUDIO_SPEND_REASONS, *MERGE_SPEND_REASONS, *CREATIVE_SPEND_REASONS))
         spend_today_qs = spend_qs.filter(created_at__date=today)
         spent_total = -(spend_qs.aggregate(s=Sum("delta"))["s"] or 0)
         spent_today = -(spend_today_qs.aggregate(s=Sum("delta"))["s"] or 0)
@@ -147,6 +148,10 @@ class SummaryView(StaffAPIView):
         vstudio_total = -(vstudio_qs.aggregate(s=Sum("delta"))["s"] or 0)
         vstudio_today = -(vstudio_qs.filter(created_at__date=today)
                           .aggregate(s=Sum("delta"))["s"] or 0)
+        creative_qs = TokenTransaction.objects.filter(reason__in=CREATIVE_SPEND_REASONS)
+        creative_total = -(creative_qs.aggregate(s=Sum("delta"))["s"] or 0)
+        creative_today = -(creative_qs.filter(created_at__date=today)
+                           .aggregate(s=Sum("delta"))["s"] or 0)
 
         recent = Payment.objects.select_related("user").order_by("-created_at", "-id")[:10]
 
@@ -158,6 +163,8 @@ class SummaryView(StaffAPIView):
             "credits_spent_today": int(spent_today),
             "credits_spent_vstudio_total": int(vstudio_total),
             "credits_spent_vstudio_today": int(vstudio_today),
+            "credits_spent_creative_total": int(creative_total),
+            "credits_spent_creative_today": int(creative_today),
             "requests_today": spend_today_qs.count(),
             "requests_total": spend_qs.count(),
             "openrouter": _openrouter_summary(),
