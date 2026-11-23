@@ -36,7 +36,7 @@ export function ToolHero({ tool, children }: { tool: CreativeTool; children?: Re
   const tHome = useTranslation("home").t;
   const cat = CREATIVE_CATEGORIES.find((c) => c.id === tool.cat)!;
   return (
-    <section className="mt-3 grid gap-6 md:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] md:items-center">
+    <section className="mt-3 grid grid-cols-[minmax(0,1fr)] gap-6 md:grid-cols-[minmax(0,1fr)_minmax(0,1.1fr)] md:items-center">
       <div className="group relative aspect-video overflow-hidden rounded-2xl border border-border bg-neutral-950">
         <ToolArt tool={tool} fetchPriority="high" sizes="(min-width: 1280px) 570px, (min-width: 768px) 45vw, 100vw" />
       </div>

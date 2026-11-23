@@ -306,13 +306,16 @@ export default function RunForm(props: RunFormProps) {
   const fieldsDisabled = jobOpen || sending;
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(320px,400px)] lg:items-start">
+    // grid-cols-[minmax(0,1fr)] и на телефоне: без него единственная колонка подстраивалась под
+    // самое широкое содержимое (лента групп пресетов), и форма у вошедшего вылезала за экран
+    // вбок (замечание клиента 23.11, /creative/product-ad: 601 px при экране 390).
+    <div className="grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(320px,400px)] lg:items-start">
       <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">
         {announce}
       </p>
       <form
         ref={formRef}
-        className={clsx(CARD, "space-y-6 p-4 sm:p-6")}
+        className={clsx(CARD, "min-w-0 space-y-6 p-4 sm:p-6")}
         onSubmit={(e) => e.preventDefault()}
         noValidate
         aria-label={toolName}
@@ -385,7 +388,7 @@ export default function RunForm(props: RunFormProps) {
         )}
       </form>
 
-      <aside className="space-y-4 lg:sticky lg:top-24">
+      <aside className="min-w-0 space-y-4 lg:sticky lg:top-24">
         {/* live-область всегда в DOM, внутри меняется только содержимое */}
         <div role="status">
           {restored && jobOpen && <p className="rounded-xl bg-[#F5C518]/15 px-3.5 py-2 text-sm">{ct("run.restored")}</p>}

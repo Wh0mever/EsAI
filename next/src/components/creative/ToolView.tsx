@@ -138,7 +138,7 @@ export default function ToolView({ id }: { id: string }) {
       </ToolHero>
 
       {gate.kind === "checking" && (
-        <div className="mt-8 grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(320px,400px)]" aria-busy="true" aria-label={ct("run.checking")}>
+        <div className="mt-8 grid grid-cols-[minmax(0,1fr)] gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(320px,400px)]" aria-busy="true" aria-label={ct("run.checking")}>
           <Skeleton className="h-72" />
           <Skeleton className="h-40" />
         </div>

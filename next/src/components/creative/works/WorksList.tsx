@@ -130,7 +130,7 @@ export default function WorksList({ tool, ct, lang, reloadKey = 0, onRepeat, sho
 
   if (!state.loaded && !state.items.length) {
     return (
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3" aria-busy="true" aria-label={ct("works.loading")}>
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-3 sm:grid-cols-2 lg:grid-cols-3" aria-busy="true" aria-label={ct("works.loading")}>
         {Array.from({ length: 3 }, (_, i) => (
           <Skeleton key={i} className="h-28" />
         ))}
@@ -159,7 +159,7 @@ export default function WorksList({ tool, ct, lang, reloadKey = 0, onRepeat, sho
 
   return (
     <div className="space-y-4">
-      <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3" aria-labelledby={labelledBy} aria-busy={stale || undefined}>
+      <ul className="grid grid-cols-[minmax(0,1fr)] gap-3 sm:grid-cols-2 lg:grid-cols-3" aria-labelledby={labelledBy} aria-busy={stale || undefined}>
         {state.items.map((job) => (
           <li key={job.uid} className="min-w-0">
             <WorkCard job={job} ct={ct} lang={lang} showTool={showTool} onRepeat={onRepeat} />

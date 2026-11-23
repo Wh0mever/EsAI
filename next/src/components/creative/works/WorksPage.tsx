@@ -41,7 +41,7 @@ export default function WorksPage() {
   let body: React.ReactNode;
   if (access.status === "loading") {
     body = (
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3" aria-busy="true" aria-label={ct("works.loading")}>
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-3 sm:grid-cols-2 lg:grid-cols-3" aria-busy="true" aria-label={ct("works.loading")}>
         {Array.from({ length: 3 }, (_, i) => (
           <Skeleton key={i} className="h-28" />
         ))}
