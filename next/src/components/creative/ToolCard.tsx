@@ -7,6 +7,7 @@ import { FaChevronRight } from "react-icons/fa6";
 import type { CreativeTool } from "@/lib/creative/tools";
 import { CREATIVE_PATH } from "@/lib/nav/paths";
 import ToolArt from "./ToolArt";
+import { useCreativeAccess } from "./run/useCreativeAccess";
 
 // Карточка инструмента по макету клиента: превью, номер в жёлтом круге,
 // название, описание, жёлтая стрелка. Вся карточка — одна ссылка.
@@ -15,6 +16,15 @@ import ToolArt from "./ToolArt";
 // иначе «было ≫ стало» на превью обрезалось бы до середины.
 // Карточка всегда тёмная (как первый экран), независимо от темы сайта.
 export default function ToolCard({ tool, priority = false }: { tool: CreativeTool; priority?: boolean }) {
+  // «Скоро» — только у инструмента, который сервер называет закрытым (выключен в админке
+  // или раздел не открыт этому человеку). Пока ответа нет — метки нет: раздел открыт всем
+  // с 23.11, и «скоро» на работающих инструментах путало людей (замечание клиента).
+  const access = useCreativeAccess();
+  const closed =
+    access.status === "ready" &&
+    (access.data.tools.some((x) => x.id === tool.id && !x.enabled) ||
+      (access.data.mode !== "on" && !access.data.available));
+  const soon = tool.state === "soon" || closed;
   const { t } = useTranslation("creative");
   const name = t(`tools.${tool.id}.name`, { defaultValue: tool.name });
   const desc = t(`tools.${tool.id}.desc`, { defaultValue: tool.desc });
@@ -39,7 +49,7 @@ export default function ToolCard({ tool, priority = false }: { tool: CreativeToo
       >
         {tool.n}
       </span>
-      {tool.state === "soon" && (
+      {soon && (
         <span className="absolute right-2 top-2 rounded-full bg-black/60 px-2 py-0.5 text-[10px] font-medium text-white/85 backdrop-blur sm:right-3 sm:top-3 sm:px-2.5 sm:py-1 sm:text-[11px]">
           {t("page.soon", { defaultValue: "Скоро" })}
         </span>

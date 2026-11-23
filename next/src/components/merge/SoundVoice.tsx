@@ -450,7 +450,10 @@ export function VoicePicker({
       <div
         role="radiogroup"
         aria-labelledby={labelId}
-        className="grid max-h-60 gap-1.5 overflow-y-auto overscroll-contain p-0.5 pr-1"
+        // Колонка сетки сжимается (minmax(0,1fr)), строки — min-w-0: длинное описание голоса
+        // обрезается многоточием, а не раздвигает список шире окна. Иначе на телефоне
+        // появлялась прокрутка вбок, и при свайпе вверх-вниз список «плавал» в стороны.
+        className="grid max-h-60 touch-pan-y grid-cols-[minmax(0,1fr)] gap-1.5 overflow-y-auto overflow-x-hidden overscroll-contain p-0.5 pr-1"
       >
         {voices.list.map((v) => {
           const on = v.id === selected;
@@ -463,7 +466,7 @@ export function VoicePicker({
             <div
               key={v.id}
               className={vx(
-                "flex items-center gap-1.5 rounded-xl border p-1 transition-colors has-[input:focus-visible]:ring-2 has-[input:focus-visible]:ring-vs-accent/80",
+                "flex min-w-0 items-center gap-1.5 rounded-xl border p-1 transition-colors has-[input:focus-visible]:ring-2 has-[input:focus-visible]:ring-vs-accent/80",
                 on ? "border-vs-accent/45 bg-accent/[0.1]" : "border-vs-ink/10 hover:border-vs-ink/20",
               )}
             >
