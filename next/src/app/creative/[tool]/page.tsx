@@ -5,9 +5,10 @@ import { CREATIVE_TOOLS, toolById } from "@/lib/creative/tools";
 import { OG_IMAGE, OG_IMAGE_ALT, OG_IMAGE_META, SITE_NAME, SITE_URL } from "@/lib/seo/site";
 import { CREATIVE_NAV } from "@/lib/nav/menu";
 import { preload } from "react-dom";
-import ToolSoon from "@/components/creative/ToolSoon";
+import ToolView from "@/components/creative/ToolView";
 
-// Страница инструмента. На этапе A3 — заглушка «скоро»; форма появится на B3.
+// Страница инструмента: форма запуска и «Мои работы» (B3). Если раздел или
+// инструмент закрыт — заглушка «скоро» (решает GET /api/creative/tools/ в браузере).
 export function generateStaticParams() {
 	return CREATIVE_TOOLS.map((t) => ({ tool: t.id }));
 }
@@ -48,5 +49,5 @@ export default async function ToolPage({ params }: Params) {
 			imageSizes: "(min-width: 1280px) 570px, (min-width: 768px) 45vw, 100vw",
 		});
 	}
-	return <ToolSoon id={tool.id} />;
+	return <ToolView id={tool.id} />;
 }

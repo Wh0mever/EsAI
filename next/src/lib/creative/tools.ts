@@ -40,9 +40,10 @@ export const CREATIVE_TOOLS: CreativeTool[] = [
   { id: "item-swap", n: 5, cat: "video", output: "video", img: "/images/creative/tools/item-swap", state: "soon",
     name: "Замена предмета", desc: "Замени объект на другой (например, на товар)" },
   // Карточка 6: клиент 16.11 заменил «Перестилизацию видео» (дубль Restyle) на
-  // Ads Studio. Название и описание — рабочие, клиент их ещё не дал.
-  { id: "ad-creative", n: 6, cat: "ads", output: "video", img: "/images/creative/tools/ad-creative", state: "soon",
-    name: "Рекламный креатив", desc: "Готовый рекламный ролик для вашего товара" },
+  // рекламный генератор. Проверка 23.11: результат — картинки (реклама с текстом),
+  // не ролик, поэтому output "image" и описание про картинки.
+  { id: "ad-creative", n: 6, cat: "ads", output: "image", img: "/images/creative/tools/ad-creative", state: "soon",
+    name: "Рекламный креатив", desc: "Готовые рекламные картинки для вашего товара" },
   { id: "photo-restyle", n: 7, cat: "image", output: "image", img: "/images/creative/tools/photo-restyle", state: "soon",
     name: "Преобразование фото", desc: "Преврати фото в профессиональном стиле (студия, fashion, кино)" },
   { id: "text-to-image", n: 8, cat: "image", output: "image", img: "/images/creative/tools/text-to-image", state: "soon",

@@ -116,9 +116,16 @@ def settings_payload() -> dict:
     }
 
 
+def _with_viewer(payload: dict, request) -> dict:
+    # Может ли этот сотрудник менять наценки (их сохраняет только суперпользователь):
+    # страница сразу блокирует поля, а не узнаёт об отказе после сохранения.
+    payload["can_edit_money"] = bool(getattr(request.user, "is_superuser", False))
+    return payload
+
+
 class CreativeSettingsView(StaffAPIView):
     def get(self, request):
-        return Response(settings_payload())
+        return Response(_with_viewer(settings_payload(), request))
 
     def patch(self, request):
         data = request.data if hasattr(request.data, "get") else {}
@@ -212,7 +219,7 @@ class CreativeSettingsView(StaffAPIView):
                                  after={LOG_KEY: after}, request=request)
         if after:
             transaction.on_commit(ai_pricing.invalidate_price_caches)
-        payload = settings_payload()
+        payload = _with_viewer(settings_payload(), request)
         payload["changed"] = after
         return Response(payload)
 

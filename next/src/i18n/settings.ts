@@ -37,7 +37,7 @@ type Match = "exact" | "prefix";
  */
 const SSR_ROUTES: ReadonlyArray<readonly [path: string, match: Match, ns: readonly Namespace[]]> = [
 	["/", "exact", ["creative"]], // хаб (HomeHub)
-	["/creative", "prefix", ["creative"]], // каталог и /creative/<id>
+	["/creative", "prefix", ["creative"]], // каталог, /creative/<id> и /creative/works (формы и «Мои работы» — только creative + BASE_NS)
 	["/model", "prefix", []], // SEO-страницы моделей (SeoShell — без переводов)
 	["/ai", "prefix", []], // SEO-страницы функций
 	["/blog", "prefix", []], // блог и статьи

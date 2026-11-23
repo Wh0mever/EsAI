@@ -17,7 +17,8 @@ import { CHAT_PATH } from '@/lib/nav/paths';
 const MODEL_SLUGS = new Set(SEO_MODELS.map((m) => m.slug));
 const FUNCTION_SLUGS = new Set(SEO_FUNCTIONS.map((f) => f.slug));
 // То же для страниц инструментов Creative Studio: /creative/<id>.
-const CREATIVE_IDS = new Set(CREATIVE_TOOLS.map((t) => t.id));
+// works — общий список «Мои работы» (/creative/works), не инструмент.
+const CREATIVE_IDS = new Set([...CREATIVE_TOOLS.map((t) => t.id), 'works']);
 
 function seoNotFound(): NextResponse {
   const html = `<!doctype html><html lang="ru"><head><meta charset="utf-8"/>` +

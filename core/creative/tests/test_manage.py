@@ -113,7 +113,8 @@ class CatalogTests(CreativeTestCase):
         self.assertEqual(r.status_code, 200, r.content)
         items = r.json()["items"]
         self.assertEqual(items[0]["name"], "Y2K studio")
-        self.assertEqual(items[1]["name"], "Стиль 2")
+        self.assertEqual(items[1]["name"], "")         # подпись «Стиль N» собирает фронт
+        self.assertEqual(items[1]["n"], 2)
         self.assertIsNone(items[0]["preview"])          # превью ещё не скопировано
         self.assert_no_vendor(r.json())
         # задача синхронизации копирует превью к себе

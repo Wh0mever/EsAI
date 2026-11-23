@@ -28,7 +28,7 @@ from .storage import catalog_dir, ensure_dir
 logger = logging.getLogger(__name__)
 
 KINDS = ("styles-v2", "styles-v1", "restyle", "ms-presets", "influencer")
-CACHE_KEY = "creative:catalog:v1:{kind}"
+CACHE_KEY = "creative:catalog:v2:{kind}"   # v2: имя без запасного текста + номер n
 CACHE_TTL = 6 * 3600
 CACHE_TTL_PARTIAL = 300          # без превью — недолго: задача докачает и перезапишет
 SYNC_LOCK_KEY = "creative:catalog:sync:{kind}"
@@ -84,7 +84,8 @@ def _list_items(kind: str, data) -> list[dict]:
         else:
             src = _https(row.get("preview_url"))
             extra = {}
-        out.append({"id": str(row["id"])[:64], "name": clean_name(row.get("name"), f"Стиль {n}"),
+        # Без имени — пустая строка и номер: подпись «Стиль N» собирает фронт на языке человека.
+        out.append({"id": str(row["id"])[:64], "name": clean_name(row.get("name")), "n": n,
                     "src": src, "preview_path": "", **extra})
     return out
 
@@ -293,6 +294,8 @@ def public(kind: str) -> dict | None:
     items = []
     for item in data:
         row = {"id": item["id"], "name": item["name"], "preview": _url(item["preview_path"])}
+        if not item["name"]:
+            row["n"] = item.get("n") or 0
         if kind == "ms-presets":
             row["aspect"] = item.get("aspect") or None
             row["group"] = item.get("group") or None

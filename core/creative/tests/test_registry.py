@@ -252,8 +252,8 @@ class ValidationTests(CreativeTestCase):
     def test_catalog_membership(self):
         known = {"c2143317-f28d-4c3c-a0b8-39bd547e08a7"}
         video = self.make_video(self.user)
-        codes, _ = self.codes("restyle", {"video": video.uid, "style": "c2143317-f28d-4c3c-a0b8-39bd547e08a7"},
-                              lambda kind: known)
+        codes, _ = self.codes("restyle", {"video": video.uid, "style": "c2143317-f28d-4c3c-a0b8-39bd547e08a7",
+                                          "consent": True}, lambda kind: known)
         self.assertFalse(codes)
         codes, _ = self.codes("restyle", {"video": video.uid, "style": "11111111-1111-1111-1111-111111111111"},
                               lambda kind: known)

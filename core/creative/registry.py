@@ -437,8 +437,10 @@ TOOLS: tuple[Tool, ...] = (
           Field("style", "catalog", required=True, catalog="restyle"),
           Field("images", "images", min=0, max=5),
           Field("prompt", "text", max_len=1000),
-          Field("resolution", "enum", default="480p", choices=RES_GENJUTSU)),
-         _b_restyle, _c_rate(RESTYLE_RATE, VIDEO_MAX_S), eta_s=330,
+          Field("resolution", "enum", default="480p", choices=RES_GENJUTSU),
+          CONSENT),
+         # в видео и на фото персонажей — люди: галочка прав на лицо, как у 1, 2, 4, 5
+         _b_restyle, _c_rate(RESTYLE_RATE, VIDEO_MAX_S), eta_s=330, face_consent=True,
          hint={"resolution": "480p", **_VIDEO_HINT}),
     Tool("character-motion", 4, "Движение персонажа", KIND_VIDEO,
          "higgsfield/genjutsu-light/motion-transfer/v1.0", _genjutsu_fields(prompt_required=False),

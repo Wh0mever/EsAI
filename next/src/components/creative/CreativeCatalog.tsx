@@ -1,11 +1,13 @@
 "use client";
 
 import clsx from "clsx";
+import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { useTranslation } from "react-i18next";
-import { FaFilm, FaImage, FaUser, FaBullhorn, FaTableCellsLarge } from "react-icons/fa6";
+import { FaFilm, FaImage, FaUser, FaBullhorn, FaTableCellsLarge, FaFolderOpen } from "react-icons/fa6";
 import { CREATIVE_TOOLS, isCategory } from "@/lib/creative/tools";
 import { CREATIVE_CATEGORIES, type CreativeCategory } from "@/lib/nav/menu";
+import { CREATIVE_PATH } from "@/lib/nav/paths";
 import ToolCard from "./ToolCard";
 import CreativeExamples from "./CreativeExamples";
 
@@ -75,6 +77,14 @@ export default function CreativeCatalog() {
           <p className="mt-3 max-w-xl text-base text-white/80 sm:text-lg">
             {t("page.subtitle", { defaultValue: "Профессиональные AI-инструменты для видео, изображений и рекламы." })}
           </p>
+          {/* «Мои работы» — одна ссылка для всех: вход проверит сама страница списка. */}
+          <Link
+            href={`${CREATIVE_PATH}/works`}
+            className="mt-5 inline-flex min-h-11 items-center gap-2 rounded-xl border border-white/25 bg-white/10 px-4 text-sm font-semibold text-white backdrop-blur transition-colors hover:border-[#F5C518] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#F5C518] focus-visible:ring-offset-2 focus-visible:ring-offset-neutral-950"
+          >
+            <FaFolderOpen aria-hidden="true" />
+            {t("works.title", { defaultValue: "Мои работы" })}
+          </Link>
         </div>
       </section>
 
