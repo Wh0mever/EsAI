@@ -14,6 +14,8 @@ import type {
   MergeAudioState,
   MergeConfig,
   MergeEditBody,
+  MergeLineBody,
+  MergeLinePatch,
   MergeList,
   MergeMusicBody,
   MergeProject,
@@ -250,6 +252,20 @@ export function makeVoice(id: string, body: MergeVoiceBody): Promise<VsResult<Me
   return isUid(id)
     ? call<MergeAudioState>(audioPath(id, "voice/"), "POST", body)
     : Promise.resolve(notFound<MergeAudioState>());
+}
+
+/** Голос сцены: 201 — сделан и оплачен (ответ ждёт озвучку); 200 — этот request_id уже был. */
+export function makeLine(id: string, body: MergeLineBody): Promise<VsResult<MergeAudioState>> {
+  return isUid(id)
+    ? call<MergeAudioState>(audioPath(id, "line/"), "POST", body)
+    : Promise.resolve(notFound<MergeAudioState>());
+}
+
+/** Секунда и громкость голоса сцены — бесплатно; ответ — состояние звука и сам голос (line). */
+export function patchLine(id: string, trackId: string, body: MergeLinePatch): Promise<VsResult<MergeAudioState>> {
+  return isUid(id) && isUid(trackId)
+    ? call<MergeAudioState>(audioPath(id, `${trackId}/`), "PATCH", body)
+    : Promise.resolve(notFound<MergeAudioState>("audio_not_found"));
 }
 
 /** 202 — кредиты в резерве, музыку делает очередь (опрашивать GET audio/); 200 — этот request_id уже был. */

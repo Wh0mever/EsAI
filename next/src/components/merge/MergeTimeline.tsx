@@ -2,12 +2,14 @@
 
 import { useEffect, useId, useRef, useState, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { useTranslation } from "react-i18next";
-import { FiAlertCircle, FiArrowDown, FiArrowUp, FiMenu, FiPlus, FiX } from "react-icons/fi";
-import { VS_BTN_GHOST, VS_BTN_LINK, VS_CARD, VS_ICON_BTN, VS_ON_MEDIA, VS_SUB, VS_TAG, vx } from "@/components/vstudio/ui/skin";
+import { FiAlertCircle, FiArrowDown, FiArrowUp, FiMenu, FiMic, FiPlus, FiX } from "react-icons/fi";
+import { VS_BTN_GHOST, VS_BTN_LINK, VS_CARD, VS_FOCUS, VS_ICON_BTN, VS_ON_MEDIA, VS_SUB, VS_TAG, VS_TAG_GOLD, vx } from "@/components/vstudio/ui/skin";
 import { CS_EMPTY, CS_SKELETON } from "@/components/studio/ui/cartoonSkin";
+import { lineMarks, linesOf } from "./audioLogic";
 import MediaThumb from "./MediaThumb";
 import { dropIndex, formatDuration, shiftFor, type LocalItem } from "./mergeLogic";
-import type { MergeLimits, MergeSourceType } from "./mergeTypes";
+import type { MergeLimits, MergeLine, MergeSourceType } from "./mergeTypes";
+import { useSeconds } from "./soundUi";
 
 /**
  * Лента склейки: фрагменты по порядку, сверху вниз — так же они пойдут в
@@ -15,6 +17,10 @@ import type { MergeLimits, MergeSourceType } from "./mergeTypes";
  * ≡ или перетаскиванием за неё (мышью и пальцем: ручка не прокручивает
  * страницу). Убрать — ✕. Без правки (склейка идёт или готова) — тот же
  * список без кнопок.
+ *
+ * «Голос» у фрагмента открывает окно голоса сцены (свой текст с нужной
+ * секунды); число на кнопке — сколько голосов у фрагмента, золотые метки на
+ * превью — где они начинаются.
  */
 
 /** Откуда фрагмент — метка на строке ленты и на карточке «Мультстудии» в выборе. */
@@ -54,6 +60,10 @@ export type MergeTimelineProps = {
   unsaved?: boolean;
   onRetrySave?: () => void;
   headingId: string;
+  /** Голоса сцен склейки (метки и число у фрагмента); без них — лента как раньше. */
+  lines?: readonly MergeLine[];
+  /** «Голос» у фрагмента: открыть окно голоса сцены (index — номер с нуля). */
+  onVoice?: (index: number) => void;
 };
 
 export default function MergeTimeline({
@@ -67,8 +77,11 @@ export default function MergeTimeline({
   unsaved = false,
   onRetrySave,
   headingId,
+  lines,
+  onVoice,
 }: MergeTimelineProps) {
   const { t } = useTranslation("vstudio", { useSuspense: false });
+  const { sec } = useSeconds();
   const listRef = useRef<HTMLOListElement>(null);
   const data = useRef<DragData | null>(null);
   /** Куда вернуть фокус после ✕: строка исчезла, и фокус иначе упал бы в начало страницы. */
@@ -105,6 +118,21 @@ export default function MergeTimeline({
 
   const remove = (index: number) => {
     const title = titleOf(items[index]);
+    // У фрагмента голоса сцен (оплаченные или в работе) — ✕ без отмены, поэтому спрашиваем.
+    // Голоса не пропадут: ролик добавят снова — сервер вернёт их к нему (adopt_orphan_keys).
+    const voiced = lines ? linesOf(lines, items[index].key).filter((l) => l.status !== "failed").length : 0;
+    if (
+      voiced > 0 &&
+      !window.confirm(
+        t("merge.tl.removeVoicedAsk", {
+          defaultValue:
+            "У «{{title}}» есть голоса сцен: {{n}}. Убрать ролик из склейки? Голоса не пропадут — добавьте этот ролик снова, и они вернутся к нему.",
+          title,
+          n: voiced,
+        }),
+      )
+    )
+      return;
     // Фокус — на ✕ строки, вставшей на это место (или предыдущей), без строк — на заголовок.
     refocus.current = { index, length: items.length - 1 };
     onRemove(index);
@@ -231,6 +259,17 @@ export default function MergeTimeline({
             const handleLabel = t("merge.tl.handle", { defaultValue: "Перетащить: {{title}}", title });
             const first = i === 0;
             const last = i === items.length - 1;
+            const own = lines ? linesOf(lines, it.key) : [];
+            const marks = lineMarks(own, it.duration_s);
+            const voiceCount = own.filter((l) => l.status !== "failed").length;
+            const voiceLabel =
+              voiceCount > 0
+                ? t("merge.line.openN", {
+                    defaultValue: "Голос сцены для фрагмента {{n}} — добавлено: {{k}}",
+                    n: i + 1,
+                    k: voiceCount,
+                  })
+                : t("merge.line.open", { defaultValue: "Голос сцены для фрагмента {{n}}", n: i + 1 });
             return (
               <li
                 key={it.key}
@@ -260,6 +299,18 @@ export default function MergeTimeline({
                       {formatDuration(it.duration_s)}
                     </span>
                   )}
+                  {marks.length > 0 && (
+                    // Где начинаются голоса сцены: золотые метки по нижнему краю превью (число — у кнопки «Голос»).
+                    <span className="pointer-events-none absolute inset-x-0 bottom-0 h-1.5 bg-black/45" aria-hidden="true">
+                      {marks.map((m, n) => (
+                        <span
+                          key={n}
+                          className="absolute bottom-0 h-1.5 w-1 -translate-x-1/2 rounded-full bg-accent"
+                          style={{ left: `${Math.min(97, Math.max(3, m * 100))}%` }}
+                        />
+                      ))}
+                    </span>
+                  )}
                 </div>
 
                 <div className="flex min-w-0 flex-1 flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-3">
@@ -273,6 +324,41 @@ export default function MergeTimeline({
                         {t(`merge.source.${it.type}`, { defaultValue: SOURCE_RU[it.type] })}
                       </span>
                       {it.subtitle && <span className="min-w-0 truncate text-[11px] text-muted-2 max-sm:hidden">{it.subtitle}</span>}
+                      {/* Ролик недоступен — новый голос к нему не заказать: кнопка только у фрагмента,
+                          где голоса уже есть (послушать, убрать). */}
+                      {onVoice && editable && (it.available || voiceCount > 0) && (
+                        <button
+                          type="button"
+                          onClick={() => onVoice(i)}
+                          aria-label={voiceLabel}
+                          title={voiceLabel}
+                          data-merge-voice={it.key}
+                          className={vx(
+                            "inline-flex h-11 cursor-pointer items-center gap-1.5 rounded-full border px-3 text-[12px] font-semibold transition-colors md:h-9",
+                            VS_FOCUS,
+                            voiceCount > 0
+                              ? "border-vs-accent/45 bg-accent/[0.1] text-vs-accent hover:bg-accent/[0.16]"
+                              : "border-vs-ink/15 text-foreground hover:border-vs-accent/45 hover:text-vs-accent",
+                          )}
+                        >
+                          <FiMic aria-hidden="true" />
+                          <span aria-hidden="true">{t("merge.line.button", { defaultValue: "Голос" })}</span>
+                          {voiceCount > 0 && (
+                            <span
+                              className="grid min-w-5 place-items-center rounded-full bg-accent px-1 text-[10px] font-bold leading-5 text-on-accent"
+                              aria-hidden="true"
+                            >
+                              {voiceCount}
+                            </span>
+                          )}
+                        </button>
+                      )}
+                      {!editable && voiceCount > 0 && (
+                        <span className={VS_TAG_GOLD} title={own.map((l) => sec(l.start_s)).join(" · ")}>
+                          <FiMic aria-hidden="true" />
+                          {t("merge.line.tag", { defaultValue: "Голос сцены: {{k}}", k: voiceCount })}
+                        </span>
+                      )}
                     </div>
                     {!it.available && (
                       <p className="mt-1 flex items-start gap-1 text-[12px] leading-snug text-status-fail">

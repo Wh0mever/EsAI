@@ -1,6 +1,6 @@
 "use client";
 
-import React, { ReactNode, useEffect, useCallback } from "react";
+import React, { ReactNode, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { IoClose } from "react-icons/io5";
 import { Button } from "@/components/ui/buttons/Buttons";
@@ -31,7 +31,63 @@ type ModalProps = {
    * внутри окна, скроллящегося внутри страницы.
    */
   mobileFull?: boolean;
+  /** Подпись крестика на языке страницы (по умолчанию — прежняя «Close»). */
+  closeLabel?: string;
+  /**
+   * Tab и Shift+Tab не выходят из окна на страницу под ним. По умолчанию выключено —
+   * прежние окна ведут себя как раньше; длинным окнам с формой (голос сцены склейки) нужно.
+   */
+  trapFocus?: boolean;
 };
+
+/** Что берёт фокус с Tab (плееры с controls — тоже). */
+const MODAL_FOCUSABLE =
+  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), video[controls], audio[controls], [tabindex]:not([tabindex="-1"]), [contenteditable="true"]';
+
+/**
+ * Окно — верхнее из открытых модальных (порталы встают в конец body по порядку открытия).
+ * Поверх открыто другое (пэйволл, пополнение, подтверждение) — клавиши его, не этого окна.
+ */
+function isTopModal(panel: HTMLElement | null): boolean {
+  if (!panel) return true;
+  const modals = document.querySelectorAll<HTMLElement>('[aria-modal="true"]');
+  const top = modals[modals.length - 1];
+  return !top || top === panel || panel.contains(top);
+}
+
+/**
+ * Escape, который уже закрыл окно. Верхнее окно закрывается, React убирает его из DOM между
+ * обработчиками того же нажатия — и окно под ним без этой метки сочло бы себя верхним и
+ * закрылось бы тоже.
+ */
+const handledEscapes = new WeakSet<KeyboardEvent>();
+
+/**
+ * Ловушка Tab окна: с последнего — на первый, с первого (Shift) — на последний; фокус
+ * снаружи окна — внутрь. Поверх открыто другое модальное окно — Tab его, не трогаем.
+ */
+function trapModalTab(e: KeyboardEvent, panel: HTMLElement | null) {
+  if (e.key !== "Tab" || !panel) return;
+  if (!isTopModal(panel)) return;
+  const items = Array.from(panel.querySelectorAll<HTMLElement>(MODAL_FOCUSABLE)).filter(
+    (el) => !el.hasAttribute("disabled") && el.offsetParent !== null && !el.closest("[inert]"),
+  );
+  if (!items.length) {
+    e.preventDefault();
+    panel.focus();
+    return;
+  }
+  const first = items[0];
+  const last = items[items.length - 1];
+  const active = document.activeElement as HTMLElement | null;
+  if (e.shiftKey && (active === first || active === panel || !panel.contains(active))) {
+    e.preventDefault();
+    last.focus();
+  } else if (!e.shiftKey && (active === last || !panel.contains(active))) {
+    e.preventDefault();
+    first.focus();
+  }
+}
 
 const sizeClasses = {
   sm: "max-w-sm rounded-2xl shadow-lg",
@@ -54,7 +110,11 @@ export function ConfirmationModal({
   // Close on ESC
   useEffect(() => {
     if (!isOpen) return;
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onCancel();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || handledEscapes.has(e)) return;
+      handledEscapes.add(e);
+      onCancel();
+    };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [isOpen, onCancel]);
@@ -116,7 +176,17 @@ export function ConfirmationModal({
   );
 }
 
-export function Modal({ title, children, size = "md", onClose, open, mobileFull = false }: ModalProps) {
+export function Modal({
+  title,
+  children,
+  size = "md",
+  onClose,
+  open,
+  mobileFull = false,
+  closeLabel = "Close",
+  trapFocus = false,
+}: ModalProps) {
+  const panelRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!open) return;
     const prev = document.body.style.overflow;
@@ -125,8 +195,14 @@ export function Modal({ title, children, size = "md", onClose, open, mobileFull 
   }, [open]);
 
   const onKey = useCallback((e: KeyboardEvent) => {
-    if (open && e.key === "Escape") onClose();
-  }, [open, onClose]);
+    // Escape закрывает только верхнее окно: пэйволл поверх голоса сцены — закрывается пэйволл,
+    // а не оба сразу.
+    if (open && e.key === "Escape") {
+      if (handledEscapes.has(e) || !isTopModal(panelRef.current)) return;
+      handledEscapes.add(e);
+      onClose();
+    } else if (open && trapFocus) trapModalTab(e, panelRef.current);
+  }, [open, onClose, trapFocus]);
 
   useEffect(() => {
     if (!open) return;
@@ -150,11 +226,14 @@ export function Modal({ title, children, size = "md", onClose, open, mobileFull 
       onClick={onClose}
     >
       <div
+        ref={panelRef}
+        // Только с ловушкой: окну без полей некуда деть фокус, кроме самого окна.
+        tabIndex={trapFocus ? -1 : undefined}
         role="dialog"
         aria-modal="true"
         aria-label={title}
         // ВАЖНО: колонка + min-h-0 + overflow-hidden
-        className={`bg-surface p-6 relative border border-border ${containerClasses} flex flex-col min-h-0 overflow-hidden`}
+        className={`bg-surface p-6 relative border border-border ${containerClasses} flex flex-col min-h-0 overflow-hidden focus:outline-none`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Без capitalize: он ломает русские заголовки в «Войдите, Чтобы Собрать
@@ -163,7 +242,7 @@ export function Modal({ title, children, size = "md", onClose, open, mobileFull 
         <button
           onClick={onClose}
           className="absolute top-5 right-5 text-xl text-muted hover:text-foreground duration-300 transition cursor-pointer"
-          aria-label="Close"
+          aria-label={closeLabel}
         >
           <IoClose />
         </button>

@@ -23,6 +23,8 @@ urlpatterns = [
     re_path(rf"^{_UID}/audio/$", views_audio.AudioView.as_view(), name="audio"),
     re_path(rf"^{_UID}/audio/voice/$", views_audio.VoiceView.as_view(), name="audio-voice"),
     re_path(rf"^{_UID}/audio/music/$", views_audio.MusicView.as_view(), name="audio-music"),
+    # Голос сцены: свой текст на фрагмент с секунды в нём (как реплика в мультстудии).
+    re_path(rf"^{_UID}/audio/line/$", views_audio.LineView.as_view(), name="audio-line"),
     re_path(rf"^{_UID}/audio/music/upload/$", views_audio.MusicUploadView.as_view(),
             name="audio-music-upload"),
     re_path(rf"^{_UID}/audio/(?P<track>[0-9a-fA-F]{{32}})/$", views_audio.TrackView.as_view(),

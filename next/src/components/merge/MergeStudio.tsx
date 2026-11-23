@@ -30,6 +30,7 @@ import MergeResult from "./MergeResult";
 import MergeSoundPanel from "./MergeSoundPanel";
 import MergeTimeline, { TimelineSkeleton } from "./MergeTimeline";
 import MergeTopBar, { MergeErrorBanner, MergeHeader, signInHref } from "./MergeTopBar";
+import SceneVoiceDialog from "./SceneVoiceDialog";
 import SourcePicker, { PickerSkeleton } from "./SourcePicker";
 import { useUploadBadge } from "./UploadPanel";
 import { soundStep } from "./audioLogic";
@@ -107,6 +108,14 @@ export default function MergeStudio() {
     if (soundSwitch === "park" || soundSwitch === "reset") setSoundOpen(false);
     else if (soundSwitch === "restore") setSoundOpen(true);
   }
+  /** Окно «Голос сцены»: ключ фрагмента, чьё окно открыто (по ключу — окно едет за роликом). */
+  const [voiceKey, setVoiceKey] = useState<string | null>(null);
+  // Другая склейка — окно прежней не остаётся открытым.
+  const [voiceFor, setVoiceFor] = useState(m.openId);
+  if (voiceFor !== m.openId) {
+    setVoiceFor(m.openId);
+    setVoiceKey(null);
+  }
   const soundPanelId = useId();
   const soundHeading = useId();
   const soundButtonId = useId();
@@ -129,6 +138,28 @@ export default function MergeStudio() {
 
   const active = isActive(project?.status ?? null);
   const showEditor = m.authed === true && !m.loading && !m.opening && m.editable;
+  const voiceIndex = voiceKey ? m.edit.items.findIndex((it) => it.key === voiceKey) : -1;
+  // Фрагмент убрали или склейка пошла — окно закрывается само.
+  const voiceShown = voiceIndex >= 0 && showEditor && !m.running;
+  // Окно закрылось само (склейка пошла, фрагмент убрали) — забываем его: иначе после
+  // неудачной склейки (снова правка) оно открылось бы само, без нажатия.
+  if (voiceKey !== null && !voiceShown) setVoiceKey(null);
+
+  const openVoice = (index: number) => {
+    const it = m.edit.items[index];
+    if (it) setVoiceKey(it.key);
+  };
+
+  const closeVoice = () => {
+    const key = voiceKey;
+    setVoiceKey(null);
+    // Фокус — обратно на «Голос» своего фрагмента (окно было модальным).
+    if (key) {
+      window.requestAnimationFrame(() =>
+        document.querySelector<HTMLElement>(`[data-merge-voice="${CSS.escape(key)}"]`)?.focus({ preventScroll: true }),
+      );
+    }
+  };
   const showResult = m.authed === true && !m.loading && !m.opening && Boolean(project) && !m.editable;
   // Склейка пошла или открыли готовую — звук не правится, панель не нужна.
   const soundShown = soundOpen && showEditor && !m.running;
@@ -306,6 +337,7 @@ export default function MergeStudio() {
                 headingId={soundHeading}
                 onClose={closeSound}
                 onAdd={addFromSound}
+                onVoice={openVoice}
               />
             </div>
           )}
@@ -362,6 +394,8 @@ export default function MergeStudio() {
             unsaved={m.unsaved}
             onRetrySave={actions.retrySave}
             headingId={timelineHeading}
+            lines={audio.lines}
+            onVoice={openVoice}
           />
         </div>
       </div>
@@ -532,10 +566,19 @@ export default function MergeStudio() {
                   headingId={soundHeading}
                   onClose={closeSound}
                   onAdd={addFromSound}
+                  onVoice={openVoice}
                 />
               </div>
             </BottomSheet>
           )}
+          <SceneVoiceDialog
+            open={voiceShown}
+            item={voiceIndex >= 0 ? m.edit.items[voiceIndex] : null}
+            index={Math.max(0, voiceIndex)}
+            last={voiceIndex === m.edit.items.length - 1}
+            audio={audio}
+            onClose={closeVoice}
+          />
           <PaywallModal context={m.paywall} onClose={actions.closePaywall} onTopUp={actions.openTopup} />
           <TopUpModal open={m.topup} onClose={actions.closeTopup} returnTo={MERGE_PATH} />
         </>

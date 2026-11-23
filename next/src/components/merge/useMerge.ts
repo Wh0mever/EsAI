@@ -38,7 +38,8 @@ import {
   isFit,
   isTab,
   isUid,
-  itemRefs,
+  itemBody,
+  newFragmentKey,
   moveItem as moveInList,
   parseAddParam,
   refusalText,
@@ -323,9 +324,11 @@ export function useMerge() {
     langRef.current = lang;
   }, [lang]);
 
+  // Ключ новой карточки — сразу в серверном виде: сервер сохранит его, и голос сцены
+  // найдёт свой ролик с первого сохранения (keySeq — на случай совпадения, которого не бывает).
   const makeKey = useCallback(() => {
     keySeq.current += 1;
-    return `f${keySeq.current}`;
+    return newFragmentKey();
   }, []);
 
   const commitEdit = useCallback((next: EditState) => {
@@ -480,7 +483,7 @@ export function useMerge() {
     if (id ? sig === savedSigRef.current : cur.items.length === 0) return true;
 
     setSaving(true);
-    const body = { aspect: cur.aspect, fit: cur.fit, items: itemRefs(cur.items) };
+    const body = { aspect: cur.aspect, fit: cur.fit, items: itemBody(cur.items) };
     const res = id
       ? await patchProject(id, body, langRef.current)
       : await createProject({ ...body, title: cur.title.trim() || defaultTitle() }, langRef.current);
@@ -764,7 +767,8 @@ export function useMerge() {
   const copyProject = useCallback(async () => {
     const p = projectRef.current;
     if (!p) return;
-    let items = itemRefs(p.items.filter((i) => i.available));
+    // С ключами фрагментов: голоса сцен переходят в новую склейку к своим роликам.
+    let items = itemBody(p.items.filter((i) => i.available));
     let dropped = p.items.length - items.length;
     const notice = (): MergeBanner | null =>
       dropped > 0
@@ -1031,7 +1035,7 @@ export function useMerge() {
       // Фрагменты, формат и заполнение — тем же запросом: запускается ровно то, что на экране.
       const res = await renderProject(
         id,
-        { price, aspect: cur.aspect, fit: cur.fit, items: itemRefs(cur.items) },
+        { price, aspect: cur.aspect, fit: cur.fit, items: itemBody(cur.items) },
         langRef.current,
       );
       if (epoch !== epochRef.current) return;

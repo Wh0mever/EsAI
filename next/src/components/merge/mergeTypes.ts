@@ -34,6 +34,11 @@ export interface MergeSourceCard {
 export interface MergeItem extends Omit<MergeSourceCard, "created_at" | "url"> {
   url: string | null;
   available: boolean;
+  /**
+   * Постоянный ключ фрагмента (hex, 8–32 знака): по нему голос сцены держится за свой ролик,
+   * как его ни переставляй. Ставит сервер; старый сервер не присылает.
+   */
+  key?: string | null;
 }
 
 /** Пределы своих видео (config/ → uploads, uploads/ → limits). */
@@ -170,12 +175,15 @@ export interface MergeList {
   limits: MergeLimits;
 }
 
+/** Фрагмент в запросе: источник и (если есть) ключ фрагмента — сервер его сохранит. */
+export type MergeItemRef = { type: MergeSourceType; id: string; key?: string };
+
 /** Тело создания, правки и запуска: все поля необязательны. */
 export interface MergeEditBody {
   title?: string;
   aspect?: MergeAspect;
   fit?: MergeFit;
-  items?: { type: MergeSourceType; id: string }[];
+  items?: MergeItemRef[];
   /** Только при создании: звук своей склейки переходит в новую (копии файлов, бесплатно). */
   copy_audio_from?: string;
 }
@@ -236,6 +244,12 @@ export interface MergeAudioLimits {
   clip_sounds: MergeClipSound[];
   clip_volumes: Record<MergeClipSound, number>;
   retention_days: number;
+  /** Голос сцены (старый сервер не присылает — тогда DEFAULT_LINE_LIMITS). */
+  line_chars?: number;
+  lines_per_fragment?: number;
+  lines_max?: number;
+  line_volume_max?: number;
+  line_start_step?: number;
 }
 
 export interface MergeAudioPrices {
@@ -260,9 +274,37 @@ export interface MergeAudioState {
   prices: MergeAudioPrices;
   music_quote: { seconds: number; credits: number } | null;
   limits: MergeAudioLimits;
+  /** Голоса сцен — отдельно от tracks (голос за кадром и музыка); старый сервер не присылает. */
+  lines?: MergeLine[];
   /** Ответы POST: дорожка этого запроса и баланс. */
   track?: MergeTrack;
+  /** Ответ POST audio/line/ и PATCH audio/<id>/: голос сцены этого запроса. */
+  line?: MergeLine;
   balance?: MergeBalance;
+}
+
+/**
+ * Голос сцены: свой текст на один фрагмент, с секунды внутри него (как реплика мультстудии).
+ * Деньги — как у голоса за кадром; секунду и громкость можно менять бесплатно.
+ */
+export interface MergeLine extends Omit<MergeTrack, "kind"> {
+  kind: "line";
+  /** Ключ фрагмента (MergeItem.key). */
+  fragment_key: string;
+  /** Номер фрагмента с нуля сейчас; null — ролика в склейке больше нет (orphan). */
+  fragment_index: number | null;
+  /** Длина фрагмента по снимку склейки, секунды. */
+  fragment_duration_s: number | null;
+  /** Последняя секунда, с которой голос может начаться (кратно 0,1, меньше длины фрагмента). */
+  max_start_s: number | null;
+  /** С какой секунды от начала фрагмента звучит голос (точность 0,1 с). */
+  start_s: number;
+  /** Громкость 0…2 — своя у голоса сцены (ползунок голоса за кадром на неё не влияет). */
+  volume: number;
+  /** Ролика с этим ключом в склейке нет: в склейку голос не идёт, его можно убрать. */
+  orphan: boolean;
+  /** Голос дольше, чем осталось фрагмента: зайдёт на следующую сцену. */
+  overflow: boolean;
 }
 
 /** ProjectJSON.audio: есть ли готовый голос и музыка, делается ли что-то. */
@@ -272,6 +314,8 @@ export interface MergeAudioSummary {
   voice_volume: number;
   voice: boolean;
   music: boolean;
+  /** Готовых голосов сцен у роликов склейки; старый сервер не присылает. */
+  lines?: number;
   pending: boolean;
 }
 
@@ -291,6 +335,24 @@ export interface MergeVoiceBody {
   price?: number;
   /** Один на нажатие: повтор того же запроса не спишет второй раз. */
   request_id?: string;
+}
+
+/** POST audio/line/: голос сцены. */
+export interface MergeLineBody {
+  fragment_key: string;
+  text: string;
+  voice_id: string;
+  start_s: number;
+  volume?: number;
+  /** Цена на кнопке: разошлась с серверной — 409 audio_price_changed. */
+  price?: number;
+  request_id?: string;
+}
+
+/** PATCH audio/<id>/ голоса сцены: секунда и громкость — бесплатно. */
+export interface MergeLinePatch {
+  start_s?: number;
+  volume?: number;
 }
 
 export interface MergeMusicBody {

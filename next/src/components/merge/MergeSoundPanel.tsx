@@ -2,15 +2,15 @@
 
 import type { KeyboardEvent } from "react";
 import { useTranslation } from "react-i18next";
-import { FiFilm, FiPlus, FiRefreshCw, FiX } from "react-icons/fi";
-import { VS_BTN_GHOST, VS_FOCUS, VS_ICON_BTN, VS_SEG_THUMB, VS_SEG_TRACK, VS_SUB, vx } from "@/components/vstudio/ui/skin";
+import { FiAlertCircle, FiFilm, FiMessageCircle, FiMic, FiPlus, FiRefreshCw, FiX } from "react-icons/fi";
+import { VS_BTN_GHOST, VS_BTN_LINK, VS_FOCUS, VS_ICON_BTN, VS_SEG_THUMB, VS_SEG_TRACK, VS_SUB, vx } from "@/components/vstudio/ui/skin";
 import { CS_EMPTY, CS_NOTE_GOLD, CS_SKELETON } from "@/components/studio/ui/cartoonSkin";
-import { CLIP_SOUNDS } from "./audioLogic";
+import { CLIP_SOUNDS, linesOf, orphanLines } from "./audioLogic";
 import { refusalText, type LocalItem } from "./mergeLogic";
 import type { MergeClipSound } from "./mergeTypes";
 import SoundMusic from "./SoundMusic";
 import SoundVoice from "./SoundVoice";
-import { SoundBlock, SoundError, useSay } from "./soundUi";
+import { SOUND_TRACK, SoundBlock, SoundChip, SoundError, SoundRemove, useSay, useSeconds } from "./soundUi";
 import { useSoundText } from "./soundText";
 import type { MergeAudioModel } from "./useMergeAudio";
 
@@ -34,9 +34,11 @@ export type MergeSoundPanelProps = {
   onClose: () => void;
   /** Фрагментов нет — к выбору роликов. */
   onAdd: () => void;
+  /** Открыть окно голоса сцены фрагмента (номер с нуля). */
+  onVoice?: (index: number) => void;
 };
 
-export default function MergeSoundPanel({ audio, items, price, variant, headingId, onClose, onAdd }: MergeSoundPanelProps) {
+export default function MergeSoundPanel({ audio, items, price, variant, headingId, onClose, onAdd, onVoice }: MergeSoundPanelProps) {
   const { t } = useTranslation("vstudio", { useSuspense: false });
   const say = useSay();
   const column = variant === "column";
@@ -104,6 +106,7 @@ export default function MergeSoundPanel({ audio, items, price, variant, headingI
           <p className={vx(CS_NOTE_GOLD, "!px-3 !py-2.5 !text-[13px] leading-snug")}>{say(refusalText("audio_not_configured"))}</p>
         )}
         <SoundVoice audio={audio} items={items} />
+        <SceneLinesBlock audio={audio} items={items} onVoice={onVoice} />
         <SoundMusic audio={audio} items={items} />
         <ClipBlock audio={audio} />
         <p className="px-1 text-xs leading-snug text-muted-2">
@@ -189,6 +192,94 @@ function ClipBlock({ audio }: { audio: MergeAudioModel }) {
         })}
       </div>
       <p className="text-xs leading-snug text-muted">{hint(audio.clip)}</p>
+    </SoundBlock>
+  );
+}
+
+/**
+ * «Голоса сцен»: свой текст на конкретный фрагмент с нужной секунды (окно «Голос» у фрагмента
+ * в ленте). Здесь — какие фрагменты уже озвучены и голоса, чей ролик убрали из склейки: в
+ * склейку они не идут, их можно убрать (или вернуть ролик).
+ */
+function SceneLinesBlock({
+  audio,
+  items,
+  onVoice,
+}: {
+  audio: MergeAudioModel;
+  items: readonly LocalItem[];
+  onVoice?: (index: number) => void;
+}) {
+  const { t } = useTranslation("vstudio", { useSuspense: false });
+  const say = useSay();
+  const { sec } = useSeconds();
+  const orphans = orphanLines(audio.lines);
+  const voiced = items
+    .map((it, index) => ({ it, index, lines: linesOf(audio.lines, it.key).filter((l) => l.status !== "failed") }))
+    .filter((x) => x.lines.length > 0);
+  const total = voiced.reduce((n, x) => n + x.lines.length, 0);
+  const untitled = t("merge.untitled", { defaultValue: "Без названия" });
+  return (
+    <SoundBlock
+      icon={FiMessageCircle}
+      title={t("merge.line.blockTitle", { defaultValue: "Голоса сцен" })}
+      chip={total > 0 ? <SoundChip tone="ready">{t("merge.line.added", { defaultValue: "Добавлено: {{n}}", n: total })}</SoundChip> : null}
+      sub={t("merge.line.blockSub", {
+        defaultValue: "Свой текст на конкретный фрагмент — с нужной секунды. Нажмите «Голос» у фрагмента в ленте.",
+      })}
+    >
+      {voiced.length > 0 && (
+        <ul className="flex flex-col gap-1.5">
+          {voiced.map(({ it, index, lines }) => (
+            <li key={it.key} className="flex min-w-0 items-center justify-between gap-2 text-[13px]">
+              <span className="min-w-0 truncate text-foreground">
+                {t("merge.line.row", {
+                  defaultValue: "№{{n}} · {{title}} — с {{times}}",
+                  n: index + 1,
+                  title: it.title.trim() || untitled,
+                  // «; » между секундами: запятая — уже десятичный знак («2,5 с; 4,0 с»).
+                  times: lines.map((l) => sec(l.start_s)).join("; "),
+                })}
+              </span>
+              {onVoice && audio.editable && (
+                <button
+                  type="button"
+                  onClick={() => onVoice(index)}
+                  className={vx(VS_BTN_LINK, "shrink-0")}
+                  // В имени — видимое слово «Открыть» (голосовое управление: «нажми Открыть»).
+                  aria-label={t("merge.line.openRow", { defaultValue: "Открыть голос сцены, фрагмент {{n}}", n: index + 1 })}
+                >
+                  <FiMic aria-hidden="true" />
+                  {t("merge.line.edit", { defaultValue: "Открыть" })}
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {orphans.map((line) => (
+        <div key={line.id} className={SOUND_TRACK}>
+          <p className="flex items-start gap-1.5 text-[13px] leading-snug text-status-wait">
+            <FiAlertCircle className="mt-0.5 shrink-0" aria-hidden="true" />
+            {say(refusalText("line_orphan"))}
+          </p>
+          <p className="line-clamp-2 break-words text-sm leading-snug text-foreground">{line.text}</p>
+          {audio.editable && line.status !== "pending" && (
+            <div className="-ml-2">
+              <SoundRemove
+                label={t("merge.audio.remove", { defaultValue: "Убрать" })}
+                ask={
+                  line.status === "ready"
+                    ? t("merge.line.removeAsk", { defaultValue: "Убрать этот голос? Он оплачен — новый будет стоить заново." })
+                    : null
+                }
+                busy={audio.lineDeleting === line.id}
+                onRemove={() => void audio.actions.removeLine(line)}
+              />
+            </div>
+          )}
+        </div>
+      ))}
     </SoundBlock>
   );
 }

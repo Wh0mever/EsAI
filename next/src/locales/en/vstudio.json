@@ -937,11 +937,12 @@
 				"music": "music",
 				"own": "own track",
 				"quiet": "clips quieter",
-				"off": "clips muted"
+				"off": "clips muted",
+				"lines": "scene voices"
 			},
 			"paid": {
-				"both": "Voice-over and music are already paid for — they won't be charged again",
-				"voice": "Voice-over is already paid for — it won't be charged again",
+				"both": "Voice and music are already paid for — they won't be charged again",
+				"voice": "Voice is already paid for — it won't be charged again",
 				"music": "Music is already paid for — it won't be charged again"
 			},
 			"removeYes": "Remove",
@@ -1004,6 +1005,7 @@
 			"handle": "Drag: {{title}}",
 			"moved": "“{{title}}” — position {{n}} of {{total}}",
 			"removed": "“{{title}}” removed from the merge",
+			"removeVoicedAsk": "“{{title}}” has scene voices: {{n}}. Remove the clip from the merge? The voices won't be lost — add this clip again and they will return to it.",
 			"number": "Clip {{n}}:",
 			"unavailable": "Video unavailable — remove it from the merge",
 			"unsaved": "Changes not saved",
@@ -1127,7 +1129,17 @@
 			"audio_queue_down": "The music didn't start — no credits were charged, please try again.",
 			"audio_unsupported": "This track won't work: it has more than 8 channels or a sample rate above 192 kHz. Save it as regular stereo, for example as an MP3, and upload it again.",
 			"music_busy": "A lot of music is being made right now — please try again in a minute. No credits were charged.",
-			"free_limit": "You've used up today's free merges: {{max}} a day. You can start a new one tomorrow."
+			"free_limit": "You've used up today's free merges: {{max}} a day. You can start a new one tomorrow.",
+			"audio_fragment_key": "This clip is not in the merge — open the voice on the clip you need.",
+			"audio_start_s": "The start second is a number from 0 to the clip length.",
+			"audio_start_s_max": "The start second is a number from 0 to {{max}} s.",
+			"audio_line_volume": "Voice volume is a number from 0 to 2.",
+			"line_busy": "A voice for this clip is still being made — please wait for it.",
+			"line_fragment_full": "This clip already has {{max}} voices — remove one to add a new one.",
+			"lines_limit": "The merge already has {{max}} scene voices — remove some to add a new one.",
+			"line_orphan": "The clip of this voice is no longer in the merge — add that clip again and the voice will return to it, or remove the voice.",
+			"line_failed": "This voice did not work out — remove it and voice it again.",
+			"line_unavailable": "The video of this clip is unavailable (deleted or not ready yet), so a voice can't be ordered for it. Remove the clip from the merge or replace it. No credits were charged."
 		},
 		"fail": {
 			"fragment_unreadable": "Clip #{{n}} can't be read — remove it from the merge and try again.",
@@ -1144,6 +1156,42 @@
 			"failed": "Couldn't merge the videos — no credits were charged, please try again.",
 			"mix_failed": "Couldn't mix the sound — no credits were charged, please try again.",
 			"audio_missing": "A sound track of this merge is missing. Remove it in “Sound” and merge again — no credits were charged."
+		},
+		"line": {
+			"dialogTitle": "Scene voice · clip #{{n}}",
+			"about": "{{title}} · {{time}}",
+			"sub": "AI will read the text over this clip — from the second you choose.",
+			"preview": "Clip video",
+			"off": "Scene voice is not available yet.",
+			"list": "Voices of this clip",
+			"new": "New voice",
+			"placeholder": "What will the voice say in this scene? For example: “Look how high it is!”",
+			"volume": "Volume",
+			"runningHint": "It usually takes a few seconds.",
+			"money": "Same price as the voice-over: charged only when the voice is ready. You can change the second and the volume later for free.",
+			"start": "From second",
+			"startHint": "from 0 to {{max}} s",
+			"seconds": "{{s}} s",
+			"now": "Set to the current second",
+			"pending": "The voice is being made — it usually takes a few seconds.",
+			"from": "From {{s}} s",
+			"play": "Listen to the scene voice",
+			"overflowEnd": "The voice is longer than what is left of the video: the last {{time}} will not be heard.",
+			"overflow": "The voice is longer than what is left of the clip: the last {{time}} will run into the next scene.",
+			"removeAsk": "Remove this voice? It is paid for — a new one will cost again.",
+			"openN": "Scene voice for clip {{n}} — added: {{k}}",
+			"open": "Scene voice for clip {{n}}",
+			"button": "Voice",
+			"tag": "Scene voice: {{k}}",
+			"blockTitle": "Scene voices",
+			"added": "Added: {{n}}",
+			"blockSub": "Your own text for a specific clip — from the second you need. Tap “Voice” on a clip in the list.",
+			"row": "#{{n}} · {{title}} — from {{times}}",
+			"edit": "Open",
+			"said": "Scene voice is ready",
+			"saidRemoved": "Scene voice removed",
+			"otherBusy": "A voice for another clip is being made right now — wait for it, then voice this one.",
+			"openRow": "Open scene voice, clip {{n}}"
 		}
 	}
 }

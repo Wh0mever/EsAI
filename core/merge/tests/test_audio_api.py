@@ -162,7 +162,7 @@ class StateTests(_Audio):
     def test_project_json_has_audio_summary(self):
         data = self.api.get(f"{BASE}{self.p.uid}/").json()
         self.assertEqual(data["audio"], {"clip_sound": "keep", "music_volume": 0.35, "voice_volume": 1.0,
-                                         "voice": False, "music": False, "pending": False})
+                                         "voice": False, "music": False, "lines": 0, "pending": False})
         self.track()
         self.track(kind="music", status="pending", credits_reserved=6)
         data = self.api.get(f"{BASE}{self.p.uid}/").json()
@@ -1462,7 +1462,7 @@ class CopyTests(_Audio):
                                  format="json")
         self.assertEqual(response.status_code, 201)
         self.assertEqual(response.json()["audio"], {"clip_sound": "off", "music_volume": 0.6, "voice_volume": 1.2,
-                                                    "voice": True, "music": True, "pending": False})
+                                                    "voice": True, "music": True, "lines": 0, "pending": False})
         copy = MergeProject.objects.get(uid=response.json()["id"])
         rows = {r.kind: r for r in MergeAudio.objects.filter(project=copy)}
         self.assertEqual(set(rows), {"voice", "music"})

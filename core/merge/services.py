@@ -8,8 +8,10 @@
 """
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
+import re
 import shutil
 import tempfile
 import time
@@ -182,8 +184,167 @@ def check_sources(user, refs, *, lang: str = "ru") -> list:
     return out
 
 
-def snapshot(sources) -> list[dict]:
-    return [s.snapshot() for s in sources]
+# ---------------------------------------------------------------- ключи фрагментов
+#
+# Каждый фрагмент склейки несёт постоянный ключ (items[].key): по нему голос сцены
+# (MergeAudio kind=line) держится за свой ролик, как его ни переставляй. Ключ
+# придумывает сервер; присланный клиентом годный ключ сохраняется (клиент заводит
+# его сам у нового фрагмента — так ключ совпадает с первого сохранения). Фрагмент
+# без ключа (старый клиент, старая склейка) получает ключ того же ролика из прежнего
+# списка (то же появление по счёту), иначе — новый.
+
+_KEY_RE = re.compile(r"[0-9a-f]{8,32}")
+KEY_LENGTH = 12
+
+
+def new_key() -> str:
+    return uuid.uuid4().hex[:KEY_LENGTH]
+
+
+def valid_key(raw) -> str:
+    """Ключ фрагмента в каноническом виде или "" (не строка, не hex, не той длины)."""
+    if not isinstance(raw, str):
+        return ""
+    value = raw.strip().lower()
+    return value if _KEY_RE.fullmatch(value) else ""
+
+
+def _derived_key(uid: str, index: int) -> str:
+    # Старая склейка без ключей: ключ из uid и места — один и тот же при каждом чтении,
+    # пока список не сохранили (тогда он записывается как есть).
+    return hashlib.sha1(f"{uid}:{index}".encode()).hexdigest()[:KEY_LENGTH]
+
+
+def item_keys(items, uid: str = "") -> list[str]:
+    """Ключи фрагментов по порядку (только словари — как везде в склейке). Повтор или
+    негодный ключ — выведенный из места: два фрагмента с одним ключом не бывают."""
+    out: list[str] = []
+    seen: set[str] = set()
+    for index, item in enumerate(i for i in items or [] if isinstance(i, dict)):
+        key = valid_key(item.get("key"))
+        if not key or key in seen:
+            key = _derived_key(uid, index)
+            while key in seen:
+                key = new_key()
+        seen.add(key)
+        out.append(key)
+    return out
+
+
+def keyed_items(project) -> list[dict]:
+    """Фрагменты склейки с ключами (без записи в базу)."""
+    items = [i for i in project.items or [] if isinstance(i, dict)]
+    return [{**item, "key": key} for item, key in zip(items, item_keys(items, project.uid))]
+
+
+def ensure_keys(project) -> list[dict]:
+    """Записать ключи фрагментам, у которых их ещё нет (старая склейка). Звать под замком
+    строки склейки: голос сцены ссылается на ключ, и он не должен смениться."""
+    items = keyed_items(project)
+    stored = [i for i in project.items or [] if isinstance(i, dict)]
+    if any(valid_key(old.get("key")) != new["key"] for old, new in zip(stored, items)) or len(stored) != len(
+            project.items or []):
+        project.items = items
+        MergeProject.objects.filter(pk=project.pk).update(items=items)
+    return items
+
+
+def parse_keys(raw) -> list[str]:
+    """Ключи из присланного списка фрагментов (порядок тот же, что у parse_items); "" — нет."""
+    if not isinstance(raw, list):
+        return []
+    return [valid_key(item.get("key")) if isinstance(item, dict) else "" for item in raw]
+
+
+def assign_keys(snaps: list[dict], wanted=(), old_items=(), uid: str = "") -> list[dict]:
+    """Снимки фрагментов с ключами. wanted — ключи из запроса (по порядку), old_items —
+    прежний список склейки: фрагмент без присланного ключа берёт ключ того же ролика
+    оттуда (то же появление по счёту), иначе — новый. Ключи в списке не повторяются."""
+    wanted = list(wanted or [])
+    old = [i for i in old_items or [] if isinstance(i, dict)]
+    pool: dict[tuple, list[str]] = {}
+    for item, key in zip(old, item_keys(old, uid)):
+        pool.setdefault((item.get("type"), str(item.get("id"))), []).append(key)
+    used: set[str] = set()
+    # Сначала присланные ключи: их держат и клиент, и голоса сцены.
+    keys: list[str] = []
+    for index in range(len(snaps)):
+        key = wanted[index] if index < len(wanted) else ""
+        if key and key not in used:
+            used.add(key)
+            keys.append(key)
+        else:
+            keys.append("")
+    out = []
+    for snap, key in zip(snaps, keys):
+        if not key:
+            for candidate in pool.get((snap.get("type"), str(snap.get("id"))), []):
+                if candidate not in used:
+                    key = candidate
+                    break
+            while not key or key in used:
+                key = new_key()
+            used.add(key)
+        out.append({"key": key, **{k: v for k, v in snap.items() if k != "key"}})
+    return out
+
+
+REF_LENGTH = 80
+
+
+def item_ref(item) -> str:
+    """Ролик фрагмента одной строкой «тип:id» (метка голоса сцены, MergeAudio.fragment_ref)."""
+    if not isinstance(item, dict):
+        return ""
+    return f"{item.get('type') or ''}:{item.get('id') or ''}"[:REF_LENGTH]
+
+
+def adopt_orphan_keys(project: MergeProject, items: list[dict]) -> list[dict]:
+    """Ролик вернули в склейку — его голоса сцен возвращаются к нему.
+
+    Убранный фрагмент оставляет свои голоса сцен «без фрагмента» (они оплачены и сами не
+    удаляются). Добавленная снова карточка того же ролика приходит с новым ключом —
+    голосам он незнаком. Здесь новая карточка (её ключа не было в прежнем списке и на
+    него не ссылается ни один голос) берёт ключ голоса без фрагмента с тем же роликом
+    (fragment_ref): сначала самый старый; один ролик дважды — каждая карточка свой ключ.
+    Ключ — тот же, что у голоса, поэтому голос едет за роликом без правки дорожки.
+    Ничего не пишет: items возвращаются с подменёнными ключами.
+    """
+    if project is None or project.pk is None or not items:
+        return items
+    old_keys = set(item_keys(project.items, project.uid))
+    rows = list(MergeAudio.objects.filter(project=project, kind=MergeAudio.KIND_LINE)
+                .exclude(status=MergeAudio.STATUS_FAILED)
+                .order_by("created_at", "pk").values_list("fragment_key", "fragment_ref"))
+    if not rows:
+        return items
+    keys_now = {item["key"] for item in items}
+    line_keys = {key for key, _ in rows}
+    pool: dict[str, list[str]] = {}
+    for key, ref in rows:
+        if ref and key and key not in keys_now and key not in pool.get(ref, []):
+            pool.setdefault(ref, []).append(key)
+    if not pool:
+        return items
+    used = set(keys_now)
+    out = []
+    for item in items:
+        key = item["key"]
+        if key not in old_keys and key not in line_keys:
+            for candidate in pool.get(item_ref(item), []):
+                if candidate not in used:
+                    used.discard(key)
+                    used.add(candidate)
+                    item = {**item, "key": candidate}
+                    break
+        out.append(item)
+    return out
+
+
+def snapshot(sources, keys=None) -> list[dict]:
+    """Снимки источников для MergeProject.items. keys — ключи фрагментов по порядку
+    (нет или не хватает — новые)."""
+    return assign_keys([s.snapshot() for s in sources], keys or ())
 
 
 def total_duration(items) -> float:
@@ -224,7 +385,14 @@ def validate_changes(user, project: MergeProject | None, data: dict, *, lang: st
             raise MergeError("bad_request", MSG_BAD_FIT, field="fit")
         fields["fit"] = data["fit"]
     if "items" in data:
-        fields["items"] = snapshot(check_sources(user, parse_items(data["items"]), lang=lang))
+        # Ключи фрагментов: присланные клиентом, иначе — того же ролика из прежнего списка.
+        fields["items"] = assign_keys([s.snapshot() for s in check_sources(user, parse_items(data["items"]),
+                                                                           lang=lang)],
+                                      parse_keys(data["items"]), project.items if project else (),
+                                      project.uid if project else "")
+        if project is not None:
+            # Убрали ролик и добавили снова — его голоса сцен возвращаются к новой карточке.
+            fields["items"] = adopt_orphan_keys(project, fields["items"])
     if project is not None and content and project.status != MergeProject.STATUS_DRAFT:
         # Изменённая неудачная (или истёкшая) склейка — снова черновик: старая
         # ошибка относится к другому набору фрагментов.
@@ -552,7 +720,8 @@ def start_render(user, uid, data: dict | None = None, *, lang: str = "ru") -> tu
         now = timezone.now()
         from .uploads import hold, upload_ids
 
-        project.items = snapshot(sources)
+        # Свежие снимки — с прежними ключами: на них держатся голоса сцены.
+        project.items = snapshot(sources, item_keys(project.items, project.uid))
         hold(locked.pk, upload_ids(project.items), now + UPLOAD_RENDER_HOLD)
         audio.hold(project.pk, now + UPLOAD_RENDER_HOLD)
         project.status = MergeProject.STATUS_QUEUED

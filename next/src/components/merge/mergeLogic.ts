@@ -101,19 +101,54 @@ export function cardToItem(card: MergeSourceCard): MergeItem {
  */
 export function toLocal(items: MergeItem[], prev: LocalItem[], makeKey: () => string): LocalItem[] {
   return items.map((item, i) => {
+    // Ключ фрагмента от сервера — главный: на нём держатся голоса сцен.
+    if (isFragmentKey(item.key)) return { ...item, key: item.key };
     const old = prev[i];
     const key = old && old.type === item.type && old.id === item.id ? old.key : makeKey();
     return { ...item, key };
   });
 }
 
+const FRAGMENT_KEY_RE = /^[0-9a-f]{8,32}$/;
+
+/** Ключ фрагмента в том виде, что принимает сервер (hex, 8–32 знака). */
+export function isFragmentKey(v: unknown): v is string {
+  return typeof v === "string" && FRAGMENT_KEY_RE.test(v);
+}
+
+/** Новый ключ фрагмента (12 hex): сервер сохранит его как есть — голос сцены найдёт ролик с первого сохранения. */
+export function newFragmentKey(rand: () => number = Math.random): string {
+  const c = (globalThis as { crypto?: { getRandomValues?: (a: Uint8Array) => Uint8Array } }).crypto;
+  if (c && typeof c.getRandomValues === "function") {
+    return Array.from(c.getRandomValues(new Uint8Array(6)), (b) => b.toString(16).padStart(2, "0")).join("");
+  }
+  let out = "";
+  for (let i = 0; i < 12; i++) out += Math.floor(rand() * 16).toString(16);
+  return out;
+}
+
 export function itemRefs(items: readonly ItemRef[]): ItemRef[] {
   return items.map(({ type, id }) => ({ type, id }));
 }
 
-/** Слепок того, что уходит на сервер: совпал — сохранять нечего. */
-export function signature(items: readonly ItemRef[], aspect: MergeAspect, fit: MergeFit): string {
-  return `${aspect}|${fit}|${items.map((i) => `${i.type}:${i.id}`).join(",")}`;
+/** Фрагменты для сервера: источник и ключ фрагмента (если он в серверном виде) — по ключу сервер их узнаёт. */
+export function itemBody(items: readonly (ItemRef & { key?: string | null })[]): (ItemRef & { key?: string })[] {
+  return items.map(({ type, id, key }) => (isFragmentKey(key) ? { type, id, key } : { type, id }));
+}
+
+/**
+ * Слепок того, что уходит на сервер: совпал — сохранять нечего. Ключ фрагмента входит в
+ * слепок только у ролика, стоящего в склейке дважды: переставили два одинаковых — порядок их
+ * ключей (и голосов сцен) должен уйти на сервер, хотя type и id на местах те же.
+ */
+export function signature(items: readonly (ItemRef & { key?: string | null })[], aspect: MergeAspect, fit: MergeFit): string {
+  const seen = new Map<string, number>();
+  for (const i of items) seen.set(`${i.type}:${i.id}`, (seen.get(`${i.type}:${i.id}`) ?? 0) + 1);
+  const part = (i: ItemRef & { key?: string | null }) => {
+    const ref = `${i.type}:${i.id}`;
+    return (seen.get(ref) ?? 0) > 1 && isFragmentKey(i.key) ? `${ref}#${i.key}` : ref;
+  };
+  return `${aspect}|${fit}|${items.map(part).join(",")}`;
 }
 
 export function totalDuration(items: readonly { duration_s: number | null }[]): number {

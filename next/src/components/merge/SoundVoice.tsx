@@ -322,14 +322,14 @@ export default function SoundVoice({ audio, items }: { audio: MergeAudioModel; i
   );
 }
 
-type VoicesView = MergeAudioModel["voices"];
+export type VoicesView = MergeAudioModel["voices"];
 
 /**
  * Выбор голоса: радиокнопки (стрелки переключают, как у любой группы) и ▶ у
  * каждого — пример на языке страницы. Характер голоса — словарём мультстудии:
- * ElevenLabs размечает голоса по-английски.
+ * ElevenLabs размечает голоса по-английски. Тот же выбор — в окне «Голос сцены».
  */
-function VoicePicker({
+export function VoicePicker({
   voices,
   selected,
   labelId,

@@ -15,6 +15,8 @@ export function useSoundText() {
     switch (p) {
       case "voice":
         return t("merge.audio.part.voice", { defaultValue: "голос" });
+      case "lines":
+        return t("merge.audio.part.lines", { defaultValue: "голоса сцен" });
       case "music":
         return t("merge.audio.part.music", { defaultValue: "музыка" });
       case "own":

@@ -5,6 +5,9 @@
   POST   <id>/audio/voice/          — голос за кадром {text, voice_id, start_fragment, price?, request_id?}
   POST   <id>/audio/music/          — музыка по описанию {prompt, price?, request_id?}: 202, делает задача
   POST   <id>/audio/music/upload/   — свой трек (multipart, поле file), бесплатно
+  POST   <id>/audio/line/           — голос сцены {fragment_key, text, voice_id, start_s, volume?, price?,
+                                      request_id?}: как голос за кадром, но у одного фрагмента с секунды в нём
+  PATCH  <id>/audio/<track_id>/     — голос сцены: {start_s?, volume?} — бесплатно
   DELETE <id>/audio/<track_id>/     — убрать дорожку
 Голоса и их примеры — общие с мультстудией: /api/cartoon/audio/voices/ и
 /api/cartoon/audio/voices/<id>/preview/. Тело отказа — как во всей склейке:
@@ -43,14 +46,21 @@ class AudioUploadThrottle(UserRateThrottle):
     rate = "20/hour"
 
 
-def _state(user, uid, track=None, *, balance: bool = False) -> dict:
-    body = audio.state(services.get_project(user, uid))
+def _state(user, uid, track=None, *, balance: bool = False, line=None) -> dict:
+    project = services.get_project(user, uid)
+    body = audio.state(project)
     if isinstance(track, dict):
         # Повтор заказа, чью дорожку уже заменили или убрали: какой она ушла (audio._remove).
         body["track"] = track
     elif track is not None:
         track.refresh_from_db()
         body["track"] = audio.track_json(track, body["fragments"])
+    if isinstance(line, dict):
+        body["line"] = line
+    elif line is not None:
+        # Голос сцены этого запроса — отдельным полем: «track» клиент сверяет с голосом за кадром.
+        line.refresh_from_db()
+        body["line"] = audio.line_json(line, audio.fragment_map(project))
     if balance:
         body["balance"] = _balance(user, 0)
     return body
@@ -87,6 +97,22 @@ class VoiceView(MergeAPIView):
         try:
             row, created = audio.generate_voice(request.user, uid, request.data)
             body = _state(request.user, uid, row, balance=True)
+        except MergeError as exc:
+            return _refusal(exc)
+        return Response(body, status=http.HTTP_201_CREATED if created else http.HTTP_200_OK)
+
+
+# Как голос за кадром: озвучка в самом запросе, вне транзакции запроса.
+@method_decorator(transaction.non_atomic_requests, name="dispatch")
+class LineView(MergeAPIView):
+    """POST — голос сцены. 201 — сделан и оплачен; 200 — тот же request_id уже был."""
+
+    throttles = {"POST": AudioThrottle}
+
+    def post(self, request, uid):
+        try:
+            row, created = audio.generate_line(request.user, uid, request.data)
+            body = _state(request.user, uid, line=row, balance=True)
         except MergeError as exc:
             return _refusal(exc)
         return Response(body, status=http.HTTP_201_CREATED if created else http.HTTP_200_OK)
@@ -138,9 +164,17 @@ class MusicUploadView(MergeAPIView):
 
 
 class TrackView(MergeAPIView):
-    """DELETE — убрать дорожку (не ту, что ещё делается) → 200 и состояние звука."""
+    """PATCH — секунда и громкость голоса сцены (бесплатно); DELETE — убрать дорожку (не ту,
+    что ещё делается). Оба → 200 и состояние звука."""
 
-    throttles = {"DELETE": WriteThrottle}
+    throttles = {"DELETE": WriteThrottle, "PATCH": WriteThrottle}
+
+    def patch(self, request, uid, track):
+        try:
+            row = audio.update_line(request.user, uid, track, request.data)
+            return Response(_state(request.user, uid, line=row))
+        except MergeError as exc:
+            return _refusal(exc)
 
     def delete(self, request, uid, track):
         try:

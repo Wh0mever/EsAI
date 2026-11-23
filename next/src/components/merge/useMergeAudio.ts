@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import type { PaywallContext } from "@/components/chat/PaywallModal";
+import { apiLang } from "@/lib/apiLang";
 import { isAborted, paywallContext } from "@/lib/vstudio/errors";
 import type { VsError } from "@/lib/vstudio/types";
 import {
@@ -18,8 +19,17 @@ import {
   cooldownLeft,
   effectiveStart,
   followStart,
+  freshSaid,
   hasPending,
   isTransportError,
+  lineLimits,
+  markOrphans,
+  lineRefusal,
+  lineSignature,
+  readLineVoices,
+  withLineVoice,
+  liveLineCount,
+  roundSecond,
   musicCooldownUntil,
   musicQuote,
   musicRefusal,
@@ -52,9 +62,11 @@ import {
   deleteTrack as deleteTrackApi,
   getAudio,
   listVoices,
+  makeLine as makeLineApi,
   makeMusic as makeMusicApi,
   makeVoice as makeVoiceApi,
   patchAudio,
+  patchLine as patchLineApi,
   uploadMusic as uploadMusicApi,
   type UploadPhase,
 } from "./mergeApi";
@@ -65,6 +77,8 @@ import type {
   MergeAudioSummary,
   MergeBalance,
   MergeClipSound,
+  MergeLine,
+  MergeLinePatch,
   MergeStatus,
   MergeTrack,
   MergeTrackKind,
@@ -88,12 +102,18 @@ import type {
  */
 
 const VOICE_KEY = "merge:voice";
+/** Последний голос окна «Голос сцены» по склейкам (у каждой склейки свой). */
+const LINE_VOICES_KEY = "merge:line-voices";
 /** Ползунок громкости: на сервер — когда палец остановился. */
 const VOLUME_DEBOUNCE_MS = 350;
 /** Склейка ещё не заведена (первое сохранение впереди) — ключ занятости до него. */
 const NEW = "new";
 
 export type AudioUpload = { key: string; name: string; phase: UploadPhase; pct: number };
+/** Заказ голоса сцены из окна фрагмента: ключ фрагмента, текст, голос, секунда, громкость. */
+export type LineOrder = { fragmentKey: string; text: string; voiceId: string; start: number; volume: number };
+/** Отказ у окна голоса сцены: чьего фрагмента (окно другого фрагмента его не показывает). */
+type LineError = { project: string; key: string; text: TextSpec } | null;
 type Errors = Record<"voice" | "music" | "settings", TextSpec | null>;
 type ErrorKind = keyof Errors;
 type Draft = { text: string; voiceId: string; start: number; prompt: string };
@@ -118,6 +138,24 @@ function readVoice(): string {
     return window.localStorage.getItem(VOICE_KEY) || "";
   } catch {
     return "";
+  }
+}
+
+function readLineVoiceMap(): Record<string, string> {
+  try {
+    return typeof window === "undefined" ? {} : readLineVoices(window.localStorage.getItem(LINE_VOICES_KEY));
+  } catch {
+    return {};
+  }
+}
+
+function storeLineVoiceMap(map: Record<string, string>) {
+  try {
+    // Ещё не заведённая склейка (NEW) — только в памяти: после сохранения у неё будет свой id.
+    const saved = Object.fromEntries(Object.entries(map).filter(([k]) => k !== NEW));
+    window.localStorage.setItem(LINE_VOICES_KEY, JSON.stringify(saved));
+  } catch {
+    /* не запомнили — окно возьмёт голос черновика голоса за кадром */
   }
 }
 
@@ -156,7 +194,12 @@ export type MergeAudioModel = ReturnType<typeof useMergeAudio>;
 
 export function useMergeAudio(opts: MergeAudioOptions) {
   const { projectId, status, summary, items, enabled, parked = null } = opts;
-  const { t } = useTranslation("vstudio", { useSuspense: false });
+  const { t, i18n } = useTranslation("vstudio", { useSuspense: false });
+  /** Язык для чисел в отказах (секунда начала голоса сцены: «4,9» / «4.9»). */
+  const langRef = useRef(apiLang(i18n.language));
+  useEffect(() => {
+    langRef.current = apiLang(i18n.language);
+  }, [i18n.language]);
 
   const [audio, setAudio] = useState<{ id: string; state: MergeAudioState } | null>(null);
   const [loadFailed, setLoadFailed] = useState<string | null>(null);
@@ -176,8 +219,17 @@ export function useMergeAudio(opts: MergeAudioOptions) {
    * осталось (на экране). Места музыки общие на весь сайт — ожидание не привязано к склейке.
    */
   const [musicHold, setMusicHold] = useState<{ until: number; left: number }>({ until: 0, left: 0 });
-  /** Что сказать диктору: готово, загружено, удалено. */
+  /**
+   * Что сказать диктору: готово, загружено, удалено. Пишется через freshSaid: тот же текст
+   * второй раз подряд отличается невидимым хвостом, и читалка снова его скажет.
+   */
   const [said, setSaid] = useState("");
+  /** Голос сцены: чей заказ идёт ({склейка, фрагмент}), отказ у окна, какой голос убирается. */
+  const [lineBusy, setLineBusy] = useState<{ project: string; key: string } | null>(null);
+  const [lineError, setLineError] = useState<LineError>(null);
+  const [lineDeleting, setLineDeleting] = useState<string | null>(null);
+  /** Голос, выбранный в окне «Голос сцены», по склейкам: окно открывают снова — он и выбран. */
+  const [lineVoices, setLineVoices] = useState<Record<string, string>>(readLineVoiceMap);
 
   // Другая склейка — черновики и отказы прежней ей не нужны. Из «новой» в
   // только что заведённую (первое сохранение) — та же склейка: всё остаётся.
@@ -194,6 +246,7 @@ export function useMergeAudio(opts: MergeAudioOptions) {
       setForms({ voice: false, music: false });
       setErrors(NO_ERRORS);
       setLocal({});
+      setLineError(null);
     } else if (step === "restore" && kept) {
       setDraft(kept.draft);
       setForms(kept.forms);
@@ -230,6 +283,13 @@ export function useMergeAudio(opts: MergeAudioOptions) {
   const musicHoldUntil = useRef(0);
   /** Неудачная музыка, чьим описанием уже заполнили форму повтора: второй раз не заполняем. */
   const prefilled = useRef<string | null>(null);
+  /** Голос сцены: заказ в пути (склейка или NEW) и метка нажатия, ответ на которое не дошёл. */
+  const lineBusyRef = useRef<string | null>(null);
+  const lineRetry = useRef<RetryMark | null>(null);
+
+  useEffect(() => {
+    storeLineVoiceMap(lineVoices);
+  }, [lineVoices]);
 
   // Склейка сменилась — метку забываем: вернулись в склейку с той же неудачной музыкой, а
   // черновик при смене опустел — форма повтора снова с её описанием.
@@ -321,13 +381,13 @@ export function useMergeAudio(opts: MergeAudioOptions) {
           cur.onSettled();
           const last = done[done.length - 1];
           if (last.status === "ready") {
-            setSaid(
+            const text =
               last.kind === "voice"
                 ? t("merge.audio.saidVoice", { defaultValue: "Голос за кадром готов" })
-                : t("merge.audio.saidMusic", { defaultValue: "Музыка готова" }),
-            );
+                : t("merge.audio.saidMusic", { defaultValue: "Музыка готова" });
+            setSaid((p) => freshSaid(p, text));
           } else {
-            setSaid(t("merge.audio.saidFailed", { defaultValue: "Звук не получился — кредиты не списаны" }));
+            setSaid((p) => freshSaid(p, t("merge.audio.saidFailed", { defaultValue: "Звук не получился — кредиты не списаны" })));
           }
         }
       }
@@ -586,7 +646,7 @@ export function useMergeAudio(opts: MergeAudioOptions) {
         }
         // Повтор вернул голос с прежним началом, а фрагменты с тех пор правили — к его ролику.
         placeVoice(id, res.data, answered);
-        setSaid(t("merge.audio.saidVoice", { defaultValue: "Голос за кадром готов" }));
+        setSaid((p) => freshSaid(p, t("merge.audio.saidVoice", { defaultValue: "Голос за кадром готов" })));
         return;
       }
       await fail("voice", id, res.error, before, { order: mark.id });
@@ -645,7 +705,7 @@ export function useMergeAudio(opts: MergeAudioOptions) {
           setDraft((x) => ({ ...x, prompt: "" }));
           setForms((f) => ({ ...f, music: false }));
         }
-        setSaid(t("merge.audio.saidMusicQueued", { defaultValue: "Музыка создаётся — это около минуты" }));
+        setSaid((p) => freshSaid(p, t("merge.audio.saidMusicQueued", { defaultValue: "Музыка создаётся — это около минуты" })));
         return;
       }
       await fail("music", id, res.error, before, { order: mark.id });
@@ -695,7 +755,7 @@ export function useMergeAudio(opts: MergeAudioOptions) {
         if (res.ok) {
           apply(id, res.data);
           if (cb.current.projectId === id) setForms((f) => ({ ...f, music: false }));
-          setSaid(t("merge.audio.saidUploaded", { defaultValue: "Свой трек загружен" }));
+          setSaid((p) => freshSaid(p, t("merge.audio.saidUploaded", { defaultValue: "Свой трек загружен" })));
           return;
         }
         await fail("music", id, res.error, before, { upload: true });
@@ -720,7 +780,7 @@ export function useMergeAudio(opts: MergeAudioOptions) {
     uploadFor.current = null;
     ctrl.abort();
     setUpload(null);
-    setSaid(t("merge.upload.cancelled", { defaultValue: "Загрузка отменена" }));
+    setSaid((p) => freshSaid(p, t("merge.upload.cancelled", { defaultValue: "Загрузка отменена" })));
   }, [t]);
 
   /* ---------- убрать дорожку ---------- */
@@ -737,11 +797,11 @@ export function useMergeAudio(opts: MergeAudioOptions) {
         if (res.ok) {
           apply(id, res.data);
           if (track.status === "ready") {
-            setSaid(
+            const text =
               track.kind === "voice"
                 ? t("merge.audio.saidVoiceRemoved", { defaultValue: "Голос за кадром убран" })
-                : t("merge.audio.saidMusicRemoved", { defaultValue: "Музыка убрана" }),
-            );
+                : t("merge.audio.saidMusicRemoved", { defaultValue: "Музыка убрана" });
+            setSaid((p) => freshSaid(p, text));
           }
           return;
         }
@@ -757,6 +817,176 @@ export function useMergeAudio(opts: MergeAudioOptions) {
       }
     },
     [apply, fail, reload, setError, t],
+  );
+
+  /* ---------- голос сцены ---------- */
+
+  const lineFail = useCallback((project: string, key: string, text: TextSpec | null) => {
+    setLineError(text ? { project, key, text } : null);
+  }, []);
+
+  /**
+   * «Озвучить» в окне фрагмента: сначала сохраняем то, что на экране (у нового фрагмента
+   * сервер должен знать его ключ), потом заказ с request_id. Ответ не дошёл — сверяемся с
+   * сервером по этому id: голос сделан — как при ответе; повтор того же нажатия уйдёт с тем
+   * же id и второй раз не спишется. true — голос готов.
+   */
+  const makeLine = useCallback(
+    async (order: LineOrder): Promise<boolean> => {
+      if (lineBusyRef.current !== null) return false;
+      const own = cb.current.projectId ?? NEW;
+      const known = latest.current && latest.current.id === cb.current.projectId ? latest.current.state : null;
+      const lim = lineLimits(known?.limits);
+      const refusal = lineRefusal(order.text, order.voiceId, {
+        chars: lim.line_chars,
+        count: liveLineCount(known?.lines, order.fragmentKey),
+        perFragment: lim.lines_per_fragment,
+        total: liveLineCount(known?.lines),
+        max: lim.lines_max,
+      });
+      if (refusal) {
+        lineFail(own, order.fragmentKey, refusal);
+        return false;
+      }
+      lineBusyRef.current = own;
+      setLineBusy({ project: own, key: order.fragmentKey });
+      lineFail(own, order.fragmentKey, null);
+      beginWork(work.current);
+      let project = own;
+      try {
+        const id = await cb.current.ensureSaved();
+        if (!id) {
+          lineFail(own, order.fragmentKey, refusalText("server_error"));
+          return false;
+        }
+        project = id;
+        lineBusyRef.current = id;
+        setLineBusy({ project: id, key: order.fragmentKey });
+        // Голос окна — за склейкой (у новой теперь есть id): открыли окно снова — он и выбран.
+        setLineVoices((m) => withLineVoice(m, id, order.voiceId));
+        const start = roundSecond(order.start);
+        const mark = retryMarkFor(
+          lineRetry.current,
+          id,
+          lineSignature(order.fragmentKey, order.text, order.voiceId, start, order.volume),
+        );
+        lineRetry.current = mark;
+        const res = await makeLineApi(id, {
+          fragment_key: order.fragmentKey,
+          text: cleanText(order.text),
+          voice_id: order.voiceId,
+          start_s: start,
+          volume: Math.round(order.volume * 1000) / 1000,
+          price: voicePrice(order.text, latest.current?.state.prices ?? DEFAULT_AUDIO_PRICES),
+          request_id: mark.id,
+        });
+        if (res.ok) {
+          lineRetry.current = null;
+          apply(id, res.data);
+          const line = res.data.line;
+          if (line && replayedFailure(line)) {
+            // Сервер вернул прежнюю неудачную попытку того же нажатия: следующее — новый заказ.
+            lineFail(id, order.fragmentKey, trackErrorText(line));
+            return false;
+          }
+          rememberVoice(order.voiceId);
+          setSaid((p) => freshSaid(p, t("merge.line.said", { defaultValue: "Голос сцены готов" })));
+          return true;
+        }
+        const err = res.error;
+        if (isAborted(err)) return false;
+        if (orderFailedHere(err)) lineRetry.current = null;
+        const pw = paywallContext(err);
+        if (pw) {
+          lineFail(id, order.fragmentKey, null);
+          cb.current.onPaywall(pw);
+          void reload(id);
+          return false;
+        }
+        if (isTransportError(err)) {
+          // Ответ не дошёл: голос мог сделаться — ищем его по ключу нажатия.
+          const fresh = await reload(id);
+          const mine = fresh?.lines?.find((l) => l.request_id === mark.id);
+          if (mine && mine.status === "ready") {
+            lineRetry.current = null;
+            rememberVoice(order.voiceId);
+            setSaid((p) => freshSaid(p, t("merge.line.said", { defaultValue: "Голос сцены готов" })));
+            return true;
+          }
+          if (mine && mine.status === "failed") {
+            lineRetry.current = null;
+            lineFail(id, order.fragmentKey, trackErrorText(mine));
+            return false;
+          }
+        } else if (err.status !== 400 && err.status !== 429) {
+          void reload(id);
+        }
+        const lineLim = { voice_chars: lim.line_chars, upload_max_mb: DEFAULT_AUDIO_LIMITS.upload_max_mb };
+        lineFail(id, order.fragmentKey, audioErrorText(err, lineLim, { lang: langRef.current }));
+        return false;
+      } finally {
+        lineBusyRef.current = null;
+        setLineBusy((b) => (b && b.project === project ? null : b));
+        endWork(work.current);
+      }
+    },
+    [apply, lineFail, reload, t],
+  );
+
+  /** Секунда и громкость голоса сцены — бесплатно (окно шлёт, когда палец остановился). */
+  const patchLine = useCallback(
+    async (line: MergeLine, body: MergeLinePatch): Promise<boolean> => {
+      const id = cb.current.projectId;
+      if (!id) return false;
+      beginWork(work.current);
+      try {
+        const res = await patchLineApi(id, line.id, body);
+        if (res.ok) {
+          apply(id, res.data);
+          lineFail(id, line.fragment_key, null);
+          return true;
+        }
+        if (isAborted(res.error)) return false;
+        // Голос уже убрали (правка ушла вдогонку удалению) — показывать нечего.
+        if (res.error.code !== "audio_not_found") lineFail(id, line.fragment_key, audioErrorText(res.error, undefined, { lang: langRef.current }));
+        // Не приняли — на экране то, что на самом деле звучит.
+        void reload(id);
+        return false;
+      } finally {
+        endWork(work.current);
+      }
+    },
+    [apply, lineFail, reload],
+  );
+
+  /** Убрать голос сцены (и «потерявший» ролик тоже). Promise — окно вернёт фокус. */
+  const removeLine = useCallback(
+    async (line: MergeLine): Promise<void> => {
+      const id = cb.current.projectId;
+      if (!id) return;
+      setLineDeleting(line.id);
+      beginWork(work.current);
+      try {
+        const res = await deleteTrackApi(id, line.id);
+        if (res.ok) {
+          apply(id, res.data);
+          lineFail(id, line.fragment_key, null);
+          if (line.status === "ready") setSaid((p) => freshSaid(p, t("merge.line.saidRemoved", { defaultValue: "Голос сцены убран" })));
+          return;
+        }
+        if (res.error.code === "audio_not_found") {
+          void reload(id);
+          return;
+        }
+        if (isAborted(res.error)) return;
+        lineFail(id, line.fragment_key, audioErrorText(res.error, undefined, { lang: langRef.current }));
+        void reload(id);
+      } finally {
+        setLineDeleting(null);
+        endWork(work.current);
+      }
+    },
+    [apply, lineFail, reload, t],
   );
 
   /* ---------- звук роликов, громкость, начало голоса ---------- */
@@ -886,13 +1116,21 @@ export function useMergeAudio(opts: MergeAudioOptions) {
   const voice = trackSlot(state?.tracks, "voice");
   const music = trackSlot(state?.tracks, "music");
   const clip: MergeClipSound = local.clip ?? state?.clip_sound ?? summary?.clip_sound ?? "keep";
-  const info = soundInfo(state ? { tracks: state.tracks, clip_sound: clip } : null, summary ? { ...summary, clip_sound: clip } : null);
+  // Ключи ленты одной строкой: пересчёт «потерявших» ролик — только когда лента правда сменилась.
+  const itemKeys = items.map((it) => it.key).join(" ");
+  const serverLines = state?.lines;
+  const lines = useMemo(() => markOrphans(serverLines, itemKeys ? itemKeys.split(" ") : []), [serverLines, itemKeys]);
+  const info = soundInfo(
+    state ? { tracks: state.tracks, clip_sound: clip, lines } : null,
+    summary ? { ...summary, clip_sound: clip } : null,
+  );
   const current = projectId ?? NEW;
   const voiceBusyNow = voiceBusy !== null && (voiceBusy === current || voiceBusy === NEW);
   const musicBusyNow = musicBusy !== null && (musicBusy === current || musicBusy === NEW);
   const uploadNow = upload && (upload.key === current || upload.key === NEW) ? upload : null;
   const quote = musicQuote(state, items);
   const savedStart = voice.ready?.start_fragment ?? 0;
+  const lineBusyNow = lineBusy !== null && (lineBusy.project === current || lineBusy.project === NEW);
 
   return {
     /** Склейка заведена — звук есть куда сохранить. */
@@ -925,8 +1163,18 @@ export function useMergeAudio(opts: MergeAudioOptions) {
     musicWait: musicHold.left,
     upload: uploadNow,
     deleting,
+    /** Голоса сцен открытой склейки (и «потерявшие» ролик — orphan). */
+    lines,
+    lineLimits: lineLimits(state?.limits),
+    /** Ключ фрагмента, чей голос сцены сейчас озвучивается; null — никакой. */
+    lineBusy: lineBusyNow && lineBusy ? lineBusy.key : null,
+    /** Отказ у окна голоса сцены открытой склейки: { key — фрагмент, text }. */
+    lineError: lineError && lineError.project === current ? lineError : null,
+    lineDeleting,
+    /** Голос, выбранный в окне «Голос сцены» этой склейки в прошлый раз; "" — не выбирали. */
+    lineVoiceId: lineVoices[current] ?? "",
     /** «Склеить» подождёт: звук делается или свой трек ещё идёт. */
-    blocking: info.pending || voiceBusyNow || musicBusyNow || uploadNow !== null,
+    blocking: info.pending || voiceBusyNow || musicBusyNow || lineBusyNow || uploadNow !== null,
     /**
      * Перед запуском склейки: отложенная правка звука уходит сразу, и все правки
      * доходят до сервера раньше запуска. false — какую-то не приняли.
@@ -958,6 +1206,12 @@ export function useMergeAudio(opts: MergeAudioOptions) {
       openForm,
       closeForm,
       dismissError: (kind: ErrorKind) => setError(kind, null),
+      makeLine,
+      patchLine,
+      removeLine,
+      dismissLineError: () => setLineError(null),
+      /** Голос в окне «Голос сцены»: запоминается за открытой склейкой. */
+      setLineVoice: (voiceId: string) => setLineVoices((m) => withLineVoice(m, current, voiceId)),
     },
   };
 }

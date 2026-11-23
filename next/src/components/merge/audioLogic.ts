@@ -15,6 +15,7 @@ import type {
   MergeAudioState,
   MergeAudioSummary,
   MergeClipSound,
+  MergeLine,
   MergeTrack,
   MergeTrackKind,
 } from "./mergeTypes";
@@ -235,8 +236,8 @@ export function trackSlot(tracks: readonly MergeTrack[] | null | undefined, kind
   return slot;
 }
 
-export function hasPending(state: Pick<MergeAudioState, "tracks"> | null | undefined): boolean {
-  return Boolean(state?.tracks.some((t) => t.status === "pending"));
+export function hasPending(state: (Pick<MergeAudioState, "tracks"> & Pick<Partial<MergeAudioState>, "lines">) | null | undefined): boolean {
+  return Boolean(state?.tracks.some((t) => t.status === "pending") || state?.lines?.some((l) => l.status === "pending"));
 }
 
 /** Дорожки, которые делались и уже закончились (готовы или не вышли): было pending — стало иначе. */
@@ -261,43 +262,58 @@ export type SoundInfo = {
   music: "generated" | "upload" | "unknown" | null;
   clip: MergeClipSound;
   pending: boolean;
+  /** Готовых голосов сцен у роликов склейки (поля нет — ни одного). */
+  lines?: number;
 };
 
+/** Готовые голоса сцен, чей ролик в склейке. */
+function readyLines(lines: readonly MergeLine[] | null | undefined): number {
+  return (lines ?? []).filter((l) => l.status === "ready" && !l.orphan).length;
+}
+
 export function soundInfo(
-  state: Pick<MergeAudioState, "tracks" | "clip_sound"> | null | undefined,
+  state: (Pick<MergeAudioState, "tracks" | "clip_sound"> & Pick<Partial<MergeAudioState>, "lines">) | null | undefined,
   summary?: MergeAudioSummary | null,
 ): SoundInfo {
+  const withLines = (info: SoundInfo, n: number): SoundInfo => (n > 0 ? { ...info, lines: n } : info);
   if (state) {
     const music = trackSlot(state.tracks, "music").ready;
-    return {
-      voice: Boolean(trackSlot(state.tracks, "voice").ready),
-      music: music ? music.source : null,
-      clip: isClipSound(state.clip_sound) ? state.clip_sound : "keep",
-      pending: hasPending(state),
-    };
+    return withLines(
+      {
+        voice: Boolean(trackSlot(state.tracks, "voice").ready),
+        music: music ? music.source : null,
+        clip: isClipSound(state.clip_sound) ? state.clip_sound : "keep",
+        pending: hasPending(state),
+      },
+      readyLines(state.lines),
+    );
   }
   if (summary) {
-    return {
-      voice: Boolean(summary.voice),
-      music: summary.music ? "unknown" : null,
-      clip: isClipSound(summary.clip_sound) ? summary.clip_sound : "keep",
-      pending: Boolean(summary.pending),
-    };
+    return withLines(
+      {
+        voice: Boolean(summary.voice),
+        music: summary.music ? "unknown" : null,
+        clip: isClipSound(summary.clip_sound) ? summary.clip_sound : "keep",
+        pending: Boolean(summary.pending),
+      },
+      typeof summary.lines === "number" ? summary.lines : 0,
+    );
   }
   return { voice: false, music: null, clip: "keep", pending: false };
 }
 
 /** Звук что-то меняет в ролике: есть дорожка или звук роликов не «как есть». */
 export function hasSound(info: SoundInfo): boolean {
-  return info.voice || info.music !== null || info.clip !== "keep";
+  return info.voice || Boolean(info.lines) || info.music !== null || info.clip !== "keep";
 }
 
-/** Части подписи «голос, музыка, ролики тише» — по порядку; тексты — у компонента. */
-export type SoundPart = "voice" | "music" | "own" | "quiet" | "off";
+/** Части подписи «голос, голоса сцен, музыка, ролики тише» — по порядку; тексты — у компонента. */
+export type SoundPart = "voice" | "lines" | "music" | "own" | "quiet" | "off";
 
 export function soundParts(info: SoundInfo): SoundPart[] {
   const parts: SoundPart[] = [];
   if (info.voice) parts.push("voice");
+  if (info.lines) parts.push("lines");
   if (info.music === "upload") parts.push("own");
   else if (info.music) parts.push("music");
   if (info.clip === "quiet") parts.push("quiet");
@@ -311,8 +327,10 @@ export function soundParts(info: SoundInfo): SoundPart[] {
  */
 export function paidSound(info: SoundInfo): "voice" | "music" | "both" | null {
   const music = info.music === "generated";
-  if (info.voice && music) return "both";
-  if (info.voice) return "voice";
+  // Голоса сцен оплачены так же, как голос за кадром.
+  const voice = info.voice || Boolean(info.lines);
+  if (voice && music) return "both";
+  if (voice) return "voice";
   if (music) return "music";
   return null;
 }
@@ -443,7 +461,7 @@ export function orderFailedHere(err: { code: string; status: number }): boolean 
 export function audioErrorText(
   err: ErrLike,
   limits: Pick<MergeAudioLimits, "voice_chars" | "upload_max_mb"> = DEFAULT_AUDIO_LIMITS,
-  opts: { upload?: boolean } = {},
+  opts: { upload?: boolean; lang?: string } = {},
 ): TextSpec {
   const { code, data, message } = err;
   if (code === "bad_request") {
@@ -458,6 +476,13 @@ export function audioErrorText(
       return max != null ? spec("audio_prompt_long", { max }) : spec("audio_prompt_short");
     }
     if (field === "file") return spec("audio_file");
+    // Голос сцены: фрагмент, секунда начала, громкость.
+    if (field === "fragment_key") return spec("audio_fragment_key");
+    if (field === "start_s") {
+      const max = num(data.max_start_s);
+      return max != null ? spec("audio_start_s_max", { max: formatSecond(max, opts.lang) }) : spec("audio_start_s");
+    }
+    if (field === "volume") return spec("audio_line_volume");
     return spec("audio_settings");
   }
   if (code === "voice_too_long") return spec("voice_too_long", { max: num(data.max) ?? limits.voice_chars });
@@ -824,4 +849,176 @@ export function voiceWordKey(word: string): string {
 export function pickVoice(list: readonly { id: string }[], ...wanted: (string | null | undefined)[]): string {
   for (const id of wanted) if (id && list.some((v) => v.id === id)) return id;
   return list[0]?.id ?? "";
+}
+
+/* ------------------------------------------------------------------ */
+/* Голос сцены (CONTRACT_M.md §11)                                     */
+/* ------------------------------------------------------------------ */
+
+/** Пределы голоса сцены по умолчанию — те же, что отдаёт сервер (limits.line_*). */
+export const DEFAULT_LINE_LIMITS = {
+  line_chars: 500,
+  lines_per_fragment: 3,
+  lines_max: 40,
+  line_volume_max: 2,
+  line_start_step: 0.1,
+} as const;
+
+export type LineLimits = { -readonly [K in keyof typeof DEFAULT_LINE_LIMITS]: number };
+
+export function lineLimits(limits: Partial<MergeAudioLimits> | null | undefined): LineLimits {
+  const pick = (v: unknown, fallback: number) => (typeof v === "number" && Number.isFinite(v) && v > 0 ? v : fallback);
+  return {
+    line_chars: pick(limits?.line_chars, DEFAULT_LINE_LIMITS.line_chars),
+    lines_per_fragment: pick(limits?.lines_per_fragment, DEFAULT_LINE_LIMITS.lines_per_fragment),
+    lines_max: pick(limits?.lines_max, DEFAULT_LINE_LIMITS.lines_max),
+    line_volume_max: pick(limits?.line_volume_max, DEFAULT_LINE_LIMITS.line_volume_max),
+    line_start_step: pick(limits?.line_start_step, DEFAULT_LINE_LIMITS.line_start_step),
+  };
+}
+
+/** Секунда с точностью до десятой: так её хранит сервер (round(x, 1)). */
+export function roundSecond(v: number): number {
+  if (!Number.isFinite(v)) return 0;
+  return Math.round(v * 10) / 10;
+}
+
+/**
+ * Секунды на экране с одной десятой: по-русски и по-кыргызски — с запятой («2,5»),
+ * по-английски — с точкой («2.5»), как число в поле type=number при этом языке.
+ */
+export function formatSecond(v: number, lang: string = "ru"): string {
+  const s = roundSecond(v).toFixed(1);
+  return lang === "en" ? s : s.replace(".", ",");
+}
+
+/**
+ * Последняя секунда, с которой может начаться голос во фрагменте длиной duration: наибольшее
+ * кратное 0,1 строго меньше длины (5,0 → 4,9; 5,04 → 5,0) — то же правило, что у сервера.
+ */
+export function lineMaxStart(duration: number | null | undefined): number {
+  const d = typeof duration === "number" && Number.isFinite(duration) ? duration : 0;
+  if (d <= 0) return 0;
+  return Math.max(0, (Math.ceil(d * 10 - 1e-6) - 1) / 10);
+}
+
+/** Секунда из поля или ползунка → в пределах фрагмента, кратно 0,1. */
+export function clampStart(v: number, duration: number | null | undefined): number {
+  return Math.min(lineMaxStart(duration), Math.max(0, roundSecond(v)));
+}
+
+/** Голоса этого фрагмента (не «потерявшие» ролик), по секунде начала. */
+export function linesOf(lines: readonly MergeLine[] | null | undefined, key: string | null | undefined): MergeLine[] {
+  if (!key) return [];
+  return (lines ?? []).filter((l) => !l.orphan && l.fragment_key === key).sort((a, b) => a.start_s - b.start_s);
+}
+
+/** Сколько голосов у фрагмента считается в предел (неудачные не считаются — как у сервера). */
+export function liveLineCount(lines: readonly MergeLine[] | null | undefined, key?: string): number {
+  return (lines ?? []).filter((l) => l.status !== "failed" && (key === undefined || l.fragment_key === key)).length;
+}
+
+/**
+ * «Потерял ролик» — по ленте на экране, а не по последнему ответу сервера: убрали ролик —
+ * его голоса сразу «без фрагмента»; добавили его снова (сервер отдал карточке ключ голоса) —
+ * голоса снова у фрагмента, без перезагрузки звука. Не изменившиеся строки — те же объекты.
+ */
+export function markOrphans(lines: readonly MergeLine[] | null | undefined, keys: readonly string[]): MergeLine[] {
+  const known = new Set(keys);
+  return (lines ?? []).map((l) => {
+    const orphan = !known.has(l.fragment_key);
+    return orphan === l.orphan ? l : { ...l, orphan };
+  });
+}
+
+/** Голоса, чей ролик убрали из склейки: в склейку не идут, их можно убрать. */
+export function orphanLines(lines: readonly MergeLine[] | null | undefined): MergeLine[] {
+  return (lines ?? []).filter((l) => l.orphan);
+}
+
+/** Голос дольше, чем осталось фрагмента с его секунды: заходит на следующую сцену. */
+export function lineOverflowS(start: number, duration: number | null | undefined, fragment: number | null | undefined): number {
+  const d = typeof duration === "number" && duration > 0 ? duration : 0;
+  const f = typeof fragment === "number" && fragment > 0 ? fragment : 0;
+  if (!d || !f) return 0;
+  const over = start + d - f;
+  return over > 0.05 ? over : 0;
+}
+
+/** Почему «Озвучить» голос сцены сейчас нельзя — тем же текстом, что ответил бы сервер; null — можно. */
+export function lineRefusal(
+  text: string,
+  voiceId: string,
+  opts: { chars: number; count: number; perFragment: number; total: number; max: number },
+): TextSpec | null {
+  const chars = textChars(text);
+  if (!chars) return spec("audio_text_empty");
+  if (chars > opts.chars) return spec("voice_too_long", { max: opts.chars });
+  if (!voiceId) return spec("audio_voice_id");
+  if (opts.count >= opts.perFragment) return spec("line_fragment_full", { max: opts.perFragment });
+  if (opts.total >= opts.max) return spec("lines_limit", { max: opts.max });
+  return null;
+}
+
+/** Слепок заказа голоса сцены: повтор того же нажатия после обрыва — тот же request_id. */
+export function lineSignature(fragmentKey: string, text: string, voiceId: string, start: number, volume: number): string {
+  return `${fragmentKey}|${voiceId}|${roundSecond(start)}|${Math.round(volume * 1000)}|${cleanText(text)}`;
+}
+
+/** Позиции меток голосов на карточке фрагмента: доля от длины (0…1), по порядку. */
+export function lineMarks(lines: readonly MergeLine[], duration: number | null | undefined): number[] {
+  const d = typeof duration === "number" && duration > 0 ? duration : 0;
+  if (!d) return [];
+  return lines
+    .filter((l) => l.status !== "failed")
+    .map((l) => Math.min(1, Math.max(0, l.start_s / d)))
+    .sort((a, b) => a - b);
+}
+
+/**
+ * Секунда, набранная в поле «С секунды»: и «2,5», и «2.5»; пусто или не число — null (поле
+ * вернёт прежнее значение, а не 0). Минус пропускаем — clampStart приведёт его к 0.
+ */
+export function parseSecond(raw: string): number | null {
+  const s = raw.trim().replace(",", ".");
+  if (!/^-?(\d+\.?\d*|\.\d+)$/.test(s)) return null;
+  const v = Number(s);
+  return Number.isFinite(v) ? v : null;
+}
+
+/**
+ * Текст для живой области диктора. Тот же текст подряд («Голос сцены готов» дважды) читалка
+ * не повторит — меняется только невидимый хвост (неразрывный пробел есть/нет).
+ */
+export function freshSaid(prev: string, text: string): string {
+  if (!text) return "";
+  return prev === text ? `${text}\u00a0` : text;
+}
+
+/** Последний голос окна «Голос сцены» по склейкам: { id склейки: voice_id }. Не JSON — пусто. */
+export function readLineVoices(raw: string | null | undefined): Record<string, string> {
+  if (!raw) return {};
+  try {
+    const data: unknown = JSON.parse(raw);
+    if (!data || typeof data !== "object" || Array.isArray(data)) return {};
+    const out: Record<string, string> = {};
+    for (const [k, v] of Object.entries(data as Record<string, unknown>)) {
+      if (typeof v === "string" && v) out[k] = v;
+    }
+    return out;
+  } catch {
+    return {};
+  }
+}
+
+/** Запомнить голос склейки: свежая — последней, старые сверх cap забываются. */
+export function withLineVoice(
+  map: Record<string, string>,
+  project: string,
+  voiceId: string,
+  cap = 30,
+): Record<string, string> {
+  const rest = Object.entries(map).filter(([k]) => k !== project);
+  const kept = voiceId ? [...rest, [project, voiceId] as [string, string]] : rest;
+  return Object.fromEntries(kept.slice(Math.max(0, kept.length - cap)));
 }

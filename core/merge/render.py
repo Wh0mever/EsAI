@@ -21,7 +21,7 @@ concat-фильтра с перекодированием.
 ровным 30 к/с (фильтр fps).
 
 Звук (Build MA) — третий шаг после соединения, только если он нужен (есть
-голос или музыка, или звук роликов тише/выключен): картинка склеенного ролика
+голос, голос сцены или музыка, или звук роликов тише/выключен): картинка склеенного ролика
 копируется как есть, звук сводится заново (mix_cmd). Без звука склейки
 команды те же до байта, что и до Build MA.
 """
@@ -579,11 +579,24 @@ def poster_cmd(src: str, dst: str, *, at: float = 0.5, fmt: str = "",
 # ---------------------------------------------------------------- звук (Build MA)
 
 @dataclass(frozen=True)
+class Line:
+    """Голос сцены: наш mp3 (save_audio), номер фрагмента (с 0), секунда от начала этого
+    фрагмента, длина и своя громкость (в сведении — умножается на громкость голоса)."""
+
+    path: str
+    fragment: int
+    start: float = 0.0
+    duration: float = 0.0
+    volume: float = 1.0
+
+
+@dataclass(frozen=True)
 class AudioMix:
-    """Звук склейки: звук роликов с громкостью, голос с фрагмента, музыка на всю длину.
+    """Звук склейки: звук роликов с громкостью, голос с фрагмента, голоса сцен, музыка на всю длину.
 
     voice и music — пути к нашим mp3 (save_audio), "" — дорожки нет.
     voice_fragment — номер фрагмента (с 0), с начала которого звучит голос.
+    lines — голоса сцен (Line): каждый со своего фрагмента и своей секунды в нём.
     expected_s — ожидаемая длина склейки: из неё заранее оценивается сведение.
     """
 
@@ -595,10 +608,11 @@ class AudioMix:
     music: str = ""
     music_volume: float = 0.35
     expected_s: float = 0.0
+    lines: tuple = ()
 
     @property
     def needed(self) -> bool:
-        return bool(self.voice or self.music) or self.clip_volume != 1.0
+        return bool(self.voice or self.music or self.lines) or self.clip_volume != 1.0
 
 
 def mix_timeout(duration: float) -> float:
@@ -616,8 +630,31 @@ def _num(value: float) -> str:
     return f"{float(value):.3f}"
 
 
-def music_volume_expr(volume: float, voice_window: tuple[float, float] | None) -> str:
+def duck_windows(windows) -> list[tuple[float, float]]:
+    """Окна голоса для приглушения музыки: по началу, без пустых; окна, чьи спуск и подъём
+    встречаются (между голосами меньше DUCK_DOWN_S + DUCK_UP_S), — одним окном: музыка не
+    подпрыгивает между близкими репликами, а слагаемые огибающей не перекрываются."""
+    clean = sorted((float(a), float(b)) for a, b in windows or () if float(b) > float(a))
+    out: list[list[float]] = []
+    for start, end in clean:
+        if out and start - DUCK_DOWN_S <= out[-1][1] + DUCK_UP_S:
+            out[-1][1] = max(out[-1][1], end)
+        else:
+            out.append([start, end])
+    return [(a, b) for a, b in out]
+
+
+def _duck_term(start: float, end: float) -> str:
+    return (f"clip((t-({_num(start - DUCK_DOWN_S)}))/{DUCK_DOWN_S},0,1)"
+            f"*clip((({_num(end + DUCK_UP_S)})-t)/{DUCK_UP_S},0,1)")
+
+
+def music_volume_expr(volume: float, voice_window) -> str:
     """Громкость музыки во времени: ровная, а под голосом — четверть (огибающая).
+
+    voice_window — окно голоса (начало, конец) или список окон (голос за кадром и
+    голоса сцен): близкие окна сливаются (duck_windows), и огибающая — сумма
+    непересекающихся слагаемых, каждое от 0 до 1.
 
     Почему огибающая, а не sidechaincompress. Голос за кадром идёт фразами с
     паузами: компрессор по голосу отпускал бы музыку в каждой паузе («качели»),
@@ -629,14 +666,23 @@ def music_volume_expr(volume: float, voice_window: tuple[float, float] | None) -
     """
     if voice_window is None:
         return f"volume={float(volume):.3f}"
-    start, end = voice_window
     depth = 1.0 - DUCK_GAIN
-    return (f"volume=volume='{float(volume):.3f}*(1-{depth:.3f}"
-            f"*clip((t-({_num(start - DUCK_DOWN_S)}))/{DUCK_DOWN_S},0,1)"
-            f"*clip((({_num(end + DUCK_UP_S)})-t)/{DUCK_UP_S},0,1))':eval=frame")
+    if isinstance(voice_window, tuple):
+        # Одно окно — выражение то же до байта, что и до голосов сцен.
+        start, end = voice_window
+        return (f"volume=volume='{float(volume):.3f}*(1-{depth:.3f}"
+                f"*{_duck_term(start, end)})':eval=frame")
+    windows = duck_windows(voice_window)
+    if not windows:
+        return f"volume={float(volume):.3f}"
+    if len(windows) == 1:
+        return music_volume_expr(volume, windows[0])
+    terms = "+".join(_duck_term(a, b) for a, b in windows)
+    return f"volume=volume='{float(volume):.3f}*(1-{depth:.3f}*({terms}))':eval=frame"
 
 
-def mix_cmd(video: str, dst: str, *, duration: float, mix: AudioMix, voice_start: float = 0.0) -> list[str]:
+def mix_cmd(video: str, dst: str, *, duration: float, mix: AudioMix, voice_start: float = 0.0,
+            line_starts: list[float] | None = None) -> list[str]:
     """Свести звук склеенного ролика: картинка — копией, звук — заново (AAC 48 кГц стерео).
 
     Длина итога — ровно до конца картинки (duration — от нуля ролика): голос и
@@ -645,6 +691,12 @@ def mix_cmd(video: str, dst: str, *, duration: float, mix: AudioMix, voice_start
     (voice_start — от нуля ролика); музыка повторяется по кругу
     (-stream_loop), режется по длине, с вступлением и концовкой по секунде и
     приглушается под голосом (music_volume_expr).
+
+    Голоса сцен (mix.lines) — каждый своим входом, со своей громкостью (без множителя
+    громкости голоса за кадром) и своей задержкой: line_starts — их начала от нуля ролика (то же
+    правило, что у voice_start, плюс секунда во фрагменте). Картинку голоса сцен не
+    двигают; голос, что начинается за концом ролика, в смесь не идёт, а длинный
+    режется по концу (-t). Музыка приглушается под каждым из них.
     """
     length = max(0.001, float(duration))
     cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-nostdin", "-y", "-i", video]
@@ -654,6 +706,7 @@ def mix_cmd(video: str, dst: str, *, duration: float, mix: AudioMix, voice_start
               f"volume={float(mix.clip_volume):.3f}"]
     labels = ["[clip]"]
     window = None
+    windows: list[tuple[float, float]] = []
     index = 1
     if mix.voice:
         cmd += _track_input(mix.voice)
@@ -665,14 +718,34 @@ def mix_cmd(video: str, dst: str, *, duration: float, mix: AudioMix, voice_start
         chains.append(chain)
         labels.append("[voice]")
         window = (start, min(length, start + max(0.0, float(mix.voice_duration or 0))))
+        windows.append(window)
         index += 1
+    starts = list(line_starts or [])
+    for number, line in enumerate(mix.lines):
+        start = max(0.0, float(starts[number] if number < len(starts) else 0.0))
+        if start >= length:
+            # Начало за концом ролика — не прозвучит ни секунды.
+            continue
+        cmd += _track_input(line.path)
+        # Громкость голоса сцены — только своя (как у дорожки мультстудии): ползунок голоса
+        # за кадром её не трогает — его не видно, когда голоса за кадром нет.
+        chain = f"[{index}:a]{norm},asetpts=N/SR/TB,volume={float(line.volume):.3f}"
+        delay = int(round(start * 1000))
+        if delay > 0:
+            chain += f",adelay=delays={delay}:all=1"
+        chains.append(chain)
+        labels.append(f"[line{number}]")
+        windows.append((start, min(length, start + max(0.0, float(line.duration or 0)))))
+        index += 1
+    # Только голос за кадром — прежнее окно (выражение до байта то же); с голосами сцен — список окон.
+    duck = window if len(windows) == 1 and window is not None else (windows or None)
     if mix.music:
         cmd += _track_input(mix.music, loop=True)
         fade = min(MUSIC_FADE_S, length / 2)
         chains.append(f"[{index}:a]{norm},asetpts=N/SR/TB,atrim=duration={_num(length)},"
                       f"afade=t=in:st=0:d={_num(fade)},afade=t=out:st={_num(length - fade)}:d={_num(fade)},"
-                      + (f"asetnsamples=n={DUCK_FRAME}:p=0," if window else "")
-                      + music_volume_expr(mix.music_volume, window))
+                      + (f"asetnsamples=n={DUCK_FRAME}:p=0," if duck else "")
+                      + music_volume_expr(mix.music_volume, duck))
         labels.append("[music]")
     if len(labels) == 1:
         graph = chains[0] + "[aout]"
@@ -721,17 +794,27 @@ def _mix(out: str, info: Probe, mix: AudioMix, *, workdir: str, parts: list[str]
     # первого кадра. Номер за концом списка — последний фрагмент.
     # Разборы тоже в общем сроке склейки: обычно это миллисекунды, но время на
     # сведение отложено заранее, и разбор не должен съесть его целиком.
+    # Голоса сцен — так же: первый кадр своего фрагмента плюс своя секунда в нём.
     head = video_start(out, _left(deadline, PROBE_TIMEOUT_S))
+    last = len(parts) - 1
+    wanted = [min(int(mix.voice_fragment), last)] if mix.voice and mix.voice_fragment > 0 and parts else []
+    wanted += [min(int(line.fragment), last) for line in mix.lines if parts]
+    # Начала частей от нуля ролика: разбираем только части до самого дальнего нужного фрагмента.
+    offsets = [0.0]
+    for i in range(max(wanted, default=0)):
+        offsets.append(offsets[-1] + _part_length(os.path.join(workdir, parts[i]), lengths[i],
+                                                  _left(deadline, PROBE_TIMEOUT_S)))
     start = head
     if mix.voice and mix.voice_fragment > 0 and parts:
-        upto = min(int(mix.voice_fragment), len(parts) - 1)
-        start += sum(_part_length(os.path.join(workdir, parts[i]), lengths[i], _left(deadline, PROBE_TIMEOUT_S))
-                     for i in range(upto))
+        start += offsets[min(int(mix.voice_fragment), last)]
+    line_starts = [round(head + offsets[min(max(0, int(line.fragment)), max(0, last))] + float(line.start), 3)
+                   for line in mix.lines]
     # Конец звука — конец картинки: голос и музыка за ним обрезаются.
     length = head + info.duration
     dst = os.path.join(workdir, "mixed.mp4")
     try:
-        result = _run(mix_cmd(out, dst, duration=length, mix=mix, voice_start=round(start, 3)),
+        result = _run(mix_cmd(out, dst, duration=length, mix=mix, voice_start=round(start, 3),
+                              line_starts=line_starts),
                       _left(deadline, mix_timeout(length)))
     except subprocess.TimeoutExpired:
         raise RenderError(MSG_TOO_SLOW, "сведение звука: таймаут ffmpeg", code="too_slow") from None
@@ -878,6 +961,6 @@ def make_upload_poster(src: str, dst: str, *, fmt: str, video_index: int | None,
 __all__ = ["RenderError", "Probe", "Input", "Rendered", "probe", "parse_probe", "render",
            "make_poster", "make_upload_poster", "video_graph", "audio_graph", "normalize_cmd",
            "join_copy_cmd", "join_reencode_cmd", "poster_cmd", "concat_list", "fragment_timeout",
-           "input_args", "upload_probe_cmd", "AudioMix", "AudioProbe", "mix_cmd", "mix_timeout",
-           "music_volume_expr", "audio_probe_cmd", "parse_audio_probe",
+           "input_args", "upload_probe_cmd", "AudioMix", "AudioProbe", "Line", "mix_cmd", "mix_timeout",
+           "music_volume_expr", "duck_windows", "audio_probe_cmd", "parse_audio_probe",
            "probe_audio"]

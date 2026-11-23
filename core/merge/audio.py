@@ -1,11 +1,17 @@
 """Звук склейки (Build MA): голос за кадром, фоновая музыка, звук самих роликов.
 
-Решения лида: у склейки один голос и одна музыка. Голос — текст и голос
+Решения лида: у склейки один голос за кадром и одна музыка. Голос — текст и голос
 ElevenLabs с выбранного фрагмента, по цене озвучки мультстудии (20 кр за 1000
 знаков); музыка — по описанию на всю длину склейки (30 кр за минуту) или свой
 трек бесплатно; звук роликов — оставить, тише или выключить. Всё сводится при
 «Склеить» (merge.render.mix_cmd), цена склейки та же. Генерация и проверки
 файлов — функции мультстудии (cartoon.audio), не копии.
+
+Голос сцены (kind=line, как реплика в мультстудии) — свой текст на конкретный
+фрагмент с секунды внутри него: дорожка держится за ключ фрагмента
+(MergeProject.items[].key) и едет за роликом при перестановке; таких у склейки
+несколько. Деньги — те же, что у голоса за кадром (цена, причина merge_voice,
+резерв до готовности); секунду и громкость PATCH меняет бесплатно.
 
 Деньги — правило cartoon.views_audio._generate (списание только за готовый
 звук), но с настоящим резервом: заказ ставит строку pending с ценой в
@@ -55,18 +61,21 @@ from . import render as ffmpeg
 from . import services
 from .config import (AUDIO_RETENTION_DAYS, AUDIO_UPLOAD_MAX_BYTES, AUDIO_UPLOAD_MAX_CHANNELS,
                      AUDIO_UPLOAD_MAX_RATE, AUDIO_UPLOAD_MAX_S, AUDIO_UPLOAD_TOLERANCE_S, CLIP_SOUNDS,
-                     CLIP_VOLUMES, MB, MUSIC_CONCURRENCY_MAX, MUSIC_MAX_S, MUSIC_PROMPT_MAX,
+                     CLIP_VOLUMES, LINE_MAX_CHARS, LINE_START_STEP, LINE_VOLUME_DEFAULT, LINE_VOLUME_MAX,
+                     LINES_MAX, LINES_PER_FRAGMENT, MB, MUSIC_CONCURRENCY_MAX, MUSIC_MAX_S, MUSIC_PROMPT_MAX,
                      MUSIC_PROMPT_MIN, MUSIC_VOLUME_MAX, VOICE_MAX_CHARS, VOICE_VOLUME_MAX, audio_volumes,
                      music_concurrency)
 from .models import ACTIVE, EDITABLE, MergeAudio, MergeAudioRequest, MergeProject
 from .services import MergeError
 from .sources import local_path, media_url
+from .sources import resolve as resolve_sources
 from .storage import delete_files
 
 logger = logging.getLogger(__name__)
 
 VOICE = MergeAudio.KIND_VOICE
 MUSIC = MergeAudio.KIND_MUSIC
+LINE = MergeAudio.KIND_LINE
 PENDING = MergeAudio.STATUS_PENDING
 READY = MergeAudio.STATUS_READY
 FAILED = MergeAudio.STATUS_FAILED
@@ -153,6 +162,19 @@ MSG_UNSUPPORTED = (f"Такой трек не подходит: в нём бол
                    "в MP3, и загрузите снова.")
 MSG_MISSING = ("Звуковая дорожка склейки пропала. Удалите её во вкладке «Звук» и склейте снова — "
                "кредиты не списаны.")
+# Голос сцены.
+MSG_LINE_NO_FRAGMENT = "Такого фрагмента в склейке нет — откройте голос у нужного ролика."
+MSG_LINE_BAD_START = "Секунда начала — число от 0 до {max} (длина фрагмента {length} с)."
+MSG_LINE_BAD_START_ANY = "Секунда начала — число от 0 до длины фрагмента."
+MSG_LINE_BAD_VOLUME = f"Громкость голоса — число от 0 до {LINE_VOLUME_MAX:g}."
+MSG_LINE_BUSY = "Голос для этого фрагмента ещё делается — дождитесь его."
+MSG_LINE_FRAGMENT_FULL = "У этого фрагмента уже {max} голоса — уберите лишний, чтобы добавить новый."
+MSG_LINES_LIMIT = "В склейке уже {max} голосов сцен — уберите лишние, чтобы добавить новый."
+MSG_LINE_ORPHAN = "Ролика этого голоса больше нет в склейке — добавьте этот ролик снова, и голос вернётся к нему, или уберите голос."
+MSG_LINE_FAILED = "Этот голос не получился — уберите его и озвучьте заново."
+MSG_LINE_UNAVAILABLE = ("Видео этого фрагмента недоступно (удалено или ещё не готово) — голос к нему не заказать. "
+                        "Уберите фрагмент из склейки или замените ролик. Кредиты не списаны.")
+MSG_NOT_LINE = "Менять секунду и громкость можно только у голоса сцены."
 
 
 class _Gone(Exception):
@@ -195,6 +217,12 @@ def limits() -> dict:
         "accept": "audio/*," + ",".join(f".{ext}" for ext in extensions),
         "music_volume_max": MUSIC_VOLUME_MAX,
         "voice_volume_max": VOICE_VOLUME_MAX,
+        # Голос сцены: длина текста, сколько на фрагмент и на склейку, громкость, шаг секунды.
+        "line_chars": LINE_MAX_CHARS,
+        "lines_per_fragment": LINES_PER_FRAGMENT,
+        "lines_max": LINES_MAX,
+        "line_volume_max": LINE_VOLUME_MAX,
+        "line_start_step": LINE_START_STEP,
         "clip_sounds": list(CLIP_SOUNDS),
         "clip_volumes": dict(CLIP_VOLUMES),
         "retention_days": AUDIO_RETENTION_DAYS,
@@ -255,6 +283,51 @@ def track_json(row: MergeAudio, fragments: int | None = None) -> dict:
     }
 
 
+def max_start(duration) -> float:
+    """Последняя секунда, с которой может начаться голос сцены во фрагменте длиной duration:
+    наибольшее кратное 0,1 строго меньше длины (5,0 с → 4,9; 5,04 с → 5,0)."""
+    try:
+        length = float(duration or 0)
+    except (TypeError, ValueError):
+        return 0.0
+    if not math.isfinite(length) or length <= 0:
+        return 0.0
+    return max(0.0, (math.ceil(length * 10 - 1e-6) - 1) / 10)
+
+
+def fragment_map(project: MergeProject) -> dict[str, tuple[int, float]]:
+    """Ключ фрагмента → (номер с 0, длина в секундах по снимку)."""
+    return {item["key"]: (index, float(item.get("duration_s") or 0))
+            for index, item in enumerate(services.keyed_items(project))}
+
+
+def line_json(row: MergeAudio, frags: dict[str, tuple[int, float]]) -> dict:
+    """Голос сцены для панели: дорожка + фрагмент, секунда, громкость. orphan — ролика с его
+    ключом в склейке больше нет: в склейку такой голос не идёт, но и сам не удаляется."""
+    place = frags.get(row.fragment_key)
+    length = place[1] if place else None
+    duration = float(row.duration_s or 0)
+    start = round(float(row.start_s or 0), 1)
+    return {
+        **track_json(row),
+        "fragment_key": row.fragment_key,
+        "fragment_index": place[0] if place else None,
+        "fragment_duration_s": length,
+        "max_start_s": max_start(length) if place else None,
+        "start_s": start,
+        "volume": row.volume,
+        "orphan": place is None,
+        # Голос дольше, чем осталось фрагмента: заходит на следующую сцену (это можно) —
+        # интерфейс предупреждает.
+        "overflow": bool(place and duration > 0 and start + duration > length + 0.05),
+    }
+
+
+def _line_order(row: MergeAudio, frags: dict[str, tuple[int, float]]) -> tuple:
+    place = frags.get(row.fragment_key)
+    return (place is None, place[0] if place else 0, float(row.start_s or 0), row.created_at, row.pk)
+
+
 def edit_refusal(project: MergeProject) -> MergeError | None:
     """Почему звук этой склейки сейчас менять нельзя (409) или None."""
     if project.status in ACTIVE:
@@ -273,6 +346,8 @@ def state(project: MergeProject) -> dict:
     rows = list(MergeAudio.objects.filter(project=project).order_by("kind", "created_at", "pk"))
     _, music_volume, voice_volume = audio_volumes(project.clip_sound, project.music_volume,
                                                   project.voice_volume)
+    frags = fragment_map(project)
+    lines = sorted((r for r in rows if r.kind == LINE), key=lambda r: _line_order(r, frags))
     return {
         "project_id": project.uid,
         "status": project.status,
@@ -282,7 +357,9 @@ def state(project: MergeProject) -> dict:
         "clip_sound": project.clip_sound,
         "music_volume": music_volume,
         "voice_volume": voice_volume,
-        "tracks": [track_json(r, len(items)) for r in rows],
+        # tracks — голос за кадром и музыка (как раньше); голоса сцен — отдельным списком.
+        "tracks": [track_json(r, len(items)) for r in rows if r.kind != LINE],
+        "lines": [line_json(r, frags) for r in lines],
         "fragments": len(items),
         "total_duration_s": total,
         "prices": prices(),
@@ -293,11 +370,15 @@ def state(project: MergeProject) -> dict:
 
 def summary(project: MergeProject) -> dict:
     """Коротко о звуке — для полного JSON склейки (значок «Звук», подсказка у кнопки)."""
-    rows = set(MergeAudio.objects.filter(project=project).values_list("kind", "status"))
+    found = list(MergeAudio.objects.filter(project=project).values_list("kind", "status", "fragment_key"))
+    rows = {(kind, status) for kind, status, _ in found}
     _, music_volume, voice_volume = audio_volumes(project.clip_sound, project.music_volume,
                                                   project.voice_volume)
+    keys = set(services.item_keys(project.items, project.uid))
     return {"clip_sound": project.clip_sound, "music_volume": music_volume, "voice_volume": voice_volume,
             "voice": (VOICE, READY) in rows, "music": (MUSIC, READY) in rows,
+            # Готовые голоса сцен, у чьих роликов они звучат (без «потерявших» ролик).
+            "lines": sum(1 for kind, status, key in found if kind == LINE and status == READY and key in keys),
             "pending": any(status == PENDING for _, status in rows)}
 
 
@@ -319,7 +400,10 @@ def _fragment_index(raw) -> int | None:
         return None
     if isinstance(raw, int):
         value = raw
-    elif isinstance(raw, str) and raw.strip().isdigit():
+    elif isinstance(raw, str) and raw.strip().isascii() and raw.strip().isdigit():
+        # Длинную строку цифр int() не разберёт (ValueError, предел 4300 знаков) — она и так вне пределов.
+        if len(raw.strip()) > 6:
+            return None
         value = int(raw.strip())
     elif raw is None:
         value = 0
@@ -355,8 +439,12 @@ def _remove(rows) -> None:
     дошёл, повторила бы его после замены — и сервер заказал и списал бы звук второй раз.
     Снимок — дорожка, какой она ушла, без файла (его стирает сигнал после коммита).
     """
+    frags: dict = {}
+    if any(row.kind == LINE and row.request_id for row in rows):
+        # Голос сцены уходит со своим фрагментом и секундой: повтор нажатия покажет, каким он был.
+        frags = fragment_map(rows[0].project)
     gone = [MergeAudioRequest(project_id=row.project_id, kind=row.kind, request_id=row.request_id,
-                              track={**track_json(row), "url": None})
+                              track={**(line_json(row, frags) if row.kind == LINE else track_json(row)), "url": None})
             for row in rows if row.request_id]
     if gone:
         MergeAudioRequest.objects.bulk_create(gone, ignore_conflicts=True)
@@ -381,11 +469,12 @@ def _balance_refusal(locked, price: int, kind: str) -> MergeError | None:
     if refusal is None:
         return None
     refusal["error"] = (services.MSG_NO_CREDITS_RESERVED if reserved > 0
-                        else MSG_NO_CREDITS_VOICE if kind == VOICE else MSG_NO_CREDITS_MUSIC)
+                        else MSG_NO_CREDITS_MUSIC if kind == MUSIC else MSG_NO_CREDITS_VOICE)
     return MergeError(refusal.pop("error_code"), refusal.pop("error"), 402, **refusal)
 
 
-def _reserve(user, uid, kind: str, prepare, *, request_id: str, data: dict):
+def _reserve(user, uid, kind: str, prepare, *, request_id: str, data: dict, scope: dict | None = None,
+             busy: MergeError | None = None):
     """Резерв заказа: (склейка, строка, создана ли сейчас). Бросает MergeError.
 
     Под замком строки пользователя: тот же ключ запроса → та же дорожка, а ушла
@@ -393,7 +482,11 @@ def _reserve(user, uid, kind: str, prepare, *, request_id: str, data: dict):
     prepare(склейка) проверяет заказ и называет цену → цена из тела против
     текущей → свободный остаток → строка pending с резервом. Прошлую неудачу
     этого вида заменяет новый заказ.
+
+    scope — где действует «один в работе» у этого вида (голос сцены — у своего
+    фрагмента: {"fragment_key": …}); busy — отказ, когда там уже делается.
     """
+    scope = scope or {}
     with transaction.atomic():
         locked = get_user_model().objects.select_for_update().get(pk=user.pk)
         project = services.get_project(locked, uid, lock=True)
@@ -408,8 +501,8 @@ def _reserve(user, uid, kind: str, prepare, *, request_id: str, data: dict):
         refusal = edit_refusal(project)
         if refusal:
             raise refusal
-        if MergeAudio.objects.filter(project=project, kind=kind, status=PENDING).exists():
-            raise MergeError("audio_busy", MSG_BUSY, 409)
+        if MergeAudio.objects.filter(project=project, kind=kind, status=PENDING, **scope).exists():
+            raise busy or MergeError("audio_busy", MSG_BUSY, 409)
         fields, price = prepare(project)
         if "price" in data and data["price"] is not None:
             try:
@@ -423,14 +516,14 @@ def _reserve(user, uid, kind: str, prepare, *, request_id: str, data: dict):
             refusal = _balance_refusal(locked, price, kind)
             if refusal:
                 raise refusal
-        _remove(list(MergeAudio.objects.filter(project=project, kind=kind, status=FAILED)))
+        _remove(list(MergeAudio.objects.filter(project=project, kind=kind, status=FAILED, **scope)))
         try:
             with transaction.atomic():
                 row = MergeAudio.objects.create(project=project, kind=kind, status=PENDING,
                                                 credits_reserved=price, request_id=request_id, **fields)
         except IntegrityError:
-            # Гонка мимо замка: индекс «один в работе на вид».
-            raise MergeError("audio_busy", MSG_BUSY, 409) from None
+            # Гонка мимо замка: индекс «один в работе на вид» (у голоса сцены — на фрагмент).
+            raise busy or MergeError("audio_busy", MSG_BUSY, 409) from None
         _touch(project)
     return project, row, True
 
@@ -473,14 +566,19 @@ def _deliver(pk: int, user_id: int, *, path: str, duration: float) -> int:
         if user is None or row is None:
             raise _Gone()
         meta = {"merge": project.uid, "audio": row.uid, "kind": row.kind}
-        if row.kind == VOICE:
+        if row.kind in (VOICE, LINE):
             meta["chars"] = len(row.text)
         else:
             meta["seconds"] = row.seconds
+        if row.kind == LINE:
+            meta["fragment"] = row.fragment_key
+        # Голос сцены — та же озвучка и та же причина в леджере, что у голоса за кадром.
         charged, _partial = services.charge(user, row.credits_reserved, meta,
-                                            reason=REASON_VOICE if row.kind == VOICE else REASON_MUSIC)
-        # Один голос и одна музыка: прежняя дорожка уходит со своим файлом (сигнал после коммита).
-        _remove(list(MergeAudio.objects.filter(project_id=project.pk, kind=row.kind).exclude(pk=row.pk)))
+                                            reason=REASON_MUSIC if row.kind == MUSIC else REASON_VOICE)
+        if row.kind in MergeAudio.SINGLE_KINDS:
+            # Один голос и одна музыка: прежняя дорожка уходит со своим файлом (сигнал после коммита).
+            # Голосов сцены несколько — новый соседние не заменяет.
+            _remove(list(MergeAudio.objects.filter(project_id=project.pk, kind=row.kind).exclude(pk=row.pk)))
         MergeAudio.objects.filter(pk=row.pk).update(
             status=READY, file=path, duration_s=round(float(duration), 2), credits_charged=charged,
             credits_reserved=0, error="", error_code="", updated_at=now,
@@ -492,11 +590,14 @@ def _deliver(pk: int, user_id: int, *, path: str, duration: float) -> int:
 def _journal(row: MergeAudio, user):
     from ai import genlog
 
-    return genlog.start(user=user, kind=row.kind, source="studio", provider="elevenlabs",
+    # В журнале генераций голос сцены — та же озвучка (GenerationLog.KIND_CHOICES не знает «line»):
+    # вид дорожки остаётся в params.
+    kind = VOICE if row.kind == LINE else row.kind
+    return genlog.start(user=user, kind=kind, source="studio", provider="elevenlabs",
                         model=row.voice_id or ("music_v1" if row.kind == MUSIC else row.kind),
                         prompt=row.text or row.prompt, credits_planned=row.credits_reserved,
-                        params={"merge": row.project.uid, "audio": row.uid, "seconds": row.seconds,
-                                "chars": len(row.text)})
+                        params={"merge": row.project.uid, "audio": row.uid, "track": row.kind,
+                                "seconds": row.seconds, "chars": len(row.text)})
 
 
 def _produce(user, make) -> tuple[str, float]:
@@ -579,6 +680,154 @@ def generate_voice(user, uid, data) -> tuple[MergeAudio | dict, bool]:
     _generate(row, user, lambda: studio.tts(text, voice_id))
     row.refresh_from_db()
     return row, True
+
+
+# ---------------------------------------------------------------- голос сцены
+
+def _start_s(raw, field: str = "start_s") -> float:
+    """Секунда начала из запроса: число (не логическое), конечное, не меньше нуля; до 0,1 с.
+    Верхнюю границу (длина фрагмента) проверяет _check_start — под замком склейки."""
+    if raw is None:
+        return 0.0
+    if isinstance(raw, bool) or not isinstance(raw, (int, float, str)):
+        raise _bad(field, MSG_LINE_BAD_START_ANY)
+    try:
+        value = float(raw)
+    except (TypeError, ValueError, OverflowError):
+        # OverflowError — целое длиннее float (10**400): отказ 400, а не 500.
+        raise _bad(field, MSG_LINE_BAD_START_ANY) from None
+    if not math.isfinite(value) or value < 0:
+        raise _bad(field, MSG_LINE_BAD_START_ANY)
+    return round(value, 1)
+
+
+def _check_start(start: float, length: float, field: str = "start_s") -> None:
+    top = max_start(length)
+    if start > top + 1e-9:
+        raise _bad(field, MSG_LINE_BAD_START.format(max=f"{top:g}", length=f"{float(length or 0):g}"),
+                   max_start_s=top, fragment_duration_s=round(float(length or 0), 3))
+
+
+def _fragment(project: MergeProject, key: str) -> tuple[int, float]:
+    """(номер с 0, длина) фрагмента с этим ключом. Бросает MergeError."""
+    place = fragment_map(project).get(key) if key else None
+    if place is None:
+        raise _bad("fragment_key", MSG_LINE_NO_FRAGMENT)
+    return place
+
+
+def _check_available(user, item: dict, index: int) -> None:
+    """Ролик фрагмента ещё есть и готов (как «available» в карточке ленты). Голос к удалённому
+    или недоснятому ролику — деньги за звук, который в склейку не попадёт: склейку с таким
+    фрагментом не запустить. Бросает MergeError (409)."""
+    ref = (item.get("type"), str(item.get("id")))
+    if ref not in resolve_sources(user, [ref]):
+        raise MergeError("line_unavailable", MSG_LINE_UNAVAILABLE, 409, index=index)
+
+
+def generate_line(user, uid, data) -> tuple[MergeAudio | dict, bool]:
+    """POST <id>/audio/line/: голос сцены — (дорожка, сделана ли сейчас). Бросает MergeError.
+
+    Как голос за кадром (тот же список голосов, та же цена и причина в леджере, резерв
+    до готовности, списание только за готовый звук, request_id), но дорожка привязана к
+    фрагменту (fragment_key) и секунде внутри него (start_s), и таких у склейки несколько:
+    до LINES_PER_FRAGMENT на фрагмент и LINES_MAX на склейку, один в работе на фрагмент.
+    Повтор ключа, чья дорожка уже ушла, — снимок той дорожки (dict, см. _remove).
+    """
+    data = data if isinstance(data, dict) else {}
+    project = services.get_project(user, uid)
+    refusal = edit_refusal(project)
+    if refusal:
+        raise refusal
+    _check_configured()
+    text = " ".join(str(data.get("text") or "").split())
+    if not text:
+        raise _bad("text", MSG_NO_TEXT)
+    if len(text) > LINE_MAX_CHARS:
+        raise MergeError("voice_too_long", MSG_TEXT_TOO_LONG.format(max=LINE_MAX_CHARS), max=LINE_MAX_CHARS)
+    voice_id = str(data.get("voice_id") or "").strip()[:64]
+    if not studio.valid_voice_id(voice_id):
+        raise _bad("voice_id", MSG_NO_VOICE)
+    key = services.valid_key(data.get("fragment_key"))
+    if not key:
+        raise _bad("fragment_key", MSG_LINE_NO_FRAGMENT)
+    start = _start_s(data.get("start_s"))
+    volume = (_volume(data["volume"], LINE_VOLUME_MAX, "volume", MSG_LINE_BAD_VOLUME)
+              if data.get("volume") is not None else LINE_VOLUME_DEFAULT)
+    price = studio.voice_price(text)
+    voice_name = _voice_name(voice_id)
+
+    def prepare(locked: MergeProject):
+        # Старая склейка без записанных ключей: ключи — в базу, иначе голос сослался бы на
+        # ключ, выведенный из места, и потерял бы ролик при первой перестановке.
+        items = services.ensure_keys(locked)
+        place, length = _fragment(locked, key)
+        _check_start(start, length)
+        _check_available(user, items[place], place)
+        alive = MergeAudio.objects.filter(project=locked, kind=LINE).exclude(status=FAILED)
+        if alive.count() >= LINES_MAX:
+            raise MergeError("lines_limit", MSG_LINES_LIMIT.format(max=LINES_MAX), 409, max=LINES_MAX)
+        if alive.filter(fragment_key=key).count() >= LINES_PER_FRAGMENT:
+            raise MergeError("line_fragment_full", MSG_LINE_FRAGMENT_FULL.format(max=LINES_PER_FRAGMENT), 409,
+                             max=LINES_PER_FRAGMENT)
+        # Ролик фрагмента — метка, по которой голос вернётся к ролику, если его уберут и добавят снова.
+        ref = services.item_ref(items[place]) if place < len(items) else ""
+        return dict(source=MergeAudio.SOURCE_GENERATED, text=text, voice_id=voice_id, voice_name=voice_name,
+                    fragment_key=key, fragment_ref=ref, start_s=start, volume=volume), price
+
+    project, row, created = _reserve(user, uid, LINE, prepare, request_id=_request_id(data.get("request_id")),
+                                     data=data, scope={"fragment_key": key},
+                                     busy=MergeError("line_busy", MSG_LINE_BUSY, 409))
+    if not created:
+        return row, False
+    _generate(row, user, lambda: studio.tts(text, voice_id))
+    row.refresh_from_db()
+    return row, True
+
+
+def update_line(user, uid, track_uid, data) -> MergeAudio:
+    """PATCH <id>/audio/<track>/: секунда начала и громкость голоса сцены — бесплатно.
+    Всё или ничего; секунда — в пределах своего фрагмента (по снимку склейки)."""
+    if not isinstance(data, dict):
+        raise MergeError("bad_request", MSG_BAD_BODY)
+    track_uid = str(track_uid or "").strip().lower()
+    if "start_s" in data and data["start_s"] is None:
+        raise _bad("start_s", MSG_LINE_BAD_START_ANY)
+    start = _start_s(data["start_s"]) if "start_s" in data else None
+    volume = (_volume(data["volume"], LINE_VOLUME_MAX, "volume", MSG_LINE_BAD_VOLUME)
+              if "volume" in data else None)
+    with transaction.atomic():
+        # LOCK_ORDER: пользователь, склейка, дорожка.
+        locked = get_user_model().objects.select_for_update().get(pk=user.pk)
+        project = services.get_project(locked, uid, lock=True)
+        row = MergeAudio.objects.select_for_update().filter(project=project, uid=track_uid).first()
+        if row is None:
+            raise MergeError("audio_not_found", MSG_TRACK_NOT_FOUND, 404)
+        if start is None and volume is None:
+            return row
+        refusal = edit_refusal(project)
+        if refusal:
+            raise refusal
+        if row.kind != LINE:
+            raise _bad("track", MSG_NOT_LINE)
+        if row.status == FAILED:
+            raise MergeError("line_failed", MSG_LINE_FAILED, 409)
+        fields = {}
+        if start is not None:
+            place = fragment_map(project).get(row.fragment_key)
+            if place is None:
+                raise MergeError("line_orphan", MSG_LINE_ORPHAN, 409)
+            _check_start(start, place[1])
+            fields["start_s"] = start
+        if volume is not None:
+            fields["volume"] = volume
+        changed = {k: v for k, v in fields.items() if getattr(row, k) != v}
+        if changed:
+            MergeAudio.objects.filter(pk=row.pk).update(**changed, updated_at=timezone.now())
+            # Звук изменился: неудачная склейка снова черновик (как при любой правке звука).
+            _touch(project)
+            row.refresh_from_db()
+    return row
 
 
 # ---------------------------------------------------------------- музыка
@@ -892,7 +1141,11 @@ def upload_music(user, uid, fileobj) -> MergeAudio:
 def _volume(raw, top: float, field: str, message: str) -> float:
     if isinstance(raw, bool) or not isinstance(raw, (int, float)):
         raise _bad(field, message)
-    value = float(raw)
+    try:
+        value = float(raw)
+    except OverflowError:
+        # Целое длиннее float (10**400) — такой же отказ, а не 500.
+        raise _bad(field, message) from None
     if not math.isfinite(value) or not 0 <= value <= top:
         raise _bad(field, message)
     return round(value, 3)
@@ -1000,22 +1253,48 @@ def _same_fragment(source: MergeProject, target: MergeProject, index: int) -> in
     return found[min(nth, len(found) - 1)] if found else None
 
 
+def _same_key(source_keys: list[str], target_keys: list[str], source: MergeProject, target: MergeProject,
+              key: str) -> str:
+    """Ключ в новой склейке того фрагмента, к которому был привязан голос сцены; "" — его нет.
+
+    Клиент переносит ключи («Изменить и склеить заново» шлёт фрагменты с их ключами) —
+    тогда ключ тот же; иначе — тот же ролик тем же появлением по счёту (_same_fragment)."""
+    if key in target_keys:
+        return key
+    if key not in source_keys:
+        return ""
+    index = _same_fragment(source, target, source_keys.index(key))
+    return target_keys[index] if index is not None and index < len(target_keys) else ""
+
+
 def copy_audio(source: MergeProject, target: MergeProject) -> int:
     """«Изменить и склеить заново»: звук старой склейки — в новую. Сколько дорожек скопировано.
 
     Готовые дорожки копируются с файлами и бесплатно (за них уже заплачено);
     голос остаётся у своего ролика (_same_fragment), а ролика больше нет — под
-    прежним номером (за концом списка — последний).
+    прежним номером (за концом списка — последний). Голос сцены едет за своим
+    фрагментом (_same_key) с той же секундой и громкостью; его ролика в новой
+    склейке нет — не копируется.
     """
     target.clip_sound = source.clip_sound
     target.music_volume = source.music_volume
     target.voice_volume = source.voice_volume
     target.save(update_fields=["clip_sound", "music_volume", "voice_volume", "updated_at"])
     last = max(0, len([i for i in target.items or [] if isinstance(i, dict)]) - 1)
+    source_keys = services.item_keys(source.items, source.uid)
+    target_items = services.ensure_keys(target)
+    target_keys = [item["key"] for item in target_items]
+    target_refs = {item["key"]: services.item_ref(item) for item in target_items}
     made: list[str] = []
     try:
         for row in (MergeAudio.objects.filter(project=source, status=READY).exclude(file="")
-                    .order_by("kind")):
+                    .order_by("kind", "created_at", "pk")):
+            fragment_key = ""
+            if row.kind == LINE:
+                fragment_key = _same_key(source_keys, target_keys, source, target, row.fragment_key)
+                if not fragment_key:
+                    # Ролика этого голоса в новой склейке нет — голос остаётся в старой.
+                    continue
             name = _copy_file(row.file, target.user_id)
             if not name:
                 continue
@@ -1025,7 +1304,9 @@ def copy_audio(source: MergeProject, target: MergeProject) -> int:
                 project=target, kind=row.kind, source=row.source, status=READY, file=name,
                 duration_s=row.duration_s, text=row.text, prompt=row.prompt, title=row.title,
                 voice_id=row.voice_id, voice_name=row.voice_name,
-                start_fragment=min(row.start_fragment, last) if same is None else same, seconds=row.seconds)
+                start_fragment=min(row.start_fragment, last) if same is None else same, seconds=row.seconds,
+                fragment_key=fragment_key, fragment_ref=target_refs.get(fragment_key, ""),
+                start_s=row.start_s, volume=row.volume)
     except BaseException:
         delete_files(*made)
         raise
@@ -1064,7 +1345,8 @@ def fail_stale(now=None, *, project_id=None) -> int:
     base = MergeAudio.objects.filter(status=PENDING)
     if project_id is not None:
         base = base.filter(project_id=project_id)
-    count = base.filter(kind=VOICE, created_at__lt=now - VOICE_STALE_AFTER).update(**fields)
+    # Голос сцены делается так же, как голос за кадром, — в самом запросе.
+    count = base.filter(kind__in=(VOICE, LINE), created_at__lt=now - VOICE_STALE_AFTER).update(**fields)
     count += base.filter(kind=MUSIC, started_at__isnull=True,
                          created_at__lt=now - MUSIC_QUEUE_TIMEOUT).update(**fields)
     count += base.filter(kind=MUSIC, started_at__lt=now - MUSIC_STALE_AFTER).update(**fields)
@@ -1101,7 +1383,8 @@ def _local(row: MergeAudio, workdir: str) -> str:
     path = local_path(row.file)
     if path:
         return path
-    target = os.path.join(workdir, f"{row.kind}.mp3")
+    # Голосов сцены несколько — у каждой копии своё имя.
+    target = os.path.join(workdir, f"{row.kind}-{row.uid}.mp3")
     try:
         with default_storage.open(row.file, "rb") as src, open(target, "wb") as dst:
             for chunk in iter(lambda: src.read(1024 * 1024), b""):
@@ -1113,11 +1396,17 @@ def _local(row: MergeAudio, workdir: str) -> str:
 
 def mix_for(project: MergeProject, workdir: str, expected_s: float = 0.0) -> ffmpeg.AudioMix | None:
     """Звук для склейки или None — звука нет и звук роликов как есть (прежняя склейка)."""
-    rows = {r.kind: r for r in MergeAudio.objects.filter(project_id=project.pk, status=READY)
-            .exclude(file="")}
+    found = list(MergeAudio.objects.filter(project_id=project.pk, status=READY).exclude(file="")
+                 .order_by("created_at", "pk"))
+    rows = {r.kind: r for r in found if r.kind in MergeAudio.SINGLE_KINDS}
     clip, music_volume, voice_volume = audio_volumes(project.clip_sound, project.music_volume,
                                                      project.voice_volume)
-    if not rows and clip == 1.0:
+    # Голоса сцен — только у роликов, которые в склейке есть (ключ найден); «потерявшие»
+    # ролик в сведение не идут, но и не удаляются.
+    frags = fragment_map(project)
+    lines = sorted((r for r in found if r.kind == LINE and r.fragment_key in frags),
+                   key=lambda r: _line_order(r, frags))
+    if not rows and not lines and clip == 1.0:
         return None
     voice, music = rows.get(VOICE), rows.get(MUSIC)
     return ffmpeg.AudioMix(
@@ -1126,10 +1415,22 @@ def mix_for(project: MergeProject, workdir: str, expected_s: float = 0.0) -> ffm
         voice_duration=float(voice.duration_s or 0) if voice else 0.0,
         voice_fragment=int(voice.start_fragment) if voice else 0,
         music=_local(music, workdir) if music else "", music_volume=music_volume,
+        lines=tuple(ffmpeg.Line(path=_local(r, workdir), fragment=frags[r.fragment_key][0],
+                                start=round(float(r.start_s or 0), 1), duration=float(r.duration_s or 0),
+                                volume=_line_volume(r.volume))
+                    for r in lines),
         expected_s=float(expected_s or 0))
 
 
-__all__ = ["state", "summary", "track_json", "limits", "music_seconds", "edit_refusal",
-           "generate_voice", "queue_music", "run_music", "upload_music", "update_settings",
+def _line_volume(value) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return LINE_VOLUME_DEFAULT
+    return min(LINE_VOLUME_MAX, max(0.0, number)) if math.isfinite(number) else LINE_VOLUME_DEFAULT
+
+
+__all__ = ["state", "summary", "track_json", "line_json", "max_start", "limits", "music_seconds",
+           "edit_refusal", "generate_voice", "generate_line", "update_line", "queue_music", "run_music", "upload_music", "update_settings",
            "delete_track", "copy_audio", "pending", "hold", "reserved", "drop", "fail_stale", "purge",
            "mix_for", "sniff", "verdict", "precheck", "REASON_VOICE", "REASON_MUSIC"]

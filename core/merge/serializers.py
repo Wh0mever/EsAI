@@ -7,7 +7,7 @@ from django.utils import timezone
 
 from .config import limits
 from .models import EDITABLE, MergeProject, MergeUpload
-from .services import download_token, render_block, total_duration
+from .services import download_token, keyed_items, render_block, total_duration
 from .sources import TYPE_UPLOAD, media_url
 
 
@@ -19,17 +19,21 @@ def item_json(item: dict, live: dict | None, gone: frozenset = frozenset()) -> d
     """Фрагмент склейки. live — свежая проверка (у черновика и неудачной), иначе
     снимок; gone — свои видео снимка, которых больше нет (удалены, истекли)."""
     kind, ident = item.get("type"), str(item.get("id"))
+    # Постоянный ключ фрагмента (services.assign_keys): по нему клиент узнаёт свою карточку,
+    # а голос сцены — свой ролик.
+    key = item.get("key") or None
     source = live.get((kind, ident)) if live is not None else None
     if source is not None:
         card = source.card()
         card.pop("created_at", None)
-        return {**card, "available": True}
+        return {"key": key, **card, "available": True}
     available = live is None and not (kind == TYPE_UPLOAD and ident in gone)
     # Пропавший источник не проигрываем: файла может уже не быть.
     url = media_url(item.get("file") or "") if available else ""
     # Своё видео, которого нет, — и без обложки: её файл стёрт вместе с ним.
     poster = "" if kind == TYPE_UPLOAD and not available else media_url(item.get("poster") or "")
     return {
+        "key": key,
         "type": kind,
         "id": ident,
         "title": item.get("title") or "",
@@ -94,7 +98,7 @@ def project_json(project: MergeProject, *, live: dict | None = None, price: int 
     """Вся склейка: фрагменты, состояние, итог, ссылка на скачивание, коротко о звуке."""
     from .audio import MSG_PENDING, summary
 
-    items = [i for i in project.items or [] if isinstance(i, dict)]
+    items = keyed_items(project)
     ready = project.status == MergeProject.STATUS_READY and bool(project.result_video)
     download = None
     if ready:

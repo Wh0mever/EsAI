@@ -6,7 +6,8 @@ import type { IconType } from "react-icons";
 import { FiAlertCircle, FiLoader, FiTrash2, FiX } from "react-icons/fi";
 import { VS_BTN_GHOST, VS_BTN_LINK, VS_CARD, VS_FOCUS, VS_INPUT, VS_TAG, VS_TAG_GOLD, vx } from "@/components/vstudio/ui/skin";
 import { CS_NOTE_FAIL, CS_NOTE_GOLD } from "@/components/studio/ui/cartoonSkin";
-import { volumePercent } from "./audioLogic";
+import { apiLang } from "@/lib/apiLang";
+import { formatSecond, volumePercent } from "./audioLogic";
 import { fillText, formatDuration, shortDate, type TextSpec } from "./mergeLogic";
 import type { MergeTrack } from "./mergeTypes";
 
@@ -34,6 +35,18 @@ export const SOUND_TRACK = "flex flex-col gap-2.5 rounded-xl border border-vs-in
 export function useSay() {
   const { t } = useTranslation("vstudio", { useSuspense: false });
   return (spec: TextSpec) => (spec.key ? t(spec.key, { defaultValue: spec.ru, ...spec.params }) : fillText(spec.ru, spec.params));
+}
+
+/**
+ * Секунды голоса сцены на языке страницы: num — число («2,5» / «2.5»), sec — с единицей
+ * («2,5 с» / «2.5 s»). Единицу пишет перевод merge.line.seconds, а не код.
+ */
+export function useSeconds() {
+  const { t, i18n } = useTranslation("vstudio", { useSuspense: false });
+  const lang = apiLang(i18n.language);
+  const num = (v: number) => formatSecond(v, lang);
+  const sec = (v: number) => t("merge.line.seconds", { defaultValue: "{{s}} с", s: num(v) });
+  return { num, sec, lang };
 }
 
 /** Фокус пропал (кнопка, на которой он стоял, исчезла) — вернуть его на заголовок блока. */
@@ -258,7 +271,7 @@ export function SoundRemove({
  */
 export function useTrackMeta() {
   const { t } = useTranslation("vstudio", { useSuspense: false });
-  return (track: MergeTrack, until = false): string => {
+  return (track: Pick<MergeTrack, "duration_s" | "source" | "credits_charged" | "expires_at">, until = false): string => {
     const parts: string[] = [];
     if (typeof track.duration_s === "number" && track.duration_s > 0) parts.push(formatDuration(track.duration_s));
     if (track.source === "upload") parts.push(t("merge.audio.free", { defaultValue: "бесплатно" }));

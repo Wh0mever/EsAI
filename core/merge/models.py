@@ -78,9 +78,12 @@ class MergeProject(models.Model):
                               verbose_name="Формат")
     fit = models.CharField(max_length=4, choices=FIT_CHOICES, default=FIT_PAD,
                            verbose_name="Заполнение")
-    # [{type, id, title, subtitle, file, poster, duration_s, width, height}] —
+    # [{key, type, id, title, subtitle, file, poster, duration_s, width, height}] —
     # ссылка на источник (type + id) и снимок его карточки на момент сохранения:
     # опрос готовой склейки не перечитывает тридцать источников раз в три секунды.
+    # key — постоянный ключ фрагмента (services.assign_keys): по нему голос сцены
+    # едет за своим роликом при перестановке; у старых склеек ключ выводится из
+    # uid и места (services.item_keys) и записывается при следующем сохранении.
     items = models.JSONField(default=list, blank=True, verbose_name="Фрагменты")
     status = models.CharField(max_length=10, choices=STATUS_CHOICES, default=STATUS_DRAFT,
                               db_index=True, verbose_name="Состояние")
@@ -216,13 +219,19 @@ class MergeAudio(models.Model):
     Голос и созданная музыка оплачиваются только готовыми: пока звук делается,
     его цена — резерв строки (credits_reserved при pending), готово — списание
     в той же транзакции, что делает строку ready; сбой снимает резерв тем же
-    UPDATE, что пишет failed. У склейки не больше одной готовой дорожки каждого
-    вида: новая заменяет прежнюю (строку и файл).
+    UPDATE, что пишет failed. У склейки не больше одной готовой дорожки голоса за
+    кадром и музыки: новая заменяет прежнюю (строку и файл). Голосов сцены (line)
+    несколько: каждый привязан к своему фрагменту (fragment_key) и секунде в нём.
     """
 
     KIND_VOICE = "voice"
     KIND_MUSIC = "music"
-    KIND_CHOICES = [(KIND_VOICE, "Голос за кадром"), (KIND_MUSIC, "Музыка")]
+    # Голос сцены: свой текст на конкретный фрагмент (fragment_key) с секунды start_s
+    # внутри него. Таких дорожек у склейки несколько; одна-в-работе — на фрагмент.
+    KIND_LINE = "line"
+    KIND_CHOICES = [(KIND_VOICE, "Голос за кадром"), (KIND_MUSIC, "Музыка"), (KIND_LINE, "Голос сцены")]
+    # Виды «одна дорожка на склейку»: у них один готовый и один в работе.
+    SINGLE_KINDS = (KIND_VOICE, KIND_MUSIC)
     SOURCE_GENERATED = "generated"
     SOURCE_UPLOAD = "upload"
     SOURCE_CHOICES = [(SOURCE_GENERATED, "Создано"), (SOURCE_UPLOAD, "Свой трек")]
@@ -252,6 +261,19 @@ class MergeAudio(models.Model):
     voice_name = models.CharField(max_length=120, blank=True, default="", verbose_name="Имя голоса")
     # С какого фрагмента (номер с 0) звучит голос; 0 — с начала склейки.
     start_fragment = models.PositiveSmallIntegerField(default=0, verbose_name="С фрагмента")
+    # Голос сцены: ключ фрагмента (MergeProject.items[].key) — голос едет за своим роликом,
+    # куда его ни переставь; ролик убрали — дорожка «без фрагмента» и в склейку не идёт.
+    fragment_key = models.CharField(max_length=32, blank=True, default="", db_index=True,
+                                    verbose_name="Фрагмент голоса сцены")
+    # Голос сцены: ролик фрагмента («тип:id», services.item_ref). Ролик убрали и добавили
+    # снова — у новой карточки новый ключ, и по этой метке голос возвращается к ролику
+    # (services.adopt_orphan_keys), а не остаётся оплаченным, но «без фрагмента».
+    fragment_ref = models.CharField(max_length=80, blank=True, default="", verbose_name="Ролик голоса сцены")
+    # С какой секунды от начала своего фрагмента звучит голос сцены (с точностью до 0,1 с).
+    start_s = models.FloatField(default=0.0, verbose_name="С секунды фрагмента")
+    # Громкость голоса сцены (0…2) — своя, как у дорожки мультстудии: ползунок голоса
+    # за кадром на неё не влияет.
+    volume = models.FloatField(default=1.0, verbose_name="Громкость")
     # Сколько секунд музыки заказано (длина склейки на момент заказа).
     seconds = models.FloatField(null=True, blank=True, verbose_name="Заказано секунд")
     credits_reserved = models.PositiveIntegerField(default=0, verbose_name="В резерве, кр")
@@ -277,10 +299,17 @@ class MergeAudio(models.Model):
                                    condition=Q(status="pending") | Q(credits_reserved=0)),
             # Один голос и одна музыка на склейку; и не больше одной в работе на вид:
             # второй клик или вторая вкладка не закажут (и не оплатят) звук дважды.
-            models.UniqueConstraint(fields=["project", "kind"], condition=Q(status="ready"),
+            # Голосов сцены несколько — «один на склейку» к ним не относится.
+            models.UniqueConstraint(fields=["project", "kind"],
+                                    condition=Q(status="ready", kind__in=["voice", "music"]),
                                     name="merge_audio_one_ready"),
-            models.UniqueConstraint(fields=["project", "kind"], condition=Q(status="pending"),
+            models.UniqueConstraint(fields=["project", "kind"],
+                                    condition=Q(status="pending", kind__in=["voice", "music"]),
                                     name="merge_audio_one_pending"),
+            # Голос сцены: не больше одного в работе на фрагмент — двойной клик не оплатит два.
+            models.UniqueConstraint(fields=["project", "fragment_key"],
+                                    condition=Q(status="pending", kind="line"),
+                                    name="merge_audio_line_one_pending"),
         ]
         indexes = [models.Index(fields=["status", "created_at"], name="merge_audio_status")]
 
