@@ -276,7 +276,7 @@ export default function BottomSheet({
                 </div>
               )}
             </div>
-            <div className={"min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-4 " + bodyClassName}>{children}</div>
+            <div className={"min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain px-4 pb-4 " + bodyClassName}>{children}</div>
             {footer && <div className="shrink-0 border-t border-vs-ink/10 px-4 py-3">{footer}</div>}
           </motion.div>
         </div>

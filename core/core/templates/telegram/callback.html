@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Вход через Telegram — EsAI</title>
+{% comment %}
+  Возврат с oauth.telegram.org. Перекрывает telegram/callback.html из allauth: там скрипт
+  отдельным файлом /static/telegram/js/telegram.js, а его режут блокировщики (адрес с
+  «telegram») — вход висел на пустой белой странице. Здесь всё в самой странице, есть
+  видимый текст и кнопка «Продолжить» на случай, если форма не ушла сама. Обработчик POST —
+  users/telegram_callback.py.
+{% endcomment %}
+<style>
+  :root { color-scheme: dark; --bg: #0d0d0d; --card: #161616; --text: #ededed; --muted: #a3a3a3; --line: rgba(255,255,255,.09); --accent: #f5c518; --on-accent: #141414; }
+  html[data-theme="light"] { color-scheme: light; --bg: #f6f6f4; --card: #ffffff; --text: #141414; --muted: #5c5c5c; --line: rgba(0,0,0,.1); }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { background: var(--bg); color: var(--text); font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif; display: grid; place-items: center; padding: 24px; }
+  main { width: 100%; max-width: 400px; background: var(--card); border: 1px solid var(--line); border-radius: 20px; padding: 28px 24px 22px; text-align: center; }
+  .spin { width: 28px; height: 28px; margin: 2px auto 14px; border-radius: 50%; border: 3px solid var(--line); border-top-color: var(--accent); animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .spin { animation: none; } }
+  h1 { font-size: 18px; line-height: 1.3; margin: 0 0 6px; }
+  p { margin: 0 0 18px; color: var(--muted); font-size: 14px; }
+  .btn { display: flex; align-items: center; justify-content: center; width: 100%; min-height: 46px; padding: 0 16px; border: 0; border-radius: 999px; background: var(--accent); color: var(--on-accent); font-family: inherit; font-size: 15px; font-weight: 600; line-height: 1.2; cursor: pointer; text-decoration: none; }
+  .btn:focus-visible, .alt:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+  .alt { display: inline-block; margin-top: 14px; padding: 6px 8px; color: var(--muted); font-size: 14px; text-decoration: none; }
+  .alt:hover { color: var(--text); text-decoration: underline; }
+  form { margin: 0; }
+  [hidden] { display: none !important; }
+</style>
+<script>
+  try {
+    var pref = localStorage.getItem("esai-theme");
+    var light = pref ? pref === "light" : window.matchMedia("(prefers-color-scheme: light)").matches;
+    if (light) document.documentElement.setAttribute("data-theme", "light");
+  } catch (e) {}
+</script>
+</head>
+<body>
+<main>
+  <div id="wait" role="status">
+    <div class="spin" aria-hidden="true"></div>
+    <h1 data-t="title">Входим через Telegram…</h1>
+    <p data-t="sub">Секунду — проверяем подтверждение.</p>
+  </div>
+  <div id="none" hidden>
+    <h1 data-t="none_title">Telegram не подтвердил вход</h1>
+    <p data-t="none_sub">Похоже, вход отменили или окно Telegram закрылось. Попробуйте ещё раз.</p>
+    <a class="btn" href="/auth/signin" data-t="again">Попробовать снова</a>
+  </div>
+  <form id="form" method="post">
+    <input type="hidden" name="tgAuthResult" id="result">
+    <button class="btn" id="go" type="submit" hidden data-t="go">Продолжить</button>
+  </form>
+  <a class="alt" id="back" href="/auth/signin" data-t="back">Вернуться ко входу</a>
+  <noscript><p data-t="noscript">Для входа через Telegram включите JavaScript в браузере.</p></noscript>
+</main>
+<script>
+(function () {
+  var TEXT = {
+    en: {
+      title: "Signing in with Telegram…", sub: "One moment — checking the confirmation.",
+      none_title: "Telegram did not confirm the sign-in", none_sub: "Looks like the sign-in was cancelled or the Telegram window was closed. Please try again.",
+      again: "Try again", go: "Continue", back: "Back to sign-in"
+    },
+    kg: {
+      title: "Telegram аркылуу кирип жатабыз…", sub: "Бир секунд — ырастоону текшерип жатабыз.",
+      none_title: "Telegram кирүүнү ырастаган жок", none_sub: "Кирүү жокко чыгарылган же Telegram терезеси жабылган окшойт. Кайра аракет кылыңыз.",
+      again: "Кайра аракет кылуу", go: "Улантуу", back: "Кирүүгө кайтуу"
+    }
+  };
+  var lang = "ru";
+  try {
+    var m = document.cookie.match(/(?:^|;\s*)NEXT_LOCALE=([a-zA-Z-]+)/);
+    var v = (m ? m[1] : (navigator.language || "")).slice(0, 2).toLowerCase();
+    if (v === "ky") v = "kg";
+    if (TEXT[v]) lang = v;
+  } catch (e) {}
+  if (lang !== "ru") {
+    document.documentElement.lang = lang === "kg" ? "ky" : lang;
+    var nodes = document.querySelectorAll("[data-t]");
+    for (var i = 0; i < nodes.length; i++) {
+      var k = nodes[i].getAttribute("data-t");
+      if (TEXT[lang][k]) nodes[i].textContent = TEXT[lang][k];
+    }
+  }
+
+  var result = "";
+  try { result = new URLSearchParams(window.location.hash.slice(1)).get("tgAuthResult") || ""; } catch (e) {}
+  if (!result || result === "false") {
+    // Telegram вернул без подтверждения (отменили) — отправлять нечего.
+    document.getElementById("wait").hidden = true;
+    document.getElementById("back").hidden = true;
+    document.getElementById("none").hidden = false;
+    return;
+  }
+  document.getElementById("result").value = result;
+  // Через 3 с, если страница всё ещё здесь, — кнопка: отправить можно и вручную.
+  window.setTimeout(function () { document.getElementById("go").hidden = false; }, 3000);
+  document.getElementById("form").submit();
+})();
+</script>
+</body>
+</html>

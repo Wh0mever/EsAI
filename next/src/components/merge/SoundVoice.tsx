@@ -79,7 +79,7 @@ export default function SoundVoice({ audio, items }: { audio: MergeAudioModel; i
       defaultValue: "№{{n}} · с {{time}} — {{title}}",
       n: o.n,
       time: formatDuration(o.at),
-      title: o.title || untitled,
+      title: clipTitle(o.title) || untitled,
     });
   const options = startOptions(items);
   const credits = (n: number) => t("top.balance", { defaultValue: "{{n}} кр", n });
@@ -323,6 +323,12 @@ export default function SoundVoice({ audio, items }: { audio: MergeAudioModel; i
 }
 
 export type VoicesView = MergeAudioModel["voices"];
+
+/** Название фрагмента для списка «Начать с фрагмента»: в нём бывает весь запрос ролика — оставляем начало. */
+function clipTitle(title: string | null | undefined, max = 60): string {
+  const s = (title || "").replace(/\s+/g, " ").trim();
+  return s.length > max ? s.slice(0, max - 1).trimEnd() + "…" : s;
+}
 
 /**
  * Выбор голоса: радиокнопки (стрелки переключают, как у любой группы) и ▶ у

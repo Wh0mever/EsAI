@@ -185,6 +185,14 @@ body {
   box-sizing: border-box !important;
 }
 
+/* Safari (WebKit) засчитывает невидимый хвост длинного варианта <select> в ширину прокручиваемого
+   родителя: шторка «Звук» склейки с полем «Начать с фрагмента» становилась вдвое шире экрана и на
+   iPhone ездила вбок (замечание клиента 24.11). overflow:hidden на <select> WebKit не слушает,
+   а paint containment обрезает хвост по краю поля. На раскрытый список (системный) не влияет. */
+select {
+  contain: paint;
+}
+
 ::-webkit-scrollbar {
   background-color: transparent;
   width: 0.5rem;

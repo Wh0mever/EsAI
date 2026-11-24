@@ -349,6 +349,7 @@
 		"promo_label": "Promo code (optional)",
 		"promo_ph": "Enter promo code",
 		"telegram": "Sign in with Telegram",
+		"social_failed": "Could not sign in with Google or Telegram. Please try again or sign in with an email code.",
 		"get_code": "Get code",
 		"cta_part1": "🎁 Sign in with one click and get free credits every day.",
 		"cta_credits": "3,000 credits",
@@ -1479,7 +1480,9 @@
 		"title": "Theme",
 		"light": "Light",
 		"dark": "Dark",
-		"system": "System"
+		"system": "System",
+		"to_light": "Switch to light theme",
+		"to_dark": "Switch to dark theme"
 	},
 	"balance": {
 		"label": "Token balance",

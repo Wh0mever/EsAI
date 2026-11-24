@@ -8,6 +8,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from botapi.views import TelegramLinkStartView, TelegramPrefsView, WebAppAuthView
 from .views import *
 from .presence import PresencePingView
+from .telegram_callback import telegram_callback
 
 
 def _allowed_frontend_hosts() -> set:
@@ -183,6 +184,9 @@ urlpatterns = [
     path("accounts/confirm-email/<path:rest>", _to_signin),
     path("accounts/reauthenticate/", _to_signin),
     path("accounts/3rdparty/signup/", _social_signup_closed),
+    # Возврат от Telegram — своя страница и обработчик поверх allauth (тот же адрес,
+    # стоит раньше include): без внешнего telegram.js, без 500 на отмене и голого 403.
+    path("accounts/telegram/login/callback/", telegram_callback, name="telegram_callback_esai"),
     path("accounts/", include("allauth.urls")),
     path("auth/complete/", auth_complete, name="auth-complete"),
 ]

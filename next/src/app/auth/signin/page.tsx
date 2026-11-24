@@ -80,6 +80,9 @@ export default function SignIn() {
 	const [alertTitle, setAlertTitle] = useState(t("status.success"));
 	const [alertMessage, setAlertMessage] = useState("");
 	const [alertType, setAlertType] = useState<"success" | "error" | "info" | "warning">("info");
+	// Вход через Google или Telegram не удался — сервер вернул сюда с ?error=. Раньше страница
+	// молчала, и человек не понимал, почему снова на входе.
+	const [socialFailed, setSocialFailed] = useState(false);
 
 	// Реф-код из ?ref → cookie esai_ref (на случай прямой ссылки /auth/signin?ref=).
 	// Основной путь ставит cookie на /auth/signup, но дублируем для надёжности.
@@ -92,6 +95,8 @@ export default function SignIn() {
 			// Telegram уводят со страницы, и параметр из адреса до колбэка не доедет.
 			const next = params.get("next");
 			if (next) rememberReturnPath(next);
+			const error = params.get("error");
+			if (error === "social_login_failed" || error === "link_failed") setSocialFailed(true);
 			// Промокод: из ?promo или ранее сохранённой cookie → префилл поля.
 			const promoParam = params.get("promo");
 			const saved = Cookies.get("esai_promo");
@@ -115,12 +120,26 @@ export default function SignIn() {
 	};
 
 	useEffect(() => {
-		if (responseData) {
+		// Ошибку соцвхода (?error=) показываем тем же окошком, пока человек сам ничего не отправил;
+		// текст берём здесь, а не при чтении адреса, — чтобы он был на языке, который успел загрузиться.
+		const data =
+			responseData ??
+			(socialFailed
+				? {
+						status: "error",
+						title: t("status.error"),
+						message: t("auth.social_failed", {
+							defaultValue:
+								"Не получилось войти через Google или Telegram. Попробуйте ещё раз или войдите кодом на почту.",
+						}),
+					}
+				: null);
+		if (data) {
 			setShowAlert(true);
-			setAlertTitle(responseData.title || t("status.success"));
-			setAlertMessage(responseData.message || t("status_extended.success"));
-			setAlertType(responseData.status || "warning");
-			if (responseData.status === "success") {
+			setAlertTitle(data.title || t("status.success"));
+			setAlertMessage(data.message || t("status_extended.success"));
+			setAlertType(data.status || "warning");
+			if (data.status === "success") {
 				setTimeout(() => {
 					// Раньше здесь всегда был чат — и гость, пришедший из студии
 					// или тарифов «с возвратом», терял то, ради чего входил.
@@ -131,7 +150,7 @@ export default function SignIn() {
 				}, 1500);
 			}
 		}
-	}, [responseData, t]);
+	}, [responseData, socialFailed, t]);
 
 	const onSubmit = async (data: any) => {
 		// Шаг 1 — запрос кода: POST users/signin/ { email }
@@ -197,7 +216,8 @@ export default function SignIn() {
 				position="top"
 				offset={20}
 				autoClose
-				autoCloseDuration={2000}
+				// Ошибка соцвхода появляется сама при открытии страницы — за 2 с её не успевают прочесть.
+				autoCloseDuration={socialFailed && !responseData ? 9000 : 2000}
 				closeButton
 			/>
 
